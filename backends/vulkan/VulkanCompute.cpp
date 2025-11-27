@@ -164,8 +164,8 @@ findMemoryType(uint32_t typeFilter,
   logErr("Failed to find suitable memory type");
 }
 
-ComputeHandle VulkanCompute::createBuffer(size_t size, const void *srcPtr,
-                                          bool isUniform) {
+ComputeHandle
+VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
   VkBufferCreateInfo bufferInfo = {};
   bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   bufferInfo.size = size;
@@ -237,8 +237,10 @@ ComputeHandle VulkanCompute::createBuffer(size_t size, const void *srcPtr,
 
 void VulkanCompute::copyDataToBuffer(const void *srcPtr,
                                      const ComputeHandle &dstBuffer,
-                                     size_t size, size_t srcOffset,
-                                     size_t dstOffset, bool useStaging,
+                                     size_t size,
+                                     size_t srcOffset,
+                                     size_t dstOffset,
+                                     bool useStaging,
                                      bool wait) {
   const auto &buffer = *bufferContainer_.get(dstBuffer);
   const bool localUseStaging = useStaging || (buffer.mappedData == nullptr);
@@ -258,9 +260,12 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
 }
 
 void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
-                                       void *dstPtr, size_t size,
-                                       size_t srcOffset, size_t dstOffset,
-                                       bool useStaging, bool wait) {
+                                       void *dstPtr,
+                                       size_t size,
+                                       size_t srcOffset,
+                                       size_t dstOffset,
+                                       bool useStaging,
+                                       bool wait) {
   const auto &buffer = *bufferContainer_.get(srcBuffer);
   const bool localUseStaging = useStaging || (buffer.mappedData == nullptr);
 

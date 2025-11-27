@@ -8,7 +8,7 @@
 namespace cut {
 
 enum ShaderEnum {
-    VECTOR_ADD,
+  VECTOR_ADD,
 };
 
 /*

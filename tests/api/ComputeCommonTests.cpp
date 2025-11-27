@@ -48,7 +48,8 @@ TEST(DataReference, ConstructFromStruct) {
 
 TEST(DataReference, ConstructFromPointerAndSize) {
   std::vector<uint32_t> data = {1, 2, 3, 4};
-  DataReference ref(data.data(), static_cast<uint32_t>(data.size() * sizeof(uint32_t)));
+  DataReference ref(data.data(),
+                    static_cast<uint32_t>(data.size() * sizeof(uint32_t)));
   EXPECT_EQ(ref.ptr, data.data());
   EXPECT_EQ(ref.size, 16);
 }

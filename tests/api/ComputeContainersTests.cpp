@@ -7,15 +7,26 @@ using namespace cut;
 /// Mock ComputeInterface for testing container functionality.
 class MockComputeInterface : public ComputeInterface {
 public:
-  ComputeHandle createBuffer(size_t, const void * = nullptr, bool = false) override {
+  ComputeHandle
+  createBuffer(size_t, const void * = nullptr, bool = false) override {
     return {};
   }
 
-  void copyDataToBuffer(const void *, const ComputeHandle &, size_t, size_t,
-                        size_t, bool = false, bool = false) override {}
+  void copyDataToBuffer(const void *,
+                        const ComputeHandle &,
+                        size_t,
+                        size_t,
+                        size_t,
+                        bool = false,
+                        bool = false) override {}
 
-  void copyDataFromBuffer(const ComputeHandle &, void *, size_t, size_t, size_t,
-                          bool = false, bool = false) override {}
+  void copyDataFromBuffer(const ComputeHandle &,
+                          void *,
+                          size_t,
+                          size_t,
+                          size_t,
+                          bool = false,
+                          bool = false) override {}
 
   ComputeHandle createShaderModule(const std::vector<uint32_t> &) override {
     return {};
@@ -26,7 +37,9 @@ public:
 
 class ComputeContainersTest : public ::testing::Test {
 protected:
-  void SetUp() override { interface_ = std::make_unique<MockComputeInterface>(); }
+  void SetUp() override {
+    interface_ = std::make_unique<MockComputeInterface>();
+  }
 
   void TearDown() override { interface_.reset(); }
 

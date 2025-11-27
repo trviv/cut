@@ -10,11 +10,21 @@ public:
     return bufferContainer_.createFloat();
   }
 
-  void copyDataToBuffer(const void *, const ComputeHandle &, size_t, size_t,
-                        size_t, bool = false, bool = false) {}
+  void copyDataToBuffer(const void *,
+                        const ComputeHandle &,
+                        size_t,
+                        size_t,
+                        size_t,
+                        bool = false,
+                        bool = false) {}
 
-  void copyDataFromBuffer(const ComputeHandle &, void *, size_t, size_t, size_t,
-                          bool = false, bool = false) {};
+  void copyDataFromBuffer(const ComputeHandle &,
+                          void *,
+                          size_t,
+                          size_t,
+                          size_t,
+                          bool = false,
+                          bool = false) {};
 
   ComputeHandle createShaderModule(const std::vector<uint32_t> &) {
     return shaderContainer_.createInteger();
@@ -52,7 +62,8 @@ TEST_F(ComputeTestEnvironment, Dispatch) {
   auto dispatch2 = interface->createDispatch({}, {}, {}, dispatch1);
 
   // Nested reference should throw
-  EXPECT_THROW(auto dispatch3 = interface->createDispatch({}, {}, {}, dispatch2),
+  EXPECT_THROW(auto dispatch3 =
+                   interface->createDispatch({}, {}, {}, dispatch2),
                std::runtime_error);
 }
 

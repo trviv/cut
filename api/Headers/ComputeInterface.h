@@ -48,7 +48,8 @@ public:
    */
   virtual void copyDataToBuffer(const void *hostSourcePtr,
                                 const ComputeHandle &destBufferHandle,
-                                size_t copySize, size_t srcOffset,
+                                size_t copySize,
+                                size_t srcOffset,
                                 size_t destOffset,
                                 bool useStagingBuffer = false,
                                 bool waitForCompletion = false) = 0;
@@ -64,8 +65,10 @@ public:
    * @param waitForCompletion If true, block until copy completes.
    */
   virtual void copyDataFromBuffer(const ComputeHandle &srcBufferHandle,
-                                  void *hostDestPtr, size_t copySize,
-                                  size_t srcOffset, size_t destOffset,
+                                  void *hostDestPtr,
+                                  size_t copySize,
+                                  size_t srcOffset,
+                                  size_t destOffset,
                                   bool useStagingBuffer = false,
                                   bool waitForCompletion = false) = 0;
 
@@ -86,11 +89,10 @@ public:
    * copying settings.
    * @return Handle to the created dispatch.
    */
-  ComputeHandle
-  createDispatch(const ComputeHandle &shaderHandle = {},
-                 const ThreadGroupSize &tgSize = {},
-                 const std::vector<ComputeBinding> &bindings = {},
-                 const ComputeHandle &refDispatchHandle = {});
+  ComputeHandle createDispatch(const ComputeHandle &shaderHandle = {},
+                               const ThreadGroupSize &tgSize = {},
+                               const std::vector<ComputeBinding> &bindings = {},
+                               const ComputeHandle &refDispatchHandle = {});
 
   /**
    * Creates a dispatch list from a vector of dispatch handles.
