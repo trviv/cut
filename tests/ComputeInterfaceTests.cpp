@@ -44,8 +44,9 @@ TEST_F(ComputeTestEnvironment, Dispatch) {
 
   auto shader = interface->createShaderModule({});
 
-  auto disaptch1 =
-      interface->createDispatch(shader, {1, 1, 1}, {buffer1, buffer2});
+  auto disaptch1 = interface->createDispatch(
+      shader, {1, 1, 1},
+      {ComputeBinding(0, buffer1), ComputeBinding(1, buffer2)});
 
   auto disaptch2 = interface->createDispatchFromRef(disaptch1);
 
@@ -59,12 +60,15 @@ TEST_F(ComputeTestEnvironment, DispatchList) {
 
   auto shader = interface->createShaderModule({});
 
-  auto disaptch1 =
-      interface->createDispatch(shader, {1, 1, 1}, {buffer1, buffer2});
+  auto disaptch1 = interface->createDispatch(
+      shader, {1, 1, 1},
+      {ComputeBinding(0, buffer1), ComputeBinding(1, buffer2)});
 
-  auto disaptch2 = interface->createDispatch(shader, {1, 1, 1}, {buffer1});
+  auto disaptch2 = interface->createDispatch(shader, {1, 1, 1},
+                                             {ComputeBinding(0, buffer1)});
 
-  auto disaptch3 = interface->createDispatch(shader, {1, 1, 1}, {buffer2});
+  auto disaptch3 = interface->createDispatch(shader, {1, 1, 1},
+                                             {ComputeBinding(0, buffer2)});
 
   auto disaptch4 = interface->createDispatchFromRef(disaptch1);
 }

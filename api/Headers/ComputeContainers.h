@@ -1,62 +1,41 @@
 #pragma once
 
-#include <ComputeHandle.h>
+#include <ComputeCommon.h>
 
 namespace cut {
 
 /**
  * Represents a binding for a compute dispatch operation.
- * Can hold either a ComputeHandle (for buffers/textures) or a DataReference
- * (for push constants).
+ * Can hold either a ComputeHandle (for buffers/textures) or owned data.
+ * Data is copied and owned by this struct.
  */
-struct ComputeBinding final {
-  /**
-   * Indicates whether the binding contains a ComputeHandle or DataReference.
-   */
-  enum class Type { Handle, Data };
-
+class ComputeBinding final {
+public:
   /**
    * Constructs a ComputeBinding with a ComputeHandle.
    * @param index The binding index in the shader.
-   * @param handle The ComputeHandle to bind.
+   * @param handleRef The ComputeHandle to bind.
    */
-  ComputeBinding(int32_t index, const ComputeHandle &handle)
-      : bindingIndex(index), type(Type::Handle), handle(handle) {}
+  ComputeBinding(int32_t index, const ComputeHandle &handleRef)
+      : bindingIndex(index), type(Type::Handle), handle(handleRef) {}
 
   /**
    * Constructs a ComputeBinding with a DataReference.
+   * The data is copied and owned by this binding.
    * @param index The binding index in the shader.
-   * @param data The DataReference to bind.
+   * @param dataRef The DataReference to copy data from.
    */
-  ComputeBinding(int32_t index, const DataReference &data)
-      : bindingIndex(index), type(Type::Data), dataRef(data) {}
-
-  /** Destructor. */
-  ~ComputeBinding() {
-    if (type == Type::Handle) {
-      handle.~ComputeHandle();
-    }
+  ComputeBinding(int32_t index, const DataReference &dataRef)
+      : bindingIndex(index), type(Type::Data) {
+    const auto *bytePtr = static_cast<const uint8_t *>(dataRef.ptr);
+    data = {bytePtr, bytePtr + dataRef.size};
   }
 
-  /** Copy constructor. */
-  ComputeBinding(const ComputeBinding &other)
-      : bindingIndex(other.bindingIndex), type(other.type) {
-    if (type == Type::Handle) {
-      new (&handle) ComputeHandle(other.handle);
-    } else {
-      new (&dataRef) DataReference(other.dataRef);
-    }
-  }
-
-  /** Move constructor. */
-  ComputeBinding(ComputeBinding &&other)
-      : bindingIndex(other.bindingIndex), type(other.type) {
-    if (type == Type::Handle) {
-      new (&handle) ComputeHandle(std::move(other.handle));
-    } else {
-      new (&dataRef) DataReference(other.dataRef);
-    }
-  }
+private:
+  /**
+   * Indicates whether the binding contains a ComputeHandle or data.
+   */
+  enum class Type { Handle, Data };
 
   /**
    * Checks if this binding contains a ComputeHandle.
@@ -65,18 +44,16 @@ struct ComputeBinding final {
   bool isHandle() const { return type == Type::Handle; }
 
   /**
-   * Checks if this binding contains a DataReference.
-   * @return True if the binding holds a DataReference.
+   * Checks if this binding contains data.
+   * @return True if the binding holds data.
    */
   bool isData() const { return type == Type::Data; }
 
-  union {
-    ComputeHandle handle;  ///< Handle to a buffer or texture.
-    DataReference dataRef; ///< Reference to raw data (push constants).
-  };
+  ComputeHandle handle;      ///< Handle to a buffer or texture.
+  std::vector<uint8_t> data; ///< Owned data (push constants).
 
   int32_t bindingIndex; ///< The binding index in the shader.
-  Type type;            ///< Indicates which union member is active.
+  Type type;            ///< Indicates which member is active.
 };
 
 /** Forward declarations. */
@@ -143,14 +120,12 @@ private:
    * @param tgSize Thread group dimensions for dispatch.
    * @param refDispatchHandle Handle to a reference dispatch for copying
    * settings.
-   * @param resourceBindings Vector of buffer/texture handles to bind.
-   * @param dataBindings Vector of data references to bind.
+   * @param bindings Vector of compute bindings (handles or data references).
    */
   ComputeDispatch(const ComputeHandle &shaderHandle = {},
                   const ThreadGroupSize &tgSize = {},
                   const ComputeHandle &refDispatchHandle = {},
-                  const std::vector<ComputeHandle> &resourceBindings = {},
-                  const std::vector<DataReference> &dataBindings = {});
+                  const std::vector<ComputeBinding> &bindings = {});
 
   /** Deleted copy constructor. */
   ComputeDispatch(const ComputeDispatch &) = delete;
@@ -184,12 +159,10 @@ private:
    */
   void setThreadGroupSize(const ThreadGroupSize &tgSize);
 
-  ThreadGroupSize tgSize_;                      ///< Thread group dimensions.
-  ComputeHandle shader_;                        ///< Bound shader handle.
-  ComputeHandle referenceDispatchHandle_;       ///< Reference dispatch handle.
-  std::vector<ComputeHandle> resourceBindings_; ///< Bound resources.
-  std::vector<std::vector<uint8_t>>
-      dataBindings_; ///< Bound data (push constants).
+  ThreadGroupSize tgSize_;                ///< Thread group dimensions.
+  ComputeHandle shader_;                  ///< Bound shader handle.
+  ComputeHandle referenceDispatchHandle_; ///< Reference dispatch handle.
+  std::vector<ComputeBinding> bindings_;  ///< All bindings (handles and data).
 };
 
 /**

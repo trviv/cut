@@ -81,15 +81,13 @@ public:
    * Creates a new compute dispatch with the specified parameters.
    * @param shaderHandle Handle to the compute shader.
    * @param tgSize Thread group dimensions for the dispatch.
-   * @param resourceBindings Vector of buffer/texture handles to bind.
-   * @param dataBindings Vector of data references for push constants.
+   * @param bindings Vector of compute bindings (handles or data references).
    * @return Handle to the created dispatch.
    */
   ComputeHandle
   createDispatch(const ComputeHandle &shaderHandle = {},
                  const ThreadGroupSize &tgSize = {},
-                 std::vector<ComputeHandle> &&resourceBindings = {},
-                 std::vector<DataReference> &&dataBindings = {});
+                 const std::vector<ComputeBinding> &bindings = {});
 
   /**
    * Creates a new dispatch that references an existing dispatch's settings.

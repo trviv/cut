@@ -5,10 +5,8 @@ namespace cut {
 ComputeHandle
 ComputeInterface::createDispatch(const ComputeHandle &shader,
                                  const ThreadGroupSize &tgSize,
-                                 std::vector<ComputeHandle> &&resourceBindings,
-                                 std::vector<DataReference> &&dataReferences) {
-  return dispatchContainer_.createHandle(
-      {shader, tgSize, {}, resourceBindings, dataReferences});
+                                 const std::vector<ComputeBinding> &bindings) {
+  return dispatchContainer_.createHandle({shader, tgSize, {}, bindings});
 }
 
 ComputeHandle
@@ -18,7 +16,7 @@ ComputeInterface::createDispatchFromRef(const ComputeHandle &refhandle) {
            "is not allowed.");
   }
 
-  return dispatchContainer_.createHandle({{}, {}, refhandle, {}, {}});
+  return dispatchContainer_.createHandle({{}, {}, refhandle, {}});
 }
 
 void ComputeInterface::bindShader(const ComputeHandle &dispatchHandle,
