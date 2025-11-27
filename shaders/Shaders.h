@@ -14,6 +14,6 @@ enum ShaderEnum {
 /*
  * Function returns spirv encoding for an in-build shader.
  */
-static std::vector<uint32_t> getShader(const ShaderEnum shader);
+std::vector<uint32_t> getShader(const ShaderEnum shader);
 
 } // namespace cut

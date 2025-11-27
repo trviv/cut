@@ -65,10 +65,10 @@ TEST_F(VulkanTestEnvironment, Buffer) {
   EXPECT_EQ(refData, outData);
 }
 
-// TEST_F(VulkanTestEnvironment, ShaderModule) {
-//   const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
-//   interface->createShaderModule(shader);
-// }
+TEST_F(VulkanTestEnvironment, ShaderModule) {
+  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  interface->createShaderModule(shader);
+}
 
 TEST_F(VulkanTestEnvironment, Shader) {
   //    cut::ComputeHandle buffer1;

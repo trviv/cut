@@ -11,12 +11,11 @@ public:
   VulkanBufferContainer() : ComputeContainer(101) {}
   CONTAINER_METHODS_IMPL(VulkanBufferStruct);
 
-public:
-  IF_VMA_ENABLED_THEN(VmaAllocator allocator);
-  IF_VMA_DISABLED_THEN(VkDevice device);
-
 private:
   friend class VulkanCompute;
+
+  IF_VMA_ENABLED_THEN(VmaAllocator allocator_);
+  IF_VMA_DISABLED_THEN(VkDevice device_);
 
   /// Destroys a buffer and frees its associated GPU memory.
   void destroy(HandleData &data) override;
@@ -29,11 +28,10 @@ public:
   VulkanShaderContainer() : ComputeContainer(102) {}
   CONTAINER_METHODS_IMPL(VulkanShaderStruct);
 
-public:
-  VkDevice device;
-
 private:
   friend class VulkanCompute;
+
+  VkDevice device_;
 
   /// Destroys a shader module and releases its Vulkan resources.
   void destroy(HandleData &data) override;

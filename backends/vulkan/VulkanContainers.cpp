@@ -20,15 +20,15 @@ void VulkanBufferContainer::destroy(HandleData &data) {
   }
 #else
   if (bufferPtr->mappedData != nullptr) {
-    vkUnmapMemory(device, bufferPtr->memory);
+    vkUnmapMemory(device_, bufferPtr->memory);
   }
 
   if (bufferPtr->buffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device, bufferPtr->buffer, nullptr);
+    vkDestroyBuffer(device_, bufferPtr->buffer, nullptr);
   }
 
   if (bufferPtr->memory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, bufferPtr->memory, nullptr);
+    vkFreeMemory(device_, bufferPtr->memory, nullptr);
   }
 #endif
 
@@ -42,7 +42,7 @@ void VulkanShaderContainer::destroy(HandleData &data) {
     return;
   }
 
-  vkDestroyShaderModule(device, shaderData->shader, nullptr);
+  vkDestroyShaderModule(device_, shaderData->shader, nullptr);
 
   delete shaderData;
 }

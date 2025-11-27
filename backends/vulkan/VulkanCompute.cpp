@@ -75,8 +75,10 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 #endif
 
   // Vma dependent initializations
-  IF_VMA_ENABLED_THEN(bufferContainer_.allocator = allocator_);
-  IF_VMA_DISABLED_THEN(bufferContainer_.device = device_);
+  IF_VMA_ENABLED_THEN(bufferContainer_.allocator_ = allocator_);
+  IF_VMA_DISABLED_THEN(bufferContainer_.device_ = device_);
+
+  shaderContainer_.device_ = device_;
 }
 
 PhysicalDeviceAndQueueIndex
