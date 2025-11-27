@@ -107,8 +107,8 @@ TEST(VmaMacros, VmaDisabledMacroWorks) {
   // When VMA is disabled, IF_VMA_DISABLED_THEN should execute
   int value = 0;
   IF_VMA_DISABLED_THEN(value = 42);
-  // This test assumes COMPUT_USE_VMA is 0
-#if !COMPUT_USE_VMA
+  // This test assumes CUT_USE_VMA is 0
+#if !CUT_USE_VMA
   EXPECT_EQ(value, 42);
 #else
   EXPECT_EQ(value, 0);
@@ -119,7 +119,7 @@ TEST(VmaMacros, VmaEnabledMacroWorks) {
   // When VMA is disabled, IF_VMA_ENABLED_THEN should not execute
   int value = 0;
   IF_VMA_ENABLED_THEN(value = 42);
-#if COMPUT_USE_VMA
+#if CUT_USE_VMA
   EXPECT_EQ(value, 42);
 #else
   EXPECT_EQ(value, 0);

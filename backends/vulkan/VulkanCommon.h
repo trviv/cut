@@ -2,7 +2,7 @@
 
 #include <string>
 
-#define COMPUT_USE_VMA 0
+#define CUT_USE_VMA 0
 
 #ifdef __APPLE__
 #include <vulkan/vulkan.h>
@@ -10,7 +10,7 @@
 #include <vulkan.h>
 #endif
 
-#if COMPUT_USE_VMA
+#if CUT_USE_VMA
 #ifdef __APPLE__
 #include <vma/vk_mem_alloc.h>
 #else
@@ -20,7 +20,7 @@
 
 namespace cut {
 
-#if COMPUT_USE_VMA
+#if CUT_USE_VMA
 #define IF_VMA_ENABLED_THEN(statement) statement
 #define IF_VMA_DISABLED_THEN(statement)
 #else

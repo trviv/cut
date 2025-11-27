@@ -63,7 +63,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties_);
   vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties_);
 
-#if COMPUT_USE_VMA
+#if CUT_USE_VMA
   VmaAllocatorCreateInfo allocatorInfo = {};
   allocatorInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
   allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
@@ -176,7 +176,7 @@ ComputeHandle VulkanCompute::createBuffer(size_t size, const void *srcPtr,
   VulkanBufferStruct bufferStruct;
   bufferStruct.size = size;
 
-#if COMPUT_USE_VMA
+#if CUT_USE_VMA
   const auto &allocator = allocator_;
 
   const VmaMemoryUsage memoryUsage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
@@ -273,7 +273,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
   } else {
     if (!buffer.isCoherent) {
       logErr("Incoherent memory behaviour is not yet verified.");
-#if COMPUT_USE_VMA
+#if CUT_USE_VMA
       vmaInvalidateAllocation(allocator_, buffer.allocation, srcOffset, size);
 #else
       VkMappedMemoryRange memoryRanges = {};

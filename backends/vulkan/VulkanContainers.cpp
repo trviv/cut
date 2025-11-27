@@ -10,7 +10,7 @@ void VulkanBufferContainer::destroy(HandleData &data) {
     return;
   }
 
-#if COMPUT_USE_VMA
+#if CUT_USE_VMA
   if (bufferPtr->mappedData != nullptr) {
     vmaUnmapMemory(allocator, bufferPtr->allocation);
   }

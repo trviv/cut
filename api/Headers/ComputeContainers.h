@@ -4,6 +4,14 @@
 
 namespace cut {
 
+/** Forward declarations. */
+class ComputeInterface;
+
+/**
+ * A list of dispatch handles to be executed sequentially.
+ */
+using DispatchList = std::vector<ComputeHandle>;
+
 /**
  * Represents a binding for a compute dispatch operation.
  * Can hold either a ComputeHandle (for buffers/textures) or owned data.
@@ -16,7 +24,7 @@ public:
    * @param index The binding index in the shader.
    * @param handleRef The ComputeHandle to bind.
    */
-  ComputeBinding(int32_t index, const ComputeHandle &handleRef)
+  ComputeBinding(uint32_t index, const ComputeHandle &handleRef)
       : bindingIndex(index), type(Type::Handle), handle(handleRef) {}
 
   /**
@@ -25,7 +33,7 @@ public:
    * @param index The binding index in the shader.
    * @param dataRef The DataReference to copy data from.
    */
-  ComputeBinding(int32_t index, const DataReference &dataRef)
+  ComputeBinding(uint32_t index, const DataReference &dataRef)
       : bindingIndex(index), type(Type::Data) {
     const auto *bytePtr = static_cast<const uint8_t *>(dataRef.ptr);
     data = {bytePtr, bytePtr + dataRef.size};
@@ -52,12 +60,9 @@ private:
   ComputeHandle handle;      ///< Handle to a buffer or texture.
   std::vector<uint8_t> data; ///< Owned data (push constants).
 
-  int32_t bindingIndex; ///< The binding index in the shader.
-  Type type;            ///< Indicates which member is active.
+  uint32_t bindingIndex; ///< The binding index in the shader.
+  Type type;             ///< Indicates which member is active.
 };
-
-/** Forward declarations. */
-class ComputeInterface;
 
 /**
  * @def CONTAINER_METHODS_IMPL(STRUCT_NAME)
@@ -99,11 +104,6 @@ class ComputeInterface;
       delete ptr;                                                              \
     }                                                                          \
   }
-
-/**
- * A list of dispatch handles to be executed sequentially.
- */
-using DispatchList = std::vector<ComputeHandle>;
 
 /**
  * Represents a single compute dispatch operation.
