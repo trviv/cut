@@ -1,11 +1,16 @@
 #pragma once
 
+#include <cstdint>
+#include <cstring>
+#include <stdexcept>
 #include <vector>
-
-#include <ComputeCommon.h>
 
 namespace cut {
 
+// Forward declaration for logging function
+extern void logErr(const char *format, ...);
+
+template <typename DataType = size_t>
 class ComputeContainer;
 
 /**
@@ -49,6 +54,7 @@ public:
   void reset();
 
 private:
+  template <typename DataType>
   friend class ComputeContainer;
 
   /**
@@ -56,10 +62,10 @@ private:
    * @param container The container that owns the referenced object.
    * @param handleId The unique identifier for the object within the container.
    */
-  ComputeHandle(ComputeContainer *container, size_t handleId);
+  ComputeHandle(ComputeContainer<> *container, size_t handleId);
 
   size_t id_; ///< Handle ID within its container.
-  ComputeContainer
+  ComputeContainer<>
       *container_; ///< Compute object container the handle belongs to.
 };
 
@@ -69,25 +75,28 @@ private:
  *
  * Handles reference counting automatically - objects are deleted when
  * their reference count reaches zero.
+ *
+ * @tparam DataType The type used for storing handle data.
  */
+template <typename DataType>
 class ComputeContainer {
 protected:
   /**
    * Type-erased storage for handle data.
-   * Stores arbitrary data up to sizeof(size_t) bytes.
+   * Stores arbitrary data up to sizeof(DataType) bytes.
    */
   class HandleData final {
   public:
     /**
-     * Constructs HandleData from any type that fits within size_t.
+     * Constructs HandleData from any type that fits within DataType.
      * @tparam T The type of data to store.
      * @param data The data value to store.
      */
     template <typename T>
     HandleData(const T data) {
-      static_assert(sizeof(T) <= sizeof(HandleData),
+      static_assert(sizeof(T) <= sizeof(DataType),
                     "ComputeContainer can't store data larger than: "
-                    "sizeof(HandleData)");
+                    "sizeof(DataType)");
       std::memcpy(&data_, &data, sizeof(T));
     }
 
@@ -104,7 +113,7 @@ protected:
     }
 
   private:
-    size_t data_; ///< Raw storage for the handle data.
+    DataType data_; ///< Raw storage for the handle data.
   };
 
   /**
@@ -133,7 +142,14 @@ protected:
   ComputeContainer(uint32_t type) : type_(type) {}
 
   /** Virtual destructor. Cleans up any remaining objects. */
-  virtual ~ComputeContainer();
+  virtual ~ComputeContainer() {
+    if (objects_.size() != freeHandles_.size()) {
+      logErr("Trying to destroy container before all objects in it have "
+             "been deallocated.");
+    }
+    objects_.clear();
+    freeHandles_.clear();
+  }
 
   /**
    * Pure virtual function to deallocate API-level objects.
@@ -148,20 +164,44 @@ protected:
    * @param handle The handle to look up.
    * @return Const reference to the handle's data.
    */
-  const HandleData &data(const ComputeHandle &handle) const;
+  const HandleData &data(const ComputeHandle &handle) const {
+    if (!handle) {
+      throw std::runtime_error("Trying to get data for an empty handle");
+    }
+    verify(handle);
+
+    return objects_[handle.id_].data;
+  }
 
   /**
    * Creates a new handle for the given data.
    * @param data The data to associate with the new handle.
    * @return A new ComputeHandle referencing the data.
    */
-  ComputeHandle createHandle(const HandleData &data);
+  ComputeHandle createHandle(const HandleData &data) {
+    size_t index;
+    if (!freeHandles_.empty()) {
+      index = freeHandles_.back();
+      freeHandles_.pop_back();
+      objects_[index] = HandleStruct(data);
+    } else {
+      index = objects_.size();
+      objects_.emplace_back(HandleStruct(data));
+    }
+
+    return ComputeHandle(reinterpret_cast<ComputeContainer<> *>(this), index);
+  }
 
   /**
    * Verifies that a handle is valid and belongs to this container.
    * @param handle The handle to verify.
    */
-  void verify(const ComputeHandle &) const;
+  void verify(const ComputeHandle &handle) const {
+    if (handle.container_ != reinterpret_cast<const ComputeContainer<> *>(this)) {
+      throw std::runtime_error("Trying to get data for handle which does not "
+                               "belong to the container");
+    }
+  }
 
 private:
   friend class ComputeHandle;
@@ -170,14 +210,29 @@ private:
    * Increments the reference count for a handle.
    * @param handle The handle whose reference count to increment.
    */
-  void addRef(const ComputeHandle &);
+  void addRef(const ComputeHandle &ref) {
+    // Add object reference
+    objects_[ref.id_].refCount++;
+  }
 
   /**
    * Decrements the reference count for a handle.
    * Destroys the object if the count reaches zero.
    * @param handle The handle whose reference count to decrement.
    */
-  void remRef(ComputeHandle &);
+  void remRef(ComputeHandle &ref) {
+    // Reduce object reference
+    auto &objectRef = objects_[ref.id_];
+    objectRef.refCount--;
+    // If object references reached zero then object can be deallocated
+    if (objectRef.refCount == 0) {
+      // Deallocate the object based on API specific implementation
+      destroy(objectRef.data);
+      // Add object handle to free handle list
+      freeHandles_.push_back(ref.id_);
+      ref.container_ = nullptr;
+    }
+  }
 
   std::vector<HandleStruct> objects_; ///< Storage for all managed objects.
   std::vector<size_t> freeHandles_;   ///< Pool of reusable handle IDs.

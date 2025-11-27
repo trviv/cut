@@ -5,7 +5,7 @@
 using namespace cut;
 
 /// Mock container for testing ComputeHandle behavior.
-class TestContainer : public ComputeContainer {
+class TestContainer : public ComputeContainer<> {
 public:
   TestContainer() : ComputeContainer(100) {}
 

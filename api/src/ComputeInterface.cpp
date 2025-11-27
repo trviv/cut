@@ -7,11 +7,10 @@ ComputeInterface::createDispatch(const ComputeHandle &shader,
                                  const ThreadGroupSize &tgSize,
                                  const std::vector<ComputeBinding> &bindings,
                                  const ComputeHandle &refDispatchHandle) {
-  if (refDispatchHandle) {
-    if (dispatchContainer_.get(refDispatchHandle)->referenceDispatchHandle_) {
-      logErr("Creating dispatch to a reference which itself is a reference, "
-             "is not allowed.");
-    }
+  if (refDispatchHandle &&
+      dispatchContainer_.get(refDispatchHandle)->referenceDispatchHandle_) {
+    logErr("Creating dispatch to a reference which itself is a reference, "
+           "is not allowed.");
   }
 
   return dispatchContainer_.createHandle(

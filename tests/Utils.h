@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ComputeHandle.h>
 #include <ComputeInterface.h>
 
 #include <vector>
@@ -14,16 +15,16 @@ static std::vector<uint32_t> generateRandomUint(uint32_t size,
   return ret;
 }
 
-class MockContainer : public cut::ComputeContainer {
+class MockContainer : public cut::ComputeContainer<> {
   uint32_t intCounter_ = 1;
   float floatCounter_ = 1.f;
 
 public:
-  MockContainer() : cut::ComputeContainer(201) {}
+  MockContainer() : ComputeContainer(201) {}
 
   ~MockContainer() {}
 
-  void destroy(cut::ComputeContainer::HandleData &data) override {}
+  void destroy(HandleData &data) override {}
 
   cut::ComputeHandle createInteger() { return createHandle(intCounter_++); }
 
