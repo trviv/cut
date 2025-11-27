@@ -56,33 +56,20 @@ TEST_F(ComputeContainersTest, CreateDispatchWithThreadGroupSize) {
   EXPECT_TRUE(dispatch);
 }
 
-TEST_F(ComputeContainersTest, CreateDispatchFromRef) {
+TEST_F(ComputeContainersTest, CreateDispatchWithRef) {
   auto dispatch1 = interface_->createDispatch();
-  auto dispatch2 = interface_->createDispatchFromRef(dispatch1);
+  auto dispatch2 = interface_->createDispatch({}, {}, {}, dispatch1);
 
   EXPECT_TRUE(dispatch1);
   EXPECT_TRUE(dispatch2);
 }
 
-TEST_F(ComputeContainersTest, CreateDispatchFromRefThrowsOnNestedRef) {
+TEST_F(ComputeContainersTest, CreateDispatchWithNestedRefThrows) {
   auto dispatch1 = interface_->createDispatch();
-  auto dispatch2 = interface_->createDispatchFromRef(dispatch1);
+  auto dispatch2 = interface_->createDispatch({}, {}, {}, dispatch1);
 
-  EXPECT_THROW(interface_->createDispatchFromRef(dispatch2), std::runtime_error);
-}
-
-TEST_F(ComputeContainersTest, BindShaderToDispatch) {
-  auto dispatch = interface_->createDispatch();
-  ComputeHandle shader;  // Empty shader handle for testing
-
-  EXPECT_NO_THROW(interface_->bindShader(dispatch, shader));
-}
-
-TEST_F(ComputeContainersTest, SetThreadGroupSize) {
-  auto dispatch = interface_->createDispatch();
-  ThreadGroupSize tgs{16, 16, 1};
-
-  EXPECT_NO_THROW(interface_->setThreadGroupSize(dispatch, tgs));
+  EXPECT_THROW(interface_->createDispatch({}, {}, {}, dispatch2),
+               std::runtime_error);
 }
 
 // DispatchList tests via ComputeInterface

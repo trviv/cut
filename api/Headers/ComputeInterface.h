@@ -82,65 +82,15 @@ public:
    * @param shaderHandle Handle to the compute shader.
    * @param tgSize Thread group dimensions for the dispatch.
    * @param bindings Vector of compute bindings (handles or data references).
+   * @param refDispatchHandle Optional handle to a reference dispatch for
+   * copying settings.
    * @return Handle to the created dispatch.
    */
   ComputeHandle
   createDispatch(const ComputeHandle &shaderHandle = {},
                  const ThreadGroupSize &tgSize = {},
-                 const std::vector<ComputeBinding> &bindings = {});
-
-  /**
-   * Creates a new dispatch that references an existing dispatch's settings.
-   * @param refDispatchHandle Handle to the reference dispatch.
-   * @return Handle to the created dispatch.
-   */
-  ComputeHandle createDispatchFromRef(const ComputeHandle &refDispatchHandle);
-
-  /**
-   * Binds a shader to an existing dispatch.
-   * @param dispatchHandle Handle to the dispatch to modify.
-   * @param shaderHandle Handle to the shader to bind.
-   */
-  void bindShader(const ComputeHandle &dispatchHandle,
-                  const ComputeHandle &shaderHandle);
-
-  /**
-   * Binds a resource (buffer or texture) to an existing dispatch.
-   * @param dispatchHandle Handle to the dispatch to modify.
-   * @param resourceHandle Handle to the buffer or texture to bind.
-   * @param bindIndex The binding index in the shader.
-   */
-  void bindResource(const ComputeHandle &dispatchHandle,
-                    const ComputeHandle &resourceHandle, uint32_t bindIndex);
-
-  /**
-   * Binds multiple resources (buffers or textures) to an existing dispatch.
-   * @param dispatchHandle Handle to the dispatch to modify.
-   * @param resourceHandles Vector of handles to the buffers or textures to
-   * bind.
-   * @param bindOffset Starting binding index; resources are bound sequentially
-   * from this offset.
-   */
-  void bindResources(const ComputeHandle &dispatchHandle,
-                     const std::vector<ComputeHandle> &resourceHandles,
-                     uint32_t bindOffset = 0);
-
-  /**
-   * Binds raw data (push constants) to an existing dispatch.
-   * @param dispatchHandle Handle to the dispatch to modify.
-   * @param dataRef Reference to the data to bind.
-   * @param bindIndex The binding index in the shader.
-   */
-  void bindData(const ComputeHandle &dispatchHandle,
-                const DataReference &dataRef, uint32_t bindIndex);
-
-  /**
-   * Sets the thread group size for an existing dispatch.
-   * @param dispatchHandle Handle to the dispatch to modify.
-   * @param tgSize The thread group dimensions.
-   */
-  void setThreadGroupSize(const ComputeHandle &dispatchHandle,
-                          const ThreadGroupSize &tgSize);
+                 const std::vector<ComputeBinding> &bindings = {},
+                 const ComputeHandle &refDispatchHandle = {});
 
   /**
    * Creates a dispatch list from a vector of dispatch handles.

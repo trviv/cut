@@ -130,18 +130,13 @@ TEST_F(VulkanComputeTest, CanCreateDispatch) {
   EXPECT_TRUE(dispatch);
 }
 
-TEST_F(VulkanComputeTest, CanBindBufferToDispatch) {
+TEST_F(VulkanComputeTest, CanCreateDispatchWithBindings) {
   auto buffer = compute_->createBuffer(1024);
-  auto dispatch = compute_->createDispatch();
-
-  EXPECT_NO_THROW(compute_->bindResource(dispatch, buffer, 0));
-}
-
-TEST_F(VulkanComputeTest, CanSetThreadGroupSize) {
-  auto dispatch = compute_->createDispatch();
   ThreadGroupSize tgs{8, 8, 1};
 
-  EXPECT_NO_THROW(compute_->setThreadGroupSize(dispatch, tgs));
+  auto dispatch =
+      compute_->createDispatch({}, tgs, {ComputeBinding(0, buffer)});
+  EXPECT_TRUE(dispatch);
 }
 
 TEST_F(VulkanComputeTest, CanCreateDispatchList) {

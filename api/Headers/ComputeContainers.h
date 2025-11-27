@@ -118,14 +118,14 @@ private:
    * Constructs a ComputeDispatch with optional parameters.
    * @param shaderHandle Handle to the compute shader.
    * @param tgSize Thread group dimensions for dispatch.
+   * @param bindings Vector of compute bindings (handles or data references).
    * @param refDispatchHandle Handle to a reference dispatch for copying
    * settings.
-   * @param bindings Vector of compute bindings (handles or data references).
    */
   ComputeDispatch(const ComputeHandle &shaderHandle = {},
                   const ThreadGroupSize &tgSize = {},
-                  const ComputeHandle &refDispatchHandle = {},
-                  const std::vector<ComputeBinding> &bindings = {});
+                  const std::vector<ComputeBinding> &bindings = {},
+                  const ComputeHandle &refDispatchHandle = {});
 
   /** Deleted copy constructor. */
   ComputeDispatch(const ComputeDispatch &) = delete;
