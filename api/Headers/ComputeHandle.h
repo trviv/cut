@@ -10,7 +10,7 @@ namespace cut {
 // Forward declaration for logging function
 extern void logErr(const char *format, ...);
 
-template <typename DataType = size_t>
+template <typename DataType = void *>
 class ComputeContainer;
 
 /**
@@ -197,7 +197,8 @@ protected:
    * @param handle The handle to verify.
    */
   void verify(const ComputeHandle &handle) const {
-    if (handle.container_ != reinterpret_cast<const ComputeContainer<> *>(this)) {
+    if (handle.container_ !=
+        reinterpret_cast<const ComputeContainer<> *>(this)) {
       throw std::runtime_error("Trying to get data for handle which does not "
                                "belong to the container");
     }
