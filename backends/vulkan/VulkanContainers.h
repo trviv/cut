@@ -10,8 +10,19 @@ class VulkanBufferContainer final : public ComputeDataContainer<void *> {
 public:
   /// Constructs a buffer container with a unique type identifier.
   VulkanBufferContainer() : ComputeDataContainer<void *>(101) {}
-  CONTAINER_POINTER_CREATE_METHOD_IMPL(VulkanBufferStruct);
-  CONTAINER_POINTER_GET_METHODS_IMPL(VulkanBufferStruct);
+
+  ComputeHandle createHandle(VulkanBufferStruct &&structData) {
+    return ComputeDataContainer<void *>::createHandle(
+        new VulkanBufferStruct(std::move(structData)));
+  }
+
+  VulkanBufferStruct *get(const ComputeHandle &handle) {
+    return data(handle).template get<VulkanBufferStruct *>();
+  }
+
+  const VulkanBufferStruct *get(const ComputeHandle &handle) const {
+    return data(handle).template get<const VulkanBufferStruct *>();
+  }
 
 private:
   friend class VulkanCompute;
@@ -28,8 +39,19 @@ class VulkanShaderContainer final : public ComputeDataContainer<void *> {
 public:
   /// Constructs a shader container with a unique type identifier.
   VulkanShaderContainer() : ComputeDataContainer<void *>(102) {}
-  CONTAINER_POINTER_CREATE_METHOD_IMPL(VulkanShaderStruct);
-  CONTAINER_POINTER_GET_METHODS_IMPL(VulkanShaderStruct);
+
+  ComputeHandle createHandle(VulkanShaderStruct &&structData) {
+    return ComputeDataContainer<void *>::createHandle(
+        new VulkanShaderStruct(std::move(structData)));
+  }
+
+  VulkanShaderStruct *get(const ComputeHandle &handle) {
+    return data(handle).template get<VulkanShaderStruct *>();
+  }
+
+  const VulkanShaderStruct *get(const ComputeHandle &handle) const {
+    return data(handle).template get<const VulkanShaderStruct *>();
+  }
 
 private:
   friend class VulkanCompute;
