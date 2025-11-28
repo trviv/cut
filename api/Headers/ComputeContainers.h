@@ -169,7 +169,7 @@ private:
  * Container for managing ComputeDispatch handles.
  * Provides creation, retrieval, and automatic cleanup of dispatch objects.
  */
-class DispatchContainer final : public ComputeContainer<> {
+class DispatchContainer final : public ComputeContainer {
 private:
   friend class ComputeInterface;
 
@@ -189,7 +189,7 @@ private:
  * Container for managing DispatchList handles.
  * Provides creation, retrieval, and automatic cleanup of dispatch list objects.
  */
-class DispatchListContainer final : public ComputeContainer<> {
+class DispatchListContainer final : public ComputeContainer {
 private:
   friend class ComputeInterface;
 

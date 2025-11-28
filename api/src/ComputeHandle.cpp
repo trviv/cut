@@ -4,7 +4,7 @@ namespace cut {
 
 ComputeHandle::ComputeHandle() : container_(nullptr), id_(0) {}
 
-ComputeHandle::ComputeHandle(ComputeContainer<> *container, size_t handleId)
+ComputeHandle::ComputeHandle(ComputeContainer *container, size_t handleId)
     : container_(container), id_(handleId) {
   container->addRef(*this);
 }
@@ -58,11 +58,9 @@ void ComputeHandle::reset() {
 
 // ComputeContainer implementation
 
-template <typename DataType>
-ComputeContainer<DataType>::ComputeContainer(uint32_t type) : type_(type) {}
+ComputeContainer::ComputeContainer(uint32_t type) : type_(type) {}
 
-template <typename DataType>
-ComputeContainer<DataType>::~ComputeContainer() {
+ComputeContainer::~ComputeContainer() {
   if (objects_.size() != freeHandles_.size()) {
     logErr("Trying to destroy container before all objects in it have "
            "been deallocated.");
@@ -71,9 +69,8 @@ ComputeContainer<DataType>::~ComputeContainer() {
   freeHandles_.clear();
 }
 
-template <typename DataType>
-const typename ComputeContainer<DataType>::HandleData &
-ComputeContainer<DataType>::data(const ComputeHandle &handle) const {
+const ComputeContainer::HandleData &
+ComputeContainer::data(const ComputeHandle &handle) const {
   if (!handle) {
     throw std::runtime_error("Trying to get data for an empty handle");
   }
@@ -82,8 +79,7 @@ ComputeContainer<DataType>::data(const ComputeHandle &handle) const {
   return objects_[handle.id_].data;
 }
 
-template <typename DataType>
-ComputeHandle ComputeContainer<DataType>::createHandle(const HandleData &data) {
+ComputeHandle ComputeContainer::createHandle(const HandleData &data) {
   size_t index;
   if (!freeHandles_.empty()) {
     index = freeHandles_.back();
@@ -94,24 +90,21 @@ ComputeHandle ComputeContainer<DataType>::createHandle(const HandleData &data) {
     objects_.emplace_back(HandleStruct(data));
   }
 
-  return ComputeHandle(reinterpret_cast<ComputeContainer<> *>(this), index);
+  return ComputeHandle(this, index);
 }
 
-template <typename DataType>
-void ComputeContainer<DataType>::verify(const ComputeHandle &handle) const {
-  if (handle.container_ != reinterpret_cast<const ComputeContainer<> *>(this)) {
+void ComputeContainer::verify(const ComputeHandle &handle) const {
+  if (handle.container_ != this) {
     throw std::runtime_error("Trying to get data for handle which does not "
                              "belong to the container");
   }
 }
 
-template <typename DataType>
-void ComputeContainer<DataType>::addRef(const ComputeHandle &ref) {
+void ComputeContainer::addRef(const ComputeHandle &ref) {
   objects_[ref.id_].refCount++;
 }
 
-template <typename DataType>
-void ComputeContainer<DataType>::remRef(ComputeHandle &ref) {
+void ComputeContainer::remRef(ComputeHandle &ref) {
   auto &objectRef = objects_[ref.id_];
   objectRef.refCount--;
   if (objectRef.refCount == 0) {
@@ -120,8 +113,5 @@ void ComputeContainer<DataType>::remRef(ComputeHandle &ref) {
     ref.container_ = nullptr;
   }
 }
-
-// Explicit template instantiation
-template class ComputeContainer<void *>;
 
 } // namespace cut

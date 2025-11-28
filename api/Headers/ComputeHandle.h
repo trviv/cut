@@ -10,7 +10,6 @@ namespace cut {
 // Forward declaration for logging function
 extern void logErr(const char *format, ...);
 
-template <typename DataType = void *>
 class ComputeContainer;
 
 /**
@@ -54,7 +53,6 @@ public:
   void reset();
 
 private:
-  template <typename DataType>
   friend class ComputeContainer;
 
   /**
@@ -62,11 +60,10 @@ private:
    * @param container The container that owns the referenced object.
    * @param handleId The unique identifier for the object within the container.
    */
-  ComputeHandle(ComputeContainer<> *container, size_t handleId);
+  ComputeHandle(ComputeContainer *container, size_t handleId);
 
   size_t id_; ///< Handle ID within its container.
-  ComputeContainer<>
-      *container_; ///< Compute object container the handle belongs to.
+  ComputeContainer *container_; ///< Compute object container the handle belongs to.
 };
 
 /**
@@ -75,28 +72,25 @@ private:
  *
  * Handles reference counting automatically - objects are deleted when
  * their reference count reaches zero.
- *
- * @tparam DataType The type used for storing handle data.
  */
-template <typename DataType>
 class ComputeContainer {
 protected:
   /**
    * Type-erased storage for handle data.
-   * Stores arbitrary data up to sizeof(DataType) bytes.
+   * Stores arbitrary data up to sizeof(void*) bytes.
    */
   class HandleData final {
   public:
     /**
-     * Constructs HandleData from any type that fits within DataType.
+     * Constructs HandleData from any type that fits within void*.
      * @tparam T The type of data to store.
      * @param data The data value to store.
      */
     template <typename T>
     HandleData(const T data) {
-      static_assert(sizeof(T) <= sizeof(DataType),
+      static_assert(sizeof(T) <= sizeof(void *),
                     "ComputeContainer can't store data larger than: "
-                    "sizeof(DataType)");
+                    "sizeof(void*)");
       std::memcpy(&data_, &data, sizeof(T));
     }
 
@@ -113,7 +107,7 @@ protected:
     }
 
   private:
-    DataType data_; ///< Raw storage for the handle data.
+    void *data_; ///< Raw storage for the handle data.
   };
 
   /**
