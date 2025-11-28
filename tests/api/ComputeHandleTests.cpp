@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include <ComputeHandle.h>
+#include <ComputeContainer.h>
 
 using namespace cut;
 

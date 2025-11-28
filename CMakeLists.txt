@@ -63,6 +63,7 @@ endif()
 set(LIB_HEADERS
     api/Headers/ComputeCommon.h
     api/Headers/ComputeHandle.h
+    api/Headers/ComputeContainer.h
     api/Headers/ComputeContainers.h
     api/Headers/ComputeInterface.h
     backends/vulkan/VulkanCommon.h
@@ -77,6 +78,7 @@ set(LIB_SOURCES
     shaders/Shaders.cpp
     api/src/ComputeCommon.cpp
     api/src/ComputeHandle.cpp
+    api/src/ComputeContainer.cpp
     api/src/ComputeContainers.cpp
     api/src/ComputeInterface.cpp
     backends/vulkan/VulkanCommon.cpp

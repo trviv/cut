@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ComputeContainer.h>
 #include <VulkanStructs.h>
 
 namespace cut {

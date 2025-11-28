@@ -1,6 +1,6 @@
 #pragma once
 
-#include <ComputeHandle.h>
+#include <ComputeContainer.h>
 #include <ComputeInterface.h>
 
 #include <vector>
