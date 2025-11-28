@@ -20,7 +20,7 @@ class MockContainer : public cut::ComputeDataContainer<void *> {
   float floatCounter_ = 1.f;
 
 public:
-  MockContainer() : ComputeDataContainer<void *>(201) {}
+  MockContainer() : cut::ComputeDataContainer<void *>(201) {}
 
   ~MockContainer() {}
 

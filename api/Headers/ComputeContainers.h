@@ -66,31 +66,56 @@ private:
 };
 
 /**
- * @def CONTAINER_METHODS_IMPL(STRUCT_NAME)
+ * @def CONTAINER_POINTER_METHODS_IMPL(STRUCT_NAME)
  * Macro that generates standard container methods for a given struct type.
+ * For use with pointer-based containers (ComputeDataContainer<void*>).
  * Generates: createHandle, get (mutable/const from handle), get (mutable/const
  * from data).
  */
-#define CONTAINER_METHODS_IMPL(STRUCT_NAME)                                    \
+#define CONTAINER_POINTER_CREATE_METHOD_IMPL(STRUCT_NAME)                      \
   ComputeHandle createHandle(STRUCT_NAME &&structData) {                       \
-    return ComputeDataContainer::createHandle(                                 \
+    return ComputeDataContainer<void *>::createHandle(                         \
         new STRUCT_NAME(std::move(structData)));                               \
-  }                                                                            \
-                                                                               \
+  }
+
+/**
+ * @def CONTAINER_DIRECT_METHODS_IMPL(STRUCT_NAME)
+ * Macro that generates container methods for direct storage types.
+ * For use with non-pointer containers (ComputeDataContainer<STRUCT_NAME>).
+ * Generates: createHandle, get (mutable/const reference).
+ */
+#define CONTAINER_DIRECT_METHODS_IMPL(STRUCT_NAME)                             \
+  ComputeHandle createHandle(STRUCT_NAME &&structData) {                       \
+    return ComputeDataContainer<STRUCT_NAME>::createHandle(                    \
+        std::move(structData));                                                \
+  }
+
+/**
+ * @def CONTAINER_POINTER_GET_METHODS_IMPL(STRUCT_NAME)
+ * Macro that generates get methods for pointer-based containers.
+ * Uses template get<T>() for type-erased storage.
+ */
+#define CONTAINER_POINTER_GET_METHODS_IMPL(STRUCT_NAME)                        \
   STRUCT_NAME *get(const ComputeHandle &handle) {                              \
-    return data(handle).get<STRUCT_NAME *>();                                  \
+    return data(handle).template get<STRUCT_NAME *>();                         \
   }                                                                            \
                                                                                \
   const STRUCT_NAME *get(const ComputeHandle &handle) const {                  \
-    return data(handle).get<const STRUCT_NAME *>();                            \
+    return data(handle).template get<const STRUCT_NAME *>();                   \
+  }
+
+/**
+ * @def CONTAINER_DIRECT_GET_METHODS_IMPL(STRUCT_NAME)
+ * Macro that generates get methods for direct storage containers.
+ * Uses non-template get() that returns reference.
+ */
+#define CONTAINER_DIRECT_GET_METHODS_IMPL(STRUCT_NAME)                         \
+  STRUCT_NAME &get(const ComputeHandle &handle) {                              \
+    return data(handle).get();                                                 \
   }                                                                            \
                                                                                \
-  STRUCT_NAME *get(const HandleData &data) {                                   \
-    return data.get<STRUCT_NAME *>();                                          \
-  }                                                                            \
-                                                                               \
-  const STRUCT_NAME *get(const HandleData &data) const {                       \
-    return data.get<const STRUCT_NAME *>();                                    \
+  const STRUCT_NAME &get(const ComputeHandle &handle) const {                  \
+    return data(handle).get();                                                 \
   }
 
 /**
@@ -100,7 +125,7 @@ private:
  */
 #define CONTAINER_DELETE_METHOD_IMPL(STRUCT_NAME)                              \
   void deleteHandlePtr(size_t id) {                                            \
-    auto *ptr = objects_[id].get<STRUCT_NAME *>();                             \
+    auto *ptr = objects_[id].template get<STRUCT_NAME *>();                    \
     if (ptr != nullptr) {                                                      \
       delete ptr;                                                              \
     }                                                                          \
@@ -111,6 +136,16 @@ private:
  * Contains shader, thread group size, and resource/data bindings.
  */
 class ComputeDispatch final {
+public:
+  /** Deleted copy constructor. */
+  ComputeDispatch(const ComputeDispatch &) = delete;
+
+  /** Default move constructor. */
+  ComputeDispatch(ComputeDispatch &&) = default;
+
+  /** Default move assignment operator. */
+  ComputeDispatch &operator=(ComputeDispatch &&) = default;
+
 private:
   friend class DispatchContainer;
   friend class ComputeInterface;
@@ -127,12 +162,6 @@ private:
                   const ThreadGroupSize &tgSize = {},
                   const std::vector<ComputeBinding> &bindings = {},
                   const ComputeHandle &refDispatchHandle = {});
-
-  /** Deleted copy constructor. */
-  ComputeDispatch(const ComputeDispatch &) = delete;
-
-  /** Default move constructor. */
-  ComputeDispatch(ComputeDispatch &&) = default;
 
   /**
    * Binds a shader to this dispatch.
@@ -170,20 +199,23 @@ private:
  * Container for managing ComputeDispatch handles.
  * Provides creation, retrieval, and automatic cleanup of dispatch objects.
  */
-class DispatchContainer final : public ComputeDataContainer<void *> {
+class DispatchContainer final : public ComputeDataContainer<ComputeDispatch> {
 private:
   friend class ComputeInterface;
 
   /** Constructs a DispatchContainer with type ID 1. */
-  DispatchContainer() : ComputeDataContainer<void *>(1) {}
-  CONTAINER_METHODS_IMPL(ComputeDispatch);
-  CONTAINER_DELETE_METHOD_IMPL(ComputeDispatch);
+  DispatchContainer() : ComputeDataContainer<ComputeDispatch>(1) {}
+  CONTAINER_DIRECT_METHODS_IMPL(ComputeDispatch);
+  CONTAINER_DIRECT_GET_METHODS_IMPL(ComputeDispatch);
 
   /**
    * Destroys a dispatch object when its reference count reaches zero.
    * @param id The handle ID of the object to delete.
    */
-  void destroy(size_t id) override { deleteHandlePtr(id); }
+  void destroy(size_t id) override {
+    // Reset the stored object to release any handles it holds
+    objects_[id] = HandleData(ComputeDispatch{});
+  }
 };
 
 /**
@@ -196,7 +228,8 @@ private:
 
   /** Constructs a DispatchListContainer with type ID 2. */
   DispatchListContainer() : ComputeDataContainer<void *>(2) {}
-  CONTAINER_METHODS_IMPL(DispatchList);
+  CONTAINER_POINTER_CREATE_METHOD_IMPL(DispatchList);
+  CONTAINER_POINTER_GET_METHODS_IMPL(DispatchList);
   CONTAINER_DELETE_METHOD_IMPL(DispatchList);
 
   /**

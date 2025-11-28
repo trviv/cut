@@ -92,55 +92,105 @@ private:
 /**
  * Template container class that adds data storage to ComputeContainer.
  *
- * Provides type-erased storage for handle data and associated methods.
- * @tparam DataType The underlying storage type for handle data (default: void*)
+ * When DataType is a pointer type (e.g., void*), provides type-erased storage
+ * via memcpy for small types that fit within sizeof(DataType).
+ *
+ * When DataType is a non-pointer type, stores DataType directly with proper
+ * move semantics.
+ *
+ * @tparam DataType The underlying storage type for handle data
  */
 template <typename DataType>
 class ComputeDataContainer : public ComputeContainer {
+  static constexpr bool IsPointer = std::is_pointer<DataType>::value;
+
 protected:
   /**
-   * Type-erased storage for handle data.
-   * Stores arbitrary data up to sizeof(DataType) bytes.
+   * Storage for handle data.
+   * For pointer types: type-erased storage via memcpy.
+   * For non-pointer types: direct storage with move semantics.
    */
   class HandleData final {
+    /// Helper to enable constructors/methods only for pointer types
+    template <typename T>
+    using EnableIfPointer =
+        typename std::enable_if<IsPointer && sizeof(T) <= sizeof(DataType),
+                                int>::type;
+
+    /// Helper to enable constructors/methods only for non-pointer types
+    template <bool P = IsPointer>
+    using EnableIfNotPointer = typename std::enable_if<!P, int>::type;
+
   public:
+    HandleData() = default;
+
     /**
      * Constructs HandleData from any type that fits within DataType.
+     * Only enabled for pointer types.
      * @tparam T The type of data to store.
      * @param data The data value to store.
      */
-    template <typename T>
-    HandleData(const T data) {
-      static_assert(sizeof(T) <= sizeof(DataType),
-                    "ComputeDataContainer can't store data larger than: "
-                    "sizeof(DataType)");
+    template <typename T, EnableIfPointer<T> = 0>
+    HandleData(T data) {
       std::memcpy(&data_, &data, sizeof(T));
     }
 
     /**
+     * Constructs HandleData via move.
+     * Only enabled for non-pointer types.
+     * @param data The data value to store.
+     */
+    template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
+    HandleData(DataType &&data) : data_(std::move(data)) {}
+
+    HandleData(HandleData &&other) = default;
+    HandleData &operator=(HandleData &&other) = default;
+
+    // Copy operations: allowed by default (works for pointer types,
+    // will be deleted implicitly if DataType is non-copyable)
+    HandleData(const HandleData &other) = default;
+    HandleData &operator=(const HandleData &other) = default;
+
+    /**
      * Retrieves the stored data as the specified type.
+     * Only enabled for pointer types.
      * @tparam T The type to interpret the stored data as.
      * @return A copy of the stored data interpreted as type T.
      */
-    template <typename T>
+    template <typename T, EnableIfPointer<T> = 0>
     T get() const {
       T ret;
       std::memcpy(&ret, &data_, sizeof(T));
-      return std::move(ret);
+      return ret;
+    }
+
+    /**
+     * Retrieves a const reference to the stored data.
+     * Only enabled for non-pointer types.
+     * @return Const reference to the stored data.
+     */
+    template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
+    const DataType &get() const {
+      return data_;
+    }
+
+    /**
+     * Retrieves a mutable reference to the stored data.
+     * Only enabled for non-pointer types.
+     * @return Mutable reference to the stored data.
+     */
+    template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
+    DataType &get() {
+      return data_;
     }
 
   private:
-    DataType data_; ///< Raw storage for the handle data.
+    DataType data_{}; ///< Storage for the handle data.
   };
 
 protected:
-  /**
-   * Constructs a ComputeDataContainer with the specified type identifier.
-   * @param type A unique identifier for the container type.
-   */
   ComputeDataContainer(uint32_t type) : ComputeContainer(type) {}
 
-  /** Virtual destructor. */
   virtual ~ComputeDataContainer() {
     if (objects_.size() != freeSlotCount()) {
       logErr("Trying to destroy container before all objects in it have "
@@ -149,11 +199,6 @@ protected:
     objects_.clear();
   }
 
-  /**
-   * Retrieves the data associated with a handle.
-   * @param handle The handle to look up.
-   * @return Const reference to the handle's data.
-   */
   const HandleData &data(const ComputeHandle &handle) const {
     if (!handle) {
       throw std::runtime_error("Trying to get data for an empty handle");
@@ -162,24 +207,53 @@ protected:
     return objects_[handle.id_];
   }
 
+  HandleData &data(const ComputeHandle &handle) {
+    if (!handle) {
+      throw std::runtime_error("Trying to get data for an empty handle");
+    }
+    verify(handle);
+    return objects_[handle.id_];
+  }
+
   /**
-   * Creates a new handle for the given data.
-   * @param data The data to associate with the new handle.
+   * Creates a new handle for the given data (pointer types).
+   * @param hdata The HandleData to store.
    * @return A new ComputeHandle referencing the data.
    */
-  ComputeHandle createHandle(HandleData &&data) {
+  template <bool P = IsPointer>
+  typename std::enable_if<P, ComputeHandle>::type
+  createHandle(HandleData &&hdata) {
     size_t index = allocateSlot();
 
     if (index < objects_.size()) {
-      objects_[index] = std::move(data);
+      objects_[index] = std::move(hdata);
     } else {
-      objects_.emplace_back(std::move(data));
+      objects_.emplace_back(std::move(hdata));
     }
 
     return createHandleFromSlot(index);
   }
 
-  std::vector<HandleData> objects_; ///< Storage for all managed object data.
+  /**
+   * Creates a new handle for the given data (non-pointer types).
+   * @param hdata The data to store.
+   * @return A new ComputeHandle referencing the data.
+   */
+  template <bool P = IsPointer>
+  typename std::enable_if<!P, ComputeHandle>::type
+  createHandle(DataType &&hdata) {
+    size_t index = allocateSlot();
+
+    if (index < objects_.size()) {
+      objects_[index] = HandleData(std::move(hdata));
+    } else {
+      objects_.emplace_back(std::move(hdata));
+    }
+
+    return createHandleFromSlot(index);
+  }
+
+  std::vector<HandleData> objects_;
 };
 
 } // namespace cut
