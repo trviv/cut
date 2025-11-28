@@ -5,17 +5,17 @@
 using namespace cut;
 
 /// Mock container for testing ComputeHandle behavior.
-class TestContainer : public ComputeDataContainer<void *> {
+class TestContainer : public ComputeDataContainer<uint32_t> {
 public:
-  TestContainer() : ComputeDataContainer<void *>(100) {}
+  TestContainer() : ComputeDataContainer<uint32_t>(100) {}
 
   void destroy(size_t id) override { destroyCount_++; }
 
-  ComputeHandle createTestHandle(uint32_t value) { return createHandle(value); }
-
-  uint32_t getValue(const ComputeHandle &handle) {
-    return data(handle).get<uint32_t>();
+  ComputeHandle createTestHandle(uint32_t value) {
+    return createHandle(std::move(value));
   }
+
+  uint32_t getValue(const ComputeHandle &handle) { return data(handle).get(); }
 
   int destroyCount_ = 0;
 };

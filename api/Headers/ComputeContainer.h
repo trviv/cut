@@ -132,7 +132,7 @@ protected:
      */
     template <typename T, EnableIfPointer<T> = 0>
     HandleData(T data) {
-      std::memcpy(&data_, &data, sizeof(T));
+      data_ = data;
     }
 
     /**
@@ -159,9 +159,7 @@ protected:
      */
     template <typename T, EnableIfPointer<T> = 0>
     T get() const {
-      T ret;
-      std::memcpy(&ret, &data_, sizeof(T));
-      return ret;
+      return static_cast<T>(data_);
     }
 
     /**

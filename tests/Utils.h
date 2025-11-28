@@ -15,26 +15,30 @@ static std::vector<uint32_t> generateRandomUint(uint32_t size,
   return ret;
 }
 
-class MockContainer : public cut::ComputeDataContainer<void *> {
+class MockContainer : public cut::ComputeDataContainer<uint32_t> {
   uint32_t intCounter_ = 1;
   float floatCounter_ = 1.f;
 
 public:
-  MockContainer() : cut::ComputeDataContainer<void *>(201) {}
+  MockContainer() : cut::ComputeDataContainer<uint32_t>(201) {}
 
   ~MockContainer() {}
 
   void destroy(size_t id) override {}
 
-  cut::ComputeHandle createInteger() { return createHandle(intCounter_++); }
+  cut::ComputeHandle createInteger() {
+    return createHandle(std::move(intCounter_++));
+  }
 
-  cut::ComputeHandle createFloat() { return createHandle(floatCounter_++); }
+  cut::ComputeHandle createFloat() {
+    return createHandle(static_cast<uint32_t>(floatCounter_++));
+  }
 
   uint32_t getIntData(cut::ComputeHandle &handle) {
-    return data(handle).get<uint32_t>();
+    return data(handle).get();
   }
 
   uint32_t getFloatData(cut::ComputeHandle &handle) {
-    return data(handle).get<float>();
+    return data(handle).get();
   }
 };

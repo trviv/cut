@@ -145,7 +145,9 @@ private:
         std::move(structData));
   }
 
-  ComputeDispatch &get(const ComputeHandle &handle) { return data(handle).get(); }
+  ComputeDispatch &get(const ComputeHandle &handle) {
+    return data(handle).get();
+  }
 
   const ComputeDispatch &get(const ComputeHandle &handle) const {
     return data(handle).get();
