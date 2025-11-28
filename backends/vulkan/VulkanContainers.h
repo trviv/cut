@@ -6,10 +6,10 @@
 namespace cut {
 
 /// Container managing GPU buffer allocations and their lifecycle.
-class VulkanBufferContainer final : public ComputeDataContainer<> {
+class VulkanBufferContainer final : public ComputeDataContainer<void *> {
 public:
   /// Constructs a buffer container with a unique type identifier.
-  VulkanBufferContainer() : ComputeDataContainer<>(101) {}
+  VulkanBufferContainer() : ComputeDataContainer<void *>(101) {}
   CONTAINER_METHODS_IMPL(VulkanBufferStruct);
 
 private:
@@ -23,10 +23,10 @@ private:
 };
 
 /// Container managing shader module allocations and their lifecycle.
-class VulkanShaderContainer final : public ComputeDataContainer<> {
+class VulkanShaderContainer final : public ComputeDataContainer<void *> {
 public:
   /// Constructs a shader container with a unique type identifier.
-  VulkanShaderContainer() : ComputeDataContainer<>(102) {}
+  VulkanShaderContainer() : ComputeDataContainer<void *>(102) {}
   CONTAINER_METHODS_IMPL(VulkanShaderStruct);
 
 private:

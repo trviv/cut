@@ -5,9 +5,9 @@
 using namespace cut;
 
 /// Mock container for testing ComputeHandle behavior.
-class TestContainer : public ComputeDataContainer<> {
+class TestContainer : public ComputeDataContainer<void *> {
 public:
-  TestContainer() : ComputeDataContainer<>(100) {}
+  TestContainer() : ComputeDataContainer<void *>(100) {}
 
   void destroy(size_t id) override { destroyCount_++; }
 

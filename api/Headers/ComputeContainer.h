@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace cut {
@@ -93,7 +95,7 @@ private:
  * Provides type-erased storage for handle data and associated methods.
  * @tparam DataType The underlying storage type for handle data (default: void*)
  */
-template <typename DataType = void *>
+template <typename DataType>
 class ComputeDataContainer : public ComputeContainer {
 protected:
   /**
@@ -165,13 +167,13 @@ protected:
    * @param data The data to associate with the new handle.
    * @return A new ComputeHandle referencing the data.
    */
-  ComputeHandle createHandle(const HandleData &data) {
+  ComputeHandle createHandle(HandleData &&data) {
     size_t index = allocateSlot();
 
     if (index < objects_.size()) {
-      objects_[index] = data;
+      objects_[index] = std::move(data);
     } else {
-      objects_.emplace_back(data);
+      objects_.emplace_back(std::move(data));
     }
 
     return createHandleFromSlot(index);
