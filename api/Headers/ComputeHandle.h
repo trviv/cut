@@ -6,6 +6,8 @@
 namespace cut {
 
 class ComputeContainer;
+template <typename DataType>
+class ComputeDataContainer;
 
 /**
  * A handle class used to reference compute objects such as buffers,
@@ -49,6 +51,7 @@ public:
 
 private:
   friend class ComputeContainer;
+  template <typename>
   friend class ComputeDataContainer;
 
   /**

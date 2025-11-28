@@ -15,12 +15,12 @@ static std::vector<uint32_t> generateRandomUint(uint32_t size,
   return ret;
 }
 
-class MockContainer : public cut::ComputeDataContainer {
+class MockContainer : public cut::ComputeDataContainer<> {
   uint32_t intCounter_ = 1;
   float floatCounter_ = 1.f;
 
 public:
-  MockContainer() : ComputeDataContainer(201) {}
+  MockContainer() : ComputeDataContainer<>(201) {}
 
   ~MockContainer() {}
 

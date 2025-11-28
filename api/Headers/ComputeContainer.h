@@ -94,28 +94,30 @@ private:
 };
 
 /**
- * Container class that adds data storage to ComputeContainer.
+ * Template container class that adds data storage to ComputeContainer.
  *
  * Provides type-erased storage for handle data and associated methods.
+ * @tparam DataType The underlying storage type for handle data (default: void*)
  */
+template <typename DataType = void *>
 class ComputeDataContainer : public ComputeContainer {
 protected:
   /**
    * Type-erased storage for handle data.
-   * Stores arbitrary data up to sizeof(void*) bytes.
+   * Stores arbitrary data up to sizeof(DataType) bytes.
    */
   class HandleData final {
   public:
     /**
-     * Constructs HandleData from any type that fits within void*.
+     * Constructs HandleData from any type that fits within DataType.
      * @tparam T The type of data to store.
      * @param data The data value to store.
      */
     template <typename T>
     HandleData(const T data) {
-      static_assert(sizeof(T) <= sizeof(void *),
+      static_assert(sizeof(T) <= sizeof(DataType),
                     "ComputeDataContainer can't store data larger than: "
-                    "sizeof(void*)");
+                    "sizeof(DataType)");
       std::memcpy(&data_, &data, sizeof(T));
     }
 
@@ -132,7 +134,7 @@ protected:
     }
 
   private:
-    void *data_; ///< Raw storage for the handle data.
+    DataType data_; ///< Raw storage for the handle data.
   };
 
 protected:
@@ -140,24 +142,46 @@ protected:
    * Constructs a ComputeDataContainer with the specified type identifier.
    * @param type A unique identifier for the container type.
    */
-  ComputeDataContainer(uint32_t type);
+  ComputeDataContainer(uint32_t type) : ComputeContainer(type) {}
 
   /** Virtual destructor. */
-  virtual ~ComputeDataContainer();
+  virtual ~ComputeDataContainer() {
+    if (objects_.size() != freeSlotCount()) {
+      logErr("Trying to destroy container before all objects in it have "
+             "been deallocated.");
+    }
+    objects_.clear();
+  }
 
   /**
    * Retrieves the data associated with a handle.
    * @param handle The handle to look up.
    * @return Const reference to the handle's data.
    */
-  const HandleData &data(const ComputeHandle &handle) const;
+  const HandleData &data(const ComputeHandle &handle) const {
+    if (!handle) {
+      throw std::runtime_error("Trying to get data for an empty handle");
+    }
+    verify(handle);
+    return objects_[handle.id_];
+  }
 
   /**
    * Creates a new handle for the given data.
    * @param data The data to associate with the new handle.
    * @return A new ComputeHandle referencing the data.
    */
-  ComputeHandle createHandle(const HandleData &data);
+  ComputeHandle createHandle(const HandleData &data) {
+    size_t index = allocateSlot();
+
+    if (index < objects_.size()) {
+      objects_[index] = data;
+    } else {
+      objects_.emplace_back(data);
+    }
+
+    return createHandleFromSlot(index);
+  }
 
   std::vector<HandleData> objects_; ///< Storage for all managed object data.
 };

@@ -52,39 +52,4 @@ void ComputeContainer::remRef(ComputeHandle &ref) {
   }
 }
 
-// ComputeDataContainer implementation
-
-ComputeDataContainer::ComputeDataContainer(uint32_t type)
-    : ComputeContainer(type) {}
-
-ComputeDataContainer::~ComputeDataContainer() {
-  if (objects_.size() != freeSlotCount()) {
-    logErr("Trying to destroy container before all objects in it have "
-           "been deallocated.");
-  }
-  objects_.clear();
-}
-
-const ComputeDataContainer::HandleData &
-ComputeDataContainer::data(const ComputeHandle &handle) const {
-  if (!handle) {
-    throw std::runtime_error("Trying to get data for an empty handle");
-  }
-  verify(handle);
-
-  return objects_[handle.id_];
-}
-
-ComputeHandle ComputeDataContainer::createHandle(const HandleData &data) {
-  size_t index = allocateSlot();
-
-  if (index < objects_.size()) {
-    objects_[index] = data;
-  } else {
-    objects_.emplace_back(data);
-  }
-
-  return createHandleFromSlot(index);
-}
-
 } // namespace cut
