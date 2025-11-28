@@ -140,19 +140,6 @@ private:
   /** Constructs a DispatchContainer with type ID 1. */
   DispatchContainer() : ComputeDataContainer<ComputeDispatch>(1) {}
 
-  ComputeHandle createHandle(ComputeDispatch &&structData) {
-    return ComputeDataContainer<ComputeDispatch>::createHandle(
-        std::move(structData));
-  }
-
-  ComputeDispatch &get(const ComputeHandle &handle) {
-    return data(handle).get();
-  }
-
-  const ComputeDispatch &get(const ComputeHandle &handle) const {
-    return data(handle).get();
-  }
-
   /**
    * Destroys a dispatch object when its reference count reaches zero.
    * @param id The handle ID of the object to delete.
@@ -178,12 +165,6 @@ private:
   ComputeHandle createHandle(DispatchList &&structData) {
     return ComputeDataContainer<DispatchList *>::createHandle(
         new DispatchList(std::move(structData)));
-  }
-
-  DispatchList *get(const ComputeHandle &handle) { return data(handle).get(); }
-
-  const DispatchList *get(const ComputeHandle &handle) const {
-    return data(handle).get();
   }
 
   void deleteHandlePtr(size_t id) {

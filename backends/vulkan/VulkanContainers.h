@@ -17,14 +17,6 @@ public:
         new VulkanBufferStruct(std::move(structData)));
   }
 
-  VulkanBufferStruct *get(const ComputeHandle &handle) {
-    return data(handle).get();
-  }
-
-  const VulkanBufferStruct *get(const ComputeHandle &handle) const {
-    return data(handle).get();
-  }
-
 private:
   friend class VulkanCompute;
 
@@ -45,14 +37,6 @@ public:
   ComputeHandle createHandle(VulkanShaderStruct &&structData) {
     return ComputeDataContainer<VulkanShaderStruct *>::createHandle(
         new VulkanShaderStruct(std::move(structData)));
-  }
-
-  VulkanShaderStruct *get(const ComputeHandle &handle) {
-    return data(handle).get();
-  }
-
-  const VulkanShaderStruct *get(const ComputeHandle &handle) const {
-    return data(handle).get();
   }
 
 private:
