@@ -6,22 +6,23 @@
 namespace cut {
 
 /// Container managing GPU buffer allocations and their lifecycle.
-class VulkanBufferContainer final : public ComputeDataContainer<void *> {
+class VulkanBufferContainer final
+    : public ComputeDataContainer<VulkanBufferStruct *> {
 public:
   /// Constructs a buffer container with a unique type identifier.
-  VulkanBufferContainer() : ComputeDataContainer<void *>(101) {}
+  VulkanBufferContainer() : ComputeDataContainer<VulkanBufferStruct *>(101) {}
 
   ComputeHandle createHandle(VulkanBufferStruct &&structData) {
-    return ComputeDataContainer<void *>::createHandle(
+    return ComputeDataContainer<VulkanBufferStruct *>::createHandle(
         new VulkanBufferStruct(std::move(structData)));
   }
 
   VulkanBufferStruct *get(const ComputeHandle &handle) {
-    return data(handle).template get<VulkanBufferStruct *>();
+    return data(handle).get();
   }
 
   const VulkanBufferStruct *get(const ComputeHandle &handle) const {
-    return data(handle).template get<const VulkanBufferStruct *>();
+    return data(handle).get();
   }
 
 private:
@@ -35,22 +36,23 @@ private:
 };
 
 /// Container managing shader module allocations and their lifecycle.
-class VulkanShaderContainer final : public ComputeDataContainer<void *> {
+class VulkanShaderContainer final
+    : public ComputeDataContainer<VulkanShaderStruct *> {
 public:
   /// Constructs a shader container with a unique type identifier.
-  VulkanShaderContainer() : ComputeDataContainer<void *>(102) {}
+  VulkanShaderContainer() : ComputeDataContainer<VulkanShaderStruct *>(102) {}
 
   ComputeHandle createHandle(VulkanShaderStruct &&structData) {
-    return ComputeDataContainer<void *>::createHandle(
+    return ComputeDataContainer<VulkanShaderStruct *>::createHandle(
         new VulkanShaderStruct(std::move(structData)));
   }
 
   VulkanShaderStruct *get(const ComputeHandle &handle) {
-    return data(handle).template get<VulkanShaderStruct *>();
+    return data(handle).get();
   }
 
   const VulkanShaderStruct *get(const ComputeHandle &handle) const {
-    return data(handle).template get<const VulkanShaderStruct *>();
+    return data(handle).get();
   }
 
 private:

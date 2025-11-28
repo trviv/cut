@@ -167,28 +167,27 @@ private:
  * Container for managing DispatchList handles.
  * Provides creation, retrieval, and automatic cleanup of dispatch list objects.
  */
-class DispatchListContainer final : public ComputeDataContainer<void *> {
+class DispatchListContainer final
+    : public ComputeDataContainer<DispatchList *> {
 private:
   friend class ComputeInterface;
 
   /** Constructs a DispatchListContainer with type ID 2. */
-  DispatchListContainer() : ComputeDataContainer<void *>(2) {}
+  DispatchListContainer() : ComputeDataContainer<DispatchList *>(2) {}
 
   ComputeHandle createHandle(DispatchList &&structData) {
-    return ComputeDataContainer<void *>::createHandle(
+    return ComputeDataContainer<DispatchList *>::createHandle(
         new DispatchList(std::move(structData)));
   }
 
-  DispatchList *get(const ComputeHandle &handle) {
-    return data(handle).template get<DispatchList *>();
-  }
+  DispatchList *get(const ComputeHandle &handle) { return data(handle).get(); }
 
   const DispatchList *get(const ComputeHandle &handle) const {
-    return data(handle).template get<const DispatchList *>();
+    return data(handle).get();
   }
 
   void deleteHandlePtr(size_t id) {
-    auto *ptr = objects_[id].template get<DispatchList *>();
+    auto *ptr = objects_[id].get();
     if (ptr != nullptr) {
       delete ptr;
     }

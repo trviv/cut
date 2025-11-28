@@ -112,10 +112,8 @@ protected:
    */
   class HandleData final {
     /// Helper to enable constructors/methods only for pointer types
-    template <typename T>
-    using EnableIfPointer =
-        typename std::enable_if<IsPointer && sizeof(T) <= sizeof(DataType),
-                                int>::type;
+    template <bool P = IsPointer>
+    using EnableIfPointer = typename std::enable_if<P, int>::type;
 
     /// Helper to enable constructors/methods only for non-pointer types
     template <bool P = IsPointer>
@@ -125,15 +123,12 @@ protected:
     HandleData() = default;
 
     /**
-     * Constructs HandleData from any type that fits within DataType.
+     * Constructs HandleData from a pointer type.
      * Only enabled for pointer types.
-     * @tparam T The type of data to store.
-     * @param data The data value to store.
+     * @param data The pointer value to store.
      */
-    template <typename T, EnableIfPointer<T> = 0>
-    HandleData(T data) {
-      data_ = data;
-    }
+    template <bool P = IsPointer, EnableIfPointer<P> = 0>
+    HandleData(DataType data) : data_(data) {}
 
     /**
      * Constructs HandleData via move.
@@ -157,9 +152,9 @@ protected:
      * @tparam T The type to interpret the stored data as.
      * @return A copy of the stored data interpreted as type T.
      */
-    template <typename T, EnableIfPointer<T> = 0>
-    T get() const {
-      return static_cast<T>(data_);
+    template <bool P = IsPointer, EnableIfPointer<P> = 0>
+    DataType get() const {
+      return data_;
     }
 
     /**
@@ -218,32 +213,11 @@ protected:
    * @param hdata The HandleData to store.
    * @return A new ComputeHandle referencing the data.
    */
-  template <bool P = IsPointer>
-  typename std::enable_if<P, ComputeHandle>::type
-  createHandle(HandleData &&hdata) {
+  ComputeHandle createHandle(DataType &&hdata) {
     size_t index = allocateSlot();
 
     if (index < objects_.size()) {
       objects_[index] = std::move(hdata);
-    } else {
-      objects_.emplace_back(std::move(hdata));
-    }
-
-    return createHandleFromSlot(index);
-  }
-
-  /**
-   * Creates a new handle for the given data (non-pointer types).
-   * @param hdata The data to store.
-   * @return A new ComputeHandle referencing the data.
-   */
-  template <bool P = IsPointer>
-  typename std::enable_if<!P, ComputeHandle>::type
-  createHandle(DataType &&hdata) {
-    size_t index = allocateSlot();
-
-    if (index < objects_.size()) {
-      objects_[index] = HandleData(std::move(hdata));
     } else {
       objects_.emplace_back(std::move(hdata));
     }
