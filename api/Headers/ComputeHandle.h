@@ -139,17 +139,10 @@ protected:
    * Constructs a ComputeContainer with the specified type identifier.
    * @param type A unique identifier for the container type.
    */
-  ComputeContainer(uint32_t type) : type_(type) {}
+  ComputeContainer(uint32_t type);
 
   /** Virtual destructor. Cleans up any remaining objects. */
-  virtual ~ComputeContainer() {
-    if (objects_.size() != freeHandles_.size()) {
-      logErr("Trying to destroy container before all objects in it have "
-             "been deallocated.");
-    }
-    objects_.clear();
-    freeHandles_.clear();
-  }
+  virtual ~ComputeContainer();
 
   /**
    * Pure virtual function to deallocate API-level objects.
@@ -164,45 +157,20 @@ protected:
    * @param handle The handle to look up.
    * @return Const reference to the handle's data.
    */
-  const HandleData &data(const ComputeHandle &handle) const {
-    if (!handle) {
-      throw std::runtime_error("Trying to get data for an empty handle");
-    }
-    verify(handle);
-
-    return objects_[handle.id_].data;
-  }
+  const HandleData &data(const ComputeHandle &handle) const;
 
   /**
    * Creates a new handle for the given data.
    * @param data The data to associate with the new handle.
    * @return A new ComputeHandle referencing the data.
    */
-  ComputeHandle createHandle(const HandleData &data) {
-    size_t index;
-    if (!freeHandles_.empty()) {
-      index = freeHandles_.back();
-      freeHandles_.pop_back();
-      objects_[index] = HandleStruct(data);
-    } else {
-      index = objects_.size();
-      objects_.emplace_back(HandleStruct(data));
-    }
-
-    return ComputeHandle(reinterpret_cast<ComputeContainer<> *>(this), index);
-  }
+  ComputeHandle createHandle(const HandleData &data);
 
   /**
    * Verifies that a handle is valid and belongs to this container.
    * @param handle The handle to verify.
    */
-  void verify(const ComputeHandle &handle) const {
-    if (handle.container_ !=
-        reinterpret_cast<const ComputeContainer<> *>(this)) {
-      throw std::runtime_error("Trying to get data for handle which does not "
-                               "belong to the container");
-    }
-  }
+  void verify(const ComputeHandle &handle) const;
 
 private:
   friend class ComputeHandle;
@@ -211,29 +179,14 @@ private:
    * Increments the reference count for a handle.
    * @param handle The handle whose reference count to increment.
    */
-  void addRef(const ComputeHandle &ref) {
-    // Add object reference
-    objects_[ref.id_].refCount++;
-  }
+  void addRef(const ComputeHandle &ref);
 
   /**
    * Decrements the reference count for a handle.
    * Destroys the object if the count reaches zero.
    * @param handle The handle whose reference count to decrement.
    */
-  void remRef(ComputeHandle &ref) {
-    // Reduce object reference
-    auto &objectRef = objects_[ref.id_];
-    objectRef.refCount--;
-    // If object references reached zero then object can be deallocated
-    if (objectRef.refCount == 0) {
-      // Deallocate the object based on API specific implementation
-      destroy(objectRef.data);
-      // Add object handle to free handle list
-      freeHandles_.push_back(ref.id_);
-      ref.container_ = nullptr;
-    }
-  }
+  void remRef(ComputeHandle &ref);
 
   std::vector<HandleStruct> objects_; ///< Storage for all managed objects.
   std::vector<size_t> freeHandles_;   ///< Pool of reusable handle IDs.
