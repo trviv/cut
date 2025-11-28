@@ -56,24 +56,6 @@ protected:
     void *data_; ///< Raw storage for the handle data.
   };
 
-  /**
-   * Complete handle storage structure containing reference count and data.
-   */
-  class HandleStruct final {
-  public:
-    /**
-     * Constructs a HandleStruct with the given data and zero reference count.
-     * @param data The handle data to store.
-     */
-    HandleStruct(const HandleData &data) : refCount(0), data(data) {}
-
-  private:
-    friend class ComputeContainer;
-
-    size_t refCount; ///< Number of active references to this object.
-    HandleData data; ///< The stored handle data.
-  };
-
 protected:
   /**
    * Constructs a ComputeContainer with the specified type identifier.
@@ -128,8 +110,9 @@ private:
    */
   void remRef(ComputeHandle &ref);
 
-  std::vector<HandleStruct> objects_; ///< Storage for all managed objects.
-  std::vector<size_t> freeHandles_;   ///< Pool of reusable handle IDs.
+  std::vector<HandleData> objects_; ///< Storage for all managed object data.
+  std::vector<size_t> refCounts_;   ///< Reference counts for each object.
+  std::vector<size_t> freeHandles_; ///< Pool of reusable handle IDs.
   const uint32_t type_; ///< Unique type identifier for this container.
 };
 

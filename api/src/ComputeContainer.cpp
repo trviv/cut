@@ -10,6 +10,7 @@ ComputeContainer::~ComputeContainer() {
            "been deallocated.");
   }
   objects_.clear();
+  refCounts_.clear();
   freeHandles_.clear();
 }
 
@@ -20,7 +21,7 @@ ComputeContainer::data(const ComputeHandle &handle) const {
   }
   verify(handle);
 
-  return objects_[handle.id_].data;
+  return objects_[handle.id_];
 }
 
 ComputeHandle ComputeContainer::createHandle(const HandleData &data) {
@@ -28,10 +29,12 @@ ComputeHandle ComputeContainer::createHandle(const HandleData &data) {
   if (!freeHandles_.empty()) {
     index = freeHandles_.back();
     freeHandles_.pop_back();
-    objects_[index] = HandleStruct(data);
+    objects_[index] = data;
+    refCounts_[index] = 0;
   } else {
     index = objects_.size();
-    objects_.emplace_back(HandleStruct(data));
+    objects_.emplace_back(data);
+    refCounts_.emplace_back(0);
   }
 
   return ComputeHandle(this, index);
@@ -45,14 +48,13 @@ void ComputeContainer::verify(const ComputeHandle &handle) const {
 }
 
 void ComputeContainer::addRef(const ComputeHandle &ref) {
-  objects_[ref.id_].refCount++;
+  refCounts_[ref.id_]++;
 }
 
 void ComputeContainer::remRef(ComputeHandle &ref) {
-  auto &objectRef = objects_[ref.id_];
-  objectRef.refCount--;
-  if (objectRef.refCount == 0) {
-    destroy(objectRef.data);
+  refCounts_[ref.id_]--;
+  if (refCounts_[ref.id_] == 0) {
+    destroy(objects_[ref.id_]);
     freeHandles_.push_back(ref.id_);
     ref.container_ = nullptr;
   }

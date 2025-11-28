@@ -58,7 +58,8 @@ private:
   ComputeHandle(ComputeContainer *container, size_t handleId);
 
   size_t id_; ///< Handle ID within its container.
-  ComputeContainer *container_; ///< Compute object container the handle belongs to.
+  ComputeContainer
+      *container_; ///< Compute object container the handle belongs to.
 };
 
 } // namespace cut
