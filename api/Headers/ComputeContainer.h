@@ -66,12 +66,6 @@ protected:
    */
   size_t freeSlotCount() const { return freeHandles_.size(); }
 
-  /**
-   * Marks a slot as reusable after its data has been cleared.
-   * @param index The slot index to mark as free.
-   */
-  void markSlotFree(size_t index);
-
 private:
   friend class ComputeHandle;
 

@@ -35,10 +35,6 @@ void ComputeContainer::verify(const ComputeHandle &handle) const {
   }
 }
 
-void ComputeContainer::markSlotFree(size_t index) {
-  freeHandles_.push_back(index);
-}
-
 void ComputeContainer::addRef(const ComputeHandle &ref) {
   refCounts_[ref.id_]++;
 }
