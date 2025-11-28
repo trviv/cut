@@ -70,9 +70,9 @@ protected:
    * Pure virtual function to deallocate API-level objects.
    * Must be implemented by derived classes to perform proper cleanup.
    * Called automatically when an object's reference count reaches zero.
-   * @param data The handle data for the object to destroy.
+   * @param id The handle ID for the object to destroy.
    */
-  virtual void destroy(HandleData &data) = 0;
+  virtual void destroy(size_t id) = 0;
 
   /**
    * Retrieves the data associated with a handle.
@@ -94,6 +94,8 @@ protected:
    */
   void verify(const ComputeHandle &handle) const;
 
+  std::vector<HandleData> objects_; ///< Storage for all managed object data.
+
 private:
   friend class ComputeHandle;
 
@@ -110,7 +112,6 @@ private:
    */
   void remRef(ComputeHandle &ref);
 
-  std::vector<HandleData> objects_; ///< Storage for all managed object data.
   std::vector<size_t> refCounts_;   ///< Reference counts for each object.
   std::vector<size_t> freeHandles_; ///< Pool of reusable handle IDs.
   const uint32_t type_; ///< Unique type identifier for this container.

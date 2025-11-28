@@ -9,7 +9,7 @@ class TestContainer : public ComputeContainer {
 public:
   TestContainer() : ComputeContainer(100) {}
 
-  void destroy(HandleData &data) override { destroyCount_++; }
+  void destroy(size_t id) override { destroyCount_++; }
 
   ComputeHandle createTestHandle(uint32_t value) { return createHandle(value); }
 

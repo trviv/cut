@@ -3,8 +3,8 @@
 
 namespace cut {
 
-void VulkanBufferContainer::destroy(HandleData &data) {
-  auto *bufferPtr = get(data);
+void VulkanBufferContainer::destroy(size_t id) {
+  auto *bufferPtr = objects_[id].get<VulkanBufferStruct *>();
   if (bufferPtr == nullptr) {
     // Skip null handle
     return;
@@ -35,8 +35,8 @@ void VulkanBufferContainer::destroy(HandleData &data) {
   delete bufferPtr;
 }
 
-void VulkanShaderContainer::destroy(HandleData &data) {
-  const auto shaderData = get(data);
+void VulkanShaderContainer::destroy(size_t id) {
+  auto *shaderData = objects_[id].get<VulkanShaderStruct *>();
   if (shaderData == nullptr) {
     // Skip null handle
     return;

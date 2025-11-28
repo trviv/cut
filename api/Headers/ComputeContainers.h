@@ -95,12 +95,12 @@ private:
 
 /**
  * @def CONTAINER_DELETE_METHOD_IMPL(STRUCT_NAME)
- * Macro that generates a deletion method for handle data.
- * Safely deletes the pointer stored in handle data if non-null.
+ * Macro that generates a deletion method for handle ID.
+ * Safely deletes the pointer stored at the given ID if non-null.
  */
 #define CONTAINER_DELETE_METHOD_IMPL(STRUCT_NAME)                              \
-  void deleteHandlePtr(HandleData &handleData) {                               \
-    auto *ptr = get(handleData);                                               \
+  void deleteHandlePtr(size_t id) {                                            \
+    auto *ptr = objects_[id].get<STRUCT_NAME *>();                             \
     if (ptr != nullptr) {                                                      \
       delete ptr;                                                              \
     }                                                                          \
@@ -181,9 +181,9 @@ private:
 
   /**
    * Destroys a dispatch object when its reference count reaches zero.
-   * @param data The handle data containing the pointer to delete.
+   * @param id The handle ID of the object to delete.
    */
-  void destroy(HandleData &data) override { deleteHandlePtr(data); }
+  void destroy(size_t id) override { deleteHandlePtr(id); }
 };
 
 /**
@@ -197,13 +197,13 @@ private:
   /** Constructs a DispatchListContainer with type ID 2. */
   DispatchListContainer() : ComputeContainer(2) {}
   CONTAINER_METHODS_IMPL(DispatchList);
-  CONTAINER_DELETE_METHOD_IMPL(ComputeDispatch);
+  CONTAINER_DELETE_METHOD_IMPL(DispatchList);
 
   /**
    * Destroys a dispatch list object when its reference count reaches zero.
-   * @param data The handle data containing the pointer to delete.
+   * @param id The handle ID of the object to delete.
    */
-  void destroy(HandleData &data) override { deleteHandlePtr(data); }
+  void destroy(size_t id) override { deleteHandlePtr(id); }
 };
 
 } // namespace cut

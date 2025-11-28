@@ -19,7 +19,7 @@ private:
   IF_VMA_DISABLED_THEN(VkDevice device_);
 
   /// Destroys a buffer and frees its associated GPU memory.
-  void destroy(HandleData &data) override;
+  void destroy(size_t id) override;
 };
 
 /// Container managing shader module allocations and their lifecycle.
@@ -35,7 +35,7 @@ private:
   VkDevice device_;
 
   /// Destroys a shader module and releases its Vulkan resources.
-  void destroy(HandleData &data) override;
+  void destroy(size_t id) override;
 };
 
 } // namespace cut
