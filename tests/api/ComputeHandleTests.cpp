@@ -4,7 +4,7 @@
 
 using namespace cut;
 
-/// Mock container for testing ComputeHandle behavior.
+/// Mock container for testing ComputeHandle behavior with non-pointer types.
 class TestContainer : public ComputeDataContainer<uint32_t> {
 public:
   TestContainer() : ComputeDataContainer<uint32_t>(100) {}
@@ -16,6 +16,60 @@ public:
   }
 
   uint32_t getValue(const ComputeHandle &handle) { return get(handle); }
+
+  size_t getSlotCount() const { return slotCount(); }
+  size_t getFreeSlotCount() const { return freeSlotCount(); }
+
+  int destroyCount_ = 0;
+};
+
+/// Test struct for pointer-type container tests.
+struct TestStruct {
+  int value;
+  static int instanceCount;
+
+  TestStruct(int v = 0) : value(v) { instanceCount++; }
+  ~TestStruct() { instanceCount--; }
+
+  // Non-copyable to detect improper copying
+  TestStruct(const TestStruct &) = delete;
+  TestStruct &operator=(const TestStruct &) = delete;
+
+  TestStruct(TestStruct &&other) : value(other.value) {
+    other.value = 0;
+    instanceCount++;
+  }
+  TestStruct &operator=(TestStruct &&other) {
+    value = other.value;
+    other.value = 0;
+    return *this;
+  }
+};
+
+int TestStruct::instanceCount = 0;
+
+/// Mock container for testing pointer-type storage (detects memory leaks).
+class PointerTestContainer : public ComputeDataContainer<TestStruct *> {
+public:
+  PointerTestContainer() : ComputeDataContainer<TestStruct *>(101) {}
+
+  void destroy(size_t id) override {
+    auto *ptr = objects_[id].get();
+    if (ptr != nullptr) {
+      delete ptr;
+      destroyCount_++;
+    }
+  }
+
+  ComputeHandle createTestHandle(int value) {
+    return ComputeDataContainer<TestStruct *>::createHandle(
+        new TestStruct(value));
+  }
+
+  TestStruct *getValue(const ComputeHandle &handle) { return get(handle); }
+
+  size_t getSlotCount() const { return slotCount(); }
+  size_t getFreeSlotCount() const { return freeSlotCount(); }
 
   int destroyCount_ = 0;
 };
@@ -116,4 +170,202 @@ TEST_F(ComputeHandleTest, MultipleReferencesPreventDestruction) {
 
   handle2.reset();
   EXPECT_EQ(container_->destroyCount_, 1);
+}
+
+// Boundary condition tests
+
+TEST_F(ComputeHandleTest, GetOnEmptyHandleThrows) {
+  ComputeHandle empty;
+  EXPECT_THROW(container_->getValue(empty), std::runtime_error);
+}
+
+TEST_F(ComputeHandleTest, SlotReuseAfterDestroy) {
+  // Create and destroy a handle
+  {
+    auto handle = container_->createTestHandle(42);
+    EXPECT_EQ(container_->getSlotCount(), 1);
+    EXPECT_EQ(container_->getFreeSlotCount(), 0);
+  }
+
+  // Slot should now be free
+  EXPECT_EQ(container_->getSlotCount(), 1);
+  EXPECT_EQ(container_->getFreeSlotCount(), 1);
+
+  // Create a new handle - should reuse the freed slot
+  auto handle2 = container_->createTestHandle(100);
+  EXPECT_EQ(container_->getSlotCount(), 1);
+  EXPECT_EQ(container_->getFreeSlotCount(), 0);
+  EXPECT_EQ(container_->getValue(handle2), 100);
+}
+
+TEST_F(ComputeHandleTest, ManyHandlesSlotManagement) {
+  constexpr size_t NUM_HANDLES = 100;
+  std::vector<ComputeHandle> handles;
+
+  // Create many handles
+  for (size_t i = 0; i < NUM_HANDLES; i++) {
+    handles.push_back(container_->createTestHandle(static_cast<uint32_t>(i)));
+  }
+
+  EXPECT_EQ(container_->getSlotCount(), NUM_HANDLES);
+  EXPECT_EQ(container_->getFreeSlotCount(), 0);
+
+  // Release half of them
+  for (size_t i = 0; i < NUM_HANDLES / 2; i++) {
+    handles[i].reset();
+  }
+
+  EXPECT_EQ(container_->getSlotCount(), NUM_HANDLES);
+  EXPECT_EQ(container_->getFreeSlotCount(), NUM_HANDLES / 2);
+  EXPECT_EQ(container_->destroyCount_, static_cast<int>(NUM_HANDLES / 2));
+
+  // Create new handles - should reuse freed slots
+  for (size_t i = 0; i < NUM_HANDLES / 2; i++) {
+    handles[i] = container_->createTestHandle(static_cast<uint32_t>(i + 1000));
+  }
+
+  EXPECT_EQ(container_->getSlotCount(), NUM_HANDLES);
+  EXPECT_EQ(container_->getFreeSlotCount(), 0);
+}
+
+TEST_F(ComputeHandleTest, ResetOnAlreadyInvalidHandle) {
+  ComputeHandle handle;
+  EXPECT_FALSE(handle);
+  EXPECT_NO_THROW(handle.reset());
+  EXPECT_FALSE(handle);
+}
+
+TEST_F(ComputeHandleTest, MoveFromInvalidHandle) {
+  ComputeHandle invalid;
+  ComputeHandle moved(std::move(invalid));
+  EXPECT_FALSE(moved);
+}
+
+TEST_F(ComputeHandleTest, AssignValidToInvalid) {
+  ComputeHandle invalid;
+  auto valid = container_->createTestHandle(42);
+
+  invalid = valid;
+
+  EXPECT_TRUE(invalid);
+  EXPECT_TRUE(valid);
+  EXPECT_EQ(container_->getValue(invalid), 42);
+}
+
+// Pointer-type container tests with memory leak detection
+
+class PointerContainerTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    TestStruct::instanceCount = 0;
+    container_ = std::make_unique<PointerTestContainer>();
+  }
+
+  void TearDown() override {
+    container_.reset();
+    // Verify no memory leaks
+    EXPECT_EQ(TestStruct::instanceCount, 0)
+        << "Memory leak detected: " << TestStruct::instanceCount
+        << " TestStruct instances not freed";
+  }
+
+  std::unique_ptr<PointerTestContainer> container_;
+};
+
+TEST_F(PointerContainerTest, CreateAndDestroyHandle) {
+  EXPECT_EQ(TestStruct::instanceCount, 0);
+
+  {
+    auto handle = container_->createTestHandle(42);
+    EXPECT_EQ(TestStruct::instanceCount, 1);
+    EXPECT_EQ(container_->getValue(handle)->value, 42);
+  }
+
+  EXPECT_EQ(container_->destroyCount_, 1);
+  EXPECT_EQ(TestStruct::instanceCount, 0);
+}
+
+TEST_F(PointerContainerTest, MultipleHandlesNoLeak) {
+  constexpr int NUM_HANDLES = 10;
+
+  {
+    std::vector<ComputeHandle> handles;
+    for (int i = 0; i < NUM_HANDLES; i++) {
+      handles.push_back(container_->createTestHandle(i));
+    }
+    EXPECT_EQ(TestStruct::instanceCount, NUM_HANDLES);
+  }
+
+  EXPECT_EQ(container_->destroyCount_, NUM_HANDLES);
+  EXPECT_EQ(TestStruct::instanceCount, 0);
+}
+
+TEST_F(PointerContainerTest, CopiedHandlesNoDoubleFree) {
+  {
+    auto handle1 = container_->createTestHandle(42);
+    EXPECT_EQ(TestStruct::instanceCount, 1);
+
+    ComputeHandle handle2 = handle1;
+    // Still only one instance - copied handle points to same object
+    EXPECT_EQ(TestStruct::instanceCount, 1);
+
+    ComputeHandle handle3 = handle1;
+    EXPECT_EQ(TestStruct::instanceCount, 1);
+  }
+
+  // All handles gone, should be exactly one destroy call
+  EXPECT_EQ(container_->destroyCount_, 1);
+  EXPECT_EQ(TestStruct::instanceCount, 0);
+}
+
+TEST_F(PointerContainerTest, SlotReuseWithPointers) {
+  // Create and destroy
+  {
+    auto handle = container_->createTestHandle(1);
+    EXPECT_EQ(TestStruct::instanceCount, 1);
+  }
+  EXPECT_EQ(TestStruct::instanceCount, 0);
+
+  // Create another - should reuse slot
+  {
+    auto handle = container_->createTestHandle(2);
+    EXPECT_EQ(TestStruct::instanceCount, 1);
+    EXPECT_EQ(container_->getValue(handle)->value, 2);
+  }
+  EXPECT_EQ(TestStruct::instanceCount, 0);
+  EXPECT_EQ(container_->destroyCount_, 2);
+}
+
+TEST_F(PointerContainerTest, PartialReleaseNoLeak) {
+  std::vector<ComputeHandle> handles;
+
+  // Create 10 handles
+  for (int i = 0; i < 10; i++) {
+    handles.push_back(container_->createTestHandle(i));
+  }
+  EXPECT_EQ(TestStruct::instanceCount, 10);
+
+  // Release every other one
+  for (size_t i = 0; i < handles.size(); i += 2) {
+    handles[i].reset();
+  }
+  EXPECT_EQ(TestStruct::instanceCount, 5);
+  EXPECT_EQ(container_->destroyCount_, 5);
+
+  // Clear the rest
+  handles.clear();
+  EXPECT_EQ(TestStruct::instanceCount, 0);
+  EXPECT_EQ(container_->destroyCount_, 10);
+}
+
+// Cross-container tests
+
+TEST(CrossContainerTest, HandleFromDifferentContainerThrows) {
+  TestContainer container1;
+  TestContainer container2;
+
+  auto handle = container1.createTestHandle(42);
+
+  // Trying to get value from wrong container should throw
+  EXPECT_THROW(container2.getValue(handle), std::runtime_error);
 }
