@@ -15,7 +15,7 @@ public:
     return createHandle(std::move(value));
   }
 
-  uint32_t getValue(const ComputeHandle &handle) { return data(handle).get(); }
+  uint32_t getValue(const ComputeHandle &handle) { return get(handle); }
 
   int destroyCount_ = 0;
 };

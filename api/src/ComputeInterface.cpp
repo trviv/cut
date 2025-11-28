@@ -8,7 +8,7 @@ ComputeInterface::createDispatch(const ComputeHandle &shader,
                                  const std::vector<ComputeBinding> &bindings,
                                  const ComputeHandle &refDispatchHandle) {
   if (refDispatchHandle &&
-      dispatchContainer_.data(refDispatchHandle).get().referenceDispatchHandle_) {
+      dispatchContainer_.get(refDispatchHandle).referenceDispatchHandle_) {
     logErr("Creating dispatch to a reference which itself is a reference, "
            "is not allowed.");
   }

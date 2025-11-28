@@ -104,21 +104,21 @@ template <typename DataType>
 class ComputeDataContainer : public ComputeContainer {
   static constexpr bool IsPointer = std::is_pointer<DataType>::value;
 
+  /// Helper to enable methods only for pointer types
+  template <bool P = IsPointer>
+  using EnableIfPointer = typename std::enable_if<P, int>::type;
+
+  /// Helper to enable methods only for non-pointer types
+  template <bool P = IsPointer>
+  using EnableIfNotPointer = typename std::enable_if<!P, int>::type;
+
 protected:
   /**
    * Storage for handle data.
-   * For pointer types: type-erased storage via memcpy.
+   * For pointer types: direct pointer storage.
    * For non-pointer types: direct storage with move semantics.
    */
   class HandleData final {
-    /// Helper to enable constructors/methods only for pointer types
-    template <bool P = IsPointer>
-    using EnableIfPointer = typename std::enable_if<P, int>::type;
-
-    /// Helper to enable constructors/methods only for non-pointer types
-    template <bool P = IsPointer>
-    using EnableIfNotPointer = typename std::enable_if<!P, int>::type;
-
   public:
     HandleData() = default;
 
@@ -192,25 +192,51 @@ protected:
     objects_.clear();
   }
 
-  const HandleData &data(const ComputeHandle &handle) const {
+  /**
+   * Retrieves the stored data for a handle (pointer types).
+   * @param handle The handle to get data for.
+   * @return The stored pointer value.
+   */
+  template <bool P = IsPointer, EnableIfPointer<P> = 0>
+  DataType get(const ComputeHandle &handle) const {
     if (!handle) {
       throw std::runtime_error("Trying to get data for an empty handle");
     }
     verify(handle);
-    return objects_[handle.id_];
-  }
-
-  HandleData &data(const ComputeHandle &handle) {
-    if (!handle) {
-      throw std::runtime_error("Trying to get data for an empty handle");
-    }
-    verify(handle);
-    return objects_[handle.id_];
+    return objects_[handle.id_].get();
   }
 
   /**
-   * Creates a new handle for the given data (pointer types).
-   * @param hdata The HandleData to store.
+   * Retrieves a const reference to the stored data (non-pointer types).
+   * @param handle The handle to get data for.
+   * @return Const reference to the stored data.
+   */
+  template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
+  const DataType &get(const ComputeHandle &handle) const {
+    if (!handle) {
+      throw std::runtime_error("Trying to get data for an empty handle");
+    }
+    verify(handle);
+    return objects_[handle.id_].get();
+  }
+
+  /**
+   * Retrieves a mutable reference to the stored data (non-pointer types).
+   * @param handle The handle to get data for.
+   * @return Mutable reference to the stored data.
+   */
+  template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
+  DataType &get(const ComputeHandle &handle) {
+    if (!handle) {
+      throw std::runtime_error("Trying to get data for an empty handle");
+    }
+    verify(handle);
+    return objects_[handle.id_].get();
+  }
+
+  /**
+   * Creates a new handle for the given data.
+   * @param hdata The data to store.
    * @return A new ComputeHandle referencing the data.
    */
   ComputeHandle createHandle(DataType &&hdata) {

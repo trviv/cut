@@ -34,11 +34,7 @@ public:
     return createHandle(static_cast<uint32_t>(floatCounter_++));
   }
 
-  uint32_t getIntData(cut::ComputeHandle &handle) {
-    return data(handle).get();
-  }
+  uint32_t getIntData(cut::ComputeHandle &handle) { return get(handle); }
 
-  uint32_t getFloatData(cut::ComputeHandle &handle) {
-    return data(handle).get();
-  }
+  uint32_t getFloatData(cut::ComputeHandle &handle) { return get(handle); }
 };
