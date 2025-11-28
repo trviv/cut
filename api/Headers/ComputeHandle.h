@@ -49,6 +49,7 @@ public:
 
 private:
   friend class ComputeContainer;
+  friend class ComputeDataContainer;
 
   /**
    * Private constructor used by ComputeContainer to create valid handles.

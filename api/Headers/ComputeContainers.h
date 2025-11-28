@@ -73,7 +73,7 @@ private:
  */
 #define CONTAINER_METHODS_IMPL(STRUCT_NAME)                                    \
   ComputeHandle createHandle(STRUCT_NAME &&structData) {                       \
-    return ComputeContainer::createHandle(                                     \
+    return ComputeDataContainer::createHandle(                                 \
         new STRUCT_NAME(std::move(structData)));                               \
   }                                                                            \
                                                                                \
@@ -170,12 +170,12 @@ private:
  * Container for managing ComputeDispatch handles.
  * Provides creation, retrieval, and automatic cleanup of dispatch objects.
  */
-class DispatchContainer final : public ComputeContainer {
+class DispatchContainer final : public ComputeDataContainer {
 private:
   friend class ComputeInterface;
 
   /** Constructs a DispatchContainer with type ID 1. */
-  DispatchContainer() : ComputeContainer(1) {}
+  DispatchContainer() : ComputeDataContainer(1) {}
   CONTAINER_METHODS_IMPL(ComputeDispatch);
   CONTAINER_DELETE_METHOD_IMPL(ComputeDispatch);
 
@@ -190,12 +190,12 @@ private:
  * Container for managing DispatchList handles.
  * Provides creation, retrieval, and automatic cleanup of dispatch list objects.
  */
-class DispatchListContainer final : public ComputeContainer {
+class DispatchListContainer final : public ComputeDataContainer {
 private:
   friend class ComputeInterface;
 
   /** Constructs a DispatchListContainer with type ID 2. */
-  DispatchListContainer() : ComputeContainer(2) {}
+  DispatchListContainer() : ComputeDataContainer(2) {}
   CONTAINER_METHODS_IMPL(DispatchList);
   CONTAINER_DELETE_METHOD_IMPL(DispatchList);
 

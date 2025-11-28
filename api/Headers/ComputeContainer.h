@@ -13,13 +13,92 @@ namespace cut {
 extern void logErr(const char *format, ...);
 
 /**
- * Base container class for managing compute objects such as buffers,
- * textures, shaders, etc.
+ * Base container class for managing compute object handles.
  *
  * Handles reference counting automatically - objects are deleted when
  * their reference count reaches zero.
  */
 class ComputeContainer {
+protected:
+  /**
+   * Constructs a ComputeContainer with the specified type identifier.
+   * @param type A unique identifier for the container type.
+   */
+  ComputeContainer(uint32_t type);
+
+  /** Virtual destructor. Cleans up any remaining objects. */
+  virtual ~ComputeContainer();
+
+  /**
+   * Pure virtual function to deallocate API-level objects.
+   * Must be implemented by derived classes to perform proper cleanup.
+   * Called automatically when an object's reference count reaches zero.
+   * @param id The handle ID for the object to destroy.
+   */
+  virtual void destroy(size_t id) = 0;
+
+  /**
+   * Allocates a new handle slot.
+   * @return The index of the allocated slot.
+   */
+  size_t allocateSlot();
+
+  /**
+   * Creates a new handle for the given slot index.
+   * @param index The slot index to create a handle for.
+   * @return A new ComputeHandle referencing the slot.
+   */
+  ComputeHandle createHandleFromSlot(size_t index);
+
+  /**
+   * Verifies that a handle is valid and belongs to this container.
+   * @param handle The handle to verify.
+   */
+  void verify(const ComputeHandle &handle) const;
+
+  /**
+   * Returns the number of allocated slots.
+   */
+  size_t slotCount() const { return refCounts_.size(); }
+
+  /**
+   * Returns the number of free handle slots.
+   */
+  size_t freeSlotCount() const { return freeHandles_.size(); }
+
+  /**
+   * Marks a slot as reusable after its data has been cleared.
+   * @param index The slot index to mark as free.
+   */
+  void markSlotFree(size_t index);
+
+private:
+  friend class ComputeHandle;
+
+  /**
+   * Increments the reference count for a handle.
+   * @param handle The handle whose reference count to increment.
+   */
+  void addRef(const ComputeHandle &ref);
+
+  /**
+   * Decrements the reference count for a handle.
+   * Destroys the object if the count reaches zero.
+   * @param handle The handle whose reference count to decrement.
+   */
+  void remRef(ComputeHandle &ref);
+
+  std::vector<size_t> refCounts_;   ///< Reference counts for each object.
+  std::vector<size_t> freeHandles_; ///< Pool of reusable handle IDs.
+  const uint32_t type_; ///< Unique type identifier for this container.
+};
+
+/**
+ * Container class that adds data storage to ComputeContainer.
+ *
+ * Provides type-erased storage for handle data and associated methods.
+ */
+class ComputeDataContainer : public ComputeContainer {
 protected:
   /**
    * Type-erased storage for handle data.
@@ -35,7 +114,7 @@ protected:
     template <typename T>
     HandleData(const T data) {
       static_assert(sizeof(T) <= sizeof(void *),
-                    "ComputeContainer can't store data larger than: "
+                    "ComputeDataContainer can't store data larger than: "
                     "sizeof(void*)");
       std::memcpy(&data_, &data, sizeof(T));
     }
@@ -58,21 +137,13 @@ protected:
 
 protected:
   /**
-   * Constructs a ComputeContainer with the specified type identifier.
+   * Constructs a ComputeDataContainer with the specified type identifier.
    * @param type A unique identifier for the container type.
    */
-  ComputeContainer(uint32_t type);
+  ComputeDataContainer(uint32_t type);
 
-  /** Virtual destructor. Cleans up any remaining objects. */
-  virtual ~ComputeContainer();
-
-  /**
-   * Pure virtual function to deallocate API-level objects.
-   * Must be implemented by derived classes to perform proper cleanup.
-   * Called automatically when an object's reference count reaches zero.
-   * @param id The handle ID for the object to destroy.
-   */
-  virtual void destroy(size_t id) = 0;
+  /** Virtual destructor. */
+  virtual ~ComputeDataContainer();
 
   /**
    * Retrieves the data associated with a handle.
@@ -88,33 +159,7 @@ protected:
    */
   ComputeHandle createHandle(const HandleData &data);
 
-  /**
-   * Verifies that a handle is valid and belongs to this container.
-   * @param handle The handle to verify.
-   */
-  void verify(const ComputeHandle &handle) const;
-
   std::vector<HandleData> objects_; ///< Storage for all managed object data.
-
-private:
-  friend class ComputeHandle;
-
-  /**
-   * Increments the reference count for a handle.
-   * @param handle The handle whose reference count to increment.
-   */
-  void addRef(const ComputeHandle &ref);
-
-  /**
-   * Decrements the reference count for a handle.
-   * Destroys the object if the count reaches zero.
-   * @param handle The handle whose reference count to decrement.
-   */
-  void remRef(ComputeHandle &ref);
-
-  std::vector<size_t> refCounts_;   ///< Reference counts for each object.
-  std::vector<size_t> freeHandles_; ///< Pool of reusable handle IDs.
-  const uint32_t type_; ///< Unique type identifier for this container.
 };
 
 } // namespace cut
