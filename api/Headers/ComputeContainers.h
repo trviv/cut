@@ -9,11 +9,6 @@ namespace cut {
 class ComputeInterface;
 
 /**
- * A list of dispatch handles to be executed sequentially.
- */
-using DispatchList = std::vector<ComputeHandle>;
-
-/**
  * Represents a binding for a compute dispatch operation.
  * Can hold either a ComputeHandle (for buffers/textures) or owned data.
  * Data is copied and owned by this struct.
@@ -71,19 +66,6 @@ private:
  */
 class ComputeDispatch final {
 public:
-  /** Deleted copy constructor. */
-  ComputeDispatch(const ComputeDispatch &) = delete;
-
-  /** Default move constructor. */
-  ComputeDispatch(ComputeDispatch &&) = default;
-
-  /** Default move assignment operator. */
-  ComputeDispatch &operator=(ComputeDispatch &&) = default;
-
-private:
-  friend class DispatchContainer;
-  friend class ComputeInterface;
-
   /**
    * Constructs a ComputeDispatch with optional parameters.
    * @param shaderHandle Handle to the compute shader.
@@ -96,6 +78,18 @@ private:
                   const ThreadGroupSize &tgSize = {},
                   const std::vector<ComputeBinding> &bindings = {},
                   const ComputeHandle &refDispatchHandle = {});
+
+  /** Deleted copy constructor. */
+  ComputeDispatch(const ComputeDispatch &) = delete;
+
+  /** Default move constructor. */
+  ComputeDispatch(ComputeDispatch &&) = default;
+
+  /** Default move assignment operator. */
+  ComputeDispatch &operator=(ComputeDispatch &&) = default;
+
+private:
+  friend class ComputeInterface;
 
   /**
    * Binds a shader to this dispatch.
@@ -148,37 +142,6 @@ private:
     // Reset the stored object to release any handles it holds
     objects_[id] = HandleData(ComputeDispatch{});
   }
-};
-
-/**
- * Container for managing DispatchList handles.
- * Provides creation, retrieval, and automatic cleanup of dispatch list objects.
- */
-class DispatchListContainer final
-    : public ComputeDataContainer<DispatchList *> {
-private:
-  friend class ComputeInterface;
-
-  /** Constructs a DispatchListContainer with type ID 2. */
-  DispatchListContainer() : ComputeDataContainer<DispatchList *>(2) {}
-
-  ComputeHandle createHandle(DispatchList &&structData) {
-    return ComputeDataContainer<DispatchList *>::createHandle(
-        new DispatchList(std::move(structData)));
-  }
-
-  void deleteHandlePtr(size_t id) {
-    auto *ptr = objects_[id].get();
-    if (ptr != nullptr) {
-      delete ptr;
-    }
-  }
-
-  /**
-   * Destroys a dispatch list object when its reference count reaches zero.
-   * @param id The handle ID of the object to delete.
-   */
-  void destroy(size_t id) override { deleteHandlePtr(id); }
 };
 
 } // namespace cut

@@ -81,25 +81,11 @@ public:
   createShaderModule(const std::vector<uint32_t> &spirvCode) = 0;
 
   /**
-   * Creates a new compute dispatch with the specified parameters.
-   * @param shaderHandle Handle to the compute shader.
-   * @param tgSize Thread group dimensions for the dispatch.
-   * @param bindings Vector of compute bindings (handles or data references).
-   * @param refDispatchHandle Optional handle to a reference dispatch for
-   * copying settings.
-   * @return Handle to the created dispatch.
+   * Registers a compute dispatch object and returns a handle to it.
+   * @param dispatch The compute dispatch object to register (moved).
+   * @return Handle to the registered dispatch.
    */
-  ComputeHandle createDispatch(const ComputeHandle &shaderHandle = {},
-                               const ThreadGroupSize &tgSize = {},
-                               const std::vector<ComputeBinding> &bindings = {},
-                               const ComputeHandle &refDispatchHandle = {});
-
-  /**
-   * Creates a dispatch list from a vector of dispatch handles.
-   * @param dispatches Vector of dispatch handles to include in the list.
-   * @return Handle to the created dispatch list.
-   */
-  ComputeHandle createDispatchList(DispatchList &&dispatches);
+  ComputeHandle registerDispatch(ComputeDispatch &&dispatch);
 
   /**
    * Submits a dispatch or dispatch list for GPU execution.
@@ -109,8 +95,6 @@ public:
 
 protected:
   DispatchContainer dispatchContainer_; ///< Container for dispatch handles.
-  DispatchListContainer
-      dispatchListContainer_; ///< Container for dispatch list handles.
 };
 
 } // namespace cut

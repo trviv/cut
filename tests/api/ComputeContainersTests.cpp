@@ -48,54 +48,40 @@ protected:
 
 // ComputeDispatch tests via ComputeInterface
 
-TEST_F(ComputeContainersTest, CreateDispatch) {
-  auto dispatch = interface_->createDispatch();
+TEST_F(ComputeContainersTest, RegisterDispatch) {
+  auto dispatch = interface_->registerDispatch({});
   EXPECT_TRUE(dispatch);
 }
 
-TEST_F(ComputeContainersTest, CreateMultipleDispatches) {
-  auto dispatch1 = interface_->createDispatch();
-  auto dispatch2 = interface_->createDispatch();
-  auto dispatch3 = interface_->createDispatch();
+TEST_F(ComputeContainersTest, RegisterMultipleDispatches) {
+  auto dispatch1 = interface_->registerDispatch({});
+  auto dispatch2 = interface_->registerDispatch({});
+  auto dispatch3 = interface_->registerDispatch({});
 
   EXPECT_TRUE(dispatch1);
   EXPECT_TRUE(dispatch2);
   EXPECT_TRUE(dispatch3);
 }
 
-TEST_F(ComputeContainersTest, CreateDispatchWithThreadGroupSize) {
+TEST_F(ComputeContainersTest, RegisterDispatchWithThreadGroupSize) {
   ThreadGroupSize tgs{8, 8, 1};
-  auto dispatch = interface_->createDispatch({}, tgs);
+  auto dispatch = interface_->registerDispatch({{}, tgs});
   EXPECT_TRUE(dispatch);
 }
 
-TEST_F(ComputeContainersTest, CreateDispatchWithRef) {
-  auto dispatch1 = interface_->createDispatch();
-  auto dispatch2 = interface_->createDispatch({}, {}, {}, dispatch1);
+TEST_F(ComputeContainersTest, RegisterDispatchWithRef) {
+  auto dispatch1 = interface_->registerDispatch({});
+  auto dispatch2 = interface_->registerDispatch({{}, {}, {}, dispatch1});
 
   EXPECT_TRUE(dispatch1);
   EXPECT_TRUE(dispatch2);
 }
 
-TEST_F(ComputeContainersTest, CreateDispatchWithNestedRefThrows) {
-  auto dispatch1 = interface_->createDispatch();
-  auto dispatch2 = interface_->createDispatch({}, {}, {}, dispatch1);
+TEST_F(ComputeContainersTest, RegisterDispatchWithNestedRefThrows) {
+  auto dispatch1 = interface_->registerDispatch({});
+  auto dispatch2 = interface_->registerDispatch({{}, {}, {}, dispatch1});
 
-  EXPECT_THROW(interface_->createDispatch({}, {}, {}, dispatch2),
+  EXPECT_THROW(interface_->registerDispatch({{}, {}, {}, dispatch2}),
                std::runtime_error);
 }
 
-// DispatchList tests via ComputeInterface
-
-TEST_F(ComputeContainersTest, CreateEmptyDispatchList) {
-  auto list = interface_->createDispatchList({});
-  EXPECT_TRUE(list);
-}
-
-TEST_F(ComputeContainersTest, CreateDispatchListWithDispatches) {
-  auto dispatch1 = interface_->createDispatch();
-  auto dispatch2 = interface_->createDispatch();
-
-  auto list = interface_->createDispatchList({dispatch1, dispatch2});
-  EXPECT_TRUE(list);
-}

@@ -54,35 +54,17 @@ TEST_F(ComputeTestEnvironment, Dispatch) {
 
   auto shader = interface->createShaderModule({});
 
-  auto dispatch1 = interface->createDispatch(
-      shader, {1, 1, 1},
-      {ComputeBinding(0, buffer1), ComputeBinding(1, buffer2)});
+  auto dispatch1 = interface->registerDispatch(
+      {shader,
+       {1, 1, 1},
+       {ComputeBinding(0, buffer1), ComputeBinding(1, buffer2)}});
 
   // Create dispatch referencing dispatch1
-  auto dispatch2 = interface->createDispatch({}, {}, {}, dispatch1);
+  auto dispatch2 = interface->registerDispatch({{}, {}, {}, dispatch1});
 
   // Nested reference should throw
   EXPECT_THROW(auto dispatch3 =
-                   interface->createDispatch({}, {}, {}, dispatch2),
+                   interface->registerDispatch({{}, {}, {}, dispatch2}),
                std::runtime_error);
 }
 
-TEST_F(ComputeTestEnvironment, DispatchList) {
-  auto buffer1 = interface->createBuffer(0);
-  auto buffer2 = interface->createBuffer(1);
-
-  auto shader = interface->createShaderModule({});
-
-  auto dispatch1 = interface->createDispatch(
-      shader, {1, 1, 1},
-      {ComputeBinding(0, buffer1), ComputeBinding(1, buffer2)});
-
-  auto dispatch2 = interface->createDispatch(shader, {1, 1, 1},
-                                             {ComputeBinding(0, buffer1)});
-
-  auto dispatch3 = interface->createDispatch(shader, {1, 1, 1},
-                                             {ComputeBinding(0, buffer2)});
-
-  // Create dispatch referencing dispatch1
-  auto dispatch4 = interface->createDispatch({}, {}, {}, dispatch1);
-}
