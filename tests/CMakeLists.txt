@@ -91,6 +91,20 @@ if(NOT GTest_FOUND)
     )
 endif()
 
+# Sanitizer options
+option(ENABLE_ASAN "Enable AddressSanitizer" ON)
+option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" ON)
+
+if(ENABLE_ASAN)
+    target_compile_options(tests PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(tests PRIVATE -fsanitize=address)
+endif()
+
+if(ENABLE_UBSAN)
+    target_compile_options(tests PRIVATE -fsanitize=undefined)
+    target_link_options(tests PRIVATE -fsanitize=undefined)
+endif()
+
 # Discover tests
 include(GoogleTest)
 gtest_discover_tests(tests)

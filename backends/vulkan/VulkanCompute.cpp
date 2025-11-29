@@ -406,7 +406,7 @@ VulkanInstance::VulkanInstance() {
       VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
   };
 
-  std::vector<const char *> supportedExtensions;
+  std::vector<std::string> supportedExtensions;
 
   { // Get supported extensions
     uint32_t extensionCount = 0;
@@ -419,7 +419,7 @@ VulkanInstance::VulkanInstance() {
 
     supportedExtensions.reserve(extensionProperties.size());
     for (auto &extensionProperty : extensionProperties) {
-      supportedExtensions.push_back(extensionProperty.extensionName);
+      supportedExtensions.emplace_back(extensionProperty.extensionName);
     }
     logMsg("Supported extensions", supportedExtensions);
   }
@@ -431,8 +431,8 @@ VulkanInstance::VulkanInstance() {
     for (const auto &requestedExtension : requestedExtensions) {
       bool found = false;
       // Output message if requested extension is not available
-      for (const char *supportedExtension : supportedExtensions) {
-        if (std::strcmp(supportedExtension, requestedExtension) == 0) {
+      for (const auto &supportedExtension : supportedExtensions) {
+        if (supportedExtension == requestedExtension) {
           found = true;
           break;
         }

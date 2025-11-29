@@ -21,6 +21,13 @@ extern void logMsg(const char *format, ...);
 extern void logMsg(const char *header, const std::vector<const char *> &lines);
 
 /**
+ * Logs a message with a header followed by multiple lines.
+ * @param header The header text to display before the lines.
+ * @param lines A vector of strings to log after the header.
+ */
+extern void logMsg(const char *header, const std::vector<std::string> &lines);
+
+/**
  * Logs a formatted error message to the error output.
  * @param format Printf-style format string.
  * @param ... Variable arguments matching the format string.

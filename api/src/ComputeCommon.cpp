@@ -1,6 +1,7 @@
 #include <ComputeInterface.h>
 
 #include <fstream>
+#include <string>
 
 namespace cut {
 
@@ -25,6 +26,15 @@ void logMsg(const char *header, const std::vector<const char *> &lines) {
   msg += ":";
   for (const auto line : lines) {
     msg += std::string("\n") + line;
+  }
+  printf("\n%s\n", msg.c_str());
+}
+
+void logMsg(const char *header, const std::vector<std::string> &lines) {
+  std::string msg(header);
+  msg += ":";
+  for (const auto &line : lines) {
+    msg += "\n" + line;
   }
   printf("\n%s\n", msg.c_str());
 }
