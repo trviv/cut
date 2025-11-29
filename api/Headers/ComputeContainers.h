@@ -127,12 +127,12 @@ private:
  * Container for managing ComputeDispatch handles.
  * Provides creation, retrieval, and automatic cleanup of dispatch objects.
  */
-class DispatchContainer final : public ComputeDataContainer<ComputeDispatch> {
+class CommandBuffer final : public ComputeDataContainer<ComputeDispatch> {
 private:
   friend class ComputeInterface;
 
-  /** Constructs a DispatchContainer with type ID 1. */
-  DispatchContainer() : ComputeDataContainer<ComputeDispatch>(1) {}
+  /** Constructs a CommandBuffer with type ID 1. */
+  CommandBuffer() : ComputeDataContainer<ComputeDispatch>(1) {}
 };
 
 } // namespace cut

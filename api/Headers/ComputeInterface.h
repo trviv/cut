@@ -94,7 +94,7 @@ public:
   virtual void submit(const ComputeHandle &handle) = 0;
 
 protected:
-  DispatchContainer dispatchContainer_; ///< Container for dispatch handles.
+  CommandBuffer commandBuffer_; ///< Container for dispatch handles.
 };
 
 } // namespace cut
