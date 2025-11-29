@@ -133,15 +133,6 @@ private:
 
   /** Constructs a DispatchContainer with type ID 1. */
   DispatchContainer() : ComputeDataContainer<ComputeDispatch>(1) {}
-
-  /**
-   * Destroys a dispatch object when its reference count reaches zero.
-   * @param id The handle ID of the object to delete.
-   */
-  void destroy(size_t id) override {
-    // Reset the stored object to release any handles it holds
-    objects_[id] = ComputeDispatch{};
-  }
 };
 
 } // namespace cut

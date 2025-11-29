@@ -117,6 +117,29 @@ protected:
   }
 
   /**
+   * Default destroy implementation.
+   * For pointer types: deletes the pointer and sets it to nullptr.
+   * For non-pointer types: resets the object to default state.
+   * @param id The handle ID of the object to destroy.
+   */
+  void destroy(size_t id) override { destroyImpl(id); }
+
+private:
+  /// Destroy implementation for pointer types: delete and nullify
+  template <bool P = IsPointer, EnableIfPointer<P> = 0>
+  void destroyImpl(size_t id) {
+    delete objects_[id];
+    objects_[id] = nullptr;
+  }
+
+  /// Destroy implementation for non-pointer types: reset to default
+  template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
+  void destroyImpl(size_t id) {
+    objects_[id] = DataType{};
+  }
+
+protected:
+  /**
    * Retrieves the stored data for a handle (pointer types).
    * @param handle The handle to get data for.
    * @return The stored pointer value.
