@@ -54,7 +54,7 @@ public:
   PointerTestContainer() : ComputeDataContainer<TestStruct *>(101) {}
 
   void destroy(size_t id) override {
-    auto *ptr = objects_[id].get();
+    auto *ptr = objects_[id];
     if (ptr != nullptr) {
       delete ptr;
       destroyCount_++;

@@ -140,7 +140,7 @@ private:
    */
   void destroy(size_t id) override {
     // Reset the stored object to release any handles it holds
-    objects_[id] = HandleData(ComputeDispatch{});
+    objects_[id] = ComputeDispatch{};
   }
 };
 

@@ -113,75 +113,6 @@ class ComputeDataContainer : public ComputeContainer {
   using EnableIfNotPointer = typename std::enable_if<!P, int>::type;
 
 protected:
-  /**
-   * Storage for handle data.
-   * For pointer types: direct pointer storage.
-   * For non-pointer types: direct storage with move semantics.
-   */
-  class HandleData final {
-  public:
-    HandleData() = default;
-
-    /**
-     * Constructs HandleData from a pointer type.
-     * Only enabled for pointer types.
-     * @param data The pointer value to store.
-     */
-    template <bool P = IsPointer, EnableIfPointer<P> = 0>
-    HandleData(DataType data) : data_(data) {}
-
-    /**
-     * Constructs HandleData via move.
-     * Only enabled for non-pointer types.
-     * @param data The data value to store.
-     */
-    template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
-    HandleData(DataType &&data) : data_(std::move(data)) {}
-
-    HandleData(HandleData &&other) = default;
-    HandleData &operator=(HandleData &&other) = default;
-
-    // Copy operations: allowed by default (works for pointer types,
-    // will be deleted implicitly if DataType is non-copyable)
-    HandleData(const HandleData &other) = default;
-    HandleData &operator=(const HandleData &other) = default;
-
-    /**
-     * Retrieves the stored data as the specified type.
-     * Only enabled for pointer types.
-     * @tparam T The type to interpret the stored data as.
-     * @return A copy of the stored data interpreted as type T.
-     */
-    template <bool P = IsPointer, EnableIfPointer<P> = 0>
-    DataType get() const {
-      return data_;
-    }
-
-    /**
-     * Retrieves a const reference to the stored data.
-     * Only enabled for non-pointer types.
-     * @return Const reference to the stored data.
-     */
-    template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
-    const DataType &get() const {
-      return data_;
-    }
-
-    /**
-     * Retrieves a mutable reference to the stored data.
-     * Only enabled for non-pointer types.
-     * @return Mutable reference to the stored data.
-     */
-    template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
-    DataType &get() {
-      return data_;
-    }
-
-  private:
-    DataType data_{}; ///< Storage for the handle data.
-  };
-
-protected:
   ComputeDataContainer(uint32_t type) : ComputeContainer(type) {}
 
   virtual ~ComputeDataContainer() {
@@ -203,7 +134,7 @@ protected:
       throw std::runtime_error("Trying to get data for an empty handle");
     }
     verify(handle);
-    return objects_[handle.id_].get();
+    return objects_[handle.id_];
   }
 
   /**
@@ -217,7 +148,7 @@ protected:
       throw std::runtime_error("Trying to get data for an empty handle");
     }
     verify(handle);
-    return objects_[handle.id_].get();
+    return objects_[handle.id_];
   }
 
   /**
@@ -231,7 +162,7 @@ protected:
       throw std::runtime_error("Trying to get data for an empty handle");
     }
     verify(handle);
-    return objects_[handle.id_].get();
+    return objects_[handle.id_];
   }
 
   /**
@@ -251,7 +182,7 @@ protected:
     return createHandleFromSlot(index);
   }
 
-  std::vector<HandleData> objects_;
+  std::vector<DataType> objects_;
 };
 
 } // namespace cut
