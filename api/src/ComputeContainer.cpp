@@ -24,10 +24,6 @@ size_t ComputeContainer::allocateSlot() {
   return index;
 }
 
-ComputeHandle ComputeContainer::createHandleFromSlot(size_t index) {
-  return ComputeHandle(this, index);
-}
-
 void ComputeContainer::verify(const ComputeHandle &handle) const {
   if (handle.container_ != this) {
     throw std::runtime_error("Trying to get data for handle which does not "

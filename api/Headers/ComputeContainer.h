@@ -46,13 +46,6 @@ protected:
   size_t allocateSlot();
 
   /**
-   * Creates a new handle for the given slot index.
-   * @param index The slot index to create a handle for.
-   * @return A new ComputeHandle referencing the slot.
-   */
-  ComputeHandle createHandleFromSlot(size_t index);
-
-  /**
    * Verifies that a handle is valid and belongs to this container.
    * @param handle The handle to verify.
    */
@@ -179,7 +172,7 @@ protected:
       objects_.emplace_back(std::move(hdata));
     }
 
-    return createHandleFromSlot(index);
+    return ComputeHandle(this, index);
   }
 
   std::vector<DataType> objects_;
