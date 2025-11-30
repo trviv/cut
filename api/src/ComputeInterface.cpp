@@ -18,7 +18,7 @@ ComputeHandle ComputeInterface::endCommandBuffer() {
   ComputeHandle result = activeCommandBuffer_;
   activeCommandBuffer_.reset();
   return result;
-}		
+}
 
 ComputeHandle ComputeInterface::encode(ComputeDispatch &&dispatch) {
   if (!activeCommandBuffer_) {
@@ -29,8 +29,7 @@ ComputeHandle ComputeInterface::encode(ComputeDispatch &&dispatch) {
   auto &cmdBuffer = *commandBufferContainer_.get(activeCommandBuffer_);
 
   if (dispatch.referenceDispatchHandle_) {
-    const auto &refDispatch =
-        cmdBuffer.get(dispatch.referenceDispatchHandle_);
+    const auto &refDispatch = cmdBuffer.get(dispatch.referenceDispatchHandle_);
     if (refDispatch.referenceDispatchHandle_) {
       logErr("Creating dispatch to a reference which itself is a reference, "
              "is not allowed.");
@@ -50,7 +49,7 @@ ComputeInterface::getCommandBuffer(const ComputeHandle &handle) const {
 }
 
 ComputeHandle CommandBuffer::encode(ComputeDispatch &&dispatch) {
-  return createHandle(std::move(dispatch));
+  return create(std::move(dispatch));
 }
 
 } // namespace cut

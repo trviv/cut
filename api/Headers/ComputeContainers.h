@@ -40,7 +40,10 @@ class CommandBufferContainer final
    * Creates a new CommandBuffer and returns its handle.
    * @return Handle to the created CommandBuffer.
    */
-  ComputeHandle create() { return createHandle(new CommandBuffer()); }
+  ComputeHandle create() {
+    CommandBuffer *ptr = new CommandBuffer();
+    return ComputeDataContainer<CommandBuffer *>::create(std::move(ptr));
+  }
 
 private:
   friend class ComputeInterface;

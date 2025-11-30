@@ -27,11 +27,11 @@ public:
   void destroy(const cut::ComputeHandle &) override {}
 
   cut::ComputeHandle createInteger() {
-    return createHandle(std::move(intCounter_++));
+    return create(std::move(intCounter_++));
   }
 
   cut::ComputeHandle createFloat() {
-    return createHandle(static_cast<uint32_t>(floatCounter_++));
+    return create(static_cast<uint32_t>(floatCounter_++));
   }
 
   uint32_t getIntData(cut::ComputeHandle &handle) { return get(handle); }

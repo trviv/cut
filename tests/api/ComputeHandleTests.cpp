@@ -12,7 +12,7 @@ public:
   void destroy(const ComputeHandle &) override { destroyCount_++; }
 
   ComputeHandle createTestHandle(uint32_t value) {
-    return createHandle(std::move(value));
+    return create(std::move(value));
   }
 
   uint32_t getValue(const ComputeHandle &handle) { return get(handle); }
@@ -62,8 +62,8 @@ public:
   }
 
   ComputeHandle createTestHandle(int value) {
-    return ComputeDataContainer<TestStruct *>::createHandle(
-        new TestStruct(value));
+    TestStruct *ptr = new TestStruct(value);
+    return ComputeDataContainer<TestStruct *>::create(std::move(ptr));
   }
 
   TestStruct *getValue(const ComputeHandle &handle) { return get(handle); }

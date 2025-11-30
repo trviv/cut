@@ -12,8 +12,8 @@ public:
   /// Constructs a buffer container with a unique type identifier.
   VulkanBufferContainer() : ComputeDataContainer<VulkanBufferStruct *>(101) {}
 
-  ComputeHandle createHandle(VulkanBufferStruct &&structData) {
-    return ComputeDataContainer<VulkanBufferStruct *>::createHandle(
+  ComputeHandle create(VulkanBufferStruct &&structData) {
+    return ComputeDataContainer::create(
         new VulkanBufferStruct(std::move(structData)));
   }
 
@@ -34,8 +34,8 @@ public:
   /// Constructs a shader container with a unique type identifier.
   VulkanShaderContainer() : ComputeDataContainer<VulkanShaderStruct *>(102) {}
 
-  ComputeHandle createHandle(VulkanShaderStruct &&structData) {
-    return ComputeDataContainer<VulkanShaderStruct *>::createHandle(
+  ComputeHandle create(VulkanShaderStruct &&structData) {
+    return ComputeDataContainer::create(
         new VulkanShaderStruct(std::move(structData)));
   }
 

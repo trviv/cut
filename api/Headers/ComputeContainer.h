@@ -117,7 +117,7 @@ public:
    * @param hdata The data to store.
    * @return A new ComputeHandle referencing the data.
    */
-  ComputeHandle createHandle(DataType &&hdata) {
+  ComputeHandle create(DataType &&hdata) {
     size_t index = allocateSlot();
 
     if (index < objects_.size()) {

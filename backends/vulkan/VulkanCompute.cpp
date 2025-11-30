@@ -228,7 +228,7 @@ VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
   }
 #endif
 
-  auto handle = bufferContainer_.createHandle(std::move(bufferStruct));
+  auto handle = bufferContainer_.create(std::move(bufferStruct));
 
   if (srcPtr != nullptr) {
     copyDataToBuffer(srcPtr, handle, size, 0, 0);
@@ -308,7 +308,7 @@ VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
   VK_CHECK(vkCreateShaderModule(device_, &createInfo, nullptr,
                                 &shaderStruct.shader));
 
-  return shaderContainer_.createHandle(std::move(shaderStruct));
+  return shaderContainer_.create(std::move(shaderStruct));
 }
 
 void VulkanCompute::submit(const ComputeHandle &commandBufferHandle) {
