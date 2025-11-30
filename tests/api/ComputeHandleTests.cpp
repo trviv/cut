@@ -9,7 +9,7 @@ class TestContainer : public ComputeDataContainer<uint32_t> {
 public:
   TestContainer() : ComputeDataContainer<uint32_t>(100) {}
 
-  void destroy(size_t id) override { destroyCount_++; }
+  void destroy(const ComputeHandle &) override { destroyCount_++; }
 
   ComputeHandle createTestHandle(uint32_t value) {
     return createHandle(std::move(value));
@@ -53,8 +53,8 @@ class PointerTestContainer : public ComputeDataContainer<TestStruct *> {
 public:
   PointerTestContainer() : ComputeDataContainer<TestStruct *>(101) {}
 
-  void destroy(size_t id) override {
-    auto *ptr = objects_[id];
+  void destroy(const ComputeHandle &handle) override {
+    auto *ptr = get(handle);
     if (ptr != nullptr) {
       delete ptr;
       destroyCount_++;

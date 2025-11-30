@@ -49,39 +49,66 @@ protected:
 // ComputeDispatch tests via ComputeInterface
 
 TEST_F(ComputeContainersTest, RegisterDispatch) {
-  auto dispatch = interface_->registerDispatch({});
+  interface_->beginCommandBuffer();
+  auto dispatch = interface_->encode({});
   EXPECT_TRUE(dispatch);
+  dispatch.reset();
+  auto cmdBufferHandle = interface_->endCommandBuffer();
+  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 0);
+  cmdBufferHandle.reset();
 }
 
 TEST_F(ComputeContainersTest, RegisterMultipleDispatches) {
-  auto dispatch1 = interface_->registerDispatch({});
-  auto dispatch2 = interface_->registerDispatch({});
-  auto dispatch3 = interface_->registerDispatch({});
+  interface_->beginCommandBuffer();
+  auto dispatch1 = interface_->encode({});
+  auto dispatch2 = interface_->encode({});
+  auto dispatch3 = interface_->encode({});
 
   EXPECT_TRUE(dispatch1);
   EXPECT_TRUE(dispatch2);
   EXPECT_TRUE(dispatch3);
+
+  dispatch1.reset();
+  dispatch2.reset();
+  dispatch3.reset();
+  auto cmdBufferHandle = interface_->endCommandBuffer();
+  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 0);
+  cmdBufferHandle.reset();
 }
 
 TEST_F(ComputeContainersTest, RegisterDispatchWithThreadGroupSize) {
+  interface_->beginCommandBuffer();
   ThreadGroupSize tgs{8, 8, 1};
-  auto dispatch = interface_->registerDispatch({{}, tgs});
+  auto dispatch = interface_->encode({{}, tgs});
   EXPECT_TRUE(dispatch);
+  dispatch.reset();
+  auto cmdBufferHandle = interface_->endCommandBuffer();
+  cmdBufferHandle.reset();
 }
 
 TEST_F(ComputeContainersTest, RegisterDispatchWithRef) {
-  auto dispatch1 = interface_->registerDispatch({});
-  auto dispatch2 = interface_->registerDispatch({{}, {}, {}, dispatch1});
+  interface_->beginCommandBuffer();
+  auto dispatch1 = interface_->encode({});
+  auto dispatch2 = interface_->encode({{}, {}, {}, dispatch1});
 
   EXPECT_TRUE(dispatch1);
   EXPECT_TRUE(dispatch2);
+  dispatch1.reset();
+  dispatch2.reset();
+  auto cmdBufferHandle = interface_->endCommandBuffer();
+  cmdBufferHandle.reset();
 }
 
 TEST_F(ComputeContainersTest, RegisterDispatchWithNestedRefThrows) {
-  auto dispatch1 = interface_->registerDispatch({});
-  auto dispatch2 = interface_->registerDispatch({{}, {}, {}, dispatch1});
+  interface_->beginCommandBuffer();
+  auto dispatch1 = interface_->encode({});
+  auto dispatch2 = interface_->encode({{}, {}, {}, dispatch1});
 
-  EXPECT_THROW(interface_->registerDispatch({{}, {}, {}, dispatch2}),
+  EXPECT_THROW(interface_->encode({{}, {}, {}, dispatch2}),
                std::runtime_error);
+  dispatch1.reset();
+  dispatch2.reset();
+  auto cmdBufferHandle = interface_->endCommandBuffer();
+  cmdBufferHandle.reset();
 }
 

@@ -3,6 +3,8 @@
 #include <ComputeContainers.h>
 #include <ComputeHandle.h>
 
+#include <memory>
+
 namespace cut {
 
 /**
@@ -81,20 +83,49 @@ public:
   createShaderModule(const std::vector<uint32_t> &spirvCode) = 0;
 
   /**
-   * Registers a compute dispatch object and returns a handle to it.
-   * @param dispatch The compute dispatch object to register (moved).
-   * @return Handle to the registered dispatch.
+   * Begins recording commands to a new command buffer.
+   * Must be paired with endCommandBuffer().
    */
-  ComputeHandle registerDispatch(ComputeDispatch &&dispatch);
+  void beginCommandBuffer();
 
   /**
-   * Submits a dispatch or dispatch list for GPU execution.
-   * @param handle Handle to a dispatch or dispatch list.
+   * Ends recording and returns the completed command buffer.
+   * @return Handle to the recorded command buffer.
    */
-  virtual void submit(const ComputeHandle &handle) = 0;
+  ComputeHandle endCommandBuffer();
 
-protected:
-  CommandBuffer commandBuffer_; ///< Container for dispatch handles.
+  /**
+   * Encodes a compute dispatch to the active command buffer.
+   * Must be called between beginCommandBuffer() and endCommandBuffer().
+   * @param dispatch The compute dispatch object to encode (moved).
+   * @return Handle to the encoded dispatch.
+   */
+  ComputeHandle encode(ComputeDispatch &&dispatch);
+
+  /**
+   * Submits a command buffer for GPU execution.
+   * @param commandBufferHandle Handle to the command buffer to submit.
+   */
+  virtual void submit(const ComputeHandle &commandBufferHandle) = 0;
+
+  /**
+   * Returns the CommandBuffer associated with a handle.
+   * @param handle The handle to the command buffer.
+   * @return Reference to the CommandBuffer.
+   */
+  CommandBuffer &getCommandBuffer(const ComputeHandle &handle);
+
+  /**
+   * Returns the CommandBuffer associated with a handle (const).
+   * @param handle The handle to the command buffer.
+   * @return Const reference to the CommandBuffer.
+   */
+  const CommandBuffer &getCommandBuffer(const ComputeHandle &handle) const;
+
+private:
+  CommandBufferContainer
+      commandBufferContainer_;        ///< Container for command buffers.
+  ComputeHandle activeCommandBuffer_; ///< Currently recording command buffer.
 };
 
 } // namespace cut

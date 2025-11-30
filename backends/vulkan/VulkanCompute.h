@@ -46,8 +46,8 @@ public:
   ComputeHandle
   createShaderModule(const std::vector<uint32_t> &spirvCode) override;
 
-  /// Submits a compute command for execution on the GPU.
-  void submit(const ComputeHandle &) override {};
+  /// Submits a command buffer for execution on the GPU.
+  void submit(const ComputeHandle &commandBufferHandle) override;
 
   /// Constructs a VulkanCompute instance with the given Vulkan instance and
   /// configuration.

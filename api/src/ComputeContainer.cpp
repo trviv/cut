@@ -38,7 +38,7 @@ void ComputeContainer::addRef(const ComputeHandle &ref) {
 void ComputeContainer::remRef(ComputeHandle &ref) {
   refCounts_[ref.id_]--;
   if (refCounts_[ref.id_] == 0) {
-    destroy(ref.id_);
+    destroy(ref);
     freeHandles_.push_back(ref.id_);
     ref.container_ = nullptr;
   }

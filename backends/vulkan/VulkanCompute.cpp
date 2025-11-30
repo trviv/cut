@@ -311,6 +311,12 @@ VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
   return shaderContainer_.createHandle(std::move(shaderStruct));
 }
 
+void VulkanCompute::submit(const ComputeHandle &commandBufferHandle) {
+  // TODO: Implement actual GPU submission
+  auto &commandBuffer = getCommandBuffer(commandBufferHandle);
+  (void)commandBuffer;
+}
+
 // auto pipeline = std::make_shared<ComputePipeline>();
 //
 //// Create descriptor set layout

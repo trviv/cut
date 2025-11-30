@@ -24,7 +24,7 @@ public:
 
   ~MockContainer() {}
 
-  void destroy(size_t id) override {}
+  void destroy(const cut::ComputeHandle &) override {}
 
   cut::ComputeHandle createInteger() {
     return createHandle(std::move(intCounter_++));

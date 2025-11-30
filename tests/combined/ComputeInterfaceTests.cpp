@@ -30,7 +30,7 @@ public:
     return shaderContainer_.createInteger();
   }
 
-  void submit(const ComputeHandle &) {};
+  void submit(const ComputeHandle &) override {}
 
   MockContainer bufferContainer_;
   MockContainer shaderContainer_;
@@ -54,17 +54,24 @@ TEST_F(ComputeTestEnvironment, Dispatch) {
 
   auto shader = interface->createShaderModule({});
 
-  auto dispatch1 = interface->registerDispatch(
+  interface->beginCommandBuffer();
+
+  auto dispatch1 = interface->encode(
       {shader,
        {1, 1, 1},
        {ComputeBinding(0, buffer1), ComputeBinding(1, buffer2)}});
 
   // Create dispatch referencing dispatch1
-  auto dispatch2 = interface->registerDispatch({{}, {}, {}, dispatch1});
+  auto dispatch2 = interface->encode({{}, {}, {}, dispatch1});
 
   // Nested reference should throw
   EXPECT_THROW(auto dispatch3 =
-                   interface->registerDispatch({{}, {}, {}, dispatch2}),
+                   interface->encode({{}, {}, {}, dispatch2}),
                std::runtime_error);
+
+  dispatch1.reset();
+  dispatch2.reset();
+  auto cmdBufferHandle = interface->endCommandBuffer();
+  cmdBufferHandle.reset();
 }
 

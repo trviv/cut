@@ -21,6 +21,12 @@ extern void logErr(const char *format, ...);
  * their reference count reaches zero.
  */
 class ComputeContainer {
+public:
+  /**
+   * Returns the number of active (in-use) objects in the container.
+   */
+  size_t size() const { return slotCount() - freeSlotCount(); }
+
 protected:
   /**
    * Constructs a ComputeContainer with the specified type identifier.
@@ -35,9 +41,9 @@ protected:
    * Pure virtual function to deallocate API-level objects.
    * Must be implemented by derived classes to perform proper cleanup.
    * Called automatically when an object's reference count reaches zero.
-   * @param id The handle ID for the object to destroy.
+   * @param handle The handle for the object to destroy.
    */
-  virtual void destroy(size_t id) = 0;
+  virtual void destroy(const ComputeHandle &handle) = 0;
 
   /**
    * Allocates a new handle slot.
@@ -105,40 +111,24 @@ class ComputeDataContainer : public ComputeContainer {
   template <bool P = IsPointer>
   using EnableIfNotPointer = typename std::enable_if<!P, int>::type;
 
-protected:
-  ComputeDataContainer(uint32_t type) : ComputeContainer(type) {}
-
-  virtual ~ComputeDataContainer() {
-    if (objects_.size() != freeSlotCount()) {
-      logErr("Trying to destroy container before all objects in it have "
-             "been deallocated.");
-    }
-    objects_.clear();
-  }
-
+public:
   /**
-   * Default destroy implementation.
-   * For pointer types: deletes the pointer and sets it to nullptr.
-   * For non-pointer types: resets the object to default state.
-   * @param id The handle ID of the object to destroy.
+   * Creates a new handle for the given data.
+   * @param hdata The data to store.
+   * @return A new ComputeHandle referencing the data.
    */
-  void destroy(size_t id) override { destroyImpl(id); }
+  ComputeHandle createHandle(DataType &&hdata) {
+    size_t index = allocateSlot();
 
-private:
-  /// Destroy implementation for pointer types: delete and nullify
-  template <bool P = IsPointer, EnableIfPointer<P> = 0>
-  void destroyImpl(size_t id) {
-    delete objects_[id];
-    objects_[id] = nullptr;
+    if (index < objects_.size()) {
+      objects_[index] = std::move(hdata);
+    } else {
+      objects_.emplace_back(std::move(hdata));
+    }
+
+    return ComputeHandle(this, index);
   }
 
-  /// Destroy implementation for non-pointer types: reset to default
-  template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
-  void destroyImpl(size_t id) {
-    objects_[id] = DataType{};
-  }
-
-protected:
   /**
    * Retrieves the stored data for a handle (pointer types).
    * @param handle The handle to get data for.
@@ -181,21 +171,39 @@ protected:
     return objects_[handle.id_];
   }
 
-  /**
-   * Creates a new handle for the given data.
-   * @param hdata The data to store.
-   * @return A new ComputeHandle referencing the data.
-   */
-  ComputeHandle createHandle(DataType &&hdata) {
-    size_t index = allocateSlot();
+protected:
+  ComputeDataContainer(uint32_t type) : ComputeContainer(type) {}
 
-    if (index < objects_.size()) {
-      objects_[index] = std::move(hdata);
-    } else {
-      objects_.emplace_back(std::move(hdata));
+  virtual ~ComputeDataContainer() {
+    if (objects_.size() != freeSlotCount()) {
+      logErr("Trying to destroy container before all objects in it have "
+             "been deallocated.");
     }
+    objects_.clear();
+  }
 
-    return ComputeHandle(this, index);
+  /**
+   * Default destroy implementation.
+   * For pointer types: deletes the pointer and sets it to nullptr.
+   * For non-pointer types: resets the object to default state.
+   * @param handle The handle of the object to destroy.
+   */
+  void destroy(const ComputeHandle &handle) override {
+    destroyImpl(handle.id_);
+  }
+
+private:
+  /// Destroy implementation for pointer types: delete and nullify
+  template <bool P = IsPointer, EnableIfPointer<P> = 0>
+  void destroyImpl(size_t id) {
+    delete objects_[id];
+    objects_[id] = nullptr;
+  }
+
+  /// Destroy implementation for non-pointer types: reset to default
+  template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
+  void destroyImpl(size_t id) {
+    objects_[id] = DataType{};
   }
 
   std::vector<DataType> objects_;
