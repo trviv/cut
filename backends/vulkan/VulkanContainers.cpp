@@ -4,35 +4,29 @@
 namespace cut {
 
 void VulkanBufferContainer::destroy(const ComputeHandle &handle) {
-  auto *bufferPtr = get(handle);
-  if (bufferPtr == nullptr) {
-    // Skip null handle
-    return;
-  }
+  auto &buffer = get(handle);
 
 #if CUT_USE_VMA
-  if (bufferPtr->mappedData != nullptr) {
-    vmaUnmapMemory(allocator, bufferPtr->allocation);
+  if (buffer.mappedData != nullptr) {
+    vmaUnmapMemory(allocator, buffer.allocation);
   }
 
-  if (bufferPtr->buffer != VK_NULL_HANDLE) {
-    vmaDestroyBuffer(allocator, bufferPtr->buffer, bufferPtr->allocation);
+  if (buffer.buffer != VK_NULL_HANDLE) {
+    vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
   }
 #else
-  if (bufferPtr->mappedData != nullptr) {
-    vkUnmapMemory(device_, bufferPtr->memory);
+  if (buffer.mappedData != nullptr) {
+    vkUnmapMemory(device_, buffer.memory);
   }
 
-  if (bufferPtr->buffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device_, bufferPtr->buffer, nullptr);
+  if (buffer.buffer != VK_NULL_HANDLE) {
+    vkDestroyBuffer(device_, buffer.buffer, nullptr);
   }
 
-  if (bufferPtr->memory != VK_NULL_HANDLE) {
-    vkFreeMemory(device_, bufferPtr->memory, nullptr);
+  if (buffer.memory != VK_NULL_HANDLE) {
+    vkFreeMemory(device_, buffer.memory, nullptr);
   }
 #endif
-
-  delete bufferPtr;
 }
 
 void VulkanShaderContainer::destroy(const ComputeHandle &handle) {

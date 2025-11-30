@@ -3,18 +3,19 @@
 #include <ComputeContainers.h>
 #include <VulkanStructs.h>
 
+#include <utility>
+
 namespace cut {
 
 /// Container managing GPU buffer allocations and their lifecycle.
 class VulkanBufferContainer final
-    : public ComputeDataContainer<VulkanBufferStruct *> {
+    : public ComputeDataContainer<VulkanBufferStruct> {
 public:
   /// Constructs a buffer container with a unique type identifier.
-  VulkanBufferContainer() : ComputeDataContainer<VulkanBufferStruct *>(101) {}
+  VulkanBufferContainer() : ComputeDataContainer<VulkanBufferStruct>(101) {}
 
   ComputeHandle create(VulkanBufferStruct &&structData) {
-    return ComputeDataContainer::create(
-        new VulkanBufferStruct(std::move(structData)));
+    return ComputeDataContainer::create(std::move(structData));
   }
 
 private:
