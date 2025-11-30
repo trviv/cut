@@ -18,7 +18,7 @@ ComputeHandle ComputeInterface::endCommandBuffer() {
   ComputeHandle result = activeCommandBuffer_;
   activeCommandBuffer_.reset();
   return result;
-}
+}		
 
 ComputeHandle ComputeInterface::encode(ComputeDispatch &&dispatch) {
   if (!activeCommandBuffer_) {

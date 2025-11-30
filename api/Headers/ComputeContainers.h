@@ -1,7 +1,7 @@
 #pragma once
 
 #include <ComputeContainer.h>
-#include <ComputeStruct.h>
+#include <ComputeStructs.h>
 
 namespace cut {
 
