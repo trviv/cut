@@ -129,6 +129,17 @@ public:
     return ComputeHandle(this, index);
   }
 
+protected:
+  ComputeDataContainer(uint32_t type) : ComputeContainer(type) {}
+
+  virtual ~ComputeDataContainer() {
+    if (objects_.size() != freeSlotCount()) {
+      logErr("Trying to destroy container before all objects in it have "
+             "been deallocated.");
+    }
+    objects_.clear();
+  }
+
   /**
    * Retrieves the stored data for a handle (pointer types).
    * @param handle The handle to get data for.
@@ -169,17 +180,6 @@ public:
     }
     verify(handle);
     return objects_[handle.id_];
-  }
-
-protected:
-  ComputeDataContainer(uint32_t type) : ComputeContainer(type) {}
-
-  virtual ~ComputeDataContainer() {
-    if (objects_.size() != freeSlotCount()) {
-      logErr("Trying to destroy container before all objects in it have "
-             "been deallocated.");
-    }
-    objects_.clear();
   }
 
   /**
