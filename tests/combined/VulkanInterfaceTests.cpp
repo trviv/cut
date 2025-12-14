@@ -70,6 +70,54 @@ TEST_F(VulkanTestEnvironment, ShaderModule) {
   interface->createShaderModule(shader);
 }
 
+TEST_F(VulkanTestEnvironment, BufferToBufferCopy) {
+  cut::ComputeHandle srcBuffer;
+  cut::ComputeHandle dstBuffer;
+  const uint32_t elements = 100;
+  const uint32_t dtypeSize = sizeof(uint32_t);
+
+  // Generate reference data
+  const auto refData = generateRandomUint(elements);
+
+  // Create source buffer with reference data
+  EXPECT_NO_THROW({
+    srcBuffer = interface->createBuffer(elements * dtypeSize, refData.data());
+  });
+
+  // Create empty destination buffer
+  EXPECT_NO_THROW({
+    dstBuffer = interface->createBuffer(elements * dtypeSize, nullptr);
+  });
+
+  // Intermediate host memory for the copy
+  std::vector<uint32_t> intermediateData(elements);
+
+  // Copy from source buffer to host memory
+  EXPECT_NO_THROW({
+    interface->copyDataFromBuffer(srcBuffer, intermediateData.data(),
+                                  elements * dtypeSize, 0, 0, false, true);
+  });
+
+  // Verify intermediate data matches reference
+  EXPECT_EQ(refData, intermediateData);
+
+  // Copy from host memory to destination buffer
+  EXPECT_NO_THROW({
+    interface->copyDataToBuffer(intermediateData.data(), dstBuffer,
+                                elements * dtypeSize, 0, 0, false, true);
+  });
+
+  // Read back from destination buffer
+  std::vector<uint32_t> outData(elements);
+  EXPECT_NO_THROW({
+    interface->copyDataFromBuffer(dstBuffer, outData.data(),
+                                  elements * dtypeSize, 0, 0, false, false);
+  });
+
+  // Verify destination data matches reference
+  EXPECT_EQ(refData, outData);
+}
+
 TEST_F(VulkanTestEnvironment, Shader) {
   //    cut::ComputeHandle buffer1;
   //    cut::ComputeHandle buffer2;
