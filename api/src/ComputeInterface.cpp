@@ -48,8 +48,4 @@ ComputeInterface::getCommandBuffer(const ComputeHandle &handle) const {
   return *commandBufferContainer_.get(handle);
 }
 
-ComputeHandle CommandBuffer::encode(ComputeDispatch &&dispatch) {
-  return create(std::move(dispatch));
-}
-
 } // namespace cut

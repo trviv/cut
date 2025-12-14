@@ -2,6 +2,10 @@
 
 namespace cut {
 
+ComputeHandle CommandBuffer::encode(ComputeDispatch &&dispatch) {
+  return create(std::move(dispatch));
+}
+
 ComputeDispatch::ComputeDispatch(const ComputeHandle &shader,
                                  const ThreadGroupSize &tgSize,
                                  const std::vector<ComputeBinding> &bindings,
