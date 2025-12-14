@@ -39,11 +39,11 @@ ComputeHandle ComputeInterface::encode(ComputeDispatch &&dispatch) {
   return cmdBuffer.encode(std::move(dispatch));
 }
 
-CommandBuffer &ComputeInterface::getCommandBuffer(const ComputeHandle &handle) {
+ComputeDispatchContainer &ComputeInterface::getCommandBuffer(const ComputeHandle &handle) {
   return *commandBufferContainer_.get(handle);
 }
 
-const CommandBuffer &
+const ComputeDispatchContainer &
 ComputeInterface::getCommandBuffer(const ComputeHandle &handle) const {
   return *commandBufferContainer_.get(handle);
 }

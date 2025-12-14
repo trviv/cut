@@ -109,18 +109,18 @@ public:
   virtual void submit(const ComputeHandle &commandBufferHandle) = 0;
 
   /**
-   * Returns the CommandBuffer associated with a handle.
+   * Returns the ComputeDispatchContainer associated with a handle.
    * @param handle The handle to the command buffer.
-   * @return Reference to the CommandBuffer.
+   * @return Reference to the ComputeDispatchContainer.
    */
-  CommandBuffer &getCommandBuffer(const ComputeHandle &handle);
+  ComputeDispatchContainer &getCommandBuffer(const ComputeHandle &handle);
 
   /**
-   * Returns the CommandBuffer associated with a handle (const).
+   * Returns the ComputeDispatchContainer associated with a handle (const).
    * @param handle The handle to the command buffer.
-   * @return Const reference to the CommandBuffer.
+   * @return Const reference to the ComputeDispatchContainer.
    */
-  const CommandBuffer &getCommandBuffer(const ComputeHandle &handle) const;
+  const ComputeDispatchContainer &getCommandBuffer(const ComputeHandle &handle) const;
 
 private:
   CommandBufferContainer

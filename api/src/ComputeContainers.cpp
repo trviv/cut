@@ -2,7 +2,7 @@
 
 namespace cut {
 
-ComputeHandle CommandBuffer::encode(ComputeDispatch &&dispatch) {
+ComputeHandle ComputeDispatchContainer::encode(ComputeDispatch &&dispatch) {
   return create(std::move(dispatch));
 }
 
