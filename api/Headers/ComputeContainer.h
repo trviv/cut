@@ -160,7 +160,7 @@ protected:
    * @return The stored pointer value.
    */
   template <bool P = IsPointer, EnableIfPointer<P> = 0>
-  DataType &get(const ComputeHandle &handle) const {
+  DataType get(const ComputeHandle &handle) const {
     if (!handle) {
       throw std::runtime_error("Trying to get data for an empty handle");
     }
