@@ -8,10 +8,8 @@ ComputeHandle ComputeDispatchContainer::encode(ComputeDispatch &&dispatch) {
 
 ComputeDispatch::ComputeDispatch(const ComputeHandle &shader,
                                  const ThreadGroupSize &tgSize,
-                                 const std::vector<ComputeBinding> &bindings,
-                                 const ComputeHandle &referenceDispatchHandle)
-    : shader_(shader), tgSize_(tgSize), bindings_(bindings),
-      referenceDispatchHandle_(referenceDispatchHandle) {}
+                                 const std::vector<ComputeBinding> &bindings)
+    : shader_(shader), tgSize_(tgSize), bindings_(bindings) {}
 
 void ComputeDispatch::bindShader(const ComputeHandle &shaderHandle) {
   shader_ = shaderHandle;

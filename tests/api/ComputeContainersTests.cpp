@@ -85,30 +85,3 @@ TEST_F(ComputeContainersTest, RegisterDispatchWithThreadGroupSize) {
   auto cmdBufferHandle = interface_->endCommandBuffer();
   cmdBufferHandle.reset();
 }
-
-TEST_F(ComputeContainersTest, RegisterDispatchWithRef) {
-  interface_->beginCommandBuffer();
-  auto dispatch1 = interface_->encode({});
-  auto dispatch2 = interface_->encode({{}, {}, {}, dispatch1});
-
-  EXPECT_TRUE(dispatch1);
-  EXPECT_TRUE(dispatch2);
-  dispatch1.reset();
-  dispatch2.reset();
-  auto cmdBufferHandle = interface_->endCommandBuffer();
-  cmdBufferHandle.reset();
-}
-
-TEST_F(ComputeContainersTest, RegisterDispatchWithNestedRefThrows) {
-  interface_->beginCommandBuffer();
-  auto dispatch1 = interface_->encode({});
-  auto dispatch2 = interface_->encode({{}, {}, {}, dispatch1});
-
-  EXPECT_THROW(interface_->encode({{}, {}, {}, dispatch2}),
-               std::runtime_error);
-  dispatch1.reset();
-  dispatch2.reset();
-  auto cmdBufferHandle = interface_->endCommandBuffer();
-  cmdBufferHandle.reset();
-}
-

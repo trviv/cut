@@ -27,19 +27,11 @@ ComputeHandle ComputeInterface::encode(ComputeDispatch &&dispatch) {
   }
 
   auto &cmdBuffer = *commandBufferContainer_.get(activeCommandBuffer_);
-
-  if (dispatch.referenceDispatchHandle_) {
-    const auto &refDispatch = cmdBuffer.get(dispatch.referenceDispatchHandle_);
-    if (refDispatch.referenceDispatchHandle_) {
-      logErr("Creating dispatch to a reference which itself is a reference, "
-             "is not allowed.");
-    }
-  }
-
   return cmdBuffer.encode(std::move(dispatch));
 }
 
-ComputeDispatchContainer &ComputeInterface::getCommandBuffer(const ComputeHandle &handle) {
+ComputeDispatchContainer &
+ComputeInterface::getCommandBuffer(const ComputeHandle &handle) {
   return *commandBufferContainer_.get(handle);
 }
 

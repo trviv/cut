@@ -47,31 +47,3 @@ public:
 
   std::unique_ptr<cut::ComputeInterface> interface;
 };
-
-TEST_F(ComputeTestEnvironment, Dispatch) {
-  auto buffer1 = interface->createBuffer(0);
-  auto buffer2 = interface->createBuffer(1);
-
-  auto shader = interface->createShaderModule({});
-
-  interface->beginCommandBuffer();
-
-  auto dispatch1 = interface->encode(
-      {shader,
-       {1, 1, 1},
-       {ComputeBinding(0, buffer1), ComputeBinding(1, buffer2)}});
-
-  // Create dispatch referencing dispatch1
-  auto dispatch2 = interface->encode({{}, {}, {}, dispatch1});
-
-  // Nested reference should throw
-  EXPECT_THROW(auto dispatch3 =
-                   interface->encode({{}, {}, {}, dispatch2}),
-               std::runtime_error);
-
-  dispatch1.reset();
-  dispatch2.reset();
-  auto cmdBufferHandle = interface->endCommandBuffer();
-  cmdBufferHandle.reset();
-}
-
