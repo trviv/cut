@@ -129,6 +129,20 @@ public:
     return ComputeHandle(this, index);
   }
 
+  /**
+   * Retrieves a const reference to the stored data (non-pointer types).
+   * @param handle The handle to get data for.
+   * @return Const reference to the stored data.
+   */
+  template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
+  const DataType &get(const ComputeHandle &handle) const {
+    if (!handle) {
+      throw std::runtime_error("Trying to get data for an empty handle");
+    }
+    verify(handle);
+    return objects_[handle.id_];
+  }
+
 protected:
   ComputeDataContainer(uint32_t type) : ComputeContainer(type) {}
 
@@ -146,21 +160,7 @@ protected:
    * @return The stored pointer value.
    */
   template <bool P = IsPointer, EnableIfPointer<P> = 0>
-  DataType get(const ComputeHandle &handle) const {
-    if (!handle) {
-      throw std::runtime_error("Trying to get data for an empty handle");
-    }
-    verify(handle);
-    return objects_[handle.id_];
-  }
-
-  /**
-   * Retrieves a const reference to the stored data (non-pointer types).
-   * @param handle The handle to get data for.
-   * @return Const reference to the stored data.
-   */
-  template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
-  const DataType &get(const ComputeHandle &handle) const {
+  DataType &get(const ComputeHandle &handle) const {
     if (!handle) {
       throw std::runtime_error("Trying to get data for an empty handle");
     }

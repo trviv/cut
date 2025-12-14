@@ -14,8 +14,12 @@ class CommandBufferContainer;
  * Created via ComputeInterface::beginCommandBuffer() and finalized
  * via ComputeInterface::endCommandBuffer().
  */
-class ComputeDispatchContainer final : public ComputeDataContainer<ComputeDispatch> {
+class ComputeDispatchContainer final
+    : public ComputeDataContainer<ComputeDispatch> {
 public:
+  /** Constructs a ComputeDispatchContainer with type ID 1. */
+  ComputeDispatchContainer() : ComputeDataContainer<ComputeDispatch>(1) {}
+
   /**
    * Encodes a dispatch operation to this command buffer.
    * @param dispatch The compute dispatch to encode (moved).
@@ -25,10 +29,6 @@ public:
 
 private:
   friend class ComputeInterface;
-  friend class CommandBufferContainer;
-
-  /** Constructs a ComputeDispatchContainer with type ID 1. */
-  ComputeDispatchContainer() : ComputeDataContainer<ComputeDispatch>(1) {}
 };
 
 /**
@@ -36,19 +36,21 @@ private:
  */
 class CommandBufferContainer final
     : public ComputeDataContainer<ComputeDispatchContainer *> {
+public:
+  CommandBufferContainer()
+      : ComputeDataContainer<ComputeDispatchContainer *>(2) {}
   /**
    * Creates a new ComputeDispatchContainer and returns its handle.
    * @return Handle to the created ComputeDispatchContainer.
    */
   ComputeHandle create() {
     ComputeDispatchContainer *ptr = new ComputeDispatchContainer();
-    return ComputeDataContainer<ComputeDispatchContainer *>::create(std::move(ptr));
+    return ComputeDataContainer<ComputeDispatchContainer *>::create(
+        std::move(ptr));
   }
 
 private:
   friend class ComputeInterface;
-
-  CommandBufferContainer() : ComputeDataContainer<ComputeDispatchContainer *>(2) {}
 };
 
 } // namespace cut
