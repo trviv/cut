@@ -4,6 +4,23 @@
 
 using namespace cut;
 
+/**
+ * Mock implementation of CommandBuffer for testing purposes.
+ * This class provides a minimal implementation that does nothing.
+ */
+class MockCommandBuffer : public CommandBuffer {
+public:
+  MockCommandBuffer() = default;
+  ~MockCommandBuffer() override = default;
+
+protected:
+  /**
+   * Mock implementation of encodeImpl that does nothing.
+   * @param dispatch Const reference to the compute dispatch being encoded.
+   */
+  void encodeImpl(const ComputeDispatch &dispatch) override;
+};
+
 class MockComputeInterface : public ComputeInterface {
 public:
   ComputeHandle createBuffer(size_t, const void * = nullptr, bool = false) {

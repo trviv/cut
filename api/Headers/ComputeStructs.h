@@ -125,6 +125,11 @@ private:
 class CommandBuffer {
 public:
   /**
+   * Virtual destructor to ensure proper cleanup of derived classes.
+   */
+  virtual ~CommandBuffer() = default;
+
+  /**
    * Encodes a dispatch handle to this command buffer.
    * @param dispatchHandle Handle to the compute dispatch to encode.
    */

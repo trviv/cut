@@ -71,6 +71,7 @@ set(LIB_HEADERS
     backends/vulkan/VulkanStructs.h
     backends/vulkan/VulkanContainers.h
     backends/vulkan/VulkanCompute.h
+    backends/vulkan/VulkanCommandBuffer.h
     shaders/Shaders.h
 )
 
@@ -87,6 +88,7 @@ set(LIB_SOURCES
     backends/vulkan/VulkanStructs.cpp
     backends/vulkan/VulkanContainers.cpp
     backends/vulkan/VulkanCompute.cpp
+    backends/vulkan/VulkanCommandBuffer.cpp
 )
 
 if (OPENL_CL_WITH_VULKAN)
