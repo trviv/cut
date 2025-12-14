@@ -2,9 +2,9 @@
 
 namespace cut {
 
-void CommandBuffer::encode(const ComputeHandle &dispatchHandle) {
-  dispatches_.push_back(dispatchHandle);
-  encodeImpl(dispatchHandle);
+void CommandBuffer::encode(ComputeDispatch &&dispatch) {
+  encodeImpl(dispatch);
+  dispatches_.push_back(std::move(dispatch));
 }
 
 } // namespace cut

@@ -130,10 +130,10 @@ public:
   virtual ~CommandBuffer() = default;
 
   /**
-   * Encodes a dispatch handle to this command buffer.
-   * @param dispatchHandle Handle to the compute dispatch to encode.
+   * Encodes a compute dispatch to this command buffer.
+   * @param dispatch The compute dispatch to encode.
    */
-  void encode(const ComputeHandle &dispatchHandle);
+  void encode(ComputeDispatch &&dispatch);
 
 protected:
   /**
@@ -144,7 +144,7 @@ protected:
    * bind resources, validate dispatch parameters, or perform any other
    * backend-specific preparation for execution.
    *
-   * Called by encode() after the dispatch handle has been added to the
+   * Called by encode() after the dispatch has been added to the
    * internal dispatch list. The dispatch object is passed by const reference
    * to allow implementations to inspect shader bindings, thread group sizes,
    * and other dispatch configuration without modifying the dispatch.
@@ -154,7 +154,7 @@ protected:
   virtual void encodeImpl(const ComputeDispatch &dispatch) = 0;
 
 private:
-  std::vector<ComputeHandle> dispatches_; ///< List of dispatch handles.
+  std::vector<ComputeDispatch> dispatches_; ///< List of compute dispatches.
 };
 
 } // namespace cut
