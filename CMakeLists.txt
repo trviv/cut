@@ -80,6 +80,7 @@ set(LIB_SOURCES
     api/src/ComputeHandle.cpp
     api/src/ComputeContainer.cpp
     api/src/ComputeContainers.cpp
+    api/src/ComputeStructs.cpp
     api/src/ComputeInterface.cpp
     backends/vulkan/VulkanCommon.cpp
     backends/vulkan/VulkanStructs.cpp

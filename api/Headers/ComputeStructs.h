@@ -122,4 +122,38 @@ private:
   std::vector<ComputeBinding> bindings_;  ///< All bindings (handles and data).
 };
 
+/**
+ * Represents a command buffer that records a sequence of compute dispatches.
+ * Dispatches are executed in the order they are encoded.
+ */
+class CommandBuffer {
+public:
+  /**
+   * Encodes a dispatch handle to this command buffer.
+   * @param dispatchHandle Handle to the compute dispatch to encode.
+   */
+  void encode(const ComputeHandle &dispatchHandle);
+
+protected:
+  /**
+   * Backend-specific implementation for encoding a dispatch.
+   * This pure virtual function must be implemented by derived classes to
+   * perform backend-specific work when a dispatch is encoded. Implementations
+   * can use this to record GPU commands, create pipeline state objects,
+   * bind resources, validate dispatch parameters, or perform any other
+   * backend-specific preparation for execution.
+   *
+   * Called by encode() after the dispatch handle has been added to the
+   * internal dispatch list. The dispatch object is passed by const reference
+   * to allow implementations to inspect shader bindings, thread group sizes,
+   * and other dispatch configuration without modifying the dispatch.
+   *
+   * @param dispatch Const reference to the compute dispatch being encoded.
+   */
+  virtual void encodeImpl(const ComputeDispatch &dispatch) = 0;
+
+private:
+  std::vector<ComputeHandle> dispatches_; ///< List of dispatch handles.
+};
+
 } // namespace cut

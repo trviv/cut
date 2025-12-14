@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <ComputeCommon.h>
+#include <ComputeStructs.h>
 
 using namespace cut;
 
