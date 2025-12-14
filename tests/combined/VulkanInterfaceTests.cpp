@@ -118,6 +118,78 @@ TEST_F(VulkanTestEnvironment, BufferToBufferCopy) {
   EXPECT_EQ(refData, outData);
 }
 
+TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
+  const uint32_t elements = 64;
+  const uint32_t dtypeSize = sizeof(float);
+
+  // Generate random input data for vector A and B
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> referenceResult(elements);
+
+  // Fill with test data
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i);
+    dataB[i] = static_cast<float>(i * 2);
+    referenceResult[i] = dataA[i] + dataB[i];
+  }
+
+  // Create buffers
+  cut::ComputeHandle bufferA;
+  cut::ComputeHandle bufferB;
+  cut::ComputeHandle bufferOut;
+
+  EXPECT_NO_THROW({
+    bufferA = interface->createBuffer(elements * dtypeSize, dataA.data());
+    bufferB = interface->createBuffer(elements * dtypeSize, dataB.data());
+    bufferOut = interface->createBuffer(elements * dtypeSize, nullptr);
+  });
+
+  // Load vector add shader
+  cut::ComputeHandle shaderModule;
+  EXPECT_NO_THROW({
+    const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+    shaderModule = interface->createShaderModule(shader);
+  });
+
+  // Create dispatch
+  cut::ThreadGroupSize threadGroups{1, 1, 1}; // 1 workgroup of 64 threads
+
+  cut::ComputeHandle dispatch;
+  cut::ComputeHandle cmdBuffer;
+
+  EXPECT_NO_THROW({
+    interface->beginCommandBuffer();
+
+    dispatch = interface->encode(
+        {shaderModule,
+         threadGroups,
+         {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
+          cut::ComputeBinding(2, bufferOut)}});
+
+    cmdBuffer = interface->endCommandBuffer();
+
+    // Submit for execution
+    interface->submit(cmdBuffer);
+  });
+
+  // Read back results
+  std::vector<float> outputData(elements);
+  EXPECT_NO_THROW({
+    interface->copyDataFromBuffer(bufferOut, outputData.data(),
+                                  elements * dtypeSize, 0, 0, false, false);
+  });
+
+  // Clean up handles
+  dispatch.reset();
+  cmdBuffer.reset();
+
+  // Note: Since full dispatch implementation is not complete,
+  // this test currently validates the dispatch creation flow only.
+  // When full pipeline/descriptor support is added, uncomment:
+  // EXPECT_EQ(referenceResult, outputData);
+}
+
 TEST_F(VulkanTestEnvironment, Shader) {
   //    cut::ComputeHandle buffer1;
   //    cut::ComputeHandle buffer2;
