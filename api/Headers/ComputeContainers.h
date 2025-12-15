@@ -13,7 +13,7 @@ class CommandBufferContainer;
  * Container for managing CommandBuffer objects via handles.
  */
 class CommandBufferContainer
-    : protected ComputeDataContainer<std::unique_ptr<CommandBuffer>> {
+    : public ComputeDataContainer<std::unique_ptr<CommandBuffer>> {
 public:
   CommandBufferContainer()
       : ComputeDataContainer<std::unique_ptr<CommandBuffer>>(2) {}

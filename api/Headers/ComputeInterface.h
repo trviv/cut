@@ -114,16 +114,10 @@ public:
    * @param handle The handle to the command buffer.
    * @return Const reference to the ComputeDispatchContainer.
    */
-  const CommandBuffer &getCommandBuffer(const ComputeHandle &handle) const;
+  const std::unique_ptr<CommandBuffer> &
+  getCommandBuffer(const ComputeHandle &handle) const;
 
 protected:
-  /**
-   * Returns the ComputeDispatchContainer associated with a handle.
-   * @param handle The handle to the command buffer.
-   * @return Reference to the ComputeDispatchContainer.
-   */
-  CommandBuffer &getCommandBuffer(const ComputeHandle &handle);
-
   /**
    * Creates a backend-specific CommandBuffer instance.
    * This pure virtual function must be implemented by derived classes to

@@ -76,7 +76,7 @@ TEST_F(ComputeContainersTest, RegisterDispatch) {
   EXPECT_FALSE(dispatch); // encode() now returns empty handle
   dispatch.reset();
   auto cmdBufferHandle = interface_->endCommandBuffer();
-  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 1);
+  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle)->size(), 1);
   cmdBufferHandle.reset();
 }
 
@@ -94,7 +94,7 @@ TEST_F(ComputeContainersTest, RegisterMultipleDispatches) {
   dispatch2.reset();
   dispatch3.reset();
   auto cmdBufferHandle = interface_->endCommandBuffer();
-  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 3);
+  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle)->size(), 3);
   cmdBufferHandle.reset();
 }
 
