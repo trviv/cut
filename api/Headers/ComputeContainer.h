@@ -113,23 +113,6 @@ class ComputeDataContainer : public ComputeContainer {
 
 public:
   /**
-   * Creates a new handle for the given data.
-   * @param hdata The data to store.
-   * @return A new ComputeHandle referencing the data.
-   */
-  ComputeHandle create(DataType &&hdata) {
-    size_t index = allocateSlot();
-
-    if (index < objects_.size()) {
-      objects_[index] = std::move(hdata);
-    } else {
-      objects_.emplace_back(std::move(hdata));
-    }
-
-    return ComputeHandle(this, index);
-  }
-
-  /**
    * Retrieves a const reference to the stored data (non-pointer types).
    * @param handle The handle to get data for.
    * @return Const reference to the stored data.
@@ -152,6 +135,23 @@ protected:
              "been deallocated.");
     }
     objects_.clear();
+  }
+
+  /**
+   * Creates a new handle for the given data.
+   * @param hdata The data to store.
+   * @return A new ComputeHandle referencing the data.
+   */
+  ComputeHandle create(DataType &&hdata) {
+    size_t index = allocateSlot();
+
+    if (index < objects_.size()) {
+      objects_[index] = std::move(hdata);
+    } else {
+      objects_.emplace_back(std::move(hdata));
+    }
+
+    return ComputeHandle(this, index);
   }
 
   /**
