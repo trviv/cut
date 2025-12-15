@@ -21,14 +21,13 @@ ComputeHandle ComputeInterface::endCommandBuffer() {
   return result;
 }
 
-ComputeHandle ComputeInterface::encode(ComputeDispatch &&dispatch) {
+void ComputeInterface::encode(ComputeDispatch &&dispatch) {
   if (!activeCommandBuffer_) {
     logErr("No command buffer is currently recording. "
            "Call beginCommandBuffer() before encode().");
   }
 
   activeCommandBuffer_->encode(std::move(dispatch));
-  return {}; // Return empty handle as dispatch is now owned by command buffer
 }
 
 const CommandBuffer &

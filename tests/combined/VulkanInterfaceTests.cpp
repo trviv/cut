@@ -85,9 +85,8 @@ TEST_F(VulkanTestEnvironment, BufferToBufferCopy) {
   });
 
   // Create empty destination buffer
-  EXPECT_NO_THROW({
-    dstBuffer = interface->createBuffer(elements * dtypeSize, nullptr);
-  });
+  EXPECT_NO_THROW(
+      { dstBuffer = interface->createBuffer(elements * dtypeSize, nullptr); });
 
   // Intermediate host memory for the copy
   std::vector<uint32_t> intermediateData(elements);
@@ -155,13 +154,12 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
   // Create dispatch
   cut::ThreadGroupSize threadGroups{1, 1, 1}; // 1 workgroup of 64 threads
 
-  cut::ComputeHandle dispatch;
   cut::ComputeHandle cmdBuffer;
 
   EXPECT_NO_THROW({
     interface->beginCommandBuffer();
 
-    dispatch = interface->encode(
+    interface->encode(
         {shaderModule,
          threadGroups,
          {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
@@ -181,7 +179,6 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
   });
 
   // Clean up handles
-  dispatch.reset();
   cmdBuffer.reset();
 
   // Note: Since full dispatch implementation is not complete,

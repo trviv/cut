@@ -99,9 +99,8 @@ public:
    * Encodes a compute dispatch to the active command buffer.
    * Must be called between beginCommandBuffer() and endCommandBuffer().
    * @param dispatch The compute dispatch object to encode (moved).
-   * @return Handle to the encoded dispatch.
    */
-  ComputeHandle encode(ComputeDispatch &&dispatch);
+  void encode(ComputeDispatch &&dispatch);
 
   /**
    * Submits a command buffer for GPU execution.

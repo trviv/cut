@@ -72,9 +72,7 @@ protected:
 
 TEST_F(ComputeContainersTest, RegisterDispatch) {
   interface_->beginCommandBuffer();
-  auto dispatch = interface_->encode({});
-  EXPECT_FALSE(dispatch); // encode() now returns empty handle
-  dispatch.reset();
+  interface_->encode({});
   auto cmdBufferHandle = interface_->endCommandBuffer();
   EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 1);
   cmdBufferHandle.reset();
@@ -82,17 +80,10 @@ TEST_F(ComputeContainersTest, RegisterDispatch) {
 
 TEST_F(ComputeContainersTest, RegisterMultipleDispatches) {
   interface_->beginCommandBuffer();
-  auto dispatch1 = interface_->encode({});
-  auto dispatch2 = interface_->encode({});
-  auto dispatch3 = interface_->encode({});
+  interface_->encode({});
+  interface_->encode({});
+  interface_->encode({});
 
-  EXPECT_FALSE(dispatch1);
-  EXPECT_FALSE(dispatch2);
-  EXPECT_FALSE(dispatch3);
-
-  dispatch1.reset();
-  dispatch2.reset();
-  dispatch3.reset();
   auto cmdBufferHandle = interface_->endCommandBuffer();
   EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 3);
   cmdBufferHandle.reset();
@@ -101,9 +92,7 @@ TEST_F(ComputeContainersTest, RegisterMultipleDispatches) {
 TEST_F(ComputeContainersTest, RegisterDispatchWithThreadGroupSize) {
   interface_->beginCommandBuffer();
   ThreadGroupSize tgs{8, 8, 1};
-  auto dispatch = interface_->encode({{}, tgs});
-  EXPECT_FALSE(dispatch);
-  dispatch.reset();
+  interface_->encode({{}, tgs});
   auto cmdBufferHandle = interface_->endCommandBuffer();
   cmdBufferHandle.reset();
 }
