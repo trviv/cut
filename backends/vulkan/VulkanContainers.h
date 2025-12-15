@@ -15,8 +15,9 @@ public:
   VulkanCommandBufferContainer() = default;
 
   /// Creates a Vulkan-specific command buffer.
-  std::unique_ptr<CommandBuffer> createCommandBuffer() override {
-    return std::make_unique<VulkanCommandBuffer>(device_, commandPool_, queue_);
+  ComputeHandle createCommandBuffer() override {
+    return ComputeDataContainer::create(
+        new VulkanCommandBuffer(device_, commandPool_, queue_));
   }
 
 private:

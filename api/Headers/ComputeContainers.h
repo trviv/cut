@@ -14,20 +14,18 @@ class CommandBufferContainer;
  * Derived classes must implement createCommandBuffer() to provide
  * backend-specific CommandBuffer instances.
  */
-class CommandBufferContainer
-    : public ComputeDataContainer<std::unique_ptr<CommandBuffer>> {
+class CommandBufferContainer : public ComputeDataContainer<CommandBuffer *> {
 public:
-  CommandBufferContainer()
-      : ComputeDataContainer<std::unique_ptr<CommandBuffer>>(2) {}
+  CommandBufferContainer() : ComputeDataContainer<CommandBuffer *>(2) {}
 
   virtual ~CommandBufferContainer() = default;
 
 protected:
   /**
    * Creates a new backend-specific CommandBuffer instance.
-   * @return Unique pointer to the created CommandBuffer.
+   * @return ComputeHandle to the created CommandBuffer.
    */
-  virtual std::unique_ptr<CommandBuffer> createCommandBuffer() = 0;
+  virtual ComputeHandle createCommandBuffer() = 0;
 
 private:
   friend class ComputeInterface;

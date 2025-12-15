@@ -24,8 +24,8 @@ protected:
 /// Mock CommandBufferContainer for testing.
 class MockCommandBufferContainer : public CommandBufferContainer {
 public:
-  std::unique_ptr<CommandBuffer> createCommandBuffer() override {
-    return std::make_unique<MockCommandBuffer>();
+  ComputeHandle createCommandBuffer() override {
+    return ComputeDataContainer::create(new MockCommandBuffer());
   }
 };
 

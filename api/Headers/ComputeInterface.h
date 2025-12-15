@@ -134,8 +134,8 @@ private:
   ///< Container for command buffers.
   std::unique_ptr<CommandBufferContainer> commandBufferContainer_;
 
-  ///< Currently recording command buffer.
-  std::unique_ptr<CommandBuffer> activeCommandBuffer_;
+  ///< Currently recording command buffer handle.
+  ComputeHandle activeCommandBuffer_;
 };
 
 } // namespace cut

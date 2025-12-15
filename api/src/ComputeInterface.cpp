@@ -15,8 +15,7 @@ ComputeHandle ComputeInterface::endCommandBuffer() {
     logErr("No command buffer is currently recording. "
            "Call beginCommandBuffer() first.");
   }
-  ComputeHandle result =
-      commandBufferContainer_->create(std::move(activeCommandBuffer_));
+  ComputeHandle result = std::move(activeCommandBuffer_);
   activeCommandBuffer_.reset();
   return result;
 }
@@ -27,7 +26,8 @@ void ComputeInterface::encode(ComputeDispatch &&dispatch) {
            "Call beginCommandBuffer() before encode().");
   }
 
-  activeCommandBuffer_->encode(std::move(dispatch));
+  commandBufferContainer_->get(activeCommandBuffer_)
+      ->encode(std::move(dispatch));
 }
 
 const CommandBuffer &
