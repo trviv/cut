@@ -330,7 +330,7 @@ void VulkanCompute::submit(const ComputeHandle &commandBufferHandle) {
   VK_CHECK(vkBeginCommandBuffer(vkCmdBuffer, &beginInfo));
 
   // Iterate through all dispatches in the command buffer
-  for (size_t i = 0; i < commandBuffer->size(); ++i) {
+  for (size_t i = 0; i < commandBuffer.size(); ++i) {
     // For now, we skip actual encoding as full pipeline setup is complex
     // This will be implemented when descriptor sets and pipelines are ready
   }

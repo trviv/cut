@@ -114,8 +114,7 @@ public:
    * @param handle The handle to the command buffer.
    * @return Const reference to the ComputeDispatchContainer.
    */
-  const std::unique_ptr<CommandBuffer> &
-  getCommandBuffer(const ComputeHandle &handle) const;
+  const CommandBuffer &getCommandBuffer(const ComputeHandle &handle) const;
 
 protected:
   /**

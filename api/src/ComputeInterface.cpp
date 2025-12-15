@@ -31,9 +31,9 @@ ComputeHandle ComputeInterface::encode(ComputeDispatch &&dispatch) {
   return {}; // Return empty handle as dispatch is now owned by command buffer
 }
 
-const std::unique_ptr<CommandBuffer> &
+const CommandBuffer &
 ComputeInterface::getCommandBuffer(const ComputeHandle &handle) const {
-  return commandBufferContainer_.get(handle);
+  return *commandBufferContainer_.get(handle);
 }
 
 } // namespace cut
