@@ -128,7 +128,7 @@ TEST_F(VulkanComputeTest, BufferHandleBecomesInvalidAfterReset) {
 TEST_F(VulkanComputeTest, CanRegisterDispatch) {
   compute_->beginCommandBuffer();
   auto dispatch = compute_->encode({});
-  EXPECT_TRUE(dispatch);
+  EXPECT_FALSE(dispatch); // encode() now returns empty handle
   dispatch.reset();
   auto cmdBufferHandle = compute_->endCommandBuffer();
   cmdBufferHandle.reset();
@@ -141,7 +141,7 @@ TEST_F(VulkanComputeTest, CanRegisterDispatchWithBindings) {
   compute_->beginCommandBuffer();
   auto dispatch =
       compute_->encode({{}, tgs, {ComputeBinding(0, buffer)}});
-  EXPECT_TRUE(dispatch);
+  EXPECT_FALSE(dispatch); // encode() now returns empty handle
   dispatch.reset();
   auto cmdBufferHandle = compute_->endCommandBuffer();
   cmdBufferHandle.reset();

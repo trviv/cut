@@ -1,3 +1,4 @@
+#include <VulkanCommandBuffer.h>
 #include <VulkanCompute.h>
 
 namespace cut {
@@ -547,6 +548,10 @@ VulkanInstance::~VulkanInstance() {
   if (instance_ != VK_NULL_HANDLE) {
     vkDestroyInstance(instance_, nullptr);
   }
+}
+
+std::unique_ptr<CommandBuffer> VulkanCompute::createCommandBuffer() {
+  return std::make_unique<VulkanCommandBuffer>(device_, commandPool_, queue_);
 }
 
 } // namespace cut

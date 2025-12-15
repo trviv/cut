@@ -135,6 +135,21 @@ public:
    */
   void encode(ComputeDispatch &&dispatch);
 
+  /**
+   * Returns the number of dispatches in this command buffer.
+   * @return The number of encoded dispatches.
+   */
+  size_t size() const { return dispatches_.size(); }
+
+  /**
+   * Returns a const reference to the dispatch at the specified index.
+   * @param index The index of the dispatch to retrieve.
+   * @return Const reference to the dispatch.
+   */
+  const ComputeDispatch &getDispatch(size_t index) const {
+    return dispatches_[index];
+  }
+
 protected:
   /**
    * Backend-specific implementation for encoding a dispatch.

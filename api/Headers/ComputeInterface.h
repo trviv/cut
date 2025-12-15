@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ComputeStructs.h"
 #include <ComputeContainers.h>
 #include <ComputeHandle.h>
 
@@ -113,19 +114,28 @@ public:
    * @param handle The handle to the command buffer.
    * @return Reference to the ComputeDispatchContainer.
    */
-  ComputeDispatchContainer &getCommandBuffer(const ComputeHandle &handle);
+  CommandBuffer &getCommandBuffer(const ComputeHandle &handle);
 
   /**
    * Returns the ComputeDispatchContainer associated with a handle (const).
    * @param handle The handle to the command buffer.
    * @return Const reference to the ComputeDispatchContainer.
    */
-  const ComputeDispatchContainer &getCommandBuffer(const ComputeHandle &handle) const;
+  const CommandBuffer &getCommandBuffer(const ComputeHandle &handle) const;
+
+protected:
+  /**
+   * Creates a backend-specific CommandBuffer instance.
+   * This pure virtual function must be implemented by derived classes to
+   * instantiate their specific CommandBuffer implementations.
+   * @return Unique pointer to the created CommandBuffer.
+   */
+  virtual std::unique_ptr<CommandBuffer> createCommandBuffer() = 0;
 
 private:
   CommandBufferContainer
-      commandBufferContainer_;        ///< Container for command buffers.
-  ComputeHandle activeCommandBuffer_; ///< Currently recording command buffer.
+      commandBufferContainer_;                     ///< Container for command buffers.
+  std::unique_ptr<CommandBuffer> activeCommandBuffer_; ///< Currently recording command buffer.
 };
 
 } // namespace cut

@@ -18,7 +18,7 @@ protected:
    * Mock implementation of encodeImpl that does nothing.
    * @param dispatch Const reference to the compute dispatch being encoded.
    */
-  void encodeImpl(const ComputeDispatch &dispatch) override;
+  void encodeImpl(const ComputeDispatch &dispatch) override {}
 };
 
 class MockComputeInterface : public ComputeInterface {
@@ -49,6 +49,12 @@ public:
 
   void submit(const ComputeHandle &) override {}
 
+protected:
+  std::unique_ptr<CommandBuffer> createCommandBuffer() override {
+    return std::make_unique<MockCommandBuffer>();
+  }
+
+private:
   MockContainer bufferContainer_;
   MockContainer shaderContainer_;
 };

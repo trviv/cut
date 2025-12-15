@@ -18,7 +18,7 @@ protected:
    * Mock implementation of encodeImpl that does nothing.
    * @param dispatch Const reference to the compute dispatch being encoded.
    */
-  void encodeImpl(const ComputeDispatch &dispatch) override;
+  void encodeImpl(const ComputeDispatch &dispatch) override {}
 };
 
 /// Mock ComputeInterface for testing container functionality.
@@ -50,6 +50,11 @@ public:
   }
 
   void submit(const ComputeHandle &) override {}
+
+protected:
+  std::unique_ptr<CommandBuffer> createCommandBuffer() override {
+    return std::make_unique<MockCommandBuffer>();
+  }
 };
 
 class ComputeContainersTest : public ::testing::Test {
@@ -68,10 +73,10 @@ protected:
 TEST_F(ComputeContainersTest, RegisterDispatch) {
   interface_->beginCommandBuffer();
   auto dispatch = interface_->encode({});
-  EXPECT_TRUE(dispatch);
+  EXPECT_FALSE(dispatch); // encode() now returns empty handle
   dispatch.reset();
   auto cmdBufferHandle = interface_->endCommandBuffer();
-  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 0);
+  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 1);
   cmdBufferHandle.reset();
 }
 
@@ -81,15 +86,15 @@ TEST_F(ComputeContainersTest, RegisterMultipleDispatches) {
   auto dispatch2 = interface_->encode({});
   auto dispatch3 = interface_->encode({});
 
-  EXPECT_TRUE(dispatch1);
-  EXPECT_TRUE(dispatch2);
-  EXPECT_TRUE(dispatch3);
+  EXPECT_FALSE(dispatch1);
+  EXPECT_FALSE(dispatch2);
+  EXPECT_FALSE(dispatch3);
 
   dispatch1.reset();
   dispatch2.reset();
   dispatch3.reset();
   auto cmdBufferHandle = interface_->endCommandBuffer();
-  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 0);
+  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 3);
   cmdBufferHandle.reset();
 }
 
@@ -97,7 +102,7 @@ TEST_F(ComputeContainersTest, RegisterDispatchWithThreadGroupSize) {
   interface_->beginCommandBuffer();
   ThreadGroupSize tgs{8, 8, 1};
   auto dispatch = interface_->encode({{}, tgs});
-  EXPECT_TRUE(dispatch);
+  EXPECT_FALSE(dispatch);
   dispatch.reset();
   auto cmdBufferHandle = interface_->endCommandBuffer();
   cmdBufferHandle.reset();

@@ -7,7 +7,7 @@ void ComputeInterface::beginCommandBuffer() {
     logErr("Cannot begin a new command buffer while one is already recording. "
            "Call endCommandBuffer() first.");
   }
-  activeCommandBuffer_ = commandBufferContainer_.create();
+  activeCommandBuffer_ = createCommandBuffer();
 }
 
 ComputeHandle ComputeInterface::endCommandBuffer() {
@@ -15,7 +15,8 @@ ComputeHandle ComputeInterface::endCommandBuffer() {
     logErr("No command buffer is currently recording. "
            "Call beginCommandBuffer() first.");
   }
-  ComputeHandle result = activeCommandBuffer_;
+  ComputeHandle result =
+      commandBufferContainer_.create(std::move(activeCommandBuffer_));
   activeCommandBuffer_.reset();
   return result;
 }
@@ -26,18 +27,17 @@ ComputeHandle ComputeInterface::encode(ComputeDispatch &&dispatch) {
            "Call beginCommandBuffer() before encode().");
   }
 
-  auto &cmdBuffer = *commandBufferContainer_.get(activeCommandBuffer_);
-  return cmdBuffer.encode(std::move(dispatch));
+  activeCommandBuffer_->encode(std::move(dispatch));
+  return {}; // Return empty handle as dispatch is now owned by command buffer
 }
 
-ComputeDispatchContainer &
-ComputeInterface::getCommandBuffer(const ComputeHandle &handle) {
-  return *commandBufferContainer_.get(handle);
+CommandBuffer &ComputeInterface::getCommandBuffer(const ComputeHandle &handle) {
+  return *commandBufferContainer_.get(handle).get();
 }
 
-const ComputeDispatchContainer &
+const CommandBuffer &
 ComputeInterface::getCommandBuffer(const ComputeHandle &handle) const {
-  return *commandBufferContainer_.get(handle);
+  return *commandBufferContainer_.get(handle).get();
 }
 
 } // namespace cut
