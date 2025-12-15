@@ -110,13 +110,6 @@ public:
   virtual void submit(const ComputeHandle &commandBufferHandle) = 0;
 
   /**
-   * Returns the ComputeDispatchContainer associated with a handle.
-   * @param handle The handle to the command buffer.
-   * @return Reference to the ComputeDispatchContainer.
-   */
-  CommandBuffer &getCommandBuffer(const ComputeHandle &handle);
-
-  /**
    * Returns the ComputeDispatchContainer associated with a handle (const).
    * @param handle The handle to the command buffer.
    * @return Const reference to the ComputeDispatchContainer.
@@ -124,6 +117,13 @@ public:
   const CommandBuffer &getCommandBuffer(const ComputeHandle &handle) const;
 
 protected:
+  /**
+   * Returns the ComputeDispatchContainer associated with a handle.
+   * @param handle The handle to the command buffer.
+   * @return Reference to the ComputeDispatchContainer.
+   */
+  CommandBuffer &getCommandBuffer(const ComputeHandle &handle);
+
   /**
    * Creates a backend-specific CommandBuffer instance.
    * This pure virtual function must be implemented by derived classes to
@@ -133,9 +133,11 @@ protected:
   virtual std::unique_ptr<CommandBuffer> createCommandBuffer() = 0;
 
 private:
-  CommandBufferContainer
-      commandBufferContainer_;                     ///< Container for command buffers.
-  std::unique_ptr<CommandBuffer> activeCommandBuffer_; ///< Currently recording command buffer.
+  ///< Container for command buffers.
+  CommandBufferContainer commandBufferContainer_;
+
+  ///< Currently recording command buffer.
+  std::unique_ptr<CommandBuffer> activeCommandBuffer_;
 };
 
 } // namespace cut
