@@ -9,7 +9,7 @@ namespace cut {
  * Vulkan implementation of CommandBuffer.
  * Records compute dispatches as Vulkan commands for GPU execution.
  */
-class VulkanCommandBuffer : public CommandBuffer {
+class VulkanCommandBuffer final : public CommandBuffer {
 public:
   /**
    * Constructs a VulkanCommandBuffer with the necessary Vulkan resources.
@@ -17,7 +17,9 @@ public:
    * @param commandPool The command pool to allocate command buffers from.
    * @param queue The compute queue for submissions.
    */
-  VulkanCommandBuffer(VkDevice device, VkCommandPool commandPool, VkQueue queue);
+  VulkanCommandBuffer(VkDevice device,
+                      VkCommandPool commandPool,
+                      VkQueue queue);
 
   ~VulkanCommandBuffer() override = default;
 

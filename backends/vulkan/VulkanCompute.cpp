@@ -5,7 +5,8 @@ namespace cut {
 
 VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
                              VulkanContextConfig config)
-    : instance_(instance) {
+    : ComputeInterface(std::make_unique<VulkanCommandBufferContainer>()),
+      instance_(instance) {
   const PhysicalDeviceAndQueueIndex physicalDeviceAndQueueIdx =
       pickPhysicalDevice(*instance_, config.preferredType);
 
@@ -80,6 +81,13 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   IF_VMA_DISABLED_THEN(bufferContainer_.device_ = device_);
 
   shaderContainer_.device_ = device_;
+
+  // Set up the command buffer container
+  auto &cmdBufferContainer =
+      static_cast<VulkanCommandBufferContainer &>(getCommandBufferContainer());
+  cmdBufferContainer.device_ = device_;
+  cmdBufferContainer.commandPool_ = commandPool_;
+  cmdBufferContainer.queue_ = queue_;
 }
 
 PhysicalDeviceAndQueueIndex
@@ -548,10 +556,6 @@ VulkanInstance::~VulkanInstance() {
   if (instance_ != VK_NULL_HANDLE) {
     vkDestroyInstance(instance_, nullptr);
   }
-}
-
-std::unique_ptr<CommandBuffer> VulkanCompute::createCommandBuffer() {
-  return std::make_unique<VulkanCommandBuffer>(device_, commandPool_, queue_);
 }
 
 } // namespace cut

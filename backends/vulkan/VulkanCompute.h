@@ -54,10 +54,6 @@ public:
   VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
                 VulkanContextConfig config = {});
 
-protected:
-  /// Creates a Vulkan-specific command buffer.
-  std::unique_ptr<CommandBuffer> createCommandBuffer() override;
-
 private:
   /// Selects a physical device (GPU) that matches the preferred type and has a
   /// compute queue.

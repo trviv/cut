@@ -21,9 +21,20 @@ protected:
   void encodeImpl(const ComputeDispatch &dispatch) override {}
 };
 
+/// Mock CommandBufferContainer for testing.
+class MockCommandBufferContainer : public CommandBufferContainer {
+public:
+  std::unique_ptr<CommandBuffer> createCommandBuffer() override {
+    return std::make_unique<MockCommandBuffer>();
+  }
+};
+
 /// Mock ComputeInterface for testing container functionality.
 class MockComputeInterface : public ComputeInterface {
 public:
+  MockComputeInterface()
+      : ComputeInterface(std::make_unique<MockCommandBufferContainer>()) {}
+
   ComputeHandle
   createBuffer(size_t, const void * = nullptr, bool = false) override {
     return {};
@@ -50,11 +61,6 @@ public:
   }
 
   void submit(const ComputeHandle &) override {}
-
-protected:
-  std::unique_ptr<CommandBuffer> createCommandBuffer() override {
-    return std::make_unique<MockCommandBuffer>();
-  }
 };
 
 class ComputeContainersTest : public ::testing::Test {

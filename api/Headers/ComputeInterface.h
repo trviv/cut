@@ -15,9 +15,6 @@ namespace cut {
  */
 class ComputeInterface {
 public:
-  /** Default constructor. */
-  explicit ComputeInterface() = default;
-
   /** Virtual destructor. */
   virtual ~ComputeInterface() = default;
 
@@ -117,16 +114,25 @@ public:
 
 protected:
   /**
-   * Creates a backend-specific CommandBuffer instance.
-   * This pure virtual function must be implemented by derived classes to
-   * instantiate their specific CommandBuffer implementations.
-   * @return Unique pointer to the created CommandBuffer.
+   * Constructs ComputeInterface with a command buffer container.
+   * @param commandBufferContainer Unique pointer to the container for command
+   * buffers. Ownership is transferred to ComputeInterface.
    */
-  virtual std::unique_ptr<CommandBuffer> createCommandBuffer() = 0;
+  explicit ComputeInterface(
+      std::unique_ptr<CommandBufferContainer> commandBufferContainer)
+      : commandBufferContainer_(std::move(commandBufferContainer)) {}
+
+  /**
+   * Returns the command buffer container for derived classes to configure.
+   * @return Reference to the command buffer container.
+   */
+  CommandBufferContainer &getCommandBufferContainer() {
+    return *commandBufferContainer_;
+  }
 
 private:
   ///< Container for command buffers.
-  CommandBufferContainer commandBufferContainer_;
+  std::unique_ptr<CommandBufferContainer> commandBufferContainer_;
 
   ///< Currently recording command buffer.
   std::unique_ptr<CommandBuffer> activeCommandBuffer_;

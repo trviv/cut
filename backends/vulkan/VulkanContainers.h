@@ -1,11 +1,31 @@
 #pragma once
 
+#include "VulkanCommandBuffer.h"
 #include <ComputeContainers.h>
 #include <VulkanStructs.h>
 
+#include <memory>
 #include <utility>
 
 namespace cut {
+
+/// Vulkan implementation of CommandBufferContainer.
+class VulkanCommandBufferContainer final : public CommandBufferContainer {
+public:
+  VulkanCommandBufferContainer() = default;
+
+  /// Creates a Vulkan-specific command buffer.
+  std::unique_ptr<CommandBuffer> createCommandBuffer() override {
+    return std::make_unique<VulkanCommandBuffer>(device_, commandPool_, queue_);
+  }
+
+private:
+  friend class VulkanCompute;
+
+  VkDevice device_ = VK_NULL_HANDLE;
+  VkCommandPool commandPool_ = VK_NULL_HANDLE;
+  VkQueue queue_ = VK_NULL_HANDLE;
+};
 
 /// Container managing GPU buffer allocations and their lifecycle.
 class VulkanBufferContainer final
