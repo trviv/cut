@@ -24,8 +24,20 @@ public:
   ~VulkanCommandBuffer() override = default;
 
   /**
+   * Begins recording commands to this command buffer.
+   * Calls vkBeginCommandBuffer with one-time submit flag.
+   */
+  void begin() override;
+
+  /**
+   * Ends recording commands to this command buffer.
+   * Calls vkEndCommandBuffer.
+   */
+  void end() override;
+
+  /**
    * Vulkan-specific implementation for submitting the command buffer.
-   * Ends recording and submits the command buffer to the queue.
+   * Submits the command buffer to the queue and waits for completion.
    */
   void submit() override;
 

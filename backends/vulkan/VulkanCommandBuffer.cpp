@@ -14,13 +14,18 @@ VulkanCommandBuffer::VulkanCommandBuffer(VkDevice device,
   allocInfo.commandBufferCount = 1;
 
   vkAllocateCommandBuffers(device_, &allocInfo, &commandBuffer_);
+}
 
-  // Begin recording
+void VulkanCommandBuffer::begin() {
   VkCommandBufferBeginInfo beginInfo{};
   beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
   beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
   vkBeginCommandBuffer(commandBuffer_, &beginInfo);
+}
+
+void VulkanCommandBuffer::end() {
+  vkEndCommandBuffer(commandBuffer_);
 }
 
 void VulkanCommandBuffer::encodeImpl(const ComputeDispatch &dispatch) {
@@ -33,9 +38,6 @@ void VulkanCommandBuffer::encodeImpl(const ComputeDispatch &dispatch) {
 }
 
 void VulkanCommandBuffer::submit() {
-  // End recording
-  vkEndCommandBuffer(commandBuffer_);
-
   // Submit to queue
   VkSubmitInfo submitInfo{};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;

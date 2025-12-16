@@ -130,10 +130,24 @@ public:
   virtual ~CommandBuffer() = default;
 
   /**
+   * Begins recording commands to this command buffer.
+   * Must be called before encoding any dispatches.
+   * Default implementation does nothing; backends may override.
+   */
+  virtual void begin() {};
+
+  /**
    * Encodes a compute dispatch to this command buffer.
    * @param dispatch The compute dispatch to encode.
    */
   void encode(ComputeDispatch &&dispatch);
+
+  /**
+   * Ends recording commands to this command buffer.
+   * Must be called after all dispatches have been encoded and before submit.
+   * Default implementation does nothing; backends may override.
+   */
+  virtual void end() {};
 
   /**
    * Submits the command buffer for execution on the GPU.

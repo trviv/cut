@@ -8,6 +8,7 @@ void ComputeInterface::beginCommandBuffer() {
            "Call endCommandBuffer() first.");
   }
   activeCommandBuffer_ = commandBufferContainer_->createCommandBuffer();
+  commandBufferContainer_->get(activeCommandBuffer_)->begin();
 }
 
 ComputeHandle ComputeInterface::endCommandBuffer() {
@@ -15,8 +16,11 @@ ComputeHandle ComputeInterface::endCommandBuffer() {
     logErr("No command buffer is currently recording. "
            "Call beginCommandBuffer() first.");
   }
+  commandBufferContainer_->get(activeCommandBuffer_)->end();
+
   ComputeHandle result = std::move(activeCommandBuffer_);
   activeCommandBuffer_.reset();
+
   return result;
 }
 
