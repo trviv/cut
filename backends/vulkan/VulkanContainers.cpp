@@ -3,6 +3,15 @@
 
 namespace cut {
 
+VulkanCommandBufferContainer::~VulkanCommandBufferContainer() {
+  if (queue_ != VK_NULL_HANDLE) {
+    vkQueueWaitIdle(queue_);
+  }
+  if (commandPool_ != VK_NULL_HANDLE) {
+    vkDestroyCommandPool(device_, commandPool_, nullptr);
+  }
+}
+
 void VulkanBufferContainer::destroy(const ComputeHandle &handle) {
   auto &buffer = get(handle);
 

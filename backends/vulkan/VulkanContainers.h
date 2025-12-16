@@ -14,6 +14,9 @@ class VulkanCommandBufferContainer final : public CommandBufferContainer {
 public:
   VulkanCommandBufferContainer() = default;
 
+  /// Destroys the command pool and waits for the queue to idle.
+  ~VulkanCommandBufferContainer();
+
   /// Creates a Vulkan-specific command buffer.
   ComputeHandle createCommandBuffer() override {
     return ComputeDataContainer::create(

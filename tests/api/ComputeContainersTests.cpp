@@ -32,8 +32,9 @@ public:
 /// Mock ComputeInterface for testing container functionality.
 class MockComputeInterface : public ComputeInterface {
 public:
-  MockComputeInterface()
-      : ComputeInterface(std::make_unique<MockCommandBufferContainer>()) {}
+  MockComputeInterface() {
+    setCommandBufferContainer(std::make_unique<MockCommandBufferContainer>());
+  }
 
   ComputeHandle
   createBuffer(size_t, const void * = nullptr, bool = false) override {

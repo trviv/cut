@@ -15,6 +15,13 @@ namespace cut {
  */
 class ComputeInterface {
 public:
+  /**
+   * Default constructor.
+   * Derived classes must call setCommandBufferContainer() to initialize
+   * the command buffer container before using command buffer operations.
+   */
+  ComputeInterface() = default;
+
   /** Virtual destructor. */
   virtual ~ComputeInterface() = default;
 
@@ -114,21 +121,18 @@ public:
 
 protected:
   /**
-   * Constructs ComputeInterface with a command buffer container.
-   * @param commandBufferContainer Unique pointer to the container for command
-   * buffers. Ownership is transferred to ComputeInterface.
-   */
-  explicit ComputeInterface(
-      std::unique_ptr<CommandBufferContainer> commandBufferContainer)
-      : commandBufferContainer_(std::move(commandBufferContainer)) {}
-
-  /**
    * Returns the command buffer container for derived classes to configure.
    * @return Reference to the command buffer container.
    */
-  CommandBufferContainer &getCommandBufferContainer() {
-    return *commandBufferContainer_;
-  }
+  CommandBufferContainer &getCommandBufferContainer();
+
+  /**
+   * Sets the command buffer container for this interface.
+   * Must be called by derived classes during construction.
+   * @param commandBufferContainer Unique pointer to the container.
+   */
+  void setCommandBufferContainer(
+      std::unique_ptr<CommandBufferContainer> commandBufferContainer);
 
 private:
   ///< Container for command buffers.

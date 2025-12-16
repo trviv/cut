@@ -5,8 +5,7 @@ namespace cut {
 
 VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
                              VulkanContextConfig config)
-    : ComputeInterface(std::make_unique<VulkanCommandBufferContainer>()),
-      instance_(instance) {
+    : instance_(instance) {
   const PhysicalDeviceAndQueueIndex physicalDeviceAndQueueIdx =
       pickPhysicalDevice(*instance_, config.preferredType);
 
@@ -37,21 +36,30 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 
   VK_CHECK(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device_));
 
-  vkGetDeviceQueue(device_, computeQueueFamilyIndex_, 0, &queue_);
+  setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>());
+
+  // Set up the command buffer container
+  auto &cmdBufferContainer =
+      static_cast<VulkanCommandBufferContainer &>(getCommandBufferContainer());
+  cmdBufferContainer.device_ = device_;
+
+  vkGetDeviceQueue(device_, computeQueueFamilyIndex_, 0,
+                   &cmdBufferContainer.queue_);
 
   VkCommandPoolCreateInfo poolInfo = {};
   poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   poolInfo.queueFamilyIndex = computeQueueFamilyIndex_;
 
-  VK_CHECK(vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool_));
+  VK_CHECK(vkCreateCommandPool(device_, &poolInfo, nullptr,
+                               &cmdBufferContainer.commandPool_));
 
   std::vector<VkCommandBuffer> commandBuffers(config.maxCommandBuffers, {});
   commandBuffers_.resize(config.maxCommandBuffers);
 
   VkCommandBufferAllocateInfo allocInfo = {};
   allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  allocInfo.commandPool = commandPool_;
+  allocInfo.commandPool = cmdBufferContainer.commandPool_;
   allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   allocInfo.commandBufferCount = config.maxCommandBuffers;
 
@@ -81,13 +89,6 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   IF_VMA_DISABLED_THEN(bufferContainer_.device_ = device_);
 
   shaderContainer_.device_ = device_;
-
-  // Set up the command buffer container
-  auto &cmdBufferContainer =
-      static_cast<VulkanCommandBufferContainer &>(getCommandBufferContainer());
-  cmdBufferContainer.device_ = device_;
-  cmdBufferContainer.commandPool_ = commandPool_;
-  cmdBufferContainer.queue_ = queue_;
 }
 
 PhysicalDeviceAndQueueIndex
@@ -145,12 +146,9 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
 
 void VulkanCompute::cleanup() {
   commandBuffers_.clear();
-  if (commandPool_ != VK_NULL_HANDLE) {
-    vkDestroyCommandPool(device_, commandPool_, nullptr);
-  }
-  if (queue_ != VK_NULL_HANDLE) {
-    vkQueueWaitIdle(queue_);
-  }
+  // Delete / reset the container before destroying device
+  setCommandBufferContainer({});
+
   if (device_ != VK_NULL_HANDLE) {
     vkDeviceWaitIdle(device_);
     vkDestroyDevice(device_, nullptr);
@@ -346,13 +344,17 @@ void VulkanCompute::submit(const ComputeHandle &commandBufferHandle) {
   VK_CHECK(vkEndCommandBuffer(vkCmdBuffer));
 
   // Submit to queue
+  auto &cmdBufferContainer =
+      static_cast<VulkanCommandBufferContainer &>(getCommandBufferContainer());
+
   VkSubmitInfo submitInfo = {};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = &vkCmdBuffer;
 
-  VK_CHECK(vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE));
-  VK_CHECK(vkQueueWaitIdle(queue_));
+  VK_CHECK(
+      vkQueueSubmit(cmdBufferContainer.queue_, 1, &submitInfo, VK_NULL_HANDLE));
+  VK_CHECK(vkQueueWaitIdle(cmdBufferContainer.queue_));
 }
 
 // auto pipeline = std::make_shared<ComputePipeline>();
