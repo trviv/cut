@@ -19,6 +19,9 @@ protected:
    * @param dispatch Const reference to the compute dispatch being encoded.
    */
   void encodeImpl(const ComputeDispatch &dispatch) override {}
+
+  /// Mock implementation of submitImpl that does nothing.
+  void submitImpl() override {}
 };
 
 /// Mock CommandBufferContainer for testing.

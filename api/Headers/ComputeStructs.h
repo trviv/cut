@@ -136,6 +136,13 @@ public:
   void encode(ComputeDispatch &&dispatch);
 
   /**
+   * Submits the command buffer for execution on the GPU.
+   * Ends recording and submits all encoded dispatches to the compute queue.
+   * Blocks until execution completes.
+   */
+  void submit();
+
+  /**
    * Returns the number of dispatches in this command buffer.
    * @return The number of encoded dispatches.
    */
@@ -167,6 +174,16 @@ protected:
    * @param dispatch Const reference to the compute dispatch being encoded.
    */
   virtual void encodeImpl(const ComputeDispatch &dispatch) = 0;
+
+  /**
+   * Backend-specific implementation for submitting the command buffer.
+   * This pure virtual function must be implemented by derived classes to
+   * perform the actual submission to the GPU. Implementations should end
+   * command buffer recording and submit to the appropriate queue.
+   *
+   * Called by submit() to perform backend-specific submission logic.
+   */
+  virtual void submitImpl() = 0;
 
 private:
   std::vector<ComputeDispatch> dispatches_; ///< List of compute dispatches.

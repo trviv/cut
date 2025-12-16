@@ -31,6 +31,12 @@ protected:
    */
   void encodeImpl(const ComputeDispatch &dispatch) override;
 
+  /**
+   * Vulkan-specific implementation for submitting the command buffer.
+   * Ends recording and submits the command buffer to the queue.
+   */
+  void submitImpl() override;
+
 private:
   VkDevice device_;
   VkCommandPool commandPool_;

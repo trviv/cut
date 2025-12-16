@@ -32,4 +32,18 @@ void VulkanCommandBuffer::encodeImpl(const ComputeDispatch &dispatch) {
   // 4. Add memory barriers as needed
 }
 
+void VulkanCommandBuffer::submitImpl() {
+  // End recording
+  vkEndCommandBuffer(commandBuffer_);
+
+  // Submit to queue
+  VkSubmitInfo submitInfo{};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &commandBuffer_;
+
+  vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE);
+  vkQueueWaitIdle(queue_);
+}
+
 } // namespace cut
