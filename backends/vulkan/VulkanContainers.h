@@ -12,7 +12,13 @@ namespace cut {
 /// Vulkan implementation of CommandBufferContainer.
 class VulkanCommandBufferContainer final : public CommandBufferContainer {
 public:
-  VulkanCommandBufferContainer() = default;
+  /**
+   * Constructs a Vulkan command buffer container.
+   * Creates the command pool and retrieves the queue internally.
+   * @param device The Vulkan logical device.
+   * @param queueFamilyIndex The queue family index for command submission.
+   */
+  VulkanCommandBufferContainer(VkDevice device, uint32_t queueFamilyIndex);
 
   /// Destroys the command pool and waits for the queue to idle.
   ~VulkanCommandBufferContainer();
@@ -23,9 +29,13 @@ public:
         new VulkanCommandBuffer(device_, commandPool_, queue_));
   }
 
-private:
-  friend class VulkanCompute;
+  /// Returns the queue handle.
+  VkQueue getQueue() const { return queue_; }
 
+  /// Returns the command pool handle.
+  VkCommandPool getCommandPool() const { return commandPool_; }
+
+private:
   VkDevice device_ = VK_NULL_HANDLE;
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   VkQueue queue_ = VK_NULL_HANDLE;

@@ -36,30 +36,19 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 
   VK_CHECK(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device_));
 
-  setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>());
+  // Create and set the command buffer container
+  setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
+      device_, computeQueueFamilyIndex_));
 
-  // Set up the command buffer container
   auto &cmdBufferContainer =
       static_cast<VulkanCommandBufferContainer &>(getCommandBufferContainer());
-  cmdBufferContainer.device_ = device_;
-
-  vkGetDeviceQueue(device_, computeQueueFamilyIndex_, 0,
-                   &cmdBufferContainer.queue_);
-
-  VkCommandPoolCreateInfo poolInfo = {};
-  poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-  poolInfo.queueFamilyIndex = computeQueueFamilyIndex_;
-
-  VK_CHECK(vkCreateCommandPool(device_, &poolInfo, nullptr,
-                               &cmdBufferContainer.commandPool_));
 
   std::vector<VkCommandBuffer> commandBuffers(config.maxCommandBuffers, {});
   commandBuffers_.resize(config.maxCommandBuffers);
 
   VkCommandBufferAllocateInfo allocInfo = {};
   allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  allocInfo.commandPool = cmdBufferContainer.commandPool_;
+  allocInfo.commandPool = cmdBufferContainer.getCommandPool();
   allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   allocInfo.commandBufferCount = config.maxCommandBuffers;
 
@@ -346,15 +335,15 @@ void VulkanCompute::submit(const ComputeHandle &commandBufferHandle) {
   // Submit to queue
   auto &cmdBufferContainer =
       static_cast<VulkanCommandBufferContainer &>(getCommandBufferContainer());
+  VkQueue queue = cmdBufferContainer.getQueue();
 
   VkSubmitInfo submitInfo = {};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = &vkCmdBuffer;
 
-  VK_CHECK(
-      vkQueueSubmit(cmdBufferContainer.queue_, 1, &submitInfo, VK_NULL_HANDLE));
-  VK_CHECK(vkQueueWaitIdle(cmdBufferContainer.queue_));
+  VK_CHECK(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+  VK_CHECK(vkQueueWaitIdle(queue));
 }
 
 // auto pipeline = std::make_shared<ComputePipeline>();
