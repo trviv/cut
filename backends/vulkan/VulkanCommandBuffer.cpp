@@ -32,7 +32,7 @@ void VulkanCommandBuffer::encodeImpl(const ComputeDispatch &dispatch) {
   // 4. Add memory barriers as needed
 }
 
-void VulkanCommandBuffer::submitImpl() {
+void VulkanCommandBuffer::submit() {
   // End recording
   vkEndCommandBuffer(commandBuffer_);
 

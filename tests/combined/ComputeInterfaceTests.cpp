@@ -20,8 +20,8 @@ protected:
    */
   void encodeImpl(const ComputeDispatch &dispatch) override {}
 
-  /// Mock implementation of submitImpl that does nothing.
-  void submitImpl() override {}
+  /// Mock implementation of submit that does nothing.
+  void submit() override {}
 };
 
 /// Mock CommandBufferContainer for testing.

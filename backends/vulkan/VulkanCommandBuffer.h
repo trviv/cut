@@ -23,6 +23,12 @@ public:
 
   ~VulkanCommandBuffer() override = default;
 
+  /**
+   * Vulkan-specific implementation for submitting the command buffer.
+   * Ends recording and submits the command buffer to the queue.
+   */
+  void submit() override;
+
 protected:
   /**
    * Vulkan-specific implementation for encoding a dispatch.
@@ -30,12 +36,6 @@ protected:
    * @param dispatch Const reference to the compute dispatch being encoded.
    */
   void encodeImpl(const ComputeDispatch &dispatch) override;
-
-  /**
-   * Vulkan-specific implementation for submitting the command buffer.
-   * Ends recording and submits the command buffer to the queue.
-   */
-  void submitImpl() override;
 
 private:
   VkDevice device_;
