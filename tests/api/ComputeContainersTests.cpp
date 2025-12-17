@@ -63,8 +63,6 @@ public:
   ComputeHandle createShaderModule(const std::vector<uint32_t> &) override {
     return {};
   }
-
-  void submit(const ComputeHandle &) override {}
 };
 
 class ComputeContainersTest : public ::testing::Test {

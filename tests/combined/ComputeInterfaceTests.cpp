@@ -62,8 +62,6 @@ public:
     return shaderContainer_.createInteger();
   }
 
-  void submit(const ComputeHandle &) override {}
-
 private:
   MockContainer bufferContainer_;
   MockContainer shaderContainer_;

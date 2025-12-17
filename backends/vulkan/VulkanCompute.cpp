@@ -307,45 +307,6 @@ VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
   return shaderContainer_.create(std::move(shaderStruct));
 }
 
-void VulkanCompute::submit(const ComputeHandle &commandBufferHandle) {
-  auto &commandBuffer = getCommandBuffer(commandBufferHandle);
-
-  // Get command buffer from pool
-  if (commandBuffers_.empty()) {
-    logErr("No command buffers available");
-  }
-
-  VkCommandBuffer vkCmdBuffer = commandBuffers_[0].command;
-
-  // Begin recording
-  VkCommandBufferBeginInfo beginInfo = {};
-  beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-  VK_CHECK(vkBeginCommandBuffer(vkCmdBuffer, &beginInfo));
-
-  // Iterate through all dispatches in the command buffer
-  for (size_t i = 0; i < commandBuffer.size(); ++i) {
-    // For now, we skip actual encoding as full pipeline setup is complex
-    // This will be implemented when descriptor sets and pipelines are ready
-  }
-
-  VK_CHECK(vkEndCommandBuffer(vkCmdBuffer));
-
-  // Submit to queue
-  auto &cmdBufferContainer =
-      static_cast<VulkanCommandBufferContainer &>(getCommandBufferContainer());
-  VkQueue queue = cmdBufferContainer.getQueue();
-
-  VkSubmitInfo submitInfo = {};
-  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  submitInfo.commandBufferCount = 1;
-  submitInfo.pCommandBuffers = &vkCmdBuffer;
-
-  VK_CHECK(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
-  VK_CHECK(vkQueueWaitIdle(queue));
-}
-
 // auto pipeline = std::make_shared<ComputePipeline>();
 //
 //// Create descriptor set layout

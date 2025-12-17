@@ -94,12 +94,6 @@ public:
   void beginCommandBuffer();
 
   /**
-   * Ends recording and returns the completed command buffer.
-   * @return Handle to the recorded command buffer.
-   */
-  ComputeHandle endCommandBuffer();
-
-  /**
    * Encodes a compute dispatch to the active command buffer.
    * Must be called between beginCommandBuffer() and endCommandBuffer().
    * @param dispatch The compute dispatch object to encode (moved).
@@ -107,10 +101,16 @@ public:
   void encode(ComputeDispatch &&dispatch);
 
   /**
+   * Ends recording and returns the completed command buffer.
+   * @return Handle to the recorded command buffer.
+   */
+  ComputeHandle endCommandBuffer();
+
+  /**
    * Submits a command buffer for GPU execution.
    * @param commandBufferHandle Handle to the command buffer to submit.
    */
-  virtual void submit(const ComputeHandle &commandBufferHandle) = 0;
+  void submit(const ComputeHandle &commandBufferHandle);
 
   /**
    * Returns the ComputeDispatchContainer associated with a handle (const).
