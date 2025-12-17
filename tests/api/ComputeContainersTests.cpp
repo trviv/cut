@@ -78,25 +78,6 @@ protected:
 
 // ComputeDispatch tests via ComputeInterface
 
-TEST_F(ComputeContainersTest, RegisterDispatch) {
-  interface_->beginCommandBuffer();
-  interface_->encode({});
-  auto cmdBufferHandle = interface_->endCommandBuffer();
-  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 1);
-  cmdBufferHandle.reset();
-}
-
-TEST_F(ComputeContainersTest, RegisterMultipleDispatches) {
-  interface_->beginCommandBuffer();
-  interface_->encode({});
-  interface_->encode({});
-  interface_->encode({});
-
-  auto cmdBufferHandle = interface_->endCommandBuffer();
-  EXPECT_EQ(interface_->getCommandBuffer(cmdBufferHandle).size(), 3);
-  cmdBufferHandle.reset();
-}
-
 TEST_F(ComputeContainersTest, RegisterDispatchWithThreadGroupSize) {
   interface_->beginCommandBuffer();
   ThreadGroupSize tgs{8, 8, 1};

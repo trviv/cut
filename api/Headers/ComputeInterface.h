@@ -112,13 +112,6 @@ public:
    */
   void submit(const ComputeHandle &commandBufferHandle);
 
-  /**
-   * Returns the ComputeDispatchContainer associated with a handle (const).
-   * @param handle The handle to the command buffer.
-   * @return Const reference to the ComputeDispatchContainer.
-   */
-  const CommandBuffer &getCommandBuffer(const ComputeHandle &handle) const;
-
 protected:
   /**
    * Sets the command buffer container for this interface.

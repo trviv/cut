@@ -42,11 +42,6 @@ void ComputeInterface::submit(const ComputeHandle &commandBufferHandle) {
   commandBufferContainer_->get(commandBufferHandle)->submit();
 }
 
-const CommandBuffer &
-ComputeInterface::getCommandBuffer(const ComputeHandle &handle) const {
-  return *commandBufferContainer_->get(handle);
-}
-
 void ComputeInterface::setCommandBufferContainer(
     std::unique_ptr<CommandBufferContainer> commandBufferContainer) {
   commandBufferContainer_ = std::move(commandBufferContainer);
