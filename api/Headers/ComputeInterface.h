@@ -121,12 +121,6 @@ public:
 
 protected:
   /**
-   * Returns the command buffer container for derived classes to configure.
-   * @return Reference to the command buffer container.
-   */
-  CommandBufferContainer &getCommandBufferContainer();
-
-  /**
    * Sets the command buffer container for this interface.
    * Must be called by derived classes during construction.
    * @param commandBufferContainer Unique pointer to the container.
