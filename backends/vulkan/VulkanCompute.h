@@ -64,7 +64,6 @@ private:
 
   uint32_t computeQueueFamilyIndex_ = 0;
   VkDevice device_ = VK_NULL_HANDLE;
-  std::vector<VulkanCommandStruct> commandBuffers_ = {};
 
   VkPhysicalDeviceProperties deviceProperties_ = {};
   VkPhysicalDeviceMemoryProperties memoryProperties_ = {};

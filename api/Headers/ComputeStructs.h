@@ -134,7 +134,7 @@ public:
    * Must be called before encoding any dispatches.
    * Default implementation does nothing; backends may override.
    */
-  virtual void begin() {};
+  virtual void begin() {}
 
   /**
    * Encodes a compute dispatch to this command buffer.
@@ -147,7 +147,7 @@ public:
    * Must be called after all dispatches have been encoded and before submit.
    * Default implementation does nothing; backends may override.
    */
-  virtual void end() {};
+  virtual void end() {}
 
   /**
    * Submits the command buffer for execution on the GPU.

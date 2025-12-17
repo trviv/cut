@@ -40,25 +40,6 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
       device_, computeQueueFamilyIndex_));
 
-  auto &cmdBufferContainer =
-      static_cast<VulkanCommandBufferContainer &>(getCommandBufferContainer());
-
-  std::vector<VkCommandBuffer> commandBuffers(config.maxCommandBuffers, {});
-  commandBuffers_.resize(config.maxCommandBuffers);
-
-  VkCommandBufferAllocateInfo allocInfo = {};
-  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  allocInfo.commandPool = cmdBufferContainer.getCommandPool();
-  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  allocInfo.commandBufferCount = config.maxCommandBuffers;
-
-  VK_CHECK(
-      vkAllocateCommandBuffers(device_, &allocInfo, commandBuffers.data()));
-
-  std::transform(
-      commandBuffers.begin(), commandBuffers.end(), commandBuffers_.begin(),
-      [](const VkCommandBuffer &cb) { return VulkanCommandStruct{cb}; });
-
   vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties_);
   vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties_);
 
@@ -134,7 +115,6 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
 }
 
 void VulkanCompute::cleanup() {
-  commandBuffers_.clear();
   // Delete / reset the container before destroying device
   setCommandBufferContainer({});
 
