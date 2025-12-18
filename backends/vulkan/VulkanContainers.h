@@ -69,7 +69,7 @@ public:
   /// Constructs a shader container with a unique type identifier.
   VulkanShaderContainer() : ComputeDataContainer<VulkanShaderStruct *>(102) {}
 
-  ComputeHandle create(VulkanShaderStruct &&structData) {
+  ComputeHandle createShader(VulkanShaderStruct &&structData) {
     return ComputeDataContainer::create(
         new VulkanShaderStruct(std::move(structData)));
   }

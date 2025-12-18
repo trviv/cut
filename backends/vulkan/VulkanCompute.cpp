@@ -284,7 +284,7 @@ VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
   VK_CHECK(vkCreateShaderModule(device_, &createInfo, nullptr,
                                 &shaderStruct.shader));
 
-  return shaderContainer_.create(std::move(shaderStruct));
+  return shaderContainer_.createShader(std::move(shaderStruct));
 }
 
 // auto pipeline = std::make_shared<ComputePipeline>();

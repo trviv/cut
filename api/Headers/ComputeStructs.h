@@ -84,9 +84,6 @@ public:
   /** Default move assignment operator. */
   ComputeDispatch &operator=(ComputeDispatch &&) = default;
 
-private:
-  friend class ComputeInterface;
-
   /**
    * Binds a shader to this dispatch.
    * @param shaderHandle Handle to the compute shader.
@@ -113,6 +110,13 @@ private:
    */
   void setThreadGroupSize(const ThreadGroupSize &tgSize);
 
+  const ThreadGroupSize &threadgroupSize() const;
+
+  const ComputeHandle &shader() const;
+
+  const std::vector<ComputeBinding> &bindings() const;
+
+private:
   ThreadGroupSize tgSize_;               ///< Thread group dimensions.
   ComputeHandle shader_;                 ///< Bound shader handle.
   std::vector<ComputeBinding> bindings_; ///< All bindings (handles and data).
@@ -155,21 +159,6 @@ public:
    * Blocks until execution completes.
    */
   virtual void submit() = 0;
-
-  /**
-   * Returns the number of dispatches in this command buffer.
-   * @return The number of encoded dispatches.
-   */
-  size_t size() const { return dispatches_.size(); }
-
-  /**
-   * Returns a const reference to the dispatch at the specified index.
-   * @param index The index of the dispatch to retrieve.
-   * @return Const reference to the dispatch.
-   */
-  const ComputeDispatch &getDispatch(size_t index) const {
-    return dispatches_[index];
-  }
 
 protected:
   /**
