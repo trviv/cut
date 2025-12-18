@@ -7,7 +7,6 @@ namespace cut {
 
 /** Forward declarations. */
 class ComputeInterface;
-class CommandBufferContainer;
 
 /**
  * Abstract container for managing CommandBuffer objects via handles.
