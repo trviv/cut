@@ -51,11 +51,11 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 #endif
 
   // Vma dependent initializations
-  IF_VMA_ENABLED_THEN(bufferContainer_.allocator_ = allocator_);
-  IF_VMA_DISABLED_THEN(bufferContainer_.device_ = device_);
+  IF_VMA_ENABLED_THEN(bufferContainer_.setAllocator(allocator_));
+  bufferContainer_.setDevice(device_);
 
-  shaderContainer_.device_ = device_;
-  descriptorPoolContainer_.device_ = device_;
+  shaderContainer_.setDevice(device_);
+  descriptorPoolContainer_.setDevice(device_);
 
   // Create and set the command buffer container (after shaderContainer_ is set
   // up)

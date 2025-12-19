@@ -8,16 +8,17 @@ VulkanCommandBufferContainer::VulkanCommandBufferContainer(
     uint32_t queueFamilyIndex,
     VulkanShaderContainer &shaderContainer,
     VulkanDescriptorPoolContainer &descriptorPoolContainer)
-    : device_(device), shaderContainer_(shaderContainer),
+    : shaderContainer_(shaderContainer),
       descriptorPoolContainer_(descriptorPoolContainer) {
-  vkGetDeviceQueue(device_, queueFamilyIndex, 0, &queue_);
+  setDevice(device);
+  vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue_);
 
   VkCommandPoolCreateInfo poolInfo = {};
   poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   poolInfo.queueFamilyIndex = queueFamilyIndex;
 
-  VK_CHECK(vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool_));
+  VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool_));
 }
 
 VulkanCommandBufferContainer::~VulkanCommandBufferContainer() {
@@ -25,7 +26,7 @@ VulkanCommandBufferContainer::~VulkanCommandBufferContainer() {
     vkQueueWaitIdle(queue_);
   }
   if (commandPool_ != VK_NULL_HANDLE) {
-    vkDestroyCommandPool(device_, commandPool_, nullptr);
+    vkDestroyCommandPool(getDevice(), commandPool_, nullptr);
   }
 }
 
@@ -34,23 +35,23 @@ void VulkanBufferContainer::destroy(const ComputeHandle &handle) {
 
 #if CUT_USE_VMA
   if (buffer.mappedData != nullptr) {
-    vmaUnmapMemory(allocator, buffer.allocation);
+    vmaUnmapMemory(allocator_, buffer.allocation);
   }
 
   if (buffer.buffer != VK_NULL_HANDLE) {
-    vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
+    vmaDestroyBuffer(allocator_, buffer.buffer, buffer.allocation);
   }
 #else
   if (buffer.mappedData != nullptr) {
-    vkUnmapMemory(device_, buffer.memory);
+    vkUnmapMemory(getDevice(), buffer.memory);
   }
 
   if (buffer.buffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device_, buffer.buffer, nullptr);
+    vkDestroyBuffer(getDevice(), buffer.buffer, nullptr);
   }
 
   if (buffer.memory != VK_NULL_HANDLE) {
-    vkFreeMemory(device_, buffer.memory, nullptr);
+    vkFreeMemory(getDevice(), buffer.memory, nullptr);
   }
 #endif
 }
@@ -62,7 +63,7 @@ void VulkanShaderContainer::destroy(const ComputeHandle &handle) {
     return;
   }
 
-  vkDestroyShaderModule(device_, shaderData->shader, nullptr);
+  vkDestroyShaderModule(getDevice(), shaderData->shader, nullptr);
 
   delete shaderData;
 }
@@ -76,8 +77,8 @@ ComputeHandle VulkanDescriptorPoolContainer::createPool(
   poolInfo.maxSets = maxSets;
 
   VulkanDescriptorPoolStruct poolStruct{};
-  VK_CHECK(
-      vkCreateDescriptorPool(device_, &poolInfo, nullptr, &poolStruct.pool));
+  VK_CHECK(vkCreateDescriptorPool(getDevice(), &poolInfo, nullptr,
+                                  &poolStruct.pool));
 
   return ComputeDataContainer::create(std::move(poolStruct));
 }
@@ -85,7 +86,7 @@ ComputeHandle VulkanDescriptorPoolContainer::createPool(
 void VulkanDescriptorPoolContainer::destroy(const ComputeHandle &handle) {
   auto &poolStruct = get(handle);
   if (poolStruct.pool != VK_NULL_HANDLE) {
-    vkDestroyDescriptorPool(device_, poolStruct.pool, nullptr);
+    vkDestroyDescriptorPool(getDevice(), poolStruct.pool, nullptr);
   }
 }
 

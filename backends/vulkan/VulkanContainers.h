@@ -13,8 +13,23 @@ namespace cut {
 class VulkanShaderContainer;
 class VulkanDescriptorPoolContainer;
 
+/// Base class for Vulkan containers that require a device handle.
+class VulkanContainerBase {
+public:
+  /// Sets the Vulkan device handle.
+  void setDevice(VkDevice device) { device_ = device; }
+
+protected:
+  /// Returns the Vulkan device handle.
+  VkDevice getDevice() const { return device_; }
+
+private:
+  VkDevice device_ = VK_NULL_HANDLE;
+};
+
 /// Vulkan implementation of CommandBufferContainer.
-class VulkanCommandBufferContainer final : public CommandBufferContainer {
+class VulkanCommandBufferContainer final : public VulkanContainerBase,
+                                           public CommandBufferContainer {
 public:
   /**
    * Constructs a Vulkan command buffer container.
@@ -38,8 +53,8 @@ public:
   /// Creates a Vulkan-specific command buffer.
   ComputeHandle createCommandBuffer() override {
     return ComputeDataContainer::create(
-        new VulkanCommandBuffer(device_, commandPool_, queue_, shaderContainer_,
-                                descriptorPoolContainer_));
+        new VulkanCommandBuffer(getDevice(), commandPool_, queue_,
+                                shaderContainer_, descriptorPoolContainer_));
   }
 
   /// Returns the queue handle.
@@ -49,7 +64,6 @@ public:
   VkCommandPool getCommandPool() const { return commandPool_; }
 
 private:
-  VkDevice device_ = VK_NULL_HANDLE;
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   VkQueue queue_ = VK_NULL_HANDLE;
   VulkanShaderContainer &shaderContainer_;
@@ -58,7 +72,8 @@ private:
 
 /// Container managing GPU buffer allocations and their lifecycle.
 class VulkanBufferContainer final
-    : public ComputeDataContainer<VulkanBufferStruct> {
+    : public VulkanContainerBase,
+      public ComputeDataContainer<VulkanBufferStruct> {
 public:
   /// Constructs a buffer container with a unique type identifier.
   VulkanBufferContainer() : ComputeDataContainer<VulkanBufferStruct>(101) {}
@@ -71,7 +86,6 @@ private:
   friend class VulkanCompute;
 
   IF_VMA_ENABLED_THEN(VmaAllocator allocator_);
-  IF_VMA_DISABLED_THEN(VkDevice device_);
 
   /// Destroys a buffer and frees its associated GPU memory.
   void destroy(const ComputeHandle &handle) override;
@@ -79,7 +93,8 @@ private:
 
 /// Container managing shader module allocations and their lifecycle.
 class VulkanShaderContainer final
-    : public ComputeDataContainer<VulkanShaderStruct *> {
+    : public VulkanContainerBase,
+      public ComputeDataContainer<VulkanShaderStruct *> {
 public:
   /// Constructs a shader container with a unique type identifier.
   VulkanShaderContainer() : ComputeDataContainer<VulkanShaderStruct *>(102) {}
@@ -95,17 +110,14 @@ public:
   }
 
 private:
-  friend class VulkanCompute;
-
-  VkDevice device_;
-
   /// Destroys a shader module and releases its Vulkan resources.
   void destroy(const ComputeHandle &handle) override;
 };
 
 /// Container managing descriptor pool allocations and their lifecycle.
 class VulkanDescriptorPoolContainer final
-    : public ComputeDataContainer<VulkanDescriptorPoolStruct> {
+    : public ComputeDataContainer<VulkanDescriptorPoolStruct>,
+      public VulkanContainerBase {
 public:
   /// Constructs a descriptor pool container with a unique type identifier.
   VulkanDescriptorPoolContainer()
@@ -121,10 +133,6 @@ public:
   }
 
 private:
-  friend class VulkanCompute;
-
-  VkDevice device_ = VK_NULL_HANDLE;
-
   /// Destroys a descriptor pool and releases its Vulkan resources.
   void destroy(const ComputeHandle &handle) override;
 };
