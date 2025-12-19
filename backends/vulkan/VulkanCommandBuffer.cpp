@@ -52,9 +52,9 @@ createDescriptorSetLayoutBindings(const std::vector<BindingInfo> &bindings) {
 }
 
 /// Calculates descriptor pool sizes from shader bindings across all dispatches.
-std::vector<VkDescriptorPoolSize> calculateDescriptorPoolSizes(
-    const std::vector<ComputeDispatch> &dispatches,
-    VulkanShaderContainer &shaderContainer) {
+std::vector<VkDescriptorPoolSize>
+calculateDescriptorPoolSizes(const std::vector<ComputeDispatch> &dispatches,
+                             VulkanShaderContainer &shaderContainer) {
   std::unordered_map<VkDescriptorType, uint32_t> descriptorTypeCounts;
 
   for (const auto &dispatch : dispatches) {
@@ -88,12 +88,15 @@ std::vector<VkDescriptorPoolSize> calculateDescriptorPoolSizes(
   return poolSizes;
 }
 
-VulkanCommandBuffer::VulkanCommandBuffer(VkDevice device,
-                                         VkCommandPool commandPool,
-                                         VkQueue queue,
-                                         VulkanShaderContainer &shaderContainer)
+VulkanCommandBuffer::VulkanCommandBuffer(
+    VkDevice device,
+    VkCommandPool commandPool,
+    VkQueue queue,
+    VulkanShaderContainer &shaderContainer,
+    VulkanDescriptorPoolContainer &descriptorPoolContainer)
     : device_(device), commandPool_(commandPool), queue_(queue),
-      shaderContainer_(shaderContainer) {
+      shaderContainer_(shaderContainer),
+      descriptorPoolContainer_(descriptorPoolContainer) {
   // Allocate command buffer
   VkCommandBufferAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;

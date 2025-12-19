@@ -40,7 +40,7 @@ struct VulkanBufferStruct {
 /// Wrapper for a compiled SPIR-V shader module with reflection data.
 struct VulkanShaderStruct {
   VkShaderModule shader = VK_NULL_HANDLE;
-  ShaderReflection reflection;  ///< Binding information from SPIR-V reflection.
+  ShaderReflection reflection; ///< Binding information from SPIR-V reflection.
 };
 
 /// Manages compute shader dispatch configuration, including shader and resource
@@ -69,6 +69,11 @@ private:
 struct VulkanDescriptorStruct {
   VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
   VkDescriptorSet descriptorSet_ = VK_NULL_HANDLE;
+};
+
+/// Wrapper for a Vulkan descriptor pool.
+struct VulkanDescriptorPoolStruct {
+  VkDescriptorPool pool = VK_NULL_HANDLE;
 };
 
 /// Contains the pipeline layout and compute pipeline for shader execution.

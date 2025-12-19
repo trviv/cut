@@ -55,11 +55,13 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   IF_VMA_DISABLED_THEN(bufferContainer_.device_ = device_);
 
   shaderContainer_.device_ = device_;
+  descriptorPoolContainer_.device_ = device_;
 
   // Create and set the command buffer container (after shaderContainer_ is set
   // up)
   setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
-      device_, computeQueueFamilyIndex_, shaderContainer_));
+      device_, computeQueueFamilyIndex_, shaderContainer_,
+      descriptorPoolContainer_));
 }
 
 PhysicalDeviceAndQueueIndex

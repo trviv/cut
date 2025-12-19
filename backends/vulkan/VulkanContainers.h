@@ -6,10 +6,12 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace cut {
 
 class VulkanShaderContainer;
+class VulkanDescriptorPoolContainer;
 
 /// Vulkan implementation of CommandBufferContainer.
 class VulkanCommandBufferContainer final : public CommandBufferContainer {
@@ -21,10 +23,14 @@ public:
    * @param queueFamilyIndex The queue family index for command submission.
    * @param shaderContainer Reference to shader container for accessing shader
    * reflection data.
+   * @param descriptorPoolContainer Reference to descriptor pool container for
+   * creating descriptor pools.
    */
-  VulkanCommandBufferContainer(VkDevice device,
-                               uint32_t queueFamilyIndex,
-                               VulkanShaderContainer &shaderContainer);
+  VulkanCommandBufferContainer(
+      VkDevice device,
+      uint32_t queueFamilyIndex,
+      VulkanShaderContainer &shaderContainer,
+      VulkanDescriptorPoolContainer &descriptorPoolContainer);
 
   /// Destroys the command pool and waits for the queue to idle.
   ~VulkanCommandBufferContainer();
@@ -32,8 +38,8 @@ public:
   /// Creates a Vulkan-specific command buffer.
   ComputeHandle createCommandBuffer() override {
     return ComputeDataContainer::create(
-        new VulkanCommandBuffer(device_, commandPool_, queue_,
-                                shaderContainer_));
+        new VulkanCommandBuffer(device_, commandPool_, queue_, shaderContainer_,
+                                descriptorPoolContainer_));
   }
 
   /// Returns the queue handle.
@@ -47,6 +53,7 @@ private:
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   VkQueue queue_ = VK_NULL_HANDLE;
   VulkanShaderContainer &shaderContainer_;
+  VulkanDescriptorPoolContainer &descriptorPoolContainer_;
 };
 
 /// Container managing GPU buffer allocations and their lifecycle.
@@ -93,6 +100,32 @@ private:
   VkDevice device_;
 
   /// Destroys a shader module and releases its Vulkan resources.
+  void destroy(const ComputeHandle &handle) override;
+};
+
+/// Container managing descriptor pool allocations and their lifecycle.
+class VulkanDescriptorPoolContainer final
+    : public ComputeDataContainer<VulkanDescriptorPoolStruct> {
+public:
+  /// Constructs a descriptor pool container with a unique type identifier.
+  VulkanDescriptorPoolContainer()
+      : ComputeDataContainer<VulkanDescriptorPoolStruct>(103) {}
+
+  /// Creates a descriptor pool with the given pool sizes.
+  ComputeHandle createPool(const std::vector<VkDescriptorPoolSize> &poolSizes,
+                           uint32_t maxSets);
+
+  /// Returns the descriptor pool for the given handle.
+  VkDescriptorPool getPool(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle).pool;
+  }
+
+private:
+  friend class VulkanCompute;
+
+  VkDevice device_ = VK_NULL_HANDLE;
+
+  /// Destroys a descriptor pool and releases its Vulkan resources.
   void destroy(const ComputeHandle &handle) override;
 };
 

@@ -6,8 +6,10 @@ namespace cut {
 VulkanCommandBufferContainer::VulkanCommandBufferContainer(
     VkDevice device,
     uint32_t queueFamilyIndex,
-    VulkanShaderContainer &shaderContainer)
-    : device_(device), shaderContainer_(shaderContainer) {
+    VulkanShaderContainer &shaderContainer,
+    VulkanDescriptorPoolContainer &descriptorPoolContainer)
+    : device_(device), shaderContainer_(shaderContainer),
+      descriptorPoolContainer_(descriptorPoolContainer) {
   vkGetDeviceQueue(device_, queueFamilyIndex, 0, &queue_);
 
   VkCommandPoolCreateInfo poolInfo = {};
@@ -63,6 +65,28 @@ void VulkanShaderContainer::destroy(const ComputeHandle &handle) {
   vkDestroyShaderModule(device_, shaderData->shader, nullptr);
 
   delete shaderData;
+}
+
+ComputeHandle VulkanDescriptorPoolContainer::createPool(
+    const std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets) {
+  VkDescriptorPoolCreateInfo poolInfo{};
+  poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+  poolInfo.pPoolSizes = poolSizes.data();
+  poolInfo.maxSets = maxSets;
+
+  VulkanDescriptorPoolStruct poolStruct{};
+  VK_CHECK(
+      vkCreateDescriptorPool(device_, &poolInfo, nullptr, &poolStruct.pool));
+
+  return ComputeDataContainer::create(std::move(poolStruct));
+}
+
+void VulkanDescriptorPoolContainer::destroy(const ComputeHandle &handle) {
+  auto &poolStruct = get(handle);
+  if (poolStruct.pool != VK_NULL_HANDLE) {
+    vkDestroyDescriptorPool(device_, poolStruct.pool, nullptr);
+  }
 }
 
 } // namespace cut

@@ -68,8 +68,7 @@ protected:
   // Helper to build a minimal SPIR-V header
   std::vector<uint32_t> makeHeader(uint32_t idBound) {
     return {
-        spirv::MagicNumber,
-        spirv::Version,
+        spirv::MagicNumber, spirv::Version,
         0, // Generator
         idBound,
         0 // Reserved
@@ -90,7 +89,8 @@ protected:
   }
 
   // Helper to add OpDecorate with binding
-  void addBindingDecoration(std::vector<uint32_t> &code, uint32_t targetId,
+  void addBindingDecoration(std::vector<uint32_t> &code,
+                            uint32_t targetId,
                             uint32_t binding) {
     code.push_back(spirv::makeOp(4, spirv::OpDecorate));
     code.push_back(targetId);
@@ -100,7 +100,8 @@ protected:
 
   // Helper to add OpDecorate with descriptor set
   void addDescriptorSetDecoration(std::vector<uint32_t> &code,
-                                  uint32_t targetId, uint32_t set) {
+                                  uint32_t targetId,
+                                  uint32_t set) {
     code.push_back(spirv::makeOp(4, spirv::OpDecorate));
     code.push_back(targetId);
     code.push_back(spirv::DecorationDescriptorSet);
@@ -137,8 +138,10 @@ protected:
   }
 
   // Helper to add OpTypeInt
-  void addTypeInt(std::vector<uint32_t> &code, uint32_t resultId,
-                  uint32_t width = 32, uint32_t signedness = 0) {
+  void addTypeInt(std::vector<uint32_t> &code,
+                  uint32_t resultId,
+                  uint32_t width = 32,
+                  uint32_t signedness = 0) {
     code.push_back(spirv::makeOp(4, spirv::OpTypeInt));
     code.push_back(resultId);
     code.push_back(width);
@@ -146,7 +149,8 @@ protected:
   }
 
   // Helper to add OpTypeFloat
-  void addTypeFloat(std::vector<uint32_t> &code, uint32_t resultId,
+  void addTypeFloat(std::vector<uint32_t> &code,
+                    uint32_t resultId,
                     uint32_t width = 32) {
     code.push_back(spirv::makeOp(3, spirv::OpTypeFloat));
     code.push_back(resultId);
@@ -154,10 +158,10 @@ protected:
   }
 
   // Helper to add OpTypeStruct
-  void addTypeStruct(std::vector<uint32_t> &code, uint32_t resultId,
+  void addTypeStruct(std::vector<uint32_t> &code,
+                     uint32_t resultId,
                      const std::vector<uint32_t> &memberTypes) {
-    code.push_back(
-        spirv::makeOp(2 + memberTypes.size(), spirv::OpTypeStruct));
+    code.push_back(spirv::makeOp(2 + memberTypes.size(), spirv::OpTypeStruct));
     code.push_back(resultId);
     for (uint32_t member : memberTypes) {
       code.push_back(member);
@@ -165,8 +169,10 @@ protected:
   }
 
   // Helper to add OpTypePointer
-  void addTypePointer(std::vector<uint32_t> &code, uint32_t resultId,
-                      uint32_t storageClass, uint32_t pointedType) {
+  void addTypePointer(std::vector<uint32_t> &code,
+                      uint32_t resultId,
+                      uint32_t storageClass,
+                      uint32_t pointedType) {
     code.push_back(spirv::makeOp(4, spirv::OpTypePointer));
     code.push_back(resultId);
     code.push_back(storageClass);
@@ -180,22 +186,24 @@ protected:
   }
 
   // Helper to add OpTypeImage
-  void addTypeImage(std::vector<uint32_t> &code, uint32_t resultId,
+  void addTypeImage(std::vector<uint32_t> &code,
+                    uint32_t resultId,
                     uint32_t sampledType) {
     // OpTypeImage %result %sampledType Dim Depth Arrayed MS Sampled Format
     code.push_back(spirv::makeOp(9, spirv::OpTypeImage));
     code.push_back(resultId);
-    code.push_back(sampledType);   // Sampled type (e.g., float)
-    code.push_back(spirv::Dim2D);  // Dim
-    code.push_back(0);             // Depth (0 = not depth)
-    code.push_back(0);             // Arrayed (0 = not arrayed)
-    code.push_back(0);             // MS (0 = single-sampled)
-    code.push_back(1);             // Sampled (1 = used with sampler)
-    code.push_back(0);             // Format (Unknown)
+    code.push_back(sampledType);  // Sampled type (e.g., float)
+    code.push_back(spirv::Dim2D); // Dim
+    code.push_back(0);            // Depth (0 = not depth)
+    code.push_back(0);            // Arrayed (0 = not arrayed)
+    code.push_back(0);            // MS (0 = single-sampled)
+    code.push_back(1);            // Sampled (1 = used with sampler)
+    code.push_back(0);            // Format (Unknown)
   }
 
   // Helper to add OpTypeSampledImage
-  void addTypeSampledImage(std::vector<uint32_t> &code, uint32_t resultId,
+  void addTypeSampledImage(std::vector<uint32_t> &code,
+                           uint32_t resultId,
                            uint32_t imageType) {
     code.push_back(spirv::makeOp(3, spirv::OpTypeSampledImage));
     code.push_back(resultId);
@@ -203,8 +211,10 @@ protected:
   }
 
   // Helper to add OpVariable
-  void addVariable(std::vector<uint32_t> &code, uint32_t pointerTypeId,
-                   uint32_t resultId, uint32_t storageClass) {
+  void addVariable(std::vector<uint32_t> &code,
+                   uint32_t pointerTypeId,
+                   uint32_t resultId,
+                   uint32_t storageClass) {
     code.push_back(spirv::makeOp(4, spirv::OpVariable));
     code.push_back(pointerTypeId);
     code.push_back(resultId);
@@ -215,22 +225,19 @@ protected:
 // Test: Empty SPIR-V throws exception
 TEST_F(SpirvReflectionTest, EmptySpirv) {
   std::vector<uint32_t> emptyCode;
-  EXPECT_THROW(reflectSpirvBindings(emptyCode),
-               std::runtime_error);
+  EXPECT_THROW(reflectSpirvBindings(emptyCode), std::runtime_error);
 }
 
 // Test: Invalid magic number throws exception
 TEST_F(SpirvReflectionTest, InvalidMagicNumber) {
   std::vector<uint32_t> invalidCode = {0xDEADBEEF, 0, 0, 10, 0};
-  EXPECT_THROW(reflectSpirvBindings(invalidCode),
-               std::runtime_error);
+  EXPECT_THROW(reflectSpirvBindings(invalidCode), std::runtime_error);
 }
 
 // Test: Too small SPIR-V throws exception
 TEST_F(SpirvReflectionTest, TooSmallSpirv) {
   std::vector<uint32_t> tooSmall = {spirv::MagicNumber, 0, 0};
-  EXPECT_THROW(reflectSpirvBindings(tooSmall),
-               std::runtime_error);
+  EXPECT_THROW(reflectSpirvBindings(tooSmall), std::runtime_error);
 }
 
 // Test: Single storage buffer binding
@@ -323,15 +330,17 @@ TEST_F(SpirvReflectionTest, MultipleBindingsDifferentSets) {
   ASSERT_EQ(reflection.bindings.size(), 2);
 
   // Find binding at set 0
-  auto it0 = std::find_if(reflection.bindings.begin(), reflection.bindings.end(),
-                          [](const BindingInfo &b) { return b.set == 0; });
+  auto it0 =
+      std::find_if(reflection.bindings.begin(), reflection.bindings.end(),
+                   [](const BindingInfo &b) { return b.set == 0; });
   ASSERT_NE(it0, reflection.bindings.end());
   EXPECT_EQ(it0->binding, 0);
   EXPECT_EQ(it0->type, BindingType::StorageBuffer);
 
   // Find binding at set 1
-  auto it1 = std::find_if(reflection.bindings.begin(), reflection.bindings.end(),
-                          [](const BindingInfo &b) { return b.set == 1; });
+  auto it1 =
+      std::find_if(reflection.bindings.begin(), reflection.bindings.end(),
+                   [](const BindingInfo &b) { return b.set == 1; });
   ASSERT_NE(it1, reflection.bindings.end());
   EXPECT_EQ(it1->binding, 2);
   EXPECT_EQ(it1->type, BindingType::StorageBuffer);
@@ -452,7 +461,7 @@ TEST_F(SpirvReflectionTest, SampledImageBinding) {
   // Types
   addTypeVoid(code, 1);
   addTypeFloat(code, 2);
-  addTypeImage(code, 3, 2);       // image2D<float>
+  addTypeImage(code, 3, 2);        // image2D<float>
   addTypeSampledImage(code, 4, 3); // sampler2D
   addTypePointer(code, 5, spirv::StorageClassUniformConstant, 4);
 
