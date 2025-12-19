@@ -41,7 +41,6 @@ const std::vector<ComputeBinding> &ComputeDispatch::bindings() const {
 }
 
 void CommandBuffer::encode(ComputeDispatch &&dispatch) {
-  encodeImpl(dispatch);
   dispatches_.push_back(std::move(dispatch));
 }
 

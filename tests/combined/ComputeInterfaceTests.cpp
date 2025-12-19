@@ -13,13 +13,6 @@ public:
   MockCommandBuffer() = default;
   ~MockCommandBuffer() override = default;
 
-protected:
-  /**
-   * Mock implementation of encodeImpl that does nothing.
-   * @param dispatch Const reference to the compute dispatch being encoded.
-   */
-  void encodeImpl(const ComputeDispatch &dispatch) override {}
-
   /// Mock implementation of submit that does nothing.
   void submit() override {}
 };

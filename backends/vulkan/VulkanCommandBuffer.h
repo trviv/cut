@@ -41,14 +41,6 @@ public:
    */
   void submit() override;
 
-protected:
-  /**
-   * Vulkan-specific implementation for encoding a dispatch.
-   * Records the dispatch as Vulkan commands in the command buffer.
-   * @param dispatch Const reference to the compute dispatch being encoded.
-   */
-  void encodeImpl(const ComputeDispatch &dispatch) override;
-
 private:
   VkDevice device_;
   VkCommandPool commandPool_;

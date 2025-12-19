@@ -160,24 +160,6 @@ public:
    */
   virtual void submit() = 0;
 
-protected:
-  /**
-   * Backend-specific implementation for encoding a dispatch.
-   * This pure virtual function must be implemented by derived classes to
-   * perform backend-specific work when a dispatch is encoded. Implementations
-   * can use this to record GPU commands, create pipeline state objects,
-   * bind resources, validate dispatch parameters, or perform any other
-   * backend-specific preparation for execution.
-   *
-   * Called by encode() after the dispatch has been added to the
-   * internal dispatch list. The dispatch object is passed by const reference
-   * to allow implementations to inspect shader bindings, thread group sizes,
-   * and other dispatch configuration without modifying the dispatch.
-   *
-   * @param dispatch Const reference to the compute dispatch being encoded.
-   */
-  virtual void encodeImpl(const ComputeDispatch &dispatch) = 0;
-
 private:
   std::vector<ComputeDispatch> dispatches_; ///< List of compute dispatches.
 };

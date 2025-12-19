@@ -28,15 +28,6 @@ void VulkanCommandBuffer::end() {
   vkEndCommandBuffer(commandBuffer_);
 }
 
-void VulkanCommandBuffer::encodeImpl(const ComputeDispatch &dispatch) {
-  // Vulkan-specific encoding implementation
-  // This is a placeholder - actual implementation would:
-  // 1. Bind the compute pipeline from dispatch.shader_
-  // 2. Bind descriptor sets from dispatch.bindings_
-  // 3. Record vkCmdDispatch with dispatch.tgSize_
-  // 4. Add memory barriers as needed
-}
-
 void VulkanCommandBuffer::submit() {
   // Submit to queue
   VkSubmitInfo submitInfo{};
