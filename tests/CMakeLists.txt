@@ -29,6 +29,7 @@ set(API_TEST_SOURCES
     api/ComputeHandleTests.cpp
     api/ComputeCommonTests.cpp
     api/ComputeContainersTests.cpp
+    api/SpirvReflectionTests.cpp
 )
 
 # Vulkan test sources
