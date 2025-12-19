@@ -79,39 +79,39 @@ struct DataReference final {
  * Describes the type of a shader resource binding.
  */
 enum class BindingType {
-  Sampler,        ///< Sampler for texture sampling.
-  UniformBuffer,  ///< Uniform buffer (constant data).
-  StorageBuffer,  ///< Storage buffer (read/write data).
-  SampledImage,   ///< Sampled image (texture).
-  StorageImage,   ///< Storage image (read/write texture).
-  PushConstant,   ///< Push constant data.
+  Sampler,       ///< Sampler for texture sampling.
+  UniformBuffer, ///< Uniform buffer (constant data).
+  StorageBuffer, ///< Storage buffer (read/write data).
+  SampledImage,  ///< Sampled image (texture).
+  StorageImage,  ///< Storage image (read/write texture).
+  PushConstant,  ///< Push constant data.
 };
 
 /**
  * Describes the access mode for a shader resource binding.
  */
 enum class BindingAccess {
-  ReadOnly,   ///< Resource is only read from.
-  WriteOnly,  ///< Resource is only written to.
-  ReadWrite,  ///< Resource is both read from and written to.
+  ReadOnly,  ///< Resource is only read from.
+  WriteOnly, ///< Resource is only written to.
+  ReadWrite, ///< Resource is both read from and written to.
 };
 
 /**
  * Describes a single shader resource binding extracted from SPIR-V reflection.
  */
 struct BindingInfo {
-  uint32_t binding;      ///< Binding index in the shader.
-  uint32_t set;          ///< Descriptor set number.
-  BindingType type;      ///< Type of the binding.
-  BindingAccess access;  ///< Access mode (read/write/readwrite).
+  uint32_t binding;     ///< Binding index in the shader.
+  uint32_t set;         ///< Descriptor set number.
+  BindingType type;     ///< Type of the binding.
+  BindingAccess access; ///< Access mode (read/write/readwrite).
 };
 
 /**
  * Contains all binding information extracted from a SPIR-V shader module.
  */
 struct ShaderReflection {
-  std::vector<BindingInfo> bindings;      ///< All resource bindings.
-  uint32_t pushConstantSize;              ///< Size of push constants in bytes.
+  std::vector<BindingInfo> bindings; ///< All resource bindings.
+  uint32_t pushConstantSize;         ///< Size of push constants in bytes.
 };
 
 /**

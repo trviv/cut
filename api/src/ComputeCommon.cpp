@@ -224,7 +224,8 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
           } else if (idIsImage.count(pointedType) > 0) {
             info.type = BindingType::StorageImage;
           } else {
-            info.type = BindingType::SampledImage; // Default for uniform constant
+            info.type =
+                BindingType::SampledImage; // Default for uniform constant
           }
         } else {
           info.type = BindingType::StorageBuffer; // Default
