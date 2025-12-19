@@ -2,9 +2,30 @@
 #include <VulkanCommandBuffer.h>
 #include <VulkanContainers.h>
 
+#include <optional>
 #include <unordered_map>
 
 namespace cut {
+
+/// Converts a BindingType to its corresponding VkDescriptorType.
+/// Returns std::nullopt for types that don't map to descriptor types (e.g.
+/// PushConstant).
+std::optional<VkDescriptorType> toVkDescriptorType(BindingType type) {
+  switch (type) {
+  case BindingType::Sampler:
+    return VK_DESCRIPTOR_TYPE_SAMPLER;
+  case BindingType::UniformBuffer:
+    return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  case BindingType::StorageBuffer:
+    return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  case BindingType::SampledImage:
+    return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  case BindingType::StorageImage:
+    return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  default:
+    return std::nullopt;
+  }
+}
 
 std::vector<VkDescriptorSetLayoutBinding>
 createDescriptorSetLayoutBindings(const std::vector<BindingInfo> &bindings) {
@@ -12,41 +33,59 @@ createDescriptorSetLayoutBindings(const std::vector<BindingInfo> &bindings) {
   layoutBindings.reserve(bindings.size());
 
   for (const auto &binding : bindings) {
-    // Skip push constants - they don't go in descriptor set layouts
-    if (binding.type == BindingType::PushConstant) {
+    auto descriptorType = toVkDescriptorType(binding.type);
+    if (!descriptorType) {
       continue;
     }
 
     VkDescriptorSetLayoutBinding layoutBinding = {};
     layoutBinding.binding = binding.binding;
     layoutBinding.descriptorCount = 1;
+    layoutBinding.descriptorType = *descriptorType;
     layoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     layoutBinding.pImmutableSamplers = nullptr;
-
-    switch (binding.type) {
-    case BindingType::Sampler:
-      layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-      break;
-    case BindingType::UniformBuffer:
-      layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-      break;
-    case BindingType::StorageBuffer:
-      layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      break;
-    case BindingType::SampledImage:
-      layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      break;
-    case BindingType::StorageImage:
-      layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-      break;
-    default:
-      continue;
-    }
 
     layoutBindings.push_back(layoutBinding);
   }
 
   return layoutBindings;
+}
+
+/// Calculates descriptor pool sizes from shader bindings across all dispatches.
+std::vector<VkDescriptorPoolSize> calculateDescriptorPoolSizes(
+    const std::vector<ComputeDispatch> &dispatches,
+    VulkanShaderContainer &shaderContainer) {
+  std::unordered_map<VkDescriptorType, uint32_t> descriptorTypeCounts;
+
+  for (const auto &dispatch : dispatches) {
+    const auto &shaderHandle = dispatch.shader();
+    if (!shaderHandle) {
+      continue;
+    }
+
+    const auto *shaderStruct = shaderContainer.getShader(shaderHandle);
+    if (!shaderStruct) {
+      continue;
+    }
+
+    for (const auto &binding : shaderStruct->reflection.bindings) {
+      auto descriptorType = toVkDescriptorType(binding.type);
+      if (descriptorType) {
+        descriptorTypeCounts[*descriptorType]++;
+      }
+    }
+  }
+
+  std::vector<VkDescriptorPoolSize> poolSizes;
+  poolSizes.reserve(descriptorTypeCounts.size());
+  for (const auto &[type, count] : descriptorTypeCounts) {
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = type;
+    poolSize.descriptorCount = count;
+    poolSizes.push_back(poolSize);
+  }
+
+  return poolSizes;
 }
 
 VulkanCommandBuffer::VulkanCommandBuffer(VkDevice device,
@@ -78,61 +117,7 @@ void VulkanCommandBuffer::end() {
 }
 
 void VulkanCommandBuffer::submit() {
-  // Calculate descriptor pool sizes based on all dispatch shader bindings
-  std::unordered_map<VkDescriptorType, uint32_t> descriptorTypeCounts;
-
-  for (const auto &dispatch : dispatches()) {
-    const auto &shaderHandle = dispatch.shader();
-    if (!shaderHandle) {
-      continue;
-    }
-
-    // Get shader reflection data
-    const auto *shaderStruct = shaderContainer_.getShader(shaderHandle);
-    if (!shaderStruct) {
-      continue;
-    }
-
-    // Count descriptor types from shader bindings
-    for (const auto &binding : shaderStruct->reflection.bindings) {
-      if (binding.type == BindingType::PushConstant) {
-        continue;
-      }
-
-      VkDescriptorType descriptorType;
-      switch (binding.type) {
-      case BindingType::Sampler:
-        descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-        break;
-      case BindingType::UniformBuffer:
-        descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        break;
-      case BindingType::StorageBuffer:
-        descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        break;
-      case BindingType::SampledImage:
-        descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        break;
-      case BindingType::StorageImage:
-        descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        break;
-      default:
-        continue;
-      }
-
-      descriptorTypeCounts[descriptorType]++;
-    }
-  }
-
-  // Build descriptor pool sizes from accumulated counts
-  std::vector<VkDescriptorPoolSize> poolSizes;
-  poolSizes.reserve(descriptorTypeCounts.size());
-  for (const auto &[type, count] : descriptorTypeCounts) {
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type = type;
-    poolSize.descriptorCount = count;
-    poolSizes.push_back(poolSize);
-  }
+  auto poolSizes = calculateDescriptorPoolSizes(dispatches(), shaderContainer_);
 
   // TODO: Create descriptor pool and sets using poolSizes
 
