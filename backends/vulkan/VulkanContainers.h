@@ -9,6 +9,8 @@
 
 namespace cut {
 
+class VulkanShaderContainer;
+
 /// Vulkan implementation of CommandBufferContainer.
 class VulkanCommandBufferContainer final : public CommandBufferContainer {
 public:
@@ -17,8 +19,12 @@ public:
    * Creates the command pool and retrieves the queue internally.
    * @param device The Vulkan logical device.
    * @param queueFamilyIndex The queue family index for command submission.
+   * @param shaderContainer Reference to shader container for accessing shader
+   * reflection data.
    */
-  VulkanCommandBufferContainer(VkDevice device, uint32_t queueFamilyIndex);
+  VulkanCommandBufferContainer(VkDevice device,
+                               uint32_t queueFamilyIndex,
+                               VulkanShaderContainer &shaderContainer);
 
   /// Destroys the command pool and waits for the queue to idle.
   ~VulkanCommandBufferContainer();
@@ -26,7 +32,8 @@ public:
   /// Creates a Vulkan-specific command buffer.
   ComputeHandle createCommandBuffer() override {
     return ComputeDataContainer::create(
-        new VulkanCommandBuffer(device_, commandPool_, queue_));
+        new VulkanCommandBuffer(device_, commandPool_, queue_,
+                                shaderContainer_));
   }
 
   /// Returns the queue handle.
@@ -39,6 +46,7 @@ private:
   VkDevice device_ = VK_NULL_HANDLE;
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   VkQueue queue_ = VK_NULL_HANDLE;
+  VulkanShaderContainer &shaderContainer_;
 };
 
 /// Container managing GPU buffer allocations and their lifecycle.
@@ -72,6 +80,11 @@ public:
   ComputeHandle createShader(VulkanShaderStruct &&structData) {
     return ComputeDataContainer::create(
         new VulkanShaderStruct(std::move(structData)));
+  }
+
+  /// Returns the shader struct for the given handle.
+  VulkanShaderStruct *getShader(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle);
   }
 
 private:

@@ -5,6 +5,8 @@
 
 namespace cut {
 
+class VulkanShaderContainer;
+
 /**
  * Vulkan implementation of CommandBuffer.
  * Records compute dispatches as Vulkan commands for GPU execution.
@@ -16,10 +18,13 @@ public:
    * @param device The Vulkan logical device.
    * @param commandPool The command pool to allocate command buffers from.
    * @param queue The compute queue for submissions.
+   * @param shaderContainer Reference to shader container for accessing shader
+   * reflection data.
    */
   VulkanCommandBuffer(VkDevice device,
                       VkCommandPool commandPool,
-                      VkQueue queue);
+                      VkQueue queue,
+                      VulkanShaderContainer &shaderContainer);
 
   ~VulkanCommandBuffer() override = default;
 
@@ -46,6 +51,7 @@ private:
   VkCommandPool commandPool_;
   VkQueue queue_;
   VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
+  VulkanShaderContainer &shaderContainer_;
 };
 
 } // namespace cut

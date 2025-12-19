@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ComputeCommon.h>
 #include <ComputeInterface.h>
 #include <VulkanCommon.h>
 
@@ -36,9 +37,10 @@ struct VulkanBufferStruct {
   IF_VMA_DISABLED_THEN(VkDeviceMemory memory = VK_NULL_HANDLE);
 };
 
-/// Wrapper for a compiled SPIR-V shader module.
+/// Wrapper for a compiled SPIR-V shader module with reflection data.
 struct VulkanShaderStruct {
   VkShaderModule shader = VK_NULL_HANDLE;
+  ShaderReflection reflection;  ///< Binding information from SPIR-V reflection.
 };
 
 /// Manages compute shader dispatch configuration, including shader and resource

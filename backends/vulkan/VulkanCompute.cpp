@@ -36,10 +36,6 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 
   VK_CHECK(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device_));
 
-  // Create and set the command buffer container
-  setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
-      device_, computeQueueFamilyIndex_));
-
   vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties_);
   vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties_);
 
@@ -59,6 +55,11 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   IF_VMA_DISABLED_THEN(bufferContainer_.device_ = device_);
 
   shaderContainer_.device_ = device_;
+
+  // Create and set the command buffer container (after shaderContainer_ is set
+  // up)
+  setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
+      device_, computeQueueFamilyIndex_, shaderContainer_));
 }
 
 PhysicalDeviceAndQueueIndex
@@ -283,6 +284,9 @@ VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
 
   VK_CHECK(vkCreateShaderModule(device_, &createInfo, nullptr,
                                 &shaderStruct.shader));
+
+  // Store reflection data for descriptor set layout creation
+  shaderStruct.reflection = reflectSpirvBindings(spirvCode);
 
   return shaderContainer_.createShader(std::move(shaderStruct));
 }
