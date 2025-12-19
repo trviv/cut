@@ -110,10 +110,13 @@ public:
    */
   void setThreadGroupSize(const ThreadGroupSize &tgSize);
 
+  /// Returns the thread group size for this dispatch.
   const ThreadGroupSize &threadgroupSize() const;
 
+  /// Returns the shader handle bound to this dispatch.
   const ComputeHandle &shader() const;
 
+  /// Returns the list of resource bindings for this dispatch.
   const std::vector<ComputeBinding> &bindings() const;
 
 private:
@@ -159,6 +162,10 @@ public:
    * Blocks until execution completes.
    */
   virtual void submit() = 0;
+
+protected:
+  /// Returns the list of encoded compute dispatches.
+  const std::vector<ComputeDispatch> &dispatches() { return dispatches_; }
 
 private:
   std::vector<ComputeDispatch> dispatches_; ///< List of compute dispatches.
