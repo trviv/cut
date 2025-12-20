@@ -11,6 +11,7 @@ namespace cut {
 class VulkanBufferContainer;
 class VulkanShaderContainer;
 class VulkanDescriptorPoolContainer;
+class VulkanDescriptorSetLayoutContainer;
 
 /**
  * Vulkan implementation of CommandBuffer.
@@ -28,13 +29,17 @@ public:
    * reflection data.
    * @param descriptorPoolContainer Reference to descriptor pool container for
    * creating descriptor pools.
+   * @param descriptorSetLayoutContainer Reference to descriptor set layout
+   * container for creating descriptor set layouts.
    */
-  VulkanCommandBuffer(VkDevice device,
-                      VkCommandPool commandPool,
-                      VkQueue queue,
-                      VulkanBufferContainer &bufferContainer,
-                      VulkanShaderContainer &shaderContainer,
-                      VulkanDescriptorPoolContainer &descriptorPoolContainer);
+  VulkanCommandBuffer(
+      VkDevice device,
+      VkCommandPool commandPool,
+      VkQueue queue,
+      VulkanBufferContainer &bufferContainer,
+      VulkanShaderContainer &shaderContainer,
+      VulkanDescriptorPoolContainer &descriptorPoolContainer,
+      VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer);
 
   ~VulkanCommandBuffer() override = default;
 
@@ -64,6 +69,7 @@ private:
   VulkanBufferContainer &bufferContainer_;
   VulkanShaderContainer &shaderContainer_;
   VulkanDescriptorPoolContainer &descriptorPoolContainer_;
+  VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer_;
 
   /// Active descriptor pool handles created during end().
   std::vector<ComputeHandle> descriptorPoolHandles_;
@@ -71,8 +77,9 @@ private:
   /// Pipelines created during end(), cleaned up in submit().
   std::vector<VulkanPipelineStruct> pipelines_;
 
-  /// Descriptor set layouts created during end(), cleaned up in submit().
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts_;
+  /// Descriptor set layout handles created during end(), cleaned up in
+  /// submit().
+  std::vector<ComputeHandle> descriptorSetLayoutHandles_;
 
   /// Descriptor sets allocated during end().
   std::vector<VkDescriptorSet> descriptorSets_;

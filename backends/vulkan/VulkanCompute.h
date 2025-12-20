@@ -74,6 +74,7 @@ private:
   VulkanBufferContainer bufferContainer_;
   VulkanShaderContainer shaderContainer_;
   VulkanDescriptorPoolContainer descriptorPoolContainer_;
+  VulkanDescriptorSetLayoutContainer descriptorSetLayoutContainer_;
 };
 
 class VulkanInstance : public std::enable_shared_from_this<VulkanInstance> {

@@ -55,12 +55,12 @@ createDescriptorSetLayoutBindings(const std::vector<BindingInfo> &bindings) {
 
 /// Creates descriptor set layouts for all dispatches based on shader
 /// reflection.
-std::vector<VkDescriptorSetLayout>
-createDescriptorSetLayouts(VkDevice device,
-                           const std::vector<ComputeDispatch> &dispatches,
-                           VulkanShaderContainer &shaderContainer) {
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
-  descriptorSetLayouts.reserve(dispatches.size());
+std::vector<ComputeHandle> createDescriptorSetLayouts(
+    const std::vector<ComputeDispatch> &dispatches,
+    VulkanShaderContainer &shaderContainer,
+    VulkanDescriptorSetLayoutContainer &layoutContainer) {
+  std::vector<ComputeHandle> layoutHandles;
+  layoutHandles.reserve(dispatches.size());
 
   for (const auto &dispatch : dispatches) {
     const auto &shaderHandle = dispatch.shader();
@@ -84,13 +84,11 @@ createDescriptorSetLayouts(VkDevice device,
     layoutInfo.pBindings =
         layoutBindings.empty() ? nullptr : layoutBindings.data();
 
-    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
-    VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
-                                         &descriptorSetLayout));
-    descriptorSetLayouts.emplace_back(descriptorSetLayout);
+    auto layoutHandle = layoutContainer.createLayout(layoutInfo);
+    layoutHandles.emplace_back(std::move(layoutHandle));
   }
 
-  return descriptorSetLayouts;
+  return layoutHandles;
 }
 
 /// Holds all Vulkan structures needed to create a compute pipeline.
@@ -103,17 +101,25 @@ struct ComputePipelineCreateData {
 /// Creates compute pipelines for all dispatches based on shader reflection.
 /// Returns a vector of VulkanPipelineStruct containing pipeline layouts and
 /// compute pipelines.
-std::vector<VulkanPipelineStruct> createComputePipelines(
-    VkDevice device,
-    const std::vector<ComputeDispatch> &dispatches,
-    const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts,
-    VulkanShaderContainer &shaderContainer) {
+std::vector<VulkanPipelineStruct>
+createComputePipelines(VkDevice device,
+                       const std::vector<ComputeDispatch> &dispatches,
+                       const std::vector<ComputeHandle> &layoutHandles,
+                       VulkanShaderContainer &shaderContainer,
+                       VulkanDescriptorSetLayoutContainer &layoutContainer) {
   std::vector<VulkanPipelineStruct> pipelines;
   pipelines.reserve(dispatches.size());
 
   // Accumulate pipeline create data for batch creation
   std::vector<ComputePipelineCreateData> pipelineCreateData;
   pipelineCreateData.reserve(dispatches.size());
+
+  // Pre-fetch VkDescriptorSetLayout values for pipeline creation
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
+  descriptorSetLayouts.reserve(layoutHandles.size());
+  for (const auto &handle : layoutHandles) {
+    descriptorSetLayouts.push_back(layoutContainer.getLayout(handle));
+  }
 
   size_t layoutIndex = 0;
   for (const auto &dispatch : dispatches) {
@@ -238,10 +244,12 @@ VulkanCommandBuffer::VulkanCommandBuffer(
     VkQueue queue,
     VulkanBufferContainer &bufferContainer,
     VulkanShaderContainer &shaderContainer,
-    VulkanDescriptorPoolContainer &descriptorPoolContainer)
+    VulkanDescriptorPoolContainer &descriptorPoolContainer,
+    VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer)
     : device_(device), commandPool_(commandPool), queue_(queue),
       bufferContainer_(bufferContainer), shaderContainer_(shaderContainer),
-      descriptorPoolContainer_(descriptorPoolContainer) {
+      descriptorPoolContainer_(descriptorPoolContainer),
+      descriptorSetLayoutContainer_(descriptorSetLayoutContainer) {
   // Allocate command buffer
   VkCommandBufferAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -277,26 +285,35 @@ void VulkanCommandBuffer::end() {
   }
 
   // Create descriptor set layouts for all dispatches
-  descriptorSetLayouts_ =
-      createDescriptorSetLayouts(device_, dispatches(), shaderContainer_);
+  descriptorSetLayoutHandles_ = createDescriptorSetLayouts(
+      dispatches(), shaderContainer_, descriptorSetLayoutContainer_);
 
   // Allocate all descriptor sets in a single call
-  if (!descriptorSetLayouts_.empty()) {
-    descriptorSets_.resize(descriptorSetLayouts_.size());
+  if (!descriptorSetLayoutHandles_.empty()) {
+    // Get VkDescriptorSetLayout values for allocation
+    std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
+    descriptorSetLayouts.reserve(descriptorSetLayoutHandles_.size());
+    for (const auto &handle : descriptorSetLayoutHandles_) {
+      descriptorSetLayouts.push_back(
+          descriptorSetLayoutContainer_.getLayout(handle));
+    }
+
+    descriptorSets_.resize(descriptorSetLayouts.size());
 
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool = descriptorPool;
     allocInfo.descriptorSetCount =
-        static_cast<uint32_t>(descriptorSetLayouts_.size());
-    allocInfo.pSetLayouts = descriptorSetLayouts_.data();
+        static_cast<uint32_t>(descriptorSetLayouts.size());
+    allocInfo.pSetLayouts = descriptorSetLayouts.data();
 
     VK_CHECK(
         vkAllocateDescriptorSets(device_, &allocInfo, descriptorSets_.data()));
 
     // Create compute pipelines from descriptor set layouts
     pipelines_ = createComputePipelines(
-        device_, dispatches(), descriptorSetLayouts_, shaderContainer_);
+        device_, dispatches(), descriptorSetLayoutHandles_, shaderContainer_,
+        descriptorSetLayoutContainer_);
 
     // Update descriptor sets with buffer bindings from dispatches
     std::vector<VkWriteDescriptorSet> descriptorWrites;
@@ -446,12 +463,9 @@ void VulkanCommandBuffer::submit() {
   }
   pipelines_.clear();
 
-  // Clean up descriptor set layouts (descriptor sets are freed when pool is
-  // destroyed)
-  for (auto layout : descriptorSetLayouts_) {
-    vkDestroyDescriptorSetLayout(device_, layout, nullptr);
-  }
-  descriptorSetLayouts_.clear();
+  // Clean up descriptor set layout handles (the container will destroy the
+  // layouts, descriptor sets are freed when pool is destroyed)
+  descriptorSetLayoutHandles_.clear();
 }
 
 } // namespace cut

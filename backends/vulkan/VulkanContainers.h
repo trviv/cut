@@ -13,6 +13,7 @@ namespace cut {
 class VulkanBufferContainer;
 class VulkanShaderContainer;
 class VulkanDescriptorPoolContainer;
+class VulkanDescriptorSetLayoutContainer;
 
 /// Base class for Vulkan containers that require a device handle.
 class VulkanContainerBase {
@@ -42,13 +43,16 @@ public:
    * reflection data.
    * @param descriptorPoolContainer Reference to descriptor pool container for
    * creating descriptor pools.
+   * @param descriptorSetLayoutContainer Reference to descriptor set layout
+   * container for creating descriptor set layouts.
    */
   VulkanCommandBufferContainer(
       VkDevice device,
       uint32_t queueFamilyIndex,
       VulkanBufferContainer &bufferContainer,
       VulkanShaderContainer &shaderContainer,
-      VulkanDescriptorPoolContainer &descriptorPoolContainer);
+      VulkanDescriptorPoolContainer &descriptorPoolContainer,
+      VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer);
 
   /// Destroys the command pool and waits for the queue to idle.
   ~VulkanCommandBufferContainer();
@@ -57,7 +61,7 @@ public:
   ComputeHandle createCommandBuffer() override {
     return ComputeDataContainer::create(new VulkanCommandBuffer(
         getDevice(), commandPool_, queue_, bufferContainer_, shaderContainer_,
-        descriptorPoolContainer_));
+        descriptorPoolContainer_, descriptorSetLayoutContainer_));
   }
 
   /// Returns the queue handle.
@@ -72,6 +76,7 @@ private:
   VulkanBufferContainer &bufferContainer_;
   VulkanShaderContainer &shaderContainer_;
   VulkanDescriptorPoolContainer &descriptorPoolContainer_;
+  VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer_;
 };
 
 /// Container managing GPU buffer allocations and their lifecycle.
@@ -151,7 +156,8 @@ class VulkanDescriptorSetLayoutContainer final
     : public ComputeDataContainer<VulkanDescriptorSetLayoutStruct>,
       public VulkanContainerBase {
 public:
-  /// Constructs a descriptor set layout container with a unique type identifier.
+  /// Constructs a descriptor set layout container with a unique type
+  /// identifier.
   VulkanDescriptorSetLayoutContainer()
       : ComputeDataContainer<VulkanDescriptorSetLayoutStruct>(104) {}
 
