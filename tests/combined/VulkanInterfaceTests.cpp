@@ -181,10 +181,7 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
   // Clean up handles
   cmdBuffer.reset();
 
-  // Note: Since full dispatch implementation is not complete,
-  // this test currently validates the dispatch creation flow only.
-  // When full pipeline/descriptor support is added, uncomment:
-  // EXPECT_EQ(referenceResult, outputData);
+  EXPECT_EQ(referenceResult, outputData);
 }
 
 TEST_F(VulkanTestEnvironment, Shader) {
