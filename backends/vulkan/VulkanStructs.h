@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ComputeCommon.h>
+#include <ComputeHandle.h>
 #include <ComputeInterface.h>
 #include <VulkanCommon.h>
 
@@ -84,6 +85,13 @@ struct VulkanDescriptorSetLayoutStruct {
 /// Wrapper for a Vulkan pipeline layout.
 struct VulkanPipelineLayoutStruct {
   VkPipelineLayout layout = VK_NULL_HANDLE;
+};
+
+/// Create info for a Vulkan pipeline layout.
+struct VulkanPipelineLayoutCreateInfo {
+  VkPipelineLayoutCreateInfo createInfo;
+  VkPushConstantRange pushConstantRange;
+  ComputeHandle descriptorSetLayoutHandle;
 };
 
 /// Contains the pipeline layout and compute pipeline for shader execution.

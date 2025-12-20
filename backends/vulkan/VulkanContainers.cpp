@@ -111,9 +111,9 @@ void VulkanDescriptorSetLayoutContainer::destroy(const ComputeHandle &handle) {
 }
 
 ComputeHandle VulkanPipelineLayoutContainer::createLayout(
-    const VkPipelineLayoutCreateInfo &createInfo) {
+    const VulkanPipelineLayoutCreateInfo &createInfo) {
   VulkanPipelineLayoutStruct layoutStruct{};
-  VK_CHECK(vkCreatePipelineLayout(getDevice(), &createInfo, nullptr,
+  VK_CHECK(vkCreatePipelineLayout(getDevice(), &createInfo.createInfo, nullptr,
                                   &layoutStruct.layout));
   return ComputeDataContainer::create(std::move(layoutStruct));
 }

@@ -201,10 +201,11 @@ public:
 
   /**
    * Creates a pipeline layout from the given create info.
-   * @param createInfo The Vulkan pipeline layout create info.
+   * @param createInfo The pipeline layout create info containing layout and
+   * push constant configuration.
    * @return Handle to the created pipeline layout.
    */
-  ComputeHandle createLayout(const VkPipelineLayoutCreateInfo &createInfo);
+  ComputeHandle createLayout(const VulkanPipelineLayoutCreateInfo &createInfo);
 
   /// Returns the pipeline layout for the given handle.
   VkPipelineLayout getLayout(const ComputeHandle &handle) const {

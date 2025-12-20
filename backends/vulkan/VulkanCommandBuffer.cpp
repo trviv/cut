@@ -139,28 +139,34 @@ createComputePipelines(VkDevice device,
     ComputePipelineCreateData createData{};
 
     // Create pipeline layout
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    VulkanPipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
+    pipelineLayoutCreateInfo.createInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 
     // Use descriptor set layout if available for this dispatch
-    if (layoutIndex < descriptorSetLayouts.size()) {
-      pipelineLayoutInfo.setLayoutCount = 1;
-      pipelineLayoutInfo.pSetLayouts = &descriptorSetLayouts[layoutIndex];
+    if (layoutIndex < layoutHandles.size()) {
+      pipelineLayoutCreateInfo.descriptorSetLayoutHandle =
+          layoutHandles[layoutIndex];
+      pipelineLayoutCreateInfo.createInfo.setLayoutCount = 1;
+      pipelineLayoutCreateInfo.createInfo.pSetLayouts =
+          &descriptorSetLayouts[layoutIndex];
     }
 
     // Add push constant range if the shader uses push constants
     if (shaderStruct->reflection.pushConstantSize > 0) {
-      createData.pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-      createData.pushConstantRange.offset = 0;
-      createData.pushConstantRange.size =
+      pipelineLayoutCreateInfo.pushConstantRange.stageFlags =
+          VK_SHADER_STAGE_COMPUTE_BIT;
+      pipelineLayoutCreateInfo.pushConstantRange.offset = 0;
+      pipelineLayoutCreateInfo.pushConstantRange.size =
           shaderStruct->reflection.pushConstantSize;
-      pipelineLayoutInfo.pushConstantRangeCount = 1;
-      pipelineLayoutInfo.pPushConstantRanges = &createData.pushConstantRange;
+      pipelineLayoutCreateInfo.createInfo.pushConstantRangeCount = 1;
+      pipelineLayoutCreateInfo.createInfo.pPushConstantRanges =
+          &pipelineLayoutCreateInfo.pushConstantRange;
     }
 
     // Create pipeline layout using container
     auto pipelineLayoutHandle =
-        pipelineLayoutContainer.createLayout(pipelineLayoutInfo);
+        pipelineLayoutContainer.createLayout(pipelineLayoutCreateInfo);
     pipelineStruct.pipelineLayoutHandle_ = pipelineLayoutHandle;
     pipelineLayoutHandles.emplace_back(std::move(pipelineLayoutHandle));
 
