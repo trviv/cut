@@ -1,4 +1,5 @@
 #include "VulkanStructs.h"
+#include "vulkan/vulkan_core.h"
 #include <ComputeCommon.h>
 #include <VulkanCommandBuffer.h>
 #include <VulkanContainers.h>
@@ -225,7 +226,7 @@ calculateDescriptorPoolSizes(const std::vector<ComputeDispatch> &dispatches,
     VkDescriptorPoolSize poolSize{};
     poolSize.type = type;
     poolSize.descriptorCount = count;
-    poolSizes.push_back(poolSize);
+    poolSizes.emplace_back(poolSize);
   }
 
   return poolSizes;
@@ -260,162 +261,164 @@ void VulkanCommandBuffer::begin() {
 }
 
 void VulkanCommandBuffer::end() {
-  const auto poolSizes =
-      calculateDescriptorPoolSizes(dispatches(), shaderContainer_);
+  VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
 
-  // Create descriptor pool if there are any descriptors to allocate
-  if (!poolSizes.empty()) {
-    const uint32_t maxSets = static_cast<uint32_t>(dispatches().size());
-    auto poolHandle = descriptorPoolContainer_.createPool(poolSizes, maxSets);
-    descriptorPoolHandles_.push_back(poolHandle);
+  {
+    const auto poolSizes =
+        calculateDescriptorPoolSizes(dispatches(), shaderContainer_);
+    // Create descriptor pool if there are any descriptors to allocate
+    if (!poolSizes.empty()) {
+      const uint32_t maxSets = static_cast<uint32_t>(dispatches().size());
+      auto poolHandle = descriptorPoolContainer_.createPool(poolSizes, maxSets);
 
-    VkDescriptorPool descriptorPool =
-        descriptorPoolContainer_.getPool(poolHandle);
-
-    // Create descriptor set layouts for all dispatches
-    descriptorSetLayouts_ =
-        createDescriptorSetLayouts(device_, dispatches(), shaderContainer_);
-
-    // Allocate all descriptor sets in a single call
-    if (!descriptorSetLayouts_.empty()) {
-      descriptorSets_.resize(descriptorSetLayouts_.size());
-
-      VkDescriptorSetAllocateInfo allocInfo{};
-      allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-      allocInfo.descriptorPool = descriptorPool;
-      allocInfo.descriptorSetCount =
-          static_cast<uint32_t>(descriptorSetLayouts_.size());
-      allocInfo.pSetLayouts = descriptorSetLayouts_.data();
-
-      VK_CHECK(vkAllocateDescriptorSets(device_, &allocInfo,
-                                        descriptorSets_.data()));
-
-      // Create compute pipelines from descriptor set layouts
-      pipelines_ = createComputePipelines(
-          device_, dispatches(), descriptorSetLayouts_, shaderContainer_);
-
-      // Update descriptor sets with buffer bindings from dispatches
-      std::vector<VkWriteDescriptorSet> descriptorWrites;
-      std::vector<VkDescriptorBufferInfo> bufferInfos;
-
-      // Pre-allocate buffer infos to keep them alive during
-      // vkUpdateDescriptorSets
-      size_t totalBindings = 0;
-      for (const auto &dispatch : dispatches()) {
-        totalBindings += dispatch.bindings().size();
-      }
-      bufferInfos.reserve(totalBindings);
-
-      size_t dispatchIndex = 0;
-      for (const auto &dispatch : dispatches()) {
-        const auto &shaderHandle = dispatch.shader();
-        if (!shaderHandle) {
-          continue;
-        }
-
-        const auto *shaderStruct = shaderContainer_.getShader(shaderHandle);
-        if (!shaderStruct) {
-          continue;
-        }
-
-        // Process each binding in the dispatch
-        for (const auto &binding : dispatch.bindings()) {
-          if (!binding.isHandle()) {
-            // Skip data bindings (push constants) for now
-            continue;
-          }
-
-          // Find the corresponding binding info from shader reflection
-          const BindingInfo *bindingInfo = nullptr;
-          for (const auto &info : shaderStruct->reflection.bindings) {
-            if (info.binding == binding.index()) {
-              bindingInfo = &info;
-              break;
-            }
-          }
-
-          if (!bindingInfo) {
-            continue;
-          }
-
-          auto descriptorType = toVkDescriptorType(bindingInfo->type);
-          if (!descriptorType) {
-            continue;
-          }
-
-          // Get the buffer from the handle
-          const auto &bufferStruct =
-              bufferContainer_.getBuffer(binding.getHandle());
-
-          VkDescriptorBufferInfo bufferInfo{};
-          bufferInfo.buffer = bufferStruct.buffer;
-          bufferInfo.offset = 0;
-          bufferInfo.range = bufferStruct.size;
-          bufferInfos.push_back(bufferInfo);
-
-          VkWriteDescriptorSet descriptorWrite{};
-          descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-          descriptorWrite.dstSet = descriptorSets_[dispatchIndex];
-          descriptorWrite.dstBinding = binding.index();
-          descriptorWrite.dstArrayElement = 0;
-          descriptorWrite.descriptorType = *descriptorType;
-          descriptorWrite.descriptorCount = 1;
-          descriptorWrite.pBufferInfo = &bufferInfos.back();
-
-          descriptorWrites.push_back(descriptorWrite);
-        }
-
-        ++dispatchIndex;
-      }
-
-      // Update all descriptor sets in a single call
-      if (!descriptorWrites.empty()) {
-        vkUpdateDescriptorSets(device_,
-                               static_cast<uint32_t>(descriptorWrites.size()),
-                               descriptorWrites.data(), 0, nullptr);
-      }
-
-      // Record commands: bind pipelines, descriptor sets, and dispatch
-      dispatchIndex = 0;
-      for (const auto &dispatch : dispatches()) {
-        const auto &shaderHandle = dispatch.shader();
-        if (!shaderHandle) {
-          continue;
-        }
-
-        if (dispatchIndex >= pipelines_.size()) {
-          break;
-        }
-
-        const auto &pipeline = pipelines_[dispatchIndex];
-
-        // Bind the compute pipeline
-        vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          pipeline.computePipeline_);
-
-        // Bind the descriptor set
-        vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                pipeline.pipelineLayout_, 0, 1,
-                                &descriptorSets_[dispatchIndex], 0, nullptr);
-
-        // Dispatch compute work
-        const auto &tgSize = dispatch.threadgroupSize();
-        vkCmdDispatch(commandBuffer_, tgSize.tgSizeX, tgSize.tgSizeY,
-                      tgSize.tgSizeZ);
-
-        ++dispatchIndex;
-      }
-
-      // Add memory barrier to ensure compute writes are visible to host reads
-      VkMemoryBarrier memoryBarrier{};
-      memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-      memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-      memoryBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-
-      vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                           VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &memoryBarrier, 0,
-                           nullptr, 0, nullptr);
+      descriptorPool = descriptorPoolContainer_.getPool(poolHandle);
+      descriptorPoolHandles_.emplace_back(std::move(poolHandle));
     }
+  }
+
+  // Create descriptor set layouts for all dispatches
+  descriptorSetLayouts_ =
+      createDescriptorSetLayouts(device_, dispatches(), shaderContainer_);
+
+  // Allocate all descriptor sets in a single call
+  if (!descriptorSetLayouts_.empty()) {
+    descriptorSets_.resize(descriptorSetLayouts_.size());
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = descriptorPool;
+    allocInfo.descriptorSetCount =
+        static_cast<uint32_t>(descriptorSetLayouts_.size());
+    allocInfo.pSetLayouts = descriptorSetLayouts_.data();
+
+    VK_CHECK(
+        vkAllocateDescriptorSets(device_, &allocInfo, descriptorSets_.data()));
+
+    // Create compute pipelines from descriptor set layouts
+    pipelines_ = createComputePipelines(
+        device_, dispatches(), descriptorSetLayouts_, shaderContainer_);
+
+    // Update descriptor sets with buffer bindings from dispatches
+    std::vector<VkWriteDescriptorSet> descriptorWrites;
+    std::vector<VkDescriptorBufferInfo> bufferInfos;
+
+    // Pre-allocate buffer infos to keep them alive during
+    // vkUpdateDescriptorSets
+    size_t totalBindings = 0;
+    for (const auto &dispatch : dispatches()) {
+      totalBindings += dispatch.bindings().size();
+    }
+    bufferInfos.reserve(totalBindings);
+
+    size_t dispatchIndex = 0;
+    for (const auto &dispatch : dispatches()) {
+      const auto &shaderHandle = dispatch.shader();
+      if (!shaderHandle) {
+        continue;
+      }
+
+      const auto *shaderStruct = shaderContainer_.getShader(shaderHandle);
+      if (!shaderStruct) {
+        continue;
+      }
+
+      // Process each binding in the dispatch
+      for (const auto &binding : dispatch.bindings()) {
+        if (!binding.isHandle()) {
+          // Skip data bindings (push constants) for now
+          continue;
+        }
+
+        // Find the corresponding binding info from shader reflection
+        const BindingInfo *bindingInfo = nullptr;
+        for (const auto &info : shaderStruct->reflection.bindings) {
+          if (info.binding == binding.index()) {
+            bindingInfo = &info;
+            break;
+          }
+        }
+
+        if (!bindingInfo) {
+          continue;
+        }
+
+        auto descriptorType = toVkDescriptorType(bindingInfo->type);
+        if (!descriptorType) {
+          continue;
+        }
+
+        // Get the buffer from the handle
+        const auto &bufferStruct =
+            bufferContainer_.getBuffer(binding.getHandle());
+
+        VkDescriptorBufferInfo bufferInfo{};
+        bufferInfo.buffer = bufferStruct.buffer;
+        bufferInfo.offset = 0;
+        bufferInfo.range = bufferStruct.size;
+        bufferInfos.push_back(bufferInfo);
+
+        VkWriteDescriptorSet descriptorWrite{};
+        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrite.dstSet = descriptorSets_[dispatchIndex];
+        descriptorWrite.dstBinding = binding.index();
+        descriptorWrite.dstArrayElement = 0;
+        descriptorWrite.descriptorType = *descriptorType;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.pBufferInfo = &bufferInfos.back();
+
+        descriptorWrites.push_back(descriptorWrite);
+      }
+
+      ++dispatchIndex;
+    }
+
+    // Update all descriptor sets in a single call
+    if (!descriptorWrites.empty()) {
+      vkUpdateDescriptorSets(device_,
+                             static_cast<uint32_t>(descriptorWrites.size()),
+                             descriptorWrites.data(), 0, nullptr);
+    }
+
+    // Record commands: bind pipelines, descriptor sets, and dispatch
+    dispatchIndex = 0;
+    for (const auto &dispatch : dispatches()) {
+      const auto &shaderHandle = dispatch.shader();
+      if (!shaderHandle) {
+        continue;
+      }
+
+      if (dispatchIndex >= pipelines_.size()) {
+        break;
+      }
+
+      const auto &pipeline = pipelines_[dispatchIndex];
+
+      // Bind the compute pipeline
+      vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
+                        pipeline.computePipeline_);
+
+      // Bind the descriptor set
+      vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              pipeline.pipelineLayout_, 0, 1,
+                              &descriptorSets_[dispatchIndex], 0, nullptr);
+
+      // Dispatch compute work
+      const auto &tgSize = dispatch.threadgroupSize();
+      vkCmdDispatch(commandBuffer_, tgSize.tgSizeX, tgSize.tgSizeY,
+                    tgSize.tgSizeZ);
+
+      ++dispatchIndex;
+    }
+
+    // Add memory barrier to ensure compute writes are visible to host reads
+    VkMemoryBarrier memoryBarrier{};
+    memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+
+    vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &memoryBarrier, 0,
+                         nullptr, 0, nullptr);
   }
 
   // End command buffer recording
