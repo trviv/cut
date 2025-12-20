@@ -53,6 +53,46 @@ createDescriptorSetLayoutBindings(const std::vector<BindingInfo> &bindings) {
   return layoutBindings;
 }
 
+/// Creates descriptor set layouts for all dispatches based on shader
+/// reflection.
+std::vector<VkDescriptorSetLayout>
+createDescriptorSetLayouts(VkDevice device,
+                           const std::vector<ComputeDispatch> &dispatches,
+                           VulkanShaderContainer &shaderContainer) {
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
+  descriptorSetLayouts.reserve(dispatches.size());
+
+  for (const auto &dispatch : dispatches) {
+    const auto &shaderHandle = dispatch.shader();
+    if (!shaderHandle) {
+      continue;
+    }
+
+    const auto *shaderStruct = shaderContainer.getShader(shaderHandle);
+    if (!shaderStruct) {
+      continue;
+    }
+
+    // Create descriptor set layout bindings from shader reflection
+    const auto layoutBindings =
+        createDescriptorSetLayoutBindings(shaderStruct->reflection.bindings);
+
+    // Create descriptor set layout (can be empty if no bindings)
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(layoutBindings.size());
+    layoutInfo.pBindings =
+        layoutBindings.empty() ? nullptr : layoutBindings.data();
+
+    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+    VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
+                                         &descriptorSetLayout));
+    descriptorSetLayouts.emplace_back(descriptorSetLayout);
+  }
+
+  return descriptorSetLayouts;
+}
+
 /// Holds all Vulkan structures needed to create a compute pipeline.
 struct ComputePipelineCreateData {
   VkComputePipelineCreateInfo pipelineInfo{};
@@ -153,46 +193,6 @@ std::vector<VulkanPipelineStruct> createComputePipelines(
   }
 
   return pipelines;
-}
-
-/// Creates descriptor set layouts for all dispatches based on shader
-/// reflection.
-std::vector<VkDescriptorSetLayout>
-createDescriptorSetLayouts(VkDevice device,
-                           const std::vector<ComputeDispatch> &dispatches,
-                           VulkanShaderContainer &shaderContainer) {
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
-  descriptorSetLayouts.reserve(dispatches.size());
-
-  for (const auto &dispatch : dispatches) {
-    const auto &shaderHandle = dispatch.shader();
-    if (!shaderHandle) {
-      continue;
-    }
-
-    const auto *shaderStruct = shaderContainer.getShader(shaderHandle);
-    if (!shaderStruct) {
-      continue;
-    }
-
-    // Create descriptor set layout bindings from shader reflection
-    auto layoutBindings =
-        createDescriptorSetLayoutBindings(shaderStruct->reflection.bindings);
-
-    // Create descriptor set layout (can be empty if no bindings)
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<uint32_t>(layoutBindings.size());
-    layoutInfo.pBindings =
-        layoutBindings.empty() ? nullptr : layoutBindings.data();
-
-    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
-    VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
-                                         &descriptorSetLayout));
-    descriptorSetLayouts.push_back(descriptorSetLayout);
-  }
-
-  return descriptorSetLayouts;
 }
 
 /// Calculates descriptor pool sizes from shader bindings across all dispatches.
