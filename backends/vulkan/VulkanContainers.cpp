@@ -6,9 +6,10 @@ namespace cut {
 VulkanCommandBufferContainer::VulkanCommandBufferContainer(
     VkDevice device,
     uint32_t queueFamilyIndex,
+    VulkanBufferContainer &bufferContainer,
     VulkanShaderContainer &shaderContainer,
     VulkanDescriptorPoolContainer &descriptorPoolContainer)
-    : shaderContainer_(shaderContainer),
+    : bufferContainer_(bufferContainer), shaderContainer_(shaderContainer),
       descriptorPoolContainer_(descriptorPoolContainer) {
   setDevice(device);
   vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue_);

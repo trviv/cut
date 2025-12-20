@@ -1,7 +1,7 @@
+#include "VulkanStructs.h"
 #include <ComputeCommon.h>
 #include <VulkanCommandBuffer.h>
 #include <VulkanContainers.h>
-#include "VulkanStructs.h"
 
 #include <optional>
 #include <unordered_map>
@@ -62,11 +62,11 @@ struct ComputePipelineCreateData {
 /// Creates compute pipelines for all dispatches based on shader reflection.
 /// Returns a vector of VulkanPipelineStruct containing pipeline layouts and
 /// compute pipelines.
-std::vector<VulkanPipelineStruct>
-createComputePipelines(VkDevice device,
-                       const std::vector<ComputeDispatch> &dispatches,
-                       const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts,
-                       VulkanShaderContainer &shaderContainer) {
+std::vector<VulkanPipelineStruct> createComputePipelines(
+    VkDevice device,
+    const std::vector<ComputeDispatch> &dispatches,
+    const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts,
+    VulkanShaderContainer &shaderContainer) {
   std::vector<VulkanPipelineStruct> pipelines;
   pipelines.reserve(dispatches.size());
 
@@ -103,7 +103,8 @@ createComputePipelines(VkDevice device,
     if (shaderStruct->reflection.pushConstantSize > 0) {
       createData.pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
       createData.pushConstantRange.offset = 0;
-      createData.pushConstantRange.size = shaderStruct->reflection.pushConstantSize;
+      createData.pushConstantRange.size =
+          shaderStruct->reflection.pushConstantSize;
       pipelineLayoutInfo.pushConstantRangeCount = 1;
       pipelineLayoutInfo.pPushConstantRanges = &createData.pushConstantRange;
     }
@@ -119,7 +120,8 @@ createComputePipelines(VkDevice device,
     createData.shaderStageInfo.pName = "main";
 
     // Configure compute pipeline create info
-    createData.pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    createData.pipelineInfo.sType =
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     createData.pipelineInfo.layout = pipelineStruct.pipelineLayout_;
     createData.pipelineInfo.stage = createData.shaderStageInfo;
 
@@ -138,10 +140,10 @@ createComputePipelines(VkDevice device,
     }
 
     std::vector<VkPipeline> vkPipelines(pipelineCreateInfos.size());
-    VK_CHECK(vkCreateComputePipelines(device, VK_NULL_HANDLE,
-                                      static_cast<uint32_t>(pipelineCreateInfos.size()),
-                                      pipelineCreateInfos.data(), nullptr,
-                                      vkPipelines.data()));
+    VK_CHECK(vkCreateComputePipelines(
+        device, VK_NULL_HANDLE,
+        static_cast<uint32_t>(pipelineCreateInfos.size()),
+        pipelineCreateInfos.data(), nullptr, vkPipelines.data()));
 
     // Store the created pipelines in the result structs
     for (size_t i = 0; i < vkPipelines.size(); ++i) {
@@ -180,7 +182,8 @@ createDescriptorSetLayouts(VkDevice device,
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = static_cast<uint32_t>(layoutBindings.size());
-    layoutInfo.pBindings = layoutBindings.empty() ? nullptr : layoutBindings.data();
+    layoutInfo.pBindings =
+        layoutBindings.empty() ? nullptr : layoutBindings.data();
 
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
@@ -232,10 +235,11 @@ VulkanCommandBuffer::VulkanCommandBuffer(
     VkDevice device,
     VkCommandPool commandPool,
     VkQueue queue,
+    VulkanBufferContainer &bufferContainer,
     VulkanShaderContainer &shaderContainer,
     VulkanDescriptorPoolContainer &descriptorPoolContainer)
     : device_(device), commandPool_(commandPool), queue_(queue),
-      shaderContainer_(shaderContainer),
+      bufferContainer_(bufferContainer), shaderContainer_(shaderContainer),
       descriptorPoolContainer_(descriptorPoolContainer) {
   // Allocate command buffer
   VkCommandBufferAllocateInfo allocInfo{};
@@ -291,11 +295,89 @@ void VulkanCommandBuffer::submit() {
           vkAllocateDescriptorSets(device_, &allocInfo, descriptorSets.data()));
 
       // Create compute pipelines from descriptor set layouts
-      auto pipelines = createComputePipelines(device_, dispatches(),
-                                              descriptorSetLayouts, shaderContainer_);
+      auto pipelines = createComputePipelines(
+          device_, dispatches(), descriptorSetLayouts, shaderContainer_);
 
-      // TODO: Update descriptor sets with actual buffer bindings
-      // TODO: Bind descriptor sets and dispatch compute shaders
+      // Update descriptor sets with buffer bindings from dispatches
+      std::vector<VkWriteDescriptorSet> descriptorWrites;
+      std::vector<VkDescriptorBufferInfo> bufferInfos;
+
+      // Pre-allocate buffer infos to keep them alive during
+      // vkUpdateDescriptorSets
+      size_t totalBindings = 0;
+      for (const auto &dispatch : dispatches()) {
+        totalBindings += dispatch.bindings().size();
+      }
+      bufferInfos.reserve(totalBindings);
+
+      size_t dispatchIndex = 0;
+      for (const auto &dispatch : dispatches()) {
+        const auto &shaderHandle = dispatch.shader();
+        if (!shaderHandle) {
+          continue;
+        }
+
+        const auto *shaderStruct = shaderContainer_.getShader(shaderHandle);
+        if (!shaderStruct) {
+          continue;
+        }
+
+        // Process each binding in the dispatch
+        for (const auto &binding : dispatch.bindings()) {
+          if (!binding.isHandle()) {
+            // Skip data bindings (push constants) for now
+            continue;
+          }
+
+          // Find the corresponding binding info from shader reflection
+          const BindingInfo *bindingInfo = nullptr;
+          for (const auto &info : shaderStruct->reflection.bindings) {
+            if (info.binding == binding.index()) {
+              bindingInfo = &info;
+              break;
+            }
+          }
+
+          if (!bindingInfo) {
+            continue;
+          }
+
+          auto descriptorType = toVkDescriptorType(bindingInfo->type);
+          if (!descriptorType) {
+            continue;
+          }
+
+          // Get the buffer from the handle
+          const auto &bufferStruct =
+              bufferContainer_.getBuffer(binding.getHandle());
+
+          VkDescriptorBufferInfo bufferInfo{};
+          bufferInfo.buffer = bufferStruct.buffer;
+          bufferInfo.offset = 0;
+          bufferInfo.range = bufferStruct.size;
+          bufferInfos.push_back(bufferInfo);
+
+          VkWriteDescriptorSet descriptorWrite{};
+          descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+          descriptorWrite.dstSet = descriptorSets[dispatchIndex];
+          descriptorWrite.dstBinding = binding.index();
+          descriptorWrite.dstArrayElement = 0;
+          descriptorWrite.descriptorType = *descriptorType;
+          descriptorWrite.descriptorCount = 1;
+          descriptorWrite.pBufferInfo = &bufferInfos.back();
+
+          descriptorWrites.push_back(descriptorWrite);
+        }
+
+        ++dispatchIndex;
+      }
+
+      // Update all descriptor sets in a single call
+      if (!descriptorWrites.empty()) {
+        vkUpdateDescriptorSets(device_,
+                               static_cast<uint32_t>(descriptorWrites.size()),
+                               descriptorWrites.data(), 0, nullptr);
+      }
 
       // Clean up pipelines
       for (auto &pipeline : pipelines) {

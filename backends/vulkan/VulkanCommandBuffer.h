@@ -7,6 +7,7 @@
 
 namespace cut {
 
+class VulkanBufferContainer;
 class VulkanShaderContainer;
 class VulkanDescriptorPoolContainer;
 
@@ -21,6 +22,7 @@ public:
    * @param device The Vulkan logical device.
    * @param commandPool The command pool to allocate command buffers from.
    * @param queue The compute queue for submissions.
+   * @param bufferContainer Reference to buffer container for accessing buffers.
    * @param shaderContainer Reference to shader container for accessing shader
    * reflection data.
    * @param descriptorPoolContainer Reference to descriptor pool container for
@@ -29,6 +31,7 @@ public:
   VulkanCommandBuffer(VkDevice device,
                       VkCommandPool commandPool,
                       VkQueue queue,
+                      VulkanBufferContainer &bufferContainer,
                       VulkanShaderContainer &shaderContainer,
                       VulkanDescriptorPoolContainer &descriptorPoolContainer);
 
@@ -57,6 +60,7 @@ private:
   VkCommandPool commandPool_;
   VkQueue queue_;
   VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
+  VulkanBufferContainer &bufferContainer_;
   VulkanShaderContainer &shaderContainer_;
   VulkanDescriptorPoolContainer &descriptorPoolContainer_;
 

@@ -10,6 +10,7 @@
 
 namespace cut {
 
+class VulkanBufferContainer;
 class VulkanShaderContainer;
 class VulkanDescriptorPoolContainer;
 
@@ -36,6 +37,7 @@ public:
    * Creates the command pool and retrieves the queue internally.
    * @param device The Vulkan logical device.
    * @param queueFamilyIndex The queue family index for command submission.
+   * @param bufferContainer Reference to buffer container for accessing buffers.
    * @param shaderContainer Reference to shader container for accessing shader
    * reflection data.
    * @param descriptorPoolContainer Reference to descriptor pool container for
@@ -44,6 +46,7 @@ public:
   VulkanCommandBufferContainer(
       VkDevice device,
       uint32_t queueFamilyIndex,
+      VulkanBufferContainer &bufferContainer,
       VulkanShaderContainer &shaderContainer,
       VulkanDescriptorPoolContainer &descriptorPoolContainer);
 
@@ -52,9 +55,9 @@ public:
 
   /// Creates a Vulkan-specific command buffer.
   ComputeHandle createCommandBuffer() override {
-    return ComputeDataContainer::create(
-        new VulkanCommandBuffer(getDevice(), commandPool_, queue_,
-                                shaderContainer_, descriptorPoolContainer_));
+    return ComputeDataContainer::create(new VulkanCommandBuffer(
+        getDevice(), commandPool_, queue_, bufferContainer_, shaderContainer_,
+        descriptorPoolContainer_));
   }
 
   /// Returns the queue handle.
@@ -66,6 +69,7 @@ public:
 private:
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   VkQueue queue_ = VK_NULL_HANDLE;
+  VulkanBufferContainer &bufferContainer_;
   VulkanShaderContainer &shaderContainer_;
   VulkanDescriptorPoolContainer &descriptorPoolContainer_;
 };
@@ -80,6 +84,11 @@ public:
 
   ComputeHandle create(VulkanBufferStruct &&structData) {
     return ComputeDataContainer::create(std::move(structData));
+  }
+
+  /// Returns the buffer struct for the given handle.
+  const VulkanBufferStruct &getBuffer(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle);
   }
 
 private:
