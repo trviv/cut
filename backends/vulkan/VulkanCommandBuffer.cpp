@@ -51,6 +51,49 @@ createDescriptorSetLayoutBindings(const std::vector<BindingInfo> &bindings) {
   return layoutBindings;
 }
 
+/// Creates descriptor set layouts for all dispatches based on shader
+/// reflection.
+std::vector<VkDescriptorSetLayout>
+createDescriptorSetLayouts(VkDevice device,
+                           const std::vector<ComputeDispatch> &dispatches,
+                           VulkanShaderContainer &shaderContainer) {
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
+  descriptorSetLayouts.reserve(dispatches.size());
+
+  for (const auto &dispatch : dispatches) {
+    const auto &shaderHandle = dispatch.shader();
+    if (!shaderHandle) {
+      continue;
+    }
+
+    const auto *shaderStruct = shaderContainer.getShader(shaderHandle);
+    if (!shaderStruct) {
+      continue;
+    }
+
+    // Create descriptor set layout bindings from shader reflection
+    auto layoutBindings =
+        createDescriptorSetLayoutBindings(shaderStruct->reflection.bindings);
+
+    if (layoutBindings.empty()) {
+      continue;
+    }
+
+    // Create descriptor set layout
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(layoutBindings.size());
+    layoutInfo.pBindings = layoutBindings.data();
+
+    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+    VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
+                                         &descriptorSetLayout));
+    descriptorSetLayouts.push_back(descriptorSetLayout);
+  }
+
+  return descriptorSetLayouts;
+}
+
 /// Calculates descriptor pool sizes from shader bindings across all dispatches.
 std::vector<VkDescriptorPoolSize>
 calculateDescriptorPoolSizes(const std::vector<ComputeDispatch> &dispatches,
@@ -120,9 +163,45 @@ void VulkanCommandBuffer::end() {
 }
 
 void VulkanCommandBuffer::submit() {
-  auto poolSizes = calculateDescriptorPoolSizes(dispatches(), shaderContainer_);
+  const auto poolSizes =
+      calculateDescriptorPoolSizes(dispatches(), shaderContainer_);
 
-  // TODO: Create descriptor pool and sets using poolSizes
+  // Create descriptor pool if there are any descriptors to allocate
+  if (!poolSizes.empty()) {
+    uint32_t maxSets = static_cast<uint32_t>(dispatches().size());
+    auto poolHandle = descriptorPoolContainer_.createPool(poolSizes, maxSets);
+    descriptorPoolHandles_.push_back(poolHandle);
+    VkDescriptorPool descriptorPool =
+        descriptorPoolContainer_.getPool(poolHandle);
+
+    // Create descriptor set layouts for all dispatches
+    const auto descriptorSetLayouts =
+        createDescriptorSetLayouts(device_, dispatches(), shaderContainer_);
+
+    // Allocate all descriptor sets in a single call
+    if (!descriptorSetLayouts.empty()) {
+      std::vector<VkDescriptorSet> descriptorSets(descriptorSetLayouts.size());
+
+      VkDescriptorSetAllocateInfo allocInfo{};
+      allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+      allocInfo.descriptorPool = descriptorPool;
+      allocInfo.descriptorSetCount =
+          static_cast<uint32_t>(descriptorSetLayouts.size());
+      allocInfo.pSetLayouts = descriptorSetLayouts.data();
+
+      VK_CHECK(
+          vkAllocateDescriptorSets(device_, &allocInfo, descriptorSets.data()));
+
+      // TODO: Update descriptor sets with actual buffer bindings
+      // TODO: Bind descriptor sets and dispatch compute shaders
+
+      // Clean up descriptor set layouts (descriptor sets are freed when pool is
+      // destroyed)
+      for (auto layout : descriptorSetLayouts) {
+        vkDestroyDescriptorSetLayout(device_, layout, nullptr);
+      }
+    }
+  }
 
   // Submit to queue
   VkSubmitInfo submitInfo{};

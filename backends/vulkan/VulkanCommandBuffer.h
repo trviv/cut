@@ -3,6 +3,8 @@
 #include <ComputeStructs.h>
 #include <VulkanCommon.h>
 
+#include <vector>
+
 namespace cut {
 
 class VulkanShaderContainer;
@@ -57,6 +59,9 @@ private:
   VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
   VulkanShaderContainer &shaderContainer_;
   VulkanDescriptorPoolContainer &descriptorPoolContainer_;
+
+  /// Active descriptor pool handles created during submit.
+  std::vector<ComputeHandle> descriptorPoolHandles_;
 };
 
 } // namespace cut
