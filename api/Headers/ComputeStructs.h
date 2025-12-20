@@ -34,23 +34,24 @@ public:
     data = {bytePtr, bytePtr + dataRef.size};
   }
 
-private:
-  /**
-   * Indicates whether the binding contains a ComputeHandle or data.
-   */
-  enum class Type { Handle, Data };
+  /// Returns the binding index in the shader.
+  uint32_t index() const { return bindingIndex; }
 
-  /**
-   * Checks if this binding contains a ComputeHandle.
-   * @return True if the binding holds a ComputeHandle.
-   */
+  /// Checks if this binding contains a ComputeHandle.
   bool isHandle() const { return type == Type::Handle; }
 
-  /**
-   * Checks if this binding contains data.
-   * @return True if the binding holds data.
-   */
+  /// Checks if this binding contains data.
   bool isData() const { return type == Type::Data; }
+
+  /// Returns the bound handle (only valid if isHandle() is true).
+  const ComputeHandle &getHandle() const { return handle; }
+
+  /// Returns the bound data (only valid if isData() is true).
+  const std::vector<uint8_t> &getData() const { return data; }
+
+private:
+  /// Indicates whether the binding contains a ComputeHandle or data.
+  enum class Type { Handle, Data };
 
   ComputeHandle handle;      ///< Handle to a buffer or texture.
   std::vector<uint8_t> data; ///< Owned data (push constants).
