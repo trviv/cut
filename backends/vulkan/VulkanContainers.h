@@ -146,4 +146,36 @@ private:
   void destroy(const ComputeHandle &handle) override;
 };
 
+/// Container managing descriptor set layout allocations and their lifecycle.
+class VulkanDescriptorSetLayoutContainer final
+    : public ComputeDataContainer<VulkanDescriptorSetLayoutStruct>,
+      public VulkanContainerBase {
+public:
+  /// Constructs a descriptor set layout container with a unique type identifier.
+  VulkanDescriptorSetLayoutContainer()
+      : ComputeDataContainer<VulkanDescriptorSetLayoutStruct>(104) {}
+
+  /**
+   * Creates a descriptor set layout from the given create info.
+   * @param createInfo The Vulkan descriptor set layout create info.
+   * @return Handle to the created descriptor set layout.
+   */
+  ComputeHandle createLayout(const VkDescriptorSetLayoutCreateInfo &createInfo);
+
+  /// Returns the descriptor set layout for the given handle.
+  VkDescriptorSetLayout getLayout(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle).layout;
+  }
+
+  /// Returns the descriptor set layout struct for the given handle.
+  const VulkanDescriptorSetLayoutStruct &
+  getLayoutStruct(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle);
+  }
+
+private:
+  /// Destroys a descriptor set layout and releases its Vulkan resources.
+  void destroy(const ComputeHandle &handle) override;
+};
+
 } // namespace cut

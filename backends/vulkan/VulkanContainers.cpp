@@ -91,4 +91,19 @@ void VulkanDescriptorPoolContainer::destroy(const ComputeHandle &handle) {
   }
 }
 
+ComputeHandle VulkanDescriptorSetLayoutContainer::createLayout(
+    const VkDescriptorSetLayoutCreateInfo &createInfo) {
+  VulkanDescriptorSetLayoutStruct layoutStruct{};
+  VK_CHECK(vkCreateDescriptorSetLayout(getDevice(), &createInfo, nullptr,
+                                       &layoutStruct.layout));
+  return ComputeDataContainer::create(std::move(layoutStruct));
+}
+
+void VulkanDescriptorSetLayoutContainer::destroy(const ComputeHandle &handle) {
+  auto &layoutStruct = get(handle);
+  if (layoutStruct.layout != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(getDevice(), layoutStruct.layout, nullptr);
+  }
+}
+
 } // namespace cut
