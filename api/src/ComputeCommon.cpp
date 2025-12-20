@@ -80,6 +80,8 @@ constexpr uint32_t DecorationBinding = 33;
 constexpr uint32_t DecorationDescriptorSet = 34;
 constexpr uint32_t DecorationNonWritable = 24;
 constexpr uint32_t DecorationNonReadable = 25;
+constexpr uint32_t DecorationBlock = 2;
+constexpr uint32_t DecorationBufferBlock = 3;
 
 // Storage classes
 constexpr uint32_t StorageClassUniform = 2;
@@ -102,6 +104,7 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
   std::unordered_map<uint32_t, uint32_t> idToDescriptorSet;
   std::unordered_map<uint32_t, bool> idIsNonWritable;
   std::unordered_map<uint32_t, bool> idIsNonReadable;
+  std::unordered_map<uint32_t, bool> idIsBufferBlock;
   std::unordered_map<uint32_t, uint32_t> pointerToPointedType;
   std::unordered_map<uint32_t, uint32_t> idToStorageClass;
   std::unordered_map<uint32_t, bool> idIsImage;
@@ -134,6 +137,8 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
           idIsNonWritable[targetId] = true;
         } else if (decoration == spirv::DecorationNonReadable) {
           idIsNonReadable[targetId] = true;
+        } else if (decoration == spirv::DecorationBufferBlock) {
+          idIsBufferBlock[targetId] = true;
         }
       }
       break;
@@ -214,7 +219,13 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
         if (storageClass == spirv::StorageClassStorageBuffer) {
           info.type = BindingType::StorageBuffer;
         } else if (storageClass == spirv::StorageClassUniform) {
-          info.type = BindingType::UniformBuffer;
+          // Check if the pointed type has BufferBlock decoration (SSBO in GLSL
+          // 4.30 / SPIR-V 1.0)
+          if (pointedType != 0 && idIsBufferBlock.count(pointedType) > 0) {
+            info.type = BindingType::StorageBuffer;
+          } else {
+            info.type = BindingType::UniformBuffer;
+          }
         } else if (storageClass == spirv::StorageClassUniformConstant) {
           // Could be sampler, image, or sampled image
           if (idIsSampler.count(pointedType) > 0) {
