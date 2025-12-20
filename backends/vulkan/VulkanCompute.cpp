@@ -172,9 +172,11 @@ VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
                            &bufferStruct.buffer, &bufferStruct.allocation,
                            nullptr));
 #else
+  // Note: Avoid HOST_CACHED_BIT as it can cause issues with GPU writes
+  // on some platforms (especially with MoltenVK)
   const VkMemoryPropertyFlags memoryPropertyFlag =
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
   //        (isUniform ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
   //                   : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 

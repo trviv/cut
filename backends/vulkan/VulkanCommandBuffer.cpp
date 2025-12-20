@@ -260,10 +260,6 @@ void VulkanCommandBuffer::begin() {
 }
 
 void VulkanCommandBuffer::end() {
-  vkEndCommandBuffer(commandBuffer_);
-}
-
-void VulkanCommandBuffer::submit() {
   const auto poolSizes =
       calculateDescriptorPoolSizes(dispatches(), shaderContainer_);
 
@@ -277,26 +273,26 @@ void VulkanCommandBuffer::submit() {
         descriptorPoolContainer_.getPool(poolHandle);
 
     // Create descriptor set layouts for all dispatches
-    const auto descriptorSetLayouts =
+    descriptorSetLayouts_ =
         createDescriptorSetLayouts(device_, dispatches(), shaderContainer_);
 
     // Allocate all descriptor sets in a single call
-    if (!descriptorSetLayouts.empty()) {
-      std::vector<VkDescriptorSet> descriptorSets(descriptorSetLayouts.size());
+    if (!descriptorSetLayouts_.empty()) {
+      descriptorSets_.resize(descriptorSetLayouts_.size());
 
       VkDescriptorSetAllocateInfo allocInfo{};
       allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
       allocInfo.descriptorPool = descriptorPool;
       allocInfo.descriptorSetCount =
-          static_cast<uint32_t>(descriptorSetLayouts.size());
-      allocInfo.pSetLayouts = descriptorSetLayouts.data();
+          static_cast<uint32_t>(descriptorSetLayouts_.size());
+      allocInfo.pSetLayouts = descriptorSetLayouts_.data();
 
-      VK_CHECK(
-          vkAllocateDescriptorSets(device_, &allocInfo, descriptorSets.data()));
+      VK_CHECK(vkAllocateDescriptorSets(device_, &allocInfo,
+                                        descriptorSets_.data()));
 
       // Create compute pipelines from descriptor set layouts
-      auto pipelines = createComputePipelines(
-          device_, dispatches(), descriptorSetLayouts, shaderContainer_);
+      pipelines_ = createComputePipelines(
+          device_, dispatches(), descriptorSetLayouts_, shaderContainer_);
 
       // Update descriptor sets with buffer bindings from dispatches
       std::vector<VkWriteDescriptorSet> descriptorWrites;
@@ -359,7 +355,7 @@ void VulkanCommandBuffer::submit() {
 
           VkWriteDescriptorSet descriptorWrite{};
           descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-          descriptorWrite.dstSet = descriptorSets[dispatchIndex];
+          descriptorWrite.dstSet = descriptorSets_[dispatchIndex];
           descriptorWrite.dstBinding = binding.index();
           descriptorWrite.dstArrayElement = 0;
           descriptorWrite.descriptorType = *descriptorType;
@@ -379,32 +375,80 @@ void VulkanCommandBuffer::submit() {
                                descriptorWrites.data(), 0, nullptr);
       }
 
-      // Clean up pipelines
-      for (auto &pipeline : pipelines) {
-        if (pipeline.computePipeline_ != VK_NULL_HANDLE) {
-          vkDestroyPipeline(device_, pipeline.computePipeline_, nullptr);
+      // Record commands: bind pipelines, descriptor sets, and dispatch
+      dispatchIndex = 0;
+      for (const auto &dispatch : dispatches()) {
+        const auto &shaderHandle = dispatch.shader();
+        if (!shaderHandle) {
+          continue;
         }
-        if (pipeline.pipelineLayout_ != VK_NULL_HANDLE) {
-          vkDestroyPipelineLayout(device_, pipeline.pipelineLayout_, nullptr);
+
+        if (dispatchIndex >= pipelines_.size()) {
+          break;
         }
+
+        const auto &pipeline = pipelines_[dispatchIndex];
+
+        // Bind the compute pipeline
+        vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          pipeline.computePipeline_);
+
+        // Bind the descriptor set
+        vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                pipeline.pipelineLayout_, 0, 1,
+                                &descriptorSets_[dispatchIndex], 0, nullptr);
+
+        // Dispatch compute work
+        const auto &tgSize = dispatch.threadgroupSize();
+        vkCmdDispatch(commandBuffer_, tgSize.tgSizeX, tgSize.tgSizeY,
+                      tgSize.tgSizeZ);
+
+        ++dispatchIndex;
       }
 
-      // Clean up descriptor set layouts (descriptor sets are freed when pool is
-      // destroyed)
-      for (auto layout : descriptorSetLayouts) {
-        vkDestroyDescriptorSetLayout(device_, layout, nullptr);
-      }
+      // Add memory barrier to ensure compute writes are visible to host reads
+      VkMemoryBarrier memoryBarrier{};
+      memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+      memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      memoryBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+
+      vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &memoryBarrier, 0,
+                           nullptr, 0, nullptr);
     }
   }
 
+  // End command buffer recording
+  VK_CHECK(vkEndCommandBuffer(commandBuffer_));
+}
+
+void VulkanCommandBuffer::submit() {
   // Submit to queue
   VkSubmitInfo submitInfo{};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = &commandBuffer_;
 
-  vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE);
-  vkQueueWaitIdle(queue_);
+  VK_CHECK(vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE));
+  VK_CHECK(vkQueueWaitIdle(queue_));
+
+  // Clean up pipelines after GPU execution completes
+  for (auto &pipeline : pipelines_) {
+    if (pipeline.computePipeline_ != VK_NULL_HANDLE) {
+      vkDestroyPipeline(device_, pipeline.computePipeline_, nullptr);
+    }
+    if (pipeline.pipelineLayout_ != VK_NULL_HANDLE) {
+      vkDestroyPipelineLayout(device_, pipeline.pipelineLayout_, nullptr);
+    }
+  }
+  pipelines_.clear();
+
+  // Clean up descriptor set layouts (descriptor sets are freed when pool is
+  // destroyed)
+  for (auto layout : descriptorSetLayouts_) {
+    vkDestroyDescriptorSetLayout(device_, layout, nullptr);
+  }
+  descriptorSetLayouts_.clear();
 }
 
 } // namespace cut

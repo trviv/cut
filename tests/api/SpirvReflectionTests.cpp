@@ -131,6 +131,14 @@ protected:
     code.push_back(spirv::DecorationBlock);
   }
 
+  // Helper to add BufferBlock decoration (SSBO in GLSL 4.30 / SPIR-V 1.0)
+  void addBufferBlockDecoration(std::vector<uint32_t> &code,
+                                uint32_t targetId) {
+    code.push_back(spirv::makeOp(3, spirv::OpDecorate));
+    code.push_back(targetId);
+    code.push_back(spirv::DecorationBufferBlock);
+  }
+
   // Helper to add OpTypeVoid
   void addTypeVoid(std::vector<uint32_t> &code, uint32_t resultId) {
     code.push_back(spirv::makeOp(2, spirv::OpTypeVoid));
@@ -554,4 +562,36 @@ TEST_F(SpirvReflectionTest, DefaultDescriptorSet) {
   ASSERT_EQ(reflection.bindings.size(), 1);
   EXPECT_EQ(reflection.bindings[0].binding, 3);
   EXPECT_EQ(reflection.bindings[0].set, 0); // Default
+}
+
+// Test: Storage buffer with BufferBlock decoration (GLSL 4.30 / SPIR-V 1.0
+// style)
+TEST_F(SpirvReflectionTest, StorageBufferWithBufferBlock) {
+  auto code = makeHeader(10);
+  addCapability(code);
+  addMemoryModel(code);
+
+  // Decorations - Note: BufferBlock goes on the struct type, not the variable
+  addBindingDecoration(code, 5, 0);
+  addDescriptorSetDecoration(code, 5, 0);
+  addBufferBlockDecoration(code, 3); // BufferBlock on struct type
+
+  // Types
+  addTypeVoid(code, 1);
+  addTypeInt(code, 2);
+  addTypeStruct(code, 3, {2}); // struct { int } with BufferBlock decoration
+  addTypePointer(code, 4, spirv::StorageClassUniform,
+                 3); // Uniform, not StorageBuffer
+
+  // Variable
+  addVariable(code, 4, 5, spirv::StorageClassUniform);
+
+  auto reflection = reflectSpirvBindings(code);
+
+  ASSERT_EQ(reflection.bindings.size(), 1);
+  EXPECT_EQ(reflection.bindings[0].binding, 0);
+  EXPECT_EQ(reflection.bindings[0].set, 0);
+  EXPECT_EQ(reflection.bindings[0].type,
+            BindingType::StorageBuffer); // Should be SSBO due to BufferBlock
+  EXPECT_EQ(reflection.bindings[0].access, BindingAccess::ReadWrite);
 }

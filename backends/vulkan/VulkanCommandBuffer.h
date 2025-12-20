@@ -1,5 +1,6 @@
 #pragma once
 
+#include "VulkanStructs.h"
 #include <ComputeStructs.h>
 #include <VulkanCommon.h>
 
@@ -64,8 +65,17 @@ private:
   VulkanShaderContainer &shaderContainer_;
   VulkanDescriptorPoolContainer &descriptorPoolContainer_;
 
-  /// Active descriptor pool handles created during submit.
+  /// Active descriptor pool handles created during end().
   std::vector<ComputeHandle> descriptorPoolHandles_;
+
+  /// Pipelines created during end(), cleaned up in submit().
+  std::vector<VulkanPipelineStruct> pipelines_;
+
+  /// Descriptor set layouts created during end(), cleaned up in submit().
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts_;
+
+  /// Descriptor sets allocated during end().
+  std::vector<VkDescriptorSet> descriptorSets_;
 };
 
 } // namespace cut
