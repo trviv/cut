@@ -99,14 +99,16 @@ struct ComputePipelineCreateData {
 };
 
 /// Creates compute pipelines for all dispatches based on shader reflection.
-/// Returns a vector of VulkanPipelineStruct containing pipeline layouts and
-/// compute pipelines.
+/// Returns a vector of VulkanPipelineStruct containing pipeline layout handles
+/// and compute pipelines.
 std::vector<VulkanPipelineStruct>
 createComputePipelines(VkDevice device,
                        const std::vector<ComputeDispatch> &dispatches,
                        const std::vector<ComputeHandle> &layoutHandles,
                        VulkanShaderContainer &shaderContainer,
-                       VulkanDescriptorSetLayoutContainer &layoutContainer) {
+                       VulkanDescriptorSetLayoutContainer &layoutContainer,
+                       VulkanPipelineLayoutContainer &pipelineLayoutContainer,
+                       std::vector<ComputeHandle> &pipelineLayoutHandles) {
   std::vector<VulkanPipelineStruct> pipelines;
   pipelines.reserve(dispatches.size());
 
@@ -156,8 +158,11 @@ createComputePipelines(VkDevice device,
       pipelineLayoutInfo.pPushConstantRanges = &createData.pushConstantRange;
     }
 
-    VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr,
-                                    &pipelineStruct.pipelineLayout_));
+    // Create pipeline layout using container
+    auto pipelineLayoutHandle =
+        pipelineLayoutContainer.createLayout(pipelineLayoutInfo);
+    pipelineStruct.pipelineLayoutHandle_ = pipelineLayoutHandle;
+    pipelineLayoutHandles.emplace_back(std::move(pipelineLayoutHandle));
 
     // Configure shader stage
     createData.shaderStageInfo.sType =
@@ -169,7 +174,8 @@ createComputePipelines(VkDevice device,
     // Configure compute pipeline create info
     createData.pipelineInfo.sType =
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    createData.pipelineInfo.layout = pipelineStruct.pipelineLayout_;
+    createData.pipelineInfo.layout =
+        pipelineLayoutContainer.getLayout(pipelineStruct.pipelineLayoutHandle_);
     createData.pipelineInfo.stage = createData.shaderStageInfo;
 
     pipelineCreateData.push_back(createData);
@@ -245,11 +251,13 @@ VulkanCommandBuffer::VulkanCommandBuffer(
     VulkanBufferContainer &bufferContainer,
     VulkanShaderContainer &shaderContainer,
     VulkanDescriptorPoolContainer &descriptorPoolContainer,
-    VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer)
+    VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
+    VulkanPipelineLayoutContainer &pipelineLayoutContainer)
     : device_(device), commandPool_(commandPool), queue_(queue),
       bufferContainer_(bufferContainer), shaderContainer_(shaderContainer),
       descriptorPoolContainer_(descriptorPoolContainer),
-      descriptorSetLayoutContainer_(descriptorSetLayoutContainer) {
+      descriptorSetLayoutContainer_(descriptorSetLayoutContainer),
+      pipelineLayoutContainer_(pipelineLayoutContainer) {
   // Allocate command buffer
   VkCommandBufferAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -313,7 +321,8 @@ void VulkanCommandBuffer::end() {
     // Create compute pipelines from descriptor set layouts
     pipelines_ = createComputePipelines(
         device_, dispatches(), descriptorSetLayoutHandles_, shaderContainer_,
-        descriptorSetLayoutContainer_);
+        descriptorSetLayoutContainer_, pipelineLayoutContainer_,
+        pipelineLayoutHandles_);
 
     // Update descriptor sets with buffer bindings from dispatches
     std::vector<VkWriteDescriptorSet> descriptorWrites;
@@ -415,8 +424,10 @@ void VulkanCommandBuffer::end() {
                         pipeline.computePipeline_);
 
       // Bind the descriptor set
+      VkPipelineLayout pipelineLayout =
+          pipelineLayoutContainer_.getLayout(pipeline.pipelineLayoutHandle_);
       vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
-                              pipeline.pipelineLayout_, 0, 1,
+                              pipelineLayout, 0, 1,
                               &descriptorSets_[dispatchIndex], 0, nullptr);
 
       // Dispatch compute work
@@ -457,11 +468,11 @@ void VulkanCommandBuffer::submit() {
     if (pipeline.computePipeline_ != VK_NULL_HANDLE) {
       vkDestroyPipeline(device_, pipeline.computePipeline_, nullptr);
     }
-    if (pipeline.pipelineLayout_ != VK_NULL_HANDLE) {
-      vkDestroyPipelineLayout(device_, pipeline.pipelineLayout_, nullptr);
-    }
   }
   pipelines_.clear();
+
+  // Clean up pipeline layout handles (the container will destroy the layouts)
+  pipelineLayoutHandles_.clear();
 
   // Clean up descriptor set layout handles (the container will destroy the
   // layouts, descriptor sets are freed when pool is destroyed)

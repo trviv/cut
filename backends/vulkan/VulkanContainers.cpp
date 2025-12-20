@@ -9,10 +9,12 @@ VulkanCommandBufferContainer::VulkanCommandBufferContainer(
     VulkanBufferContainer &bufferContainer,
     VulkanShaderContainer &shaderContainer,
     VulkanDescriptorPoolContainer &descriptorPoolContainer,
-    VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer)
+    VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
+    VulkanPipelineLayoutContainer &pipelineLayoutContainer)
     : bufferContainer_(bufferContainer), shaderContainer_(shaderContainer),
       descriptorPoolContainer_(descriptorPoolContainer),
-      descriptorSetLayoutContainer_(descriptorSetLayoutContainer) {
+      descriptorSetLayoutContainer_(descriptorSetLayoutContainer),
+      pipelineLayoutContainer_(pipelineLayoutContainer) {
   setDevice(device);
   vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue_);
 

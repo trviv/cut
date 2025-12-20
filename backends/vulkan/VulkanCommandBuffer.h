@@ -12,6 +12,7 @@ class VulkanBufferContainer;
 class VulkanShaderContainer;
 class VulkanDescriptorPoolContainer;
 class VulkanDescriptorSetLayoutContainer;
+class VulkanPipelineLayoutContainer;
 
 /**
  * Vulkan implementation of CommandBuffer.
@@ -31,6 +32,8 @@ public:
    * creating descriptor pools.
    * @param descriptorSetLayoutContainer Reference to descriptor set layout
    * container for creating descriptor set layouts.
+   * @param pipelineLayoutContainer Reference to pipeline layout container for
+   * creating pipeline layouts.
    */
   VulkanCommandBuffer(
       VkDevice device,
@@ -39,7 +42,8 @@ public:
       VulkanBufferContainer &bufferContainer,
       VulkanShaderContainer &shaderContainer,
       VulkanDescriptorPoolContainer &descriptorPoolContainer,
-      VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer);
+      VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
+      VulkanPipelineLayoutContainer &pipelineLayoutContainer);
 
   ~VulkanCommandBuffer() override = default;
 
@@ -70,6 +74,7 @@ private:
   VulkanShaderContainer &shaderContainer_;
   VulkanDescriptorPoolContainer &descriptorPoolContainer_;
   VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer_;
+  VulkanPipelineLayoutContainer &pipelineLayoutContainer_;
 
   /// Active descriptor pool handles created during end().
   std::vector<ComputeHandle> descriptorPoolHandles_;
@@ -80,6 +85,9 @@ private:
   /// Descriptor set layout handles created during end(), cleaned up in
   /// submit().
   std::vector<ComputeHandle> descriptorSetLayoutHandles_;
+
+  /// Pipeline layout handles created during end(), cleaned up in submit().
+  std::vector<ComputeHandle> pipelineLayoutHandles_;
 
   /// Descriptor sets allocated during end().
   std::vector<VkDescriptorSet> descriptorSets_;

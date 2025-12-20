@@ -88,7 +88,7 @@ struct VulkanPipelineLayoutStruct {
 
 /// Contains the pipeline layout and compute pipeline for shader execution.
 struct VulkanPipelineStruct {
-  VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
+  ComputeHandle pipelineLayoutHandle_;
   VkPipeline computePipeline_ = VK_NULL_HANDLE;
 };
 

@@ -69,7 +69,7 @@ TEST(VulkanDescriptorStruct, DefaultInitialization) {
 
 TEST(VulkanPipelineStruct, DefaultInitialization) {
   VulkanPipelineStruct pipeline;
-  EXPECT_EQ(pipeline.pipelineLayout_, VK_NULL_HANDLE);
+  EXPECT_FALSE(pipeline.pipelineLayoutHandle_);
   EXPECT_EQ(pipeline.computePipeline_, VK_NULL_HANDLE);
 }
 
