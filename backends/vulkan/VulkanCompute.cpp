@@ -281,8 +281,8 @@ VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
 
   VkShaderModuleCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  createInfo.codeSize = spirvCode.size();
-  createInfo.pCode = reinterpret_cast<const uint32_t *>(spirvCode.data());
+  createInfo.codeSize = spirvCode.size() * sizeof(uint32_t);
+  createInfo.pCode = spirvCode.data();
 
   VK_CHECK(vkCreateShaderModule(device_, &createInfo, nullptr,
                                 &shaderStruct.shader));
