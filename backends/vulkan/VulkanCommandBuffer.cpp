@@ -1,6 +1,7 @@
 #include <ComputeCommon.h>
 #include <VulkanCommandBuffer.h>
 #include <VulkanContainers.h>
+#include "VulkanStructs.h"
 
 #include <optional>
 #include <unordered_map>
@@ -51,6 +52,106 @@ createDescriptorSetLayoutBindings(const std::vector<BindingInfo> &bindings) {
   return layoutBindings;
 }
 
+/// Holds all Vulkan structures needed to create a compute pipeline.
+struct ComputePipelineCreateData {
+  VkComputePipelineCreateInfo pipelineInfo{};
+  VkPipelineShaderStageCreateInfo shaderStageInfo{};
+  VkPushConstantRange pushConstantRange{};
+};
+
+/// Creates compute pipelines for all dispatches based on shader reflection.
+/// Returns a vector of VulkanPipelineStruct containing pipeline layouts and
+/// compute pipelines.
+std::vector<VulkanPipelineStruct>
+createComputePipelines(VkDevice device,
+                       const std::vector<ComputeDispatch> &dispatches,
+                       const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts,
+                       VulkanShaderContainer &shaderContainer) {
+  std::vector<VulkanPipelineStruct> pipelines;
+  pipelines.reserve(dispatches.size());
+
+  // Accumulate pipeline create data for batch creation
+  std::vector<ComputePipelineCreateData> pipelineCreateData;
+  pipelineCreateData.reserve(dispatches.size());
+
+  size_t layoutIndex = 0;
+  for (const auto &dispatch : dispatches) {
+    const auto &shaderHandle = dispatch.shader();
+    if (!shaderHandle) {
+      continue;
+    }
+
+    const auto *shaderStruct = shaderContainer.getShader(shaderHandle);
+    if (!shaderStruct) {
+      continue;
+    }
+
+    VulkanPipelineStruct pipelineStruct{};
+    ComputePipelineCreateData createData{};
+
+    // Create pipeline layout
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+    // Use descriptor set layout if available for this dispatch
+    if (layoutIndex < descriptorSetLayouts.size()) {
+      pipelineLayoutInfo.setLayoutCount = 1;
+      pipelineLayoutInfo.pSetLayouts = &descriptorSetLayouts[layoutIndex];
+    }
+
+    // Add push constant range if the shader uses push constants
+    if (shaderStruct->reflection.pushConstantSize > 0) {
+      createData.pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+      createData.pushConstantRange.offset = 0;
+      createData.pushConstantRange.size = shaderStruct->reflection.pushConstantSize;
+      pipelineLayoutInfo.pushConstantRangeCount = 1;
+      pipelineLayoutInfo.pPushConstantRanges = &createData.pushConstantRange;
+    }
+
+    VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr,
+                                    &pipelineStruct.pipelineLayout_));
+
+    // Configure shader stage
+    createData.shaderStageInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    createData.shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    createData.shaderStageInfo.module = shaderStruct->shader;
+    createData.shaderStageInfo.pName = "main";
+
+    // Configure compute pipeline create info
+    createData.pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    createData.pipelineInfo.layout = pipelineStruct.pipelineLayout_;
+    createData.pipelineInfo.stage = createData.shaderStageInfo;
+
+    pipelineCreateData.push_back(createData);
+    pipelines.push_back(pipelineStruct);
+    ++layoutIndex;
+  }
+
+  // Create all compute pipelines in a single call
+  if (!pipelineCreateData.empty()) {
+    // Extract pipeline create infos for the batch call
+    std::vector<VkComputePipelineCreateInfo> pipelineCreateInfos;
+    pipelineCreateInfos.reserve(pipelineCreateData.size());
+    for (const auto &data : pipelineCreateData) {
+      pipelineCreateInfos.push_back(data.pipelineInfo);
+    }
+
+    std::vector<VkPipeline> vkPipelines(pipelineCreateInfos.size());
+    VK_CHECK(vkCreateComputePipelines(device, VK_NULL_HANDLE,
+                                      static_cast<uint32_t>(pipelineCreateInfos.size()),
+                                      pipelineCreateInfos.data(), nullptr,
+                                      vkPipelines.data()));
+
+    // Store the created pipelines in the result structs
+    for (size_t i = 0; i < vkPipelines.size(); ++i) {
+      pipelines[i].computePipeline_ = vkPipelines[i];
+    }
+  }
+
+  return pipelines;
+}
+
 /// Creates descriptor set layouts for all dispatches based on shader
 /// reflection.
 std::vector<VkDescriptorSetLayout>
@@ -75,15 +176,11 @@ createDescriptorSetLayouts(VkDevice device,
     auto layoutBindings =
         createDescriptorSetLayoutBindings(shaderStruct->reflection.bindings);
 
-    if (layoutBindings.empty()) {
-      continue;
-    }
-
-    // Create descriptor set layout
+    // Create descriptor set layout (can be empty if no bindings)
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = static_cast<uint32_t>(layoutBindings.size());
-    layoutInfo.pBindings = layoutBindings.data();
+    layoutInfo.pBindings = layoutBindings.empty() ? nullptr : layoutBindings.data();
 
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
@@ -168,9 +265,10 @@ void VulkanCommandBuffer::submit() {
 
   // Create descriptor pool if there are any descriptors to allocate
   if (!poolSizes.empty()) {
-    uint32_t maxSets = static_cast<uint32_t>(dispatches().size());
+    const uint32_t maxSets = static_cast<uint32_t>(dispatches().size());
     auto poolHandle = descriptorPoolContainer_.createPool(poolSizes, maxSets);
     descriptorPoolHandles_.push_back(poolHandle);
+
     VkDescriptorPool descriptorPool =
         descriptorPoolContainer_.getPool(poolHandle);
 
@@ -192,8 +290,22 @@ void VulkanCommandBuffer::submit() {
       VK_CHECK(
           vkAllocateDescriptorSets(device_, &allocInfo, descriptorSets.data()));
 
+      // Create compute pipelines from descriptor set layouts
+      auto pipelines = createComputePipelines(device_, dispatches(),
+                                              descriptorSetLayouts, shaderContainer_);
+
       // TODO: Update descriptor sets with actual buffer bindings
       // TODO: Bind descriptor sets and dispatch compute shaders
+
+      // Clean up pipelines
+      for (auto &pipeline : pipelines) {
+        if (pipeline.computePipeline_ != VK_NULL_HANDLE) {
+          vkDestroyPipeline(device_, pipeline.computePipeline_, nullptr);
+        }
+        if (pipeline.pipelineLayout_ != VK_NULL_HANDLE) {
+          vkDestroyPipelineLayout(device_, pipeline.pipelineLayout_, nullptr);
+        }
+      }
 
       // Clean up descriptor set layouts (descriptor sets are freed when pool is
       // destroyed)
