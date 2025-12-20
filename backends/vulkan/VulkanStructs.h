@@ -81,6 +81,11 @@ struct VulkanDescriptorSetLayoutStruct {
   VkDescriptorSetLayout layout = VK_NULL_HANDLE;
 };
 
+/// Wrapper for a Vulkan pipeline layout.
+struct VulkanPipelineLayoutStruct {
+  VkPipelineLayout layout = VK_NULL_HANDLE;
+};
+
 /// Contains the pipeline layout and compute pipeline for shader execution.
 struct VulkanPipelineStruct {
   VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;

@@ -184,4 +184,36 @@ private:
   void destroy(const ComputeHandle &handle) override;
 };
 
+/// Container managing pipeline layout allocations and their lifecycle.
+class VulkanPipelineLayoutContainer final
+    : public ComputeDataContainer<VulkanPipelineLayoutStruct>,
+      public VulkanContainerBase {
+public:
+  /// Constructs a pipeline layout container with a unique type identifier.
+  VulkanPipelineLayoutContainer()
+      : ComputeDataContainer<VulkanPipelineLayoutStruct>(105) {}
+
+  /**
+   * Creates a pipeline layout from the given create info.
+   * @param createInfo The Vulkan pipeline layout create info.
+   * @return Handle to the created pipeline layout.
+   */
+  ComputeHandle createLayout(const VkPipelineLayoutCreateInfo &createInfo);
+
+  /// Returns the pipeline layout for the given handle.
+  VkPipelineLayout getLayout(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle).layout;
+  }
+
+  /// Returns the pipeline layout struct for the given handle.
+  const VulkanPipelineLayoutStruct &
+  getLayoutStruct(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle);
+  }
+
+private:
+  /// Destroys a pipeline layout and releases its Vulkan resources.
+  void destroy(const ComputeHandle &handle) override;
+};
+
 } // namespace cut

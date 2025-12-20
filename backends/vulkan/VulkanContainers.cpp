@@ -108,4 +108,19 @@ void VulkanDescriptorSetLayoutContainer::destroy(const ComputeHandle &handle) {
   }
 }
 
+ComputeHandle VulkanPipelineLayoutContainer::createLayout(
+    const VkPipelineLayoutCreateInfo &createInfo) {
+  VulkanPipelineLayoutStruct layoutStruct{};
+  VK_CHECK(vkCreatePipelineLayout(getDevice(), &createInfo, nullptr,
+                                  &layoutStruct.layout));
+  return ComputeDataContainer::create(std::move(layoutStruct));
+}
+
+void VulkanPipelineLayoutContainer::destroy(const ComputeHandle &handle) {
+  auto &layoutStruct = get(handle);
+  if (layoutStruct.layout != VK_NULL_HANDLE) {
+    vkDestroyPipelineLayout(getDevice(), layoutStruct.layout, nullptr);
+  }
+}
+
 } // namespace cut

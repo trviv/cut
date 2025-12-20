@@ -294,7 +294,7 @@ void VulkanCommandBuffer::end() {
     std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
     descriptorSetLayouts.reserve(descriptorSetLayoutHandles_.size());
     for (const auto &handle : descriptorSetLayoutHandles_) {
-      descriptorSetLayouts.push_back(
+      descriptorSetLayouts.emplace_back(
           descriptorSetLayoutContainer_.getLayout(handle));
     }
 
