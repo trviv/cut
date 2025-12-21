@@ -115,32 +115,27 @@ private:
 /// Container managing shader module allocations and their lifecycle.
 class VulkanShaderContainer final
     : public VulkanContainerBase,
-      public ComputeDataContainer<VulkanShaderStruct *> {
+      public ComputeDataContainer<VulkanShaderStruct> {
 public:
   /// Constructs a shader container.
   VulkanShaderContainer() = default;
 
   ComputeHandle createShader(VulkanShaderStruct &&structData) {
-    return ComputeDataContainer::create(
-        new VulkanShaderStruct(std::move(structData)));
+    return ComputeDataContainer::create(std::move(structData));
   }
 
   /// Returns the shader struct for the given handle.
-  VulkanShaderStruct *getShader(const ComputeHandle &handle) const {
-    return ComputeDataContainer::get(handle);
+  const VulkanShaderStruct *getShader(const ComputeHandle &handle) const {
+    return &ComputeDataContainer::get(handle);
   }
 
   /// Returns the shader reflection for the given handle, or nullopt if invalid.
-  const ShaderReflection *getReflection(const ComputeHandle &handle) const {
+  ShaderReflection getReflection(const ComputeHandle &handle) const {
     if (!handle) {
-      return nullptr;
+      return {};
     }
 
-    const auto *shaderStruct = ComputeDataContainer::get(handle);
-    if (!shaderStruct) {
-      return nullptr;
-    }
-    return &shaderStruct->reflection;
+    return ComputeDataContainer::get(handle).reflection;
   }
 
 private:

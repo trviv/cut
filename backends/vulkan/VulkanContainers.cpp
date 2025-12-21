@@ -62,13 +62,8 @@ void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
 }
 
 void VulkanShaderContainer::destroyAPIObject(const ComputeHandle &handle) {
-  auto *shaderData = get(handle);
-  if (shaderData == nullptr) {
-    // Skip null handle
-    return;
-  }
-
-  vkDestroyShaderModule(getDevice(), shaderData->shader, nullptr);
+  const auto &shaderData = get(handle);
+  vkDestroyShaderModule(getDevice(), shaderData.shader, nullptr);
 }
 
 ComputeHandle VulkanDescriptorContainer::createDescriptorSets(

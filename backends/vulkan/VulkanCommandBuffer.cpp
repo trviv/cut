@@ -73,14 +73,11 @@ prepareDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
   std::unordered_map<VkDescriptorType, uint32_t> descriptorTypeCounts;
 
   for (const auto &dispatch : dispatches) {
-    const auto *reflection = shaderContainer.getReflection(dispatch.shader());
-    if (!reflection) {
-      continue;
-    }
+    const auto &reflection = shaderContainer.getReflection(dispatch.shader());
 
     // Create descriptor set layout bindings and accumulate type counts
     const auto layoutBindings = createDescriptorSetLayoutBindings(
-        reflection->bindings, descriptorTypeCounts);
+        reflection.bindings, descriptorTypeCounts);
 
     // Create descriptor set layout (can be empty if no bindings)
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
@@ -144,6 +141,8 @@ createComputePipelines(VkDevice device,
       continue;
     }
 
+    const auto &reflection = shaderContainer.getReflection(shaderHandle);
+
     VulkanPipelineStruct pipelineStruct{};
     ComputePipelineCreateData createData{};
 
@@ -162,12 +161,12 @@ createComputePipelines(VkDevice device,
     }
 
     // Add push constant range if the shader uses push constants
-    if (shaderStruct->reflection.pushConstantSize > 0) {
+    if (reflection.pushConstantSize > 0) {
       pipelineLayoutCreateInfo.pushConstantRange.stageFlags =
           VK_SHADER_STAGE_COMPUTE_BIT;
       pipelineLayoutCreateInfo.pushConstantRange.offset = 0;
       pipelineLayoutCreateInfo.pushConstantRange.size =
-          shaderStruct->reflection.pushConstantSize;
+          reflection.pushConstantSize;
       pipelineLayoutCreateInfo.createInfo.pushConstantRangeCount = 1;
       pipelineLayoutCreateInfo.createInfo.pPushConstantRanges =
           &pipelineLayoutCreateInfo.pushConstantRange;
@@ -292,11 +291,8 @@ void VulkanCommandBuffer::end() {
 
     size_t dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
-      const auto *reflection =
+      const auto &reflection =
           shaderContainer_.getReflection(dispatch.shader());
-      if (!reflection) {
-        continue;
-      }
 
       // Process each binding in the dispatch
       for (const auto &binding : dispatch.bindings()) {
@@ -307,7 +303,7 @@ void VulkanCommandBuffer::end() {
 
         // Find the corresponding binding info from shader reflection
         const BindingInfo *bindingInfo = nullptr;
-        for (const auto &info : reflection->bindings) {
+        for (const auto &info : reflection.bindings) {
           if (info.binding == binding.index()) {
             bindingInfo = &info;
             break;
