@@ -47,7 +47,7 @@ createDescriptorSetLayoutBindings(const std::vector<BindingInfo> &bindings) {
     layoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     layoutBinding.pImmutableSamplers = nullptr;
 
-    layoutBindings.push_back(layoutBinding);
+    layoutBindings.emplace_back(layoutBinding);
   }
 
   return layoutBindings;
@@ -84,8 +84,7 @@ std::vector<ComputeHandle> createDescriptorSetLayouts(
     layoutInfo.pBindings =
         layoutBindings.empty() ? nullptr : layoutBindings.data();
 
-    auto layoutHandle = layoutContainer.createLayout(layoutInfo);
-    layoutHandles.emplace_back(std::move(layoutHandle));
+    layoutHandles.emplace_back(layoutContainer.createLayout(layoutInfo));
   }
 
   return layoutHandles;
@@ -180,8 +179,8 @@ createComputePipelines(VkDevice device,
         pipelineLayoutContainer.getLayout(pipelineStruct.pipelineLayoutHandle_);
     createData.pipelineInfo.stage = createData.shaderStageInfo;
 
-    pipelineCreateData.push_back(createData);
-    pipelines.push_back(pipelineStruct);
+    pipelineCreateData.emplace_back(createData);
+    pipelines.emplace_back(pipelineStruct);
     ++layoutIndex;
   }
 
@@ -379,7 +378,7 @@ void VulkanCommandBuffer::end() {
         bufferInfo.buffer = bufferStruct.buffer;
         bufferInfo.offset = 0;
         bufferInfo.range = bufferStruct.size;
-        bufferInfos.push_back(bufferInfo);
+        bufferInfos.emplace_back(bufferInfo);
 
         VkWriteDescriptorSet descriptorWrite{};
         descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -390,7 +389,7 @@ void VulkanCommandBuffer::end() {
         descriptorWrite.descriptorCount = 1;
         descriptorWrite.pBufferInfo = &bufferInfos.back();
 
-        descriptorWrites.push_back(descriptorWrite);
+        descriptorWrites.emplace_back(descriptorWrite);
       }
 
       ++dispatchIndex;
