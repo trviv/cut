@@ -2,6 +2,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
+#include <string_view>
+#include <type_traits>
 
 namespace cut {
 
@@ -48,6 +51,17 @@ public:
   /** Releases the reference to the current object, making the handle invalid.
    */
   void reset();
+
+  /**
+   * Retrieves a const reference to the stored data, validating the type at
+   * runtime.
+   * @tparam T The expected data type. Must have a static Name member matching
+   *           the container's name.
+   * @return Const reference to the stored data.
+   * @throws std::runtime_error if the handle is invalid or type mismatch.
+   */
+  template <typename T>
+  const T &get() const;
 
 private:
   friend class ComputeContainer;

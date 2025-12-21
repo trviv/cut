@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -27,6 +28,11 @@ public:
    * Returns the number of active (in-use) objects in the container.
    */
   size_t size() const { return slotCount() - freeSlotCount(); }
+
+  /**
+   * Returns the name identifier for the container type.
+   */
+  std::string_view name() const { return name_; }
 
 protected:
   /**
@@ -121,6 +127,8 @@ class ComputeDataContainer : public ComputeContainer {
                    std::string_view>::value,
       "DataType (or pointed-to type) must have a static Name member of type "
       "std::string_view");
+
+  friend class ComputeHandle;
 
 public:
   /**
@@ -229,5 +237,22 @@ private:
 
   std::vector<DataType> objects_;
 };
+
+// Template implementation for ComputeHandle::get<T>()
+template <typename T>
+const T &ComputeHandle::get() const {
+  if (!*this) {
+    throw std::runtime_error("Trying to get data for an empty handle");
+  }
+  if (container_->name() != T::Name) {
+    throw std::runtime_error("Type mismatch: handle container name '" +
+                             std::string(container_->name()) +
+                             "' does not match requested type '" +
+                             std::string(T::Name) + "'");
+  }
+  auto *dataContainer =
+      static_cast<const ComputeDataContainer<T> *>(container_);
+  return dataContainer->get(*this);
+}
 
 } // namespace cut

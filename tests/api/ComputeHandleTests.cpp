@@ -17,6 +17,12 @@ struct TestValue {
   operator uint32_t() const { return value; }
 };
 
+/// Struct for testing type mismatch detection in handle.get<T>().
+struct WrongType {
+  static constexpr std::string_view Name = "WrongType";
+  int data = 0;
+};
+
 /// Mock container for testing ComputeHandle behavior with non-pointer types.
 class TestContainer : public ComputeDataContainer<TestValue> {
 public:
@@ -383,4 +389,37 @@ TEST(CrossContainerTest, HandleFromDifferentContainerThrows) {
 
   // Trying to get value from wrong container should throw
   EXPECT_THROW(container2.getValue(handle), std::runtime_error);
+}
+
+// Handle::get<T>() template tests
+
+TEST(HandleGetTemplateTest, GetReturnsCorrectValue) {
+  TestContainer container;
+  auto handle = container.createTestHandle(42);
+
+  // Use the template get<T>() function
+  const auto &value = handle.get<TestValue>();
+  EXPECT_EQ(value.value, 42);
+}
+
+TEST(HandleGetTemplateTest, GetOnEmptyHandleThrows) {
+  ComputeHandle empty;
+  EXPECT_THROW(empty.get<TestValue>(), std::runtime_error);
+}
+
+TEST(HandleGetTemplateTest, GetWithWrongTypeThrows) {
+  TestContainer container;
+  auto handle = container.createTestHandle(42);
+
+  // Trying to get with wrong type should throw
+  EXPECT_THROW(handle.get<WrongType>(), std::runtime_error);
+}
+
+TEST(HandleGetTemplateTest, ConstHandleGetReturnsConstRef) {
+  TestContainer container;
+  const auto handle = container.createTestHandle(42);
+
+  // Const handle should return const reference
+  const auto &value = handle.get<TestValue>();
+  EXPECT_EQ(value.value, 42);
 }
