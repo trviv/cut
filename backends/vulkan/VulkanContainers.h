@@ -125,8 +125,8 @@ public:
   }
 
   /// Returns the shader struct for the given handle.
-  const VulkanShaderStruct *getShader(const ComputeHandle &handle) const {
-    return &ComputeDataContainer::get(handle);
+  VkShaderModule getShader(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle).shader;
   }
 
   /// Returns the shader reflection for the given handle, or nullopt if invalid.

@@ -136,11 +136,6 @@ createComputePipelines(VkDevice device,
       continue;
     }
 
-    const auto *shaderStruct = shaderContainer.getShader(shaderHandle);
-    if (!shaderStruct) {
-      continue;
-    }
-
     const auto &reflection = shaderContainer.getReflection(shaderHandle);
 
     VulkanPipelineStruct pipelineStruct{};
@@ -182,7 +177,7 @@ createComputePipelines(VkDevice device,
     createData.shaderStageInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     createData.shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    createData.shaderStageInfo.module = shaderStruct->shader;
+    createData.shaderStageInfo.module = shaderContainer.getShader(shaderHandle);
     createData.shaderStageInfo.pName = "main";
 
     // Configure compute pipeline create info
