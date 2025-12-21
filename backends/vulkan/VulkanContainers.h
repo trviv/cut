@@ -5,6 +5,7 @@
 #include <VulkanStructs.h>
 
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -127,6 +128,19 @@ public:
   /// Returns the shader struct for the given handle.
   VulkanShaderStruct *getShader(const ComputeHandle &handle) const {
     return ComputeDataContainer::get(handle);
+  }
+
+  /// Returns the shader reflection for the given handle, or nullopt if invalid.
+  const ShaderReflection *getReflection(const ComputeHandle &handle) const {
+    if (!handle) {
+      return nullptr;
+    }
+
+    const auto *shaderStruct = ComputeDataContainer::get(handle);
+    if (!shaderStruct) {
+      return nullptr;
+    }
+    return &shaderStruct->reflection;
   }
 
 private:

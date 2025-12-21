@@ -63,19 +63,14 @@ std::vector<ComputeHandle> createDescriptorSetLayouts(
   layoutHandles.reserve(dispatches.size());
 
   for (const auto &dispatch : dispatches) {
-    const auto &shaderHandle = dispatch.shader();
-    if (!shaderHandle) {
-      continue;
-    }
-
-    const auto *shaderStruct = shaderContainer.getShader(shaderHandle);
-    if (!shaderStruct) {
+    const auto *reflection = shaderContainer.getReflection(dispatch.shader());
+    if (!reflection) {
       continue;
     }
 
     // Create descriptor set layout bindings from shader reflection
     const auto layoutBindings =
-        createDescriptorSetLayoutBindings(shaderStruct->reflection.bindings);
+        createDescriptorSetLayoutBindings(reflection->bindings);
 
     // Create descriptor set layout (can be empty if no bindings)
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
@@ -215,17 +210,12 @@ calculateDescriptorPoolSizes(const std::vector<ComputeDispatch> &dispatches,
   std::unordered_map<VkDescriptorType, uint32_t> descriptorTypeCounts;
 
   for (const auto &dispatch : dispatches) {
-    const auto &shaderHandle = dispatch.shader();
-    if (!shaderHandle) {
+    const auto *reflection = shaderContainer.getReflection(dispatch.shader());
+    if (!reflection) {
       continue;
     }
 
-    const auto *shaderStruct = shaderContainer.getShader(shaderHandle);
-    if (!shaderStruct) {
-      continue;
-    }
-
-    for (const auto &binding : shaderStruct->reflection.bindings) {
+    for (const auto &binding : reflection->bindings) {
       auto descriptorType = toVkDescriptorType(binding.type);
       if (descriptorType) {
         descriptorTypeCounts[*descriptorType]++;
@@ -335,13 +325,9 @@ void VulkanCommandBuffer::end() {
 
     size_t dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
-      const auto &shaderHandle = dispatch.shader();
-      if (!shaderHandle) {
-        continue;
-      }
-
-      const auto *shaderStruct = shaderContainer_.getShader(shaderHandle);
-      if (!shaderStruct) {
+      const auto *reflection =
+          shaderContainer_.getReflection(dispatch.shader());
+      if (!reflection) {
         continue;
       }
 
@@ -354,7 +340,7 @@ void VulkanCommandBuffer::end() {
 
         // Find the corresponding binding info from shader reflection
         const BindingInfo *bindingInfo = nullptr;
-        for (const auto &info : shaderStruct->reflection.bindings) {
+        for (const auto &info : reflection->bindings) {
           if (info.binding == binding.index()) {
             bindingInfo = &info;
             break;
