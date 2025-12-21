@@ -103,6 +103,27 @@ ComputeHandle VulkanDescriptorSetLayoutContainer::createLayout(
   return ComputeDataContainer::create(std::move(layoutStruct));
 }
 
+std::vector<ComputeHandle> VulkanDescriptorSetLayoutContainer::createLayouts(
+    const VkDescriptorSetLayoutCreateInfo *createInfos, size_t count) {
+  std::vector<ComputeHandle> handles;
+  handles.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    handles.emplace_back(createLayout(createInfos[i]));
+  }
+  return handles;
+}
+
+std::vector<VkDescriptorSetLayout>
+VulkanDescriptorSetLayoutContainer::getLayouts(
+    const std::vector<ComputeHandle> &handles) const {
+  std::vector<VkDescriptorSetLayout> layouts;
+  layouts.reserve(handles.size());
+  for (const auto &handle : handles) {
+    layouts.emplace_back(getLayout(handle));
+  }
+  return layouts;
+}
+
 void VulkanDescriptorSetLayoutContainer::destroy(const ComputeHandle &handle) {
   auto &layoutStruct = get(handle);
   if (layoutStruct.layout != VK_NULL_HANDLE) {

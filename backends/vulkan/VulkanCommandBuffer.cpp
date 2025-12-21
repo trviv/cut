@@ -117,11 +117,7 @@ createComputePipelines(VkDevice device,
   pipelineCreateData.reserve(dispatches.size());
 
   // Pre-fetch VkDescriptorSetLayout values for pipeline creation
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
-  descriptorSetLayouts.reserve(layoutHandles.size());
-  for (const auto &handle : layoutHandles) {
-    descriptorSetLayouts.push_back(layoutContainer.getLayout(handle));
-  }
+  const auto descriptorSetLayouts = layoutContainer.getLayouts(layoutHandles);
 
   size_t layoutIndex = 0;
   for (const auto &dispatch : dispatches) {
@@ -305,12 +301,8 @@ void VulkanCommandBuffer::end() {
   // Allocate all descriptor sets in a single call
   if (!descriptorSetLayoutHandles_.empty()) {
     // Get VkDescriptorSetLayout values for allocation
-    std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
-    descriptorSetLayouts.reserve(descriptorSetLayoutHandles_.size());
-    for (const auto &handle : descriptorSetLayoutHandles_) {
-      descriptorSetLayouts.emplace_back(
-          descriptorSetLayoutContainer_.getLayout(handle));
-    }
+    const auto descriptorSetLayouts =
+        descriptorSetLayoutContainer_.getLayouts(descriptorSetLayoutHandles_);
 
     descriptorSets_.resize(descriptorSetLayouts.size());
 

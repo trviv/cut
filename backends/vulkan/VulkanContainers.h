@@ -174,10 +174,28 @@ public:
    */
   ComputeHandle createLayout(const VkDescriptorSetLayoutCreateInfo &createInfo);
 
+  /**
+   * Creates multiple descriptor set layouts from an array of create infos.
+   * @param createInfos Array of Vulkan descriptor set layout create infos.
+   * @param count Number of create infos in the array.
+   * @return Vector of handles to the created descriptor set layouts.
+   */
+  std::vector<ComputeHandle>
+  createLayouts(const VkDescriptorSetLayoutCreateInfo *createInfos,
+                size_t count);
+
   /// Returns the descriptor set layout for the given handle.
   VkDescriptorSetLayout getLayout(const ComputeHandle &handle) const {
     return ComputeDataContainer::get(handle).layout;
   }
+
+  /**
+   * Returns multiple descriptor set layouts for the given handles.
+   * @param handles Vector of handles to descriptor set layouts.
+   * @return Vector of Vulkan descriptor set layouts.
+   */
+  std::vector<VkDescriptorSetLayout>
+  getLayouts(const std::vector<ComputeHandle> &handles) const;
 
   /// Returns the descriptor set layout struct for the given handle.
   const VulkanDescriptorSetLayoutStruct &
