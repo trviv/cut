@@ -77,14 +77,10 @@ private:
   VulkanPipelineLayoutContainer &pipelineLayoutContainer_;
 
   /// Active descriptor pool handle created during end().
-  ComputeHandle descriptorPoolHandle_;
+  ComputeHandle descriptorsHandle_;
 
   /// Pipelines created during end(), cleaned up in submit().
   std::vector<VulkanPipelineStruct> pipelines_;
-
-  /// Descriptor set layout handles created during end(), cleaned up in
-  /// submit().
-  // std::vector<ComputeHandle> descriptorSetLayoutHandles_;
 
   /// Pipeline layout handles created during end(), cleaned up in submit().
   std::vector<ComputeHandle> pipelineLayoutHandles_;

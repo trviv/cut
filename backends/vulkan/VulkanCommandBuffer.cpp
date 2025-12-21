@@ -265,11 +265,12 @@ void VulkanCommandBuffer::end() {
     const auto descriptorSetLayouts =
         descriptorSetLayoutContainer_.getLayouts(descriptorSetLayoutHandles);
 
-    descriptorPoolHandle_ = descriptorContainer_.createDescriptorSets(
+    descriptorsHandle_ = descriptorContainer_.createDescriptorSets(
         preparation.poolSizes, descriptorSetLayoutHandles,
         descriptorSetLayouts);
+
     const auto &descriptorSets =
-        descriptorContainer_.getDescriptorSets(descriptorPoolHandle_);
+        descriptorContainer_.getDescriptorSets(descriptorsHandle_);
 
     // Create compute pipelines from descriptor set layouts
     pipelines_ = createComputePipelines(
@@ -430,7 +431,7 @@ void VulkanCommandBuffer::submit() {
   //  descriptorSetLayoutHandles.clear();
 
   // Clean up descriptor pool handle
-  descriptorPoolHandle_ = ComputeHandle();
+  descriptorsHandle_ = ComputeHandle();
 }
 
 } // namespace cut

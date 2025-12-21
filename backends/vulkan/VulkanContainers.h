@@ -178,11 +178,6 @@ public:
     return ComputeDataContainer::get(handle).descriptorSets;
   }
 
-  /// Returns the descriptor pool for the given handle.
-  VkDescriptorPool getPool(const ComputeHandle &handle) const {
-    return ComputeDataContainer::get(handle).pool;
-  }
-
 private:
   /// Destroys a descriptor pool and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
