@@ -228,12 +228,12 @@ VulkanCommandBuffer::VulkanCommandBuffer(
     VkQueue queue,
     VulkanBufferContainer &bufferContainer,
     VulkanShaderContainer &shaderContainer,
-    VulkanDescriptorPoolContainer &descriptorPoolContainer,
+    VulkanDescriptorContainer &descriptorContainer,
     VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
     VulkanPipelineLayoutContainer &pipelineLayoutContainer)
     : device_(device), commandPool_(commandPool), queue_(queue),
       bufferContainer_(bufferContainer), shaderContainer_(shaderContainer),
-      descriptorPoolContainer_(descriptorPoolContainer),
+      descriptorContainer_(descriptorContainer),
       descriptorSetLayoutContainer_(descriptorSetLayoutContainer),
       pipelineLayoutContainer_(pipelineLayoutContainer) {
   // Allocate command buffer
@@ -255,46 +255,25 @@ void VulkanCommandBuffer::begin() {
 }
 
 void VulkanCommandBuffer::end() {
-  VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+  // Prepare descriptor sets: create layouts and calculate pool sizes
+  auto preparation = prepareDescriptorSets(dispatches(), shaderContainer_,
+                                           descriptorSetLayoutContainer_);
+  auto descriptorSetLayoutHandles = std::move(preparation.layoutHandles);
 
-  {
-    // Prepare descriptor sets: create layouts and calculate pool sizes
-    auto preparation = prepareDescriptorSets(dispatches(), shaderContainer_,
-                                             descriptorSetLayoutContainer_);
-    descriptorSetLayoutHandles_ = std::move(preparation.layoutHandles);
-
-    // Create descriptor pool if there are any descriptors to allocate
-    if (!preparation.poolSizes.empty()) {
-      const uint32_t maxSets = static_cast<uint32_t>(dispatches().size());
-      auto poolHandle =
-          descriptorPoolContainer_.createPool(preparation.poolSizes, maxSets);
-
-      descriptorPool = descriptorPoolContainer_.getPool(poolHandle);
-      descriptorPoolHandles_.emplace_back(std::move(poolHandle));
-    }
-  }
-
-  // Allocate all descriptor sets in a single call
-  if (!descriptorSetLayoutHandles_.empty()) {
-    // Get VkDescriptorSetLayout values for allocation
+  // Create descriptor pool and allocate descriptor sets
+  if (!preparation.poolSizes.empty() && !descriptorSetLayoutHandles.empty()) {
     const auto descriptorSetLayouts =
-        descriptorSetLayoutContainer_.getLayouts(descriptorSetLayoutHandles_);
+        descriptorSetLayoutContainer_.getLayouts(descriptorSetLayoutHandles);
 
-    descriptorSets_.resize(descriptorSetLayouts.size());
-
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = descriptorPool;
-    allocInfo.descriptorSetCount =
-        static_cast<uint32_t>(descriptorSetLayouts.size());
-    allocInfo.pSetLayouts = descriptorSetLayouts.data();
-
-    VK_CHECK(
-        vkAllocateDescriptorSets(device_, &allocInfo, descriptorSets_.data()));
+    descriptorPoolHandle_ = descriptorContainer_.createDescriptorSets(
+        preparation.poolSizes, descriptorSetLayoutHandles,
+        descriptorSetLayouts);
+    const auto &descriptorSets =
+        descriptorContainer_.getDescriptorSets(descriptorPoolHandle_);
 
     // Create compute pipelines from descriptor set layouts
     pipelines_ = createComputePipelines(
-        device_, dispatches(), descriptorSetLayoutHandles_, shaderContainer_,
+        device_, dispatches(), descriptorSetLayoutHandles, shaderContainer_,
         descriptorSetLayoutContainer_, pipelineLayoutContainer_,
         pipelineLayoutHandles_);
 
@@ -355,7 +334,7 @@ void VulkanCommandBuffer::end() {
 
         VkWriteDescriptorSet descriptorWrite{};
         descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = descriptorSets_[dispatchIndex];
+        descriptorWrite.dstSet = descriptorSets[dispatchIndex];
         descriptorWrite.dstBinding = binding.index();
         descriptorWrite.dstArrayElement = 0;
         descriptorWrite.descriptorType = *descriptorType;
@@ -400,7 +379,7 @@ void VulkanCommandBuffer::end() {
       // Bind the descriptor set
       vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
                               pipelineLayouts[dispatchIndex], 0, 1,
-                              &descriptorSets_[dispatchIndex], 0, nullptr);
+                              &descriptorSets[dispatchIndex], 0, nullptr);
 
       // Dispatch compute work
       const auto &tgSize = dispatch.threadgroupSize();
@@ -448,7 +427,10 @@ void VulkanCommandBuffer::submit() {
 
   // Clean up descriptor set layout handles (the container will destroy the
   // layouts, descriptor sets are freed when pool is destroyed)
-  descriptorSetLayoutHandles_.clear();
+  //  descriptorSetLayoutHandles.clear();
+
+  // Clean up descriptor pool handle
+  descriptorPoolHandle_ = ComputeHandle();
 }
 
 } // namespace cut

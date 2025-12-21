@@ -5,6 +5,8 @@
 #include <ComputeInterface.h>
 #include <VulkanCommon.h>
 
+#include <vector>
+
 namespace cut {
 
 /// Pairs a Vulkan physical device with its selected compute queue family index.
@@ -66,15 +68,11 @@ private:
   std::vector<VkDescriptorSetLayoutBinding> descSetLayoutBindings_;
 };
 
-/// Holds descriptor pool and set for binding resources to shaders.
+/// Wrapper for a Vulkan descriptor pool and its allocated descriptor sets.
 struct VulkanDescriptorStruct {
-  VkDescriptorPool descriptorPool_ = VK_NULL_HANDLE;
-  VkDescriptorSet descriptorSet_ = VK_NULL_HANDLE;
-};
-
-/// Wrapper for a Vulkan descriptor pool.
-struct VulkanDescriptorPoolStruct {
   VkDescriptorPool pool = VK_NULL_HANDLE;
+  std::vector<ComputeHandle> descriptorSetLayoutHandles;
+  std::vector<VkDescriptorSet> descriptorSets;
 };
 
 /// Wrapper for a Vulkan descriptor set layout.

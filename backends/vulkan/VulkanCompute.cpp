@@ -55,7 +55,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   bufferContainer_.setDevice(device_);
 
   shaderContainer_.setDevice(device_);
-  descriptorPoolContainer_.setDevice(device_);
+  descriptorContainer_.setDevice(device_);
   descriptorSetLayoutContainer_.setDevice(device_);
   pipelineLayoutContainer_.setDevice(device_);
 
@@ -63,7 +63,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   // up)
   setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
       device_, computeQueueFamilyIndex_, bufferContainer_, shaderContainer_,
-      descriptorPoolContainer_, descriptorSetLayoutContainer_,
+      descriptorContainer_, descriptorSetLayoutContainer_,
       pipelineLayoutContainer_));
 }
 
@@ -121,11 +121,14 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
 }
 
 void VulkanCompute::cleanup() {
+  if (device_ != VK_NULL_HANDLE) {
+    vkDeviceWaitIdle(device_);
+  }
+
   // Delete / reset the container before destroying device
   setCommandBufferContainer({});
 
   if (device_ != VK_NULL_HANDLE) {
-    vkDeviceWaitIdle(device_);
     vkDestroyDevice(device_, nullptr);
   }
 }

@@ -10,7 +10,7 @@ namespace cut {
 
 class VulkanBufferContainer;
 class VulkanShaderContainer;
-class VulkanDescriptorPoolContainer;
+class VulkanDescriptorContainer;
 class VulkanDescriptorSetLayoutContainer;
 class VulkanPipelineLayoutContainer;
 
@@ -28,8 +28,8 @@ public:
    * @param bufferContainer Reference to buffer container for accessing buffers.
    * @param shaderContainer Reference to shader container for accessing shader
    * reflection data.
-   * @param descriptorPoolContainer Reference to descriptor pool container for
-   * creating descriptor pools.
+   * @param descriptorContainer Reference to descriptor container for
+   * creating descriptor pools and sets.
    * @param descriptorSetLayoutContainer Reference to descriptor set layout
    * container for creating descriptor set layouts.
    * @param pipelineLayoutContainer Reference to pipeline layout container for
@@ -41,7 +41,7 @@ public:
       VkQueue queue,
       VulkanBufferContainer &bufferContainer,
       VulkanShaderContainer &shaderContainer,
-      VulkanDescriptorPoolContainer &descriptorPoolContainer,
+      VulkanDescriptorContainer &descriptorContainer,
       VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
       VulkanPipelineLayoutContainer &pipelineLayoutContainer);
 
@@ -72,25 +72,22 @@ private:
   VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
   VulkanBufferContainer &bufferContainer_;
   VulkanShaderContainer &shaderContainer_;
-  VulkanDescriptorPoolContainer &descriptorPoolContainer_;
+  VulkanDescriptorContainer &descriptorContainer_;
   VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer_;
   VulkanPipelineLayoutContainer &pipelineLayoutContainer_;
 
-  /// Active descriptor pool handles created during end().
-  std::vector<ComputeHandle> descriptorPoolHandles_;
+  /// Active descriptor pool handle created during end().
+  ComputeHandle descriptorPoolHandle_;
 
   /// Pipelines created during end(), cleaned up in submit().
   std::vector<VulkanPipelineStruct> pipelines_;
 
   /// Descriptor set layout handles created during end(), cleaned up in
   /// submit().
-  std::vector<ComputeHandle> descriptorSetLayoutHandles_;
+  // std::vector<ComputeHandle> descriptorSetLayoutHandles_;
 
   /// Pipeline layout handles created during end(), cleaned up in submit().
   std::vector<ComputeHandle> pipelineLayoutHandles_;
-
-  /// Descriptor sets allocated during end().
-  std::vector<VkDescriptorSet> descriptorSets_;
 };
 
 } // namespace cut

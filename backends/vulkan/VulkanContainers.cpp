@@ -8,11 +8,11 @@ VulkanCommandBufferContainer::VulkanCommandBufferContainer(
     uint32_t queueFamilyIndex,
     VulkanBufferContainer &bufferContainer,
     VulkanShaderContainer &shaderContainer,
-    VulkanDescriptorPoolContainer &descriptorPoolContainer,
+    VulkanDescriptorContainer &descriptorContainer,
     VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
     VulkanPipelineLayoutContainer &pipelineLayoutContainer)
     : bufferContainer_(bufferContainer), shaderContainer_(shaderContainer),
-      descriptorPoolContainer_(descriptorPoolContainer),
+      descriptorContainer_(descriptorContainer),
       descriptorSetLayoutContainer_(descriptorSetLayoutContainer),
       pipelineLayoutContainer_(pipelineLayoutContainer) {
   setDevice(device);
@@ -35,7 +35,7 @@ VulkanCommandBufferContainer::~VulkanCommandBufferContainer() {
   }
 }
 
-void VulkanBufferContainer::destroy(const ComputeHandle &handle) {
+void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
   auto &buffer = get(handle);
 
 #if CUT_USE_VMA
@@ -61,7 +61,7 @@ void VulkanBufferContainer::destroy(const ComputeHandle &handle) {
 #endif
 }
 
-void VulkanShaderContainer::destroy(const ComputeHandle &handle) {
+void VulkanShaderContainer::destroyAPIObject(const ComputeHandle &handle) {
   auto *shaderData = get(handle);
   if (shaderData == nullptr) {
     // Skip null handle
@@ -69,26 +69,45 @@ void VulkanShaderContainer::destroy(const ComputeHandle &handle) {
   }
 
   vkDestroyShaderModule(getDevice(), shaderData->shader, nullptr);
-
-  delete shaderData;
 }
 
-ComputeHandle VulkanDescriptorPoolContainer::createPool(
-    const std::vector<VkDescriptorPoolSize> &poolSizes, uint32_t maxSets) {
+ComputeHandle VulkanDescriptorContainer::createDescriptorSets(
+    const std::vector<VkDescriptorPoolSize> &poolSizes,
+    const std::vector<ComputeHandle> &descriptorSetLayoutHandles,
+    const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts) {
+  const uint32_t maxSets =
+      static_cast<uint32_t>(descriptorSetLayoutHandles.size());
+
   VkDescriptorPoolCreateInfo poolInfo{};
   poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
   poolInfo.pPoolSizes = poolSizes.data();
   poolInfo.maxSets = maxSets;
 
-  VulkanDescriptorPoolStruct poolStruct{};
+  VulkanDescriptorStruct poolStruct{};
   VK_CHECK(vkCreateDescriptorPool(getDevice(), &poolInfo, nullptr,
                                   &poolStruct.pool));
+
+  // Store layout handles for reference
+  poolStruct.descriptorSetLayoutHandles = descriptorSetLayoutHandles;
+
+  // Allocate descriptor sets
+  poolStruct.descriptorSets.resize(descriptorSetLayouts.size());
+
+  VkDescriptorSetAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  allocInfo.descriptorPool = poolStruct.pool;
+  allocInfo.descriptorSetCount =
+      static_cast<uint32_t>(descriptorSetLayouts.size());
+  allocInfo.pSetLayouts = descriptorSetLayouts.data();
+
+  VK_CHECK(vkAllocateDescriptorSets(getDevice(), &allocInfo,
+                                    poolStruct.descriptorSets.data()));
 
   return ComputeDataContainer::create(std::move(poolStruct));
 }
 
-void VulkanDescriptorPoolContainer::destroy(const ComputeHandle &handle) {
+void VulkanDescriptorContainer::destroyAPIObject(const ComputeHandle &handle) {
   auto &poolStruct = get(handle);
   if (poolStruct.pool != VK_NULL_HANDLE) {
     vkDestroyDescriptorPool(getDevice(), poolStruct.pool, nullptr);
@@ -124,7 +143,8 @@ VulkanDescriptorSetLayoutContainer::getLayouts(
   return layouts;
 }
 
-void VulkanDescriptorSetLayoutContainer::destroy(const ComputeHandle &handle) {
+void VulkanDescriptorSetLayoutContainer::destroyAPIObject(
+    const ComputeHandle &handle) {
   auto &layoutStruct = get(handle);
   if (layoutStruct.layout != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(getDevice(), layoutStruct.layout, nullptr);
@@ -159,7 +179,8 @@ std::vector<VkPipelineLayout> VulkanPipelineLayoutContainer::getLayouts(
   return layouts;
 }
 
-void VulkanPipelineLayoutContainer::destroy(const ComputeHandle &handle) {
+void VulkanPipelineLayoutContainer::destroyAPIObject(
+    const ComputeHandle &handle) {
   auto &layoutStruct = get(handle);
   if (layoutStruct.layout != VK_NULL_HANDLE) {
     vkDestroyPipelineLayout(getDevice(), layoutStruct.layout, nullptr);

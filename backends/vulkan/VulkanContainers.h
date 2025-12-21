@@ -13,7 +13,7 @@ namespace cut {
 
 class VulkanBufferContainer;
 class VulkanShaderContainer;
-class VulkanDescriptorPoolContainer;
+class VulkanDescriptorContainer;
 class VulkanDescriptorSetLayoutContainer;
 class VulkanPipelineLayoutContainer;
 
@@ -43,8 +43,8 @@ public:
    * @param bufferContainer Reference to buffer container for accessing buffers.
    * @param shaderContainer Reference to shader container for accessing shader
    * reflection data.
-   * @param descriptorPoolContainer Reference to descriptor pool container for
-   * creating descriptor pools.
+   * @param descriptorContainer Reference to descriptor container for
+   * creating descriptor pools and sets.
    * @param descriptorSetLayoutContainer Reference to descriptor set layout
    * container for creating descriptor set layouts.
    * @param pipelineLayoutContainer Reference to pipeline layout container for
@@ -55,7 +55,7 @@ public:
       uint32_t queueFamilyIndex,
       VulkanBufferContainer &bufferContainer,
       VulkanShaderContainer &shaderContainer,
-      VulkanDescriptorPoolContainer &descriptorPoolContainer,
+      VulkanDescriptorContainer &descriptorContainer,
       VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
       VulkanPipelineLayoutContainer &pipelineLayoutContainer);
 
@@ -66,7 +66,7 @@ public:
   ComputeHandle createCommandBuffer() override {
     return ComputeDataContainer::create(new VulkanCommandBuffer(
         getDevice(), commandPool_, queue_, bufferContainer_, shaderContainer_,
-        descriptorPoolContainer_, descriptorSetLayoutContainer_,
+        descriptorContainer_, descriptorSetLayoutContainer_,
         pipelineLayoutContainer_));
   }
 
@@ -81,7 +81,7 @@ private:
   VkQueue queue_ = VK_NULL_HANDLE;
   VulkanBufferContainer &bufferContainer_;
   VulkanShaderContainer &shaderContainer_;
-  VulkanDescriptorPoolContainer &descriptorPoolContainer_;
+  VulkanDescriptorContainer &descriptorContainer_;
   VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer_;
   VulkanPipelineLayoutContainer &pipelineLayoutContainer_;
 };
@@ -109,7 +109,7 @@ private:
   IF_VMA_ENABLED_THEN(VmaAllocator allocator_);
 
   /// Destroys a buffer and frees its associated GPU memory.
-  void destroy(const ComputeHandle &handle) override;
+  void destroyAPIObject(const ComputeHandle &handle) override;
 };
 
 /// Container managing shader module allocations and their lifecycle.
@@ -145,21 +145,39 @@ public:
 
 private:
   /// Destroys a shader module and releases its Vulkan resources.
-  void destroy(const ComputeHandle &handle) override;
+  void destroyAPIObject(const ComputeHandle &handle) override;
 };
 
 /// Container managing descriptor pool allocations and their lifecycle.
-class VulkanDescriptorPoolContainer final
-    : public ComputeDataContainer<VulkanDescriptorPoolStruct>,
+class VulkanDescriptorContainer final
+    : public ComputeDataContainer<VulkanDescriptorStruct>,
       public VulkanContainerBase {
 public:
-  /// Constructs a descriptor pool container with a unique type identifier.
-  VulkanDescriptorPoolContainer()
-      : ComputeDataContainer<VulkanDescriptorPoolStruct>(103) {}
+  /// Constructs a descriptor container with a unique type identifier.
+  VulkanDescriptorContainer()
+      : ComputeDataContainer<VulkanDescriptorStruct>(103) {}
 
-  /// Creates a descriptor pool with the given pool sizes.
-  ComputeHandle createPool(const std::vector<VkDescriptorPoolSize> &poolSizes,
-                           uint32_t maxSets);
+  /**
+   * Creates a descriptor pool and allocates descriptor sets.
+   * @param poolSizes The descriptor pool sizes.
+   * @param descriptorSetLayoutHandles Handles to descriptor set layouts.
+   * @param descriptorSetLayouts The Vulkan descriptor set layouts.
+   * @return Handle to the created descriptor pool struct.
+   */
+  ComputeHandle createDescriptorSets(
+      const std::vector<VkDescriptorPoolSize> &poolSizes,
+      const std::vector<ComputeHandle> &descriptorSetLayoutHandles,
+      const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts);
+
+  /**
+   * Returns the descriptor sets for the given handle.
+   * @param handle Handle to the descriptor pool struct.
+   * @return Vector of allocated descriptor sets.
+   */
+  const std::vector<VkDescriptorSet> &
+  getDescriptorSets(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle).descriptorSets;
+  }
 
   /// Returns the descriptor pool for the given handle.
   VkDescriptorPool getPool(const ComputeHandle &handle) const {
@@ -168,7 +186,7 @@ public:
 
 private:
   /// Destroys a descriptor pool and releases its Vulkan resources.
-  void destroy(const ComputeHandle &handle) override;
+  void destroyAPIObject(const ComputeHandle &handle) override;
 };
 
 /// Container managing descriptor set layout allocations and their lifecycle.
@@ -219,7 +237,7 @@ public:
 
 private:
   /// Destroys a descriptor set layout and releases its Vulkan resources.
-  void destroy(const ComputeHandle &handle) override;
+  void destroyAPIObject(const ComputeHandle &handle) override;
 };
 
 /// Container managing pipeline layout allocations and their lifecycle.
@@ -270,7 +288,7 @@ public:
 
 private:
   /// Destroys a pipeline layout and releases its Vulkan resources.
-  void destroy(const ComputeHandle &handle) override;
+  void destroyAPIObject(const ComputeHandle &handle) override;
 };
 
 } // namespace cut

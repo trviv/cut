@@ -57,14 +57,6 @@ TEST(VulkanShaderStruct, DefaultInitialization) {
   EXPECT_EQ(shader.shader, VK_NULL_HANDLE);
 }
 
-// VulkanDescriptorStruct tests
-
-TEST(VulkanDescriptorStruct, DefaultInitialization) {
-  VulkanDescriptorStruct descriptor;
-  EXPECT_EQ(descriptor.descriptorPool_, VK_NULL_HANDLE);
-  EXPECT_EQ(descriptor.descriptorSet_, VK_NULL_HANDLE);
-}
-
 // VulkanPipelineStruct tests
 
 TEST(VulkanPipelineStruct, DefaultInitialization) {

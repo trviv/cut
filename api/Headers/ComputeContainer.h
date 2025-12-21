@@ -183,16 +183,26 @@ protected:
   }
 
   /**
+   * Destroys API-specific resources associated with the handle.
+   * Override this in derived classes to release backend-specific objects
+   * (e.g., Vulkan buffers, Metal textures) before the container data is reset.
+   * Called automatically by destroy() before the object slot is recycled.
+   * @param handle The handle of the object whose API resources should be freed.
+   */
+  virtual void destroyAPIObject(const ComputeHandle &handle) {}
+
+private:
+  /**
    * Default destroy implementation.
    * For pointer types: deletes the pointer and sets it to nullptr.
    * For non-pointer types: resets the object to default state.
    * @param handle The handle of the object to destroy.
    */
   void destroy(const ComputeHandle &handle) override {
+    destroyAPIObject(handle);
     destroyImpl(handle.id_);
   }
 
-private:
   /// Destroy implementation for pointer types: delete and nullify
   template <bool P = IsPointer, EnableIfPointer<P> = 0>
   void destroyImpl(size_t id) {
