@@ -403,6 +403,10 @@ void VulkanCommandBuffer::end() {
                              descriptorWrites.data(), 0, nullptr);
     }
 
+    // Pre-fetch VkPipelineLayout values for command recording
+    const auto pipelineLayouts =
+        pipelineLayoutContainer_.getLayouts(pipelineLayoutHandles_);
+
     // Record commands: bind pipelines, descriptor sets, and dispatch
     dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
@@ -422,10 +426,8 @@ void VulkanCommandBuffer::end() {
                         pipeline.computePipeline_);
 
       // Bind the descriptor set
-      VkPipelineLayout pipelineLayout =
-          pipelineLayoutContainer_.getLayout(pipeline.pipelineLayoutHandle_);
       vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
-                              pipelineLayout, 0, 1,
+                              pipelineLayouts[dispatchIndex], 0, 1,
                               &descriptorSets_[dispatchIndex], 0, nullptr);
 
       // Dispatch compute work

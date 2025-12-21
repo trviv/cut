@@ -139,6 +139,26 @@ ComputeHandle VulkanPipelineLayoutContainer::createLayout(
   return ComputeDataContainer::create(std::move(layoutStruct));
 }
 
+std::vector<ComputeHandle> VulkanPipelineLayoutContainer::createLayouts(
+    const VulkanPipelineLayoutCreateInfo *createInfos, size_t count) {
+  std::vector<ComputeHandle> handles;
+  handles.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    handles.emplace_back(createLayout(createInfos[i]));
+  }
+  return handles;
+}
+
+std::vector<VkPipelineLayout> VulkanPipelineLayoutContainer::getLayouts(
+    const std::vector<ComputeHandle> &handles) const {
+  std::vector<VkPipelineLayout> layouts;
+  layouts.reserve(handles.size());
+  for (const auto &handle : handles) {
+    layouts.emplace_back(getLayout(handle));
+  }
+  return layouts;
+}
+
 void VulkanPipelineLayoutContainer::destroy(const ComputeHandle &handle) {
   auto &layoutStruct = get(handle);
   if (layoutStruct.layout != VK_NULL_HANDLE) {

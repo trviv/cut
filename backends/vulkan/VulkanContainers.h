@@ -225,10 +225,28 @@ public:
    */
   ComputeHandle createLayout(const VulkanPipelineLayoutCreateInfo &createInfo);
 
+  /**
+   * Creates multiple pipeline layouts from an array of create infos.
+   * @param createInfos Array of pipeline layout create infos.
+   * @param count Number of create infos in the array.
+   * @return Vector of handles to the created pipeline layouts.
+   */
+  std::vector<ComputeHandle>
+  createLayouts(const VulkanPipelineLayoutCreateInfo *createInfos,
+                size_t count);
+
   /// Returns the pipeline layout for the given handle.
   VkPipelineLayout getLayout(const ComputeHandle &handle) const {
     return ComputeDataContainer::get(handle).layout;
   }
+
+  /**
+   * Returns multiple pipeline layouts for the given handles.
+   * @param handles Vector of handles to pipeline layouts.
+   * @return Vector of Vulkan pipeline layouts.
+   */
+  std::vector<VkPipelineLayout>
+  getLayouts(const std::vector<ComputeHandle> &handles) const;
 
   /// Returns the pipeline layout struct for the given handle.
   const VulkanPipelineLayoutStruct &
