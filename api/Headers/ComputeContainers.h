@@ -15,7 +15,7 @@ class ComputeInterface;
  */
 class CommandBufferContainer : public ComputeDataContainer<CommandBuffer *> {
 public:
-  CommandBufferContainer() : ComputeDataContainer<CommandBuffer *>(2) {}
+  CommandBufferContainer() = default;
 
   virtual ~CommandBufferContainer() = default;
 

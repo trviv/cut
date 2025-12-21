@@ -5,6 +5,7 @@
 #include <ComputeInterface.h>
 #include <VulkanCommon.h>
 
+#include <string_view>
 #include <vector>
 
 namespace cut {
@@ -29,6 +30,8 @@ struct VulkanCommandStruct {
 /// Represents a GPU buffer with its memory allocation and mapping state.
 /// Supports both VMA-managed and manual memory allocation strategies.
 struct VulkanBufferStruct {
+  static constexpr std::string_view Name = "VulkanBufferStruct";
+
   VkBuffer buffer = VK_NULL_HANDLE;
   VkDeviceSize size = 0;
   VkDeviceSize offset = 0;
@@ -42,6 +45,8 @@ struct VulkanBufferStruct {
 
 /// Wrapper for a compiled SPIR-V shader module with reflection data.
 struct VulkanShaderStruct {
+  static constexpr std::string_view Name = "VulkanShaderStruct";
+
   VkShaderModule shader = VK_NULL_HANDLE;
   ShaderReflection reflection; ///< Binding information from SPIR-V reflection.
 };
@@ -70,6 +75,8 @@ private:
 
 /// Wrapper for a Vulkan descriptor pool and its allocated descriptor sets.
 struct VulkanDescriptorStruct {
+  static constexpr std::string_view Name = "VulkanDescriptorStruct";
+
   VkDescriptorPool pool = VK_NULL_HANDLE;
   std::vector<ComputeHandle> descriptorSetLayoutHandles;
   std::vector<VkDescriptorSet> descriptorSets;
@@ -77,11 +84,15 @@ struct VulkanDescriptorStruct {
 
 /// Wrapper for a Vulkan descriptor set layout.
 struct VulkanDescriptorSetLayoutStruct {
+  static constexpr std::string_view Name = "VulkanDescriptorSetLayoutStruct";
+
   VkDescriptorSetLayout layout = VK_NULL_HANDLE;
 };
 
 /// Wrapper for a Vulkan pipeline layout.
 struct VulkanPipelineLayoutStruct {
+  static constexpr std::string_view Name = "VulkanPipelineLayoutStruct";
+
   VkPipelineLayout layout = VK_NULL_HANDLE;
 };
 

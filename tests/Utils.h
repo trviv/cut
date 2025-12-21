@@ -3,6 +3,7 @@
 #include <ComputeContainer.h>
 #include <ComputeInterface.h>
 
+#include <string_view>
 #include <vector>
 
 static std::vector<uint32_t> generateRandomUint(uint32_t size,
@@ -15,26 +16,37 @@ static std::vector<uint32_t> generateRandomUint(uint32_t size,
   return ret;
 }
 
-class MockContainer : public cut::ComputeDataContainer<uint32_t> {
+/// Wrapper struct for uint32_t to satisfy ComputeDataContainer requirements.
+struct MockValue {
+  static constexpr std::string_view Name = "MockValue";
+
+  uint32_t value = 0;
+
+  MockValue() = default;
+  MockValue(uint32_t v) : value(v) {}
+  operator uint32_t() const { return value; }
+};
+
+class MockContainer : public cut::ComputeDataContainer<MockValue> {
   uint32_t intCounter_ = 1;
   float floatCounter_ = 1.f;
 
 public:
-  MockContainer() : cut::ComputeDataContainer<uint32_t>(201) {}
+  MockContainer() = default;
 
   ~MockContainer() {}
 
-  void destroy(const cut::ComputeHandle &) override {}
-
   cut::ComputeHandle createInteger() {
-    return create(std::move(intCounter_++));
+    return create(MockValue(intCounter_++));
   }
 
   cut::ComputeHandle createFloat() {
-    return create(static_cast<uint32_t>(floatCounter_++));
+    return create(MockValue(static_cast<uint32_t>(floatCounter_++)));
   }
 
-  uint32_t getIntData(cut::ComputeHandle &handle) { return get(handle); }
+  uint32_t getIntData(cut::ComputeHandle &handle) { return get(handle).value; }
 
-  uint32_t getFloatData(cut::ComputeHandle &handle) { return get(handle); }
+  uint32_t getFloatData(cut::ComputeHandle &handle) {
+    return get(handle).value;
+  }
 };

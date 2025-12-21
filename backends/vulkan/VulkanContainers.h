@@ -91,8 +91,8 @@ class VulkanBufferContainer final
     : public VulkanContainerBase,
       public ComputeDataContainer<VulkanBufferStruct> {
 public:
-  /// Constructs a buffer container with a unique type identifier.
-  VulkanBufferContainer() : ComputeDataContainer<VulkanBufferStruct>(101) {}
+  /// Constructs a buffer container.
+  VulkanBufferContainer() = default;
 
   ComputeHandle create(VulkanBufferStruct &&structData) {
     return ComputeDataContainer::create(std::move(structData));
@@ -117,8 +117,8 @@ class VulkanShaderContainer final
     : public VulkanContainerBase,
       public ComputeDataContainer<VulkanShaderStruct *> {
 public:
-  /// Constructs a shader container with a unique type identifier.
-  VulkanShaderContainer() : ComputeDataContainer<VulkanShaderStruct *>(102) {}
+  /// Constructs a shader container.
+  VulkanShaderContainer() = default;
 
   ComputeHandle createShader(VulkanShaderStruct &&structData) {
     return ComputeDataContainer::create(
@@ -153,9 +153,8 @@ class VulkanDescriptorContainer final
     : public ComputeDataContainer<VulkanDescriptorStruct>,
       public VulkanContainerBase {
 public:
-  /// Constructs a descriptor container with a unique type identifier.
-  VulkanDescriptorContainer()
-      : ComputeDataContainer<VulkanDescriptorStruct>(103) {}
+  /// Constructs a descriptor container.
+  VulkanDescriptorContainer() = default;
 
   /**
    * Creates a descriptor pool and allocates descriptor sets.
@@ -194,10 +193,8 @@ class VulkanDescriptorSetLayoutContainer final
     : public ComputeDataContainer<VulkanDescriptorSetLayoutStruct>,
       public VulkanContainerBase {
 public:
-  /// Constructs a descriptor set layout container with a unique type
-  /// identifier.
-  VulkanDescriptorSetLayoutContainer()
-      : ComputeDataContainer<VulkanDescriptorSetLayoutStruct>(104) {}
+  /// Constructs a descriptor set layout container.
+  VulkanDescriptorSetLayoutContainer() = default;
 
   /**
    * Creates a descriptor set layout from the given create info.
@@ -245,9 +242,8 @@ class VulkanPipelineLayoutContainer final
     : public ComputeDataContainer<VulkanPipelineLayoutStruct>,
       public VulkanContainerBase {
 public:
-  /// Constructs a pipeline layout container with a unique type identifier.
-  VulkanPipelineLayoutContainer()
-      : ComputeDataContainer<VulkanPipelineLayoutStruct>(105) {}
+  /// Constructs a pipeline layout container.
+  VulkanPipelineLayoutContainer() = default;
 
   /**
    * Creates a pipeline layout from the given create info.

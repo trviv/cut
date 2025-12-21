@@ -2,6 +2,8 @@
 
 #include <ComputeCommon.h>
 
+#include <string_view>
+
 namespace cut {
 
 /** Forward declarations. */
@@ -132,6 +134,8 @@ private:
  */
 class CommandBuffer {
 public:
+  static constexpr std::string_view Name = "CommandBuffer";
+
   /**
    * Virtual destructor to ensure proper cleanup of derived classes.
    */

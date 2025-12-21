@@ -2,29 +2,44 @@
 
 #include <ComputeContainer.h>
 
+#include <string_view>
+
 using namespace cut;
 
-/// Mock container for testing ComputeHandle behavior with non-pointer types.
-class TestContainer : public ComputeDataContainer<uint32_t> {
-public:
-  TestContainer() : ComputeDataContainer<uint32_t>(100) {}
+/// Wrapper struct for uint32_t to satisfy ComputeDataContainer requirements.
+struct TestValue {
+  static constexpr std::string_view Name = "TestValue";
 
-  void destroy(const ComputeHandle &) override { destroyCount_++; }
+  uint32_t value = 0;
+
+  TestValue() = default;
+  TestValue(uint32_t v) : value(v) {}
+  operator uint32_t() const { return value; }
+};
+
+/// Mock container for testing ComputeHandle behavior with non-pointer types.
+class TestContainer : public ComputeDataContainer<TestValue> {
+public:
+  TestContainer() = default;
 
   ComputeHandle createTestHandle(uint32_t value) {
-    return create(std::move(value));
+    return create(TestValue(value));
   }
 
-  uint32_t getValue(const ComputeHandle &handle) { return get(handle); }
+  uint32_t getValue(const ComputeHandle &handle) { return get(handle).value; }
 
   size_t getSlotCount() const { return slotCount(); }
   size_t getFreeSlotCount() const { return freeSlotCount(); }
+
+  void destroyAPIObject(const ComputeHandle &) override { destroyCount_++; }
 
   int destroyCount_ = 0;
 };
 
 /// Test struct for pointer-type container tests.
 struct TestStruct {
+  static constexpr std::string_view Name = "TestStruct";
+
   int value;
   static int instanceCount;
 
@@ -51,7 +66,7 @@ int TestStruct::instanceCount = 0;
 /// Mock container for testing pointer-type storage (detects memory leaks).
 class PointerTestContainer : public ComputeDataContainer<TestStruct *> {
 public:
-  PointerTestContainer() : ComputeDataContainer<TestStruct *>(101) {}
+  PointerTestContainer() = default;
 
   void destroy(const ComputeHandle &handle) override {
     auto *ptr = get(handle);

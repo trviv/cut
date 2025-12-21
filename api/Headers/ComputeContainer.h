@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -29,10 +30,10 @@ public:
 
 protected:
   /**
-   * Constructs a ComputeContainer with the specified type identifier.
-   * @param type A unique identifier for the container type.
+   * Constructs a ComputeContainer with the specified name.
+   * @param name The name identifier for the container type.
    */
-  ComputeContainer(uint32_t type);
+  ComputeContainer(std::string_view name);
 
   /** Virtual destructor. Cleans up any remaining objects. */
   virtual ~ComputeContainer();
@@ -85,7 +86,7 @@ private:
 
   std::vector<size_t> refCounts_;   ///< Reference counts for each object.
   std::vector<size_t> freeHandles_; ///< Pool of reusable handle IDs.
-  const uint32_t type_; ///< Unique type identifier for this container.
+  const std::string_view name_;
 };
 
 /**
@@ -111,6 +112,16 @@ class ComputeDataContainer : public ComputeContainer {
   template <bool P = IsPointer>
   using EnableIfNotPointer = typename std::enable_if<!P, int>::type;
 
+  /// The underlying type (removes pointer if DataType is a pointer)
+  using UnderlyingType = typename std::
+      conditional<IsPointer, std::remove_pointer_t<DataType>, DataType>::type;
+
+  static_assert(
+      std::is_same<std::remove_cv_t<decltype(UnderlyingType::Name)>,
+                   std::string_view>::value,
+      "DataType (or pointed-to type) must have a static Name member of type "
+      "std::string_view");
+
 public:
   /**
    * Retrieves a const reference to the stored data (non-pointer types).
@@ -127,7 +138,7 @@ public:
   }
 
 protected:
-  ComputeDataContainer(uint32_t type) : ComputeContainer(type) {}
+  ComputeDataContainer() : ComputeContainer(UnderlyingType::Name) {}
 
   virtual ~ComputeDataContainer() {
     if (objects_.size() != freeSlotCount()) {

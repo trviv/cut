@@ -1,10 +1,13 @@
 #include <ComputeContainer.h>
 
+#include <cstddef>
+#include <string_view>
+
 namespace cut {
 
 // ComputeContainer implementation
 
-ComputeContainer::ComputeContainer(uint32_t type) : type_(type) {}
+ComputeContainer::ComputeContainer(std::string_view name) : name_(name) {}
 
 ComputeContainer::~ComputeContainer() {
   refCounts_.clear();
