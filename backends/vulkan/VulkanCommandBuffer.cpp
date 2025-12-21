@@ -257,19 +257,21 @@ void VulkanCommandBuffer::begin() {
 void VulkanCommandBuffer::end() {
   VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
 
-  // Prepare descriptor sets: create layouts and calculate pool sizes
-  auto preparation = prepareDescriptorSets(dispatches(), shaderContainer_,
-                                           descriptorSetLayoutContainer_);
-  descriptorSetLayoutHandles_ = std::move(preparation.layoutHandles);
+  {
+    // Prepare descriptor sets: create layouts and calculate pool sizes
+    auto preparation = prepareDescriptorSets(dispatches(), shaderContainer_,
+                                             descriptorSetLayoutContainer_);
+    descriptorSetLayoutHandles_ = std::move(preparation.layoutHandles);
 
-  // Create descriptor pool if there are any descriptors to allocate
-  if (!preparation.poolSizes.empty()) {
-    const uint32_t maxSets = static_cast<uint32_t>(dispatches().size());
-    auto poolHandle =
-        descriptorPoolContainer_.createPool(preparation.poolSizes, maxSets);
+    // Create descriptor pool if there are any descriptors to allocate
+    if (!preparation.poolSizes.empty()) {
+      const uint32_t maxSets = static_cast<uint32_t>(dispatches().size());
+      auto poolHandle =
+          descriptorPoolContainer_.createPool(preparation.poolSizes, maxSets);
 
-    descriptorPool = descriptorPoolContainer_.getPool(poolHandle);
-    descriptorPoolHandles_.emplace_back(std::move(poolHandle));
+      descriptorPool = descriptorPoolContainer_.getPool(poolHandle);
+      descriptorPoolHandles_.emplace_back(std::move(poolHandle));
+    }
   }
 
   // Allocate all descriptor sets in a single call
