@@ -127,7 +127,7 @@ createComputePipelines(VkDevice device,
   pipelineCreateData.reserve(dispatches.size());
 
   // Pre-fetch VkDescriptorSetLayout values for pipeline creation
-  const auto descriptorSetLayouts = layoutContainer.getLayouts(layoutHandles);
+  const auto &descriptorSetLayouts = layoutContainer.getLayouts(layoutHandles);
 
   size_t layoutIndex = 0;
   for (const auto &dispatch : dispatches) {
@@ -416,10 +416,6 @@ void VulkanCommandBuffer::submit() {
 
   // Clean up pipeline layout handles (the container will destroy the layouts)
   pipelineLayoutHandles_.clear();
-
-  // Clean up descriptor set layout handles (the container will destroy the
-  // layouts, descriptor sets are freed when pool is destroyed)
-  //  descriptorSetLayoutHandles.clear();
 
   // Clean up descriptor pool handle
   descriptorsHandle_ = ComputeHandle();
