@@ -130,62 +130,37 @@ createComputePipelines(VkDevice device,
                        VulkanDescriptorSetLayoutContainer &layoutContainer,
                        VulkanPipelineLayoutContainer &pipelineLayoutContainer,
                        std::vector<ComputeHandle> &pipelineLayoutHandles) {
-  std::vector<VulkanPipelineStruct> pipelines;
-  pipelines.reserve(dispatches.size());
+  if (dispatches.empty()) {
+    return {};
+  }
 
   // Pre-fetch VkDescriptorSetLayout values for pipeline creation
   const auto &descriptorSetLayouts = layoutContainer.getLayouts(layoutHandles);
 
-  // Collect all pipeline layout create infos first
+  // Collect all pipeline layout create infos
   std::vector<VulkanPipelineLayoutCreateInfo> pipelineLayoutCreateInfos;
   pipelineLayoutCreateInfos.reserve(dispatches.size());
 
-  // Track valid dispatch indices (those with valid shader handles)
-  std::vector<size_t> validDispatchIndices;
-  validDispatchIndices.reserve(dispatches.size());
-
-  size_t layoutIndex = 0;
   for (size_t i = 0; i < dispatches.size(); ++i) {
-    const auto &dispatch = dispatches[i];
-    const auto &shaderHandle = dispatch.shader();
-    if (!shaderHandle) {
-      continue;
-    }
+    const auto &reflection =
+        shaderContainer.getReflection(dispatches[i].shader());
 
-    validDispatchIndices.push_back(i);
-    const auto &reflection = shaderContainer.getReflection(shaderHandle);
-
-    VulkanPipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
-    pipelineLayoutCreateInfo.createInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-
-    // Use descriptor set layout if available for this dispatch
-    if (layoutIndex < layoutHandles.size()) {
-      pipelineLayoutCreateInfo.descriptorSetLayoutHandle =
-          layoutHandles[layoutIndex];
-      pipelineLayoutCreateInfo.createInfo.setLayoutCount = 1;
-      pipelineLayoutCreateInfo.createInfo.pSetLayouts =
-          &descriptorSetLayouts[layoutIndex];
-    }
+    VulkanPipelineLayoutCreateInfo createInfo{};
+    createInfo.createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    createInfo.descriptorSetLayoutHandle = layoutHandles[i];
+    createInfo.createInfo.setLayoutCount = 1;
+    createInfo.createInfo.pSetLayouts = &descriptorSetLayouts[i];
 
     // Add push constant range if the shader uses push constants
     if (reflection.pushConstantSize > 0) {
-      pipelineLayoutCreateInfo.pushConstantRange.stageFlags =
-          VK_SHADER_STAGE_COMPUTE_BIT;
-      pipelineLayoutCreateInfo.pushConstantRange.offset = 0;
-      pipelineLayoutCreateInfo.pushConstantRange.size =
-          reflection.pushConstantSize;
-      pipelineLayoutCreateInfo.createInfo.pushConstantRangeCount = 1;
-      pipelineLayoutCreateInfo.createInfo.pPushConstantRanges =
-          &pipelineLayoutCreateInfo.pushConstantRange;
+      createInfo.pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+      createInfo.pushConstantRange.offset = 0;
+      createInfo.pushConstantRange.size = reflection.pushConstantSize;
+      createInfo.createInfo.pushConstantRangeCount = 1;
+      createInfo.createInfo.pPushConstantRanges = &createInfo.pushConstantRange;
     }
 
-    pipelineLayoutCreateInfos.emplace_back(pipelineLayoutCreateInfo);
-    ++layoutIndex;
-  }
-
-  if (pipelineLayoutCreateInfos.empty()) {
-    return pipelines;
+    pipelineLayoutCreateInfos.emplace_back(createInfo);
   }
 
   // Create all pipeline layouts in a single call
@@ -193,52 +168,49 @@ createComputePipelines(VkDevice device,
       pipelineLayoutCreateInfos.data(), pipelineLayoutCreateInfos.size());
 
   // Get all VkPipelineLayout values for compute pipeline creation
-  const auto &vkPipelineLayouts =
+  const auto vkPipelineLayouts =
       pipelineLayoutContainer.getLayouts(pipelineLayoutHandles);
 
-  // Accumulate pipeline create data for batch creation
+  // Build compute pipeline create data
   std::vector<ComputePipelineCreateData> pipelineCreateData;
-  pipelineCreateData.reserve(pipelineLayoutHandles.size());
+  pipelineCreateData.reserve(dispatches.size());
 
-  for (size_t i = 0; i < pipelineLayoutHandles.size(); ++i) {
-    const auto &dispatch = dispatches[validDispatchIndices[i]];
-    const auto &shaderHandle = dispatch.shader();
+  std::vector<VulkanPipelineStruct> pipelines;
+  pipelines.reserve(dispatches.size());
 
+  for (size_t i = 0; i < dispatches.size(); ++i) {
     VulkanPipelineStruct pipelineStruct{};
     pipelineStruct.pipelineLayoutHandle_ = pipelineLayoutHandles[i];
+    pipelines.emplace_back(pipelineStruct);
 
     ComputePipelineCreateData createData{};
-
-    // Configure shader stage
     createData.shaderStageInfo.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     createData.shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    createData.shaderStageInfo.module = shaderContainer.getShader(shaderHandle);
+    createData.shaderStageInfo.module =
+        shaderContainer.getShader(dispatches[i].shader());
     createData.shaderStageInfo.pName = "main";
 
-    // Configure compute pipeline create info
     createData.pipelineInfo.sType =
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     createData.pipelineInfo.layout = vkPipelineLayouts[i];
     createData.pipelineInfo.stage = createData.shaderStageInfo;
 
     pipelineCreateData.emplace_back(createData);
-    pipelines.emplace_back(pipelineStruct);
   }
 
   // Extract pipeline create infos for the batch call
   std::vector<VkComputePipelineCreateInfo> pipelineCreateInfos;
-  pipelineCreateInfos.reserve(pipelineCreateData.size());
+  pipelineCreateInfos.reserve(dispatches.size());
   for (const auto &data : pipelineCreateData) {
     pipelineCreateInfos.push_back(data.pipelineInfo);
   }
 
-  std::vector<VkPipeline> vkPipelines(pipelineCreateInfos.size());
+  std::vector<VkPipeline> vkPipelines(dispatches.size());
   VK_CHECK(vkCreateComputePipelines(
       device, VK_NULL_HANDLE, static_cast<uint32_t>(pipelineCreateInfos.size()),
       pipelineCreateInfos.data(), nullptr, vkPipelines.data()));
 
-  // Store the created pipelines in the result structs
   for (size_t i = 0; i < vkPipelines.size(); ++i) {
     pipelines[i].computePipeline_ = vkPipelines[i];
   }
