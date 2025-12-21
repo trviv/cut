@@ -187,13 +187,6 @@ public:
   VulkanDescriptorSetLayoutContainer() = default;
 
   /**
-   * Creates a descriptor set layout from the given create info.
-   * @param createInfo The Vulkan descriptor set layout create info.
-   * @return Handle to the created descriptor set layout.
-   */
-  ComputeHandle createLayout(const VkDescriptorSetLayoutCreateInfo &createInfo);
-
-  /**
    * Creates multiple descriptor set layouts from an array of create infos.
    * @param createInfos Array of Vulkan descriptor set layout create infos.
    * @param count Number of create infos in the array.
@@ -216,13 +209,14 @@ public:
   std::vector<VkDescriptorSetLayout>
   getLayouts(const std::vector<ComputeHandle> &handles) const;
 
-  /// Returns the descriptor set layout struct for the given handle.
-  const VulkanDescriptorSetLayoutStruct &
-  getLayoutStruct(const ComputeHandle &handle) const {
-    return ComputeDataContainer::get(handle);
-  }
-
 private:
+  /**
+   * Creates a descriptor set layout from the given create info.
+   * @param createInfo The Vulkan descriptor set layout create info.
+   * @return Handle to the created descriptor set layout.
+   */
+  ComputeHandle createLayout(const VkDescriptorSetLayoutCreateInfo &createInfo);
+
   /// Destroys a descriptor set layout and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
 };
@@ -265,12 +259,6 @@ public:
    */
   std::vector<VkPipelineLayout>
   getLayouts(const std::vector<ComputeHandle> &handles) const;
-
-  /// Returns the pipeline layout struct for the given handle.
-  const VulkanPipelineLayoutStruct &
-  getLayoutStruct(const ComputeHandle &handle) const {
-    return ComputeDataContainer::get(handle);
-  }
 
 private:
   /// Destroys a pipeline layout and releases its Vulkan resources.

@@ -68,16 +68,24 @@ prepareDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
                       VulkanShaderContainer &shaderContainer,
                       VulkanDescriptorSetLayoutContainer &layoutContainer) {
   DescriptorSetPreparationResult result;
-  result.layoutHandles.reserve(dispatches.size());
 
   std::unordered_map<VkDescriptorType, uint32_t> descriptorTypeCounts;
+
+  // Collect all layout bindings first (must stay alive until createLayouts)
+  std::vector<std::vector<VkDescriptorSetLayoutBinding>> allLayoutBindings;
+  allLayoutBindings.reserve(dispatches.size());
+
+  std::vector<VkDescriptorSetLayoutCreateInfo> layoutCreateInfos;
+  layoutCreateInfos.reserve(dispatches.size());
 
   for (const auto &dispatch : dispatches) {
     const auto &reflection = shaderContainer.getReflection(dispatch.shader());
 
     // Create descriptor set layout bindings and accumulate type counts
-    const auto layoutBindings = createDescriptorSetLayoutBindings(
-        reflection.bindings, descriptorTypeCounts);
+    allLayoutBindings.emplace_back(createDescriptorSetLayoutBindings(
+        reflection.bindings, descriptorTypeCounts));
+
+    const auto &layoutBindings = allLayoutBindings.back();
 
     // Create descriptor set layout (can be empty if no bindings)
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
@@ -86,8 +94,12 @@ prepareDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
     layoutInfo.pBindings =
         layoutBindings.empty() ? nullptr : layoutBindings.data();
 
-    result.layoutHandles.emplace_back(layoutContainer.createLayout(layoutInfo));
+    layoutCreateInfos.emplace_back(layoutInfo);
   }
+
+  // Create all descriptor set layouts in a single call
+  result.layoutHandles = layoutContainer.createLayouts(
+      layoutCreateInfos.data(), layoutCreateInfos.size());
 
   // Convert descriptor type counts to pool sizes
   result.poolSizes.reserve(descriptorTypeCounts.size());
