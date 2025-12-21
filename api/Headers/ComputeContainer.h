@@ -240,9 +240,9 @@ private:
 
 // Template implementation for ComputeHandle::get<T>()
 template <typename T>
-const T &ComputeHandle::get() const {
+const T &ComputeHandle::as() const {
   if (!*this) {
-    throw std::runtime_error("Trying to get data for an empty handle");
+    throw std::runtime_error("Trying to cast an empty handle");
   }
   if (container_->name() != T::Name) {
     throw std::runtime_error("Type mismatch: handle container name '" +

@@ -398,13 +398,13 @@ TEST(HandleGetTemplateTest, GetReturnsCorrectValue) {
   auto handle = container.createTestHandle(42);
 
   // Use the template get<T>() function
-  const auto &value = handle.get<TestValue>();
+  const auto &value = handle.as<TestValue>();
   EXPECT_EQ(value.value, 42);
 }
 
 TEST(HandleGetTemplateTest, GetOnEmptyHandleThrows) {
   ComputeHandle empty;
-  EXPECT_THROW(empty.get<TestValue>(), std::runtime_error);
+  EXPECT_THROW(empty.as<TestValue>(), std::runtime_error);
 }
 
 TEST(HandleGetTemplateTest, GetWithWrongTypeThrows) {
@@ -412,7 +412,7 @@ TEST(HandleGetTemplateTest, GetWithWrongTypeThrows) {
   auto handle = container.createTestHandle(42);
 
   // Trying to get with wrong type should throw
-  EXPECT_THROW(handle.get<WrongType>(), std::runtime_error);
+  EXPECT_THROW(handle.as<WrongType>(), std::runtime_error);
 }
 
 TEST(HandleGetTemplateTest, ConstHandleGetReturnsConstRef) {
@@ -420,6 +420,6 @@ TEST(HandleGetTemplateTest, ConstHandleGetReturnsConstRef) {
   const auto handle = container.createTestHandle(42);
 
   // Const handle should return const reference
-  const auto &value = handle.get<TestValue>();
+  const auto &value = handle.as<TestValue>();
   EXPECT_EQ(value.value, 42);
 }

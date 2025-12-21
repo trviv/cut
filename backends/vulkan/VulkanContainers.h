@@ -173,7 +173,7 @@ public:
    * @param handle Handle to the descriptor pool struct.
    * @return Vector of allocated descriptor sets.
    */
-  const std::vector<VkDescriptorSet> &
+  std::vector<VkDescriptorSet>
   getDescriptorSets(const ComputeHandle &handle) const {
     return ComputeDataContainer::get(handle).descriptorSets;
   }

@@ -61,7 +61,7 @@ public:
    * @throws std::runtime_error if the handle is invalid or type mismatch.
    */
   template <typename T>
-  const T &get() const;
+  const T &as() const;
 
 private:
   friend class ComputeContainer;
