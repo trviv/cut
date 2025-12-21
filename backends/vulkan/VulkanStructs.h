@@ -22,11 +22,6 @@ struct VulkanContextConfig {
   uint32_t maxCommandBuffers = 16;
 };
 
-/// Wrapper for a Vulkan command buffer used to record GPU commands.
-struct VulkanCommandStruct {
-  VkCommandBuffer command = VK_NULL_HANDLE;
-};
-
 /// Represents a GPU buffer with its memory allocation and mapping state.
 /// Supports both VMA-managed and manual memory allocation strategies.
 struct VulkanBufferStruct {
@@ -49,28 +44,6 @@ struct VulkanShaderStruct {
 
   VkShaderModule shader = VK_NULL_HANDLE;
   ShaderReflection reflection; ///< Binding information from SPIR-V reflection.
-};
-
-/// Manages compute shader dispatch configuration, including shader and resource
-/// bindings.
-class VulkanDispatchStruct {
-public:
-  /// Binds a compute shader to this dispatch configuration.
-  void bindShader(const ComputeHandle shaaderHandle);
-  /// Binds a resource (buffer) to a descriptor binding index.
-  void bindResource(const ComputeHandle resourceHandle, uint32_t index);
-
-private:
-  /// Associates a descriptor binding index with a resource handle.
-  struct Binding {
-    uint32_t index;
-    ComputeHandle handle;
-  };
-
-  ComputeHandle shaader_;
-  std::vector<Binding> bindings_;
-
-  std::vector<VkDescriptorSetLayoutBinding> descSetLayoutBindings_;
 };
 
 /// Wrapper for a Vulkan descriptor pool and its allocated descriptor sets.

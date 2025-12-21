@@ -21,13 +21,6 @@ TEST(VulkanContextConfig, CustomValues) {
   EXPECT_EQ(config.maxCommandBuffers, 32);
 }
 
-// VulkanCommandStruct tests
-
-TEST(VulkanCommandStruct, DefaultInitialization) {
-  VulkanCommandStruct cmd;
-  EXPECT_EQ(cmd.command, VK_NULL_HANDLE);
-}
-
 // VulkanBufferStruct tests
 
 TEST(VulkanBufferStruct, DefaultInitialization) {
