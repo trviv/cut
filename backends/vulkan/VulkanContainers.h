@@ -18,6 +18,16 @@ class VulkanDescriptorSetLayoutContainer;
 class VulkanPipelineLayoutContainer;
 class VulkanPipelineContainer;
 
+/// Holds references to all Vulkan containers needed by command buffers.
+struct VulkanContainerRefs {
+  VulkanBufferContainer &bufferContainer;
+  VulkanShaderContainer &shaderContainer;
+  VulkanDescriptorContainer &descriptorContainer;
+  VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer;
+  VulkanPipelineLayoutContainer &pipelineLayoutContainer;
+  VulkanPipelineContainer &pipelineContainer;
+};
+
 /// Base class for Vulkan containers that require a device handle.
 class VulkanContainerBase {
 public:
@@ -41,27 +51,11 @@ public:
    * Creates the command pool and retrieves the queue internally.
    * @param device The Vulkan logical device.
    * @param queueFamilyIndex The queue family index for command submission.
-   * @param bufferContainer Reference to buffer container for accessing buffers.
-   * @param shaderContainer Reference to shader container for accessing shader
-   * reflection data.
-   * @param descriptorContainer Reference to descriptor container for
-   * creating descriptor pools and sets.
-   * @param descriptorSetLayoutContainer Reference to descriptor set layout
-   * container for creating descriptor set layouts.
-   * @param pipelineLayoutContainer Reference to pipeline layout container for
-   * creating pipeline layouts.
-   * @param pipelineContainer Reference to pipeline container for creating
-   * compute pipelines.
+   * @param containers References to all Vulkan containers.
    */
-  VulkanCommandBufferContainer(
-      VkDevice device,
-      uint32_t queueFamilyIndex,
-      VulkanBufferContainer &bufferContainer,
-      VulkanShaderContainer &shaderContainer,
-      VulkanDescriptorContainer &descriptorContainer,
-      VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
-      VulkanPipelineLayoutContainer &pipelineLayoutContainer,
-      VulkanPipelineContainer &pipelineContainer);
+  VulkanCommandBufferContainer(VkDevice device,
+                               uint32_t queueFamilyIndex,
+                               VulkanContainerRefs containers);
 
   /// Destroys the command pool and waits for the queue to idle.
   ~VulkanCommandBufferContainer();
@@ -69,9 +63,7 @@ public:
   /// Creates a Vulkan-specific command buffer.
   ComputeHandle createCommandBuffer() override {
     return ComputeDataContainer::create(new VulkanCommandBuffer(
-        getDevice(), commandPool_, queue_, bufferContainer_, shaderContainer_,
-        descriptorContainer_, descriptorSetLayoutContainer_,
-        pipelineLayoutContainer_, pipelineContainer_));
+        getDevice(), commandPool_, queue_, containers_));
   }
 
   /// Returns the queue handle.
@@ -83,12 +75,7 @@ public:
 private:
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   VkQueue queue_ = VK_NULL_HANDLE;
-  VulkanBufferContainer &bufferContainer_;
-  VulkanShaderContainer &shaderContainer_;
-  VulkanDescriptorContainer &descriptorContainer_;
-  VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer_;
-  VulkanPipelineLayoutContainer &pipelineLayoutContainer_;
-  VulkanPipelineContainer &pipelineContainer_;
+  VulkanContainerRefs containers_;
 };
 
 /// Container managing GPU buffer allocations and their lifecycle.

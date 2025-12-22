@@ -1,3 +1,4 @@
+#include "VulkanContainers.h"
 #include <VulkanCommandBuffer.h>
 #include <VulkanCompute.h>
 
@@ -63,9 +64,10 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   // Create and set the command buffer container (after shaderContainer_ is set
   // up)
   setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
-      device_, computeQueueFamilyIndex_, bufferContainer_, shaderContainer_,
-      descriptorContainer_, descriptorSetLayoutContainer_,
-      pipelineLayoutContainer_, pipelineContainer_));
+      device_, computeQueueFamilyIndex_,
+      VulkanContainerRefs{bufferContainer_, shaderContainer_,
+                          descriptorContainer_, descriptorSetLayoutContainer_,
+                          pipelineLayoutContainer_, pipelineContainer_}));
 }
 
 PhysicalDeviceAndQueueIndex

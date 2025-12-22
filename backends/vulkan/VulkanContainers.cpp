@@ -4,19 +4,8 @@
 namespace cut {
 
 VulkanCommandBufferContainer::VulkanCommandBufferContainer(
-    VkDevice device,
-    uint32_t queueFamilyIndex,
-    VulkanBufferContainer &bufferContainer,
-    VulkanShaderContainer &shaderContainer,
-    VulkanDescriptorContainer &descriptorContainer,
-    VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
-    VulkanPipelineLayoutContainer &pipelineLayoutContainer,
-    VulkanPipelineContainer &pipelineContainer)
-    : bufferContainer_(bufferContainer), shaderContainer_(shaderContainer),
-      descriptorContainer_(descriptorContainer),
-      descriptorSetLayoutContainer_(descriptorSetLayoutContainer),
-      pipelineLayoutContainer_(pipelineLayoutContainer),
-      pipelineContainer_(pipelineContainer) {
+    VkDevice device, uint32_t queueFamilyIndex, VulkanContainerRefs containers)
+    : containers_(containers) {
   setDevice(device);
   vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue_);
 

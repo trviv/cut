@@ -14,6 +14,7 @@ class VulkanDescriptorContainer;
 class VulkanDescriptorSetLayoutContainer;
 class VulkanPipelineLayoutContainer;
 class VulkanPipelineContainer;
+struct VulkanContainerRefs;
 
 /**
  * Vulkan implementation of CommandBuffer.
@@ -26,28 +27,12 @@ public:
    * @param device The Vulkan logical device.
    * @param commandPool The command pool to allocate command buffers from.
    * @param queue The compute queue for submissions.
-   * @param bufferContainer Reference to buffer container for accessing buffers.
-   * @param shaderContainer Reference to shader container for accessing shader
-   * reflection data.
-   * @param descriptorContainer Reference to descriptor container for
-   * creating descriptor pools and sets.
-   * @param descriptorSetLayoutContainer Reference to descriptor set layout
-   * container for creating descriptor set layouts.
-   * @param pipelineLayoutContainer Reference to pipeline layout container for
-   * creating pipeline layouts.
-   * @param pipelineContainer Reference to pipeline container for creating
-   * compute pipelines.
+   * @param containers References to all Vulkan containers.
    */
-  VulkanCommandBuffer(
-      VkDevice device,
-      VkCommandPool commandPool,
-      VkQueue queue,
-      VulkanBufferContainer &bufferContainer,
-      VulkanShaderContainer &shaderContainer,
-      VulkanDescriptorContainer &descriptorContainer,
-      VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
-      VulkanPipelineLayoutContainer &pipelineLayoutContainer,
-      VulkanPipelineContainer &pipelineContainer);
+  VulkanCommandBuffer(VkDevice device,
+                      VkCommandPool commandPool,
+                      VkQueue queue,
+                      VulkanContainerRefs &containers);
 
   ~VulkanCommandBuffer() override = default;
 
@@ -74,12 +59,7 @@ private:
   VkCommandPool commandPool_;
   VkQueue queue_;
   VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
-  VulkanBufferContainer &bufferContainer_;
-  VulkanShaderContainer &shaderContainer_;
-  VulkanDescriptorContainer &descriptorContainer_;
-  VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer_;
-  VulkanPipelineLayoutContainer &pipelineLayoutContainer_;
-  VulkanPipelineContainer &pipelineContainer_;
+  VulkanContainerRefs &containers_;
 
   /// Active descriptor pool handle created during end().
   ComputeHandle descriptorsHandle_;
