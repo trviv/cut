@@ -58,11 +58,15 @@ public:
    */
   void wait() override;
 
+  ~VulkanCommandBuffer() override;
+
 private:
   VkDevice device_;
   VkCommandPool commandPool_;
   VkQueue queue_;
   VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
+  VkFence fence_ = VK_NULL_HANDLE;
+  bool submitted_ = false;
   VulkanContainerRefs &containers_;
 
   /// Active descriptor pool handle created during end().

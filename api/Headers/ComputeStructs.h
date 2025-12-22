@@ -142,7 +142,7 @@ public:
   /**
    * Virtual destructor to ensure proper cleanup of derived classes.
    */
-  virtual ~CommandBuffer();
+  virtual ~CommandBuffer() = default;
 
   /**
    * Begins recording commands to this command buffer.
@@ -174,7 +174,7 @@ public:
    * Waits for the command buffer to finish execution.
    * Blocks until all submitted commands have completed.
    */
-  virtual void wait() {};
+  virtual void wait() = 0;
 
 protected:
   /// Returns the list of encoded compute dispatches.

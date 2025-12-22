@@ -208,7 +208,21 @@ VulkanCommandBuffer::VulkanCommandBuffer(VkDevice device,
   allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   allocInfo.commandBufferCount = 1;
 
-  vkAllocateCommandBuffers(device_, &allocInfo, &commandBuffer_);
+  VK_CHECK(vkAllocateCommandBuffers(device_, &allocInfo, &commandBuffer_));
+
+  // Create fence for synchronization
+  VkFenceCreateInfo fenceInfo{};
+  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fenceInfo.flags = 0; // Unsignaled state
+
+  VK_CHECK(vkCreateFence(device_, &fenceInfo, nullptr, &fence_));
+}
+
+VulkanCommandBuffer::~VulkanCommandBuffer() {
+  wait();
+  if (fence_ != VK_NULL_HANDLE) {
+    vkDestroyFence(device_, fence_, nullptr);
+  }
 }
 
 void VulkanCommandBuffer::begin() {
@@ -370,17 +384,28 @@ void VulkanCommandBuffer::end() {
 }
 
 void VulkanCommandBuffer::submit() {
-  // Submit to queue
+  // Reset fence to unsignaled state before submit
+  VK_CHECK(vkResetFences(device_, 1, &fence_));
+
+  // Submit to queue with fence
   VkSubmitInfo submitInfo{};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = &commandBuffer_;
 
-  VK_CHECK(vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE));
+  VK_CHECK(vkQueueSubmit(queue_, 1, &submitInfo, fence_));
+  submitted_ = true;
 }
 
 void VulkanCommandBuffer::wait() {
-  VK_CHECK(vkQueueWaitIdle(queue_));
+  // If not submitted, nothing to wait for
+  if (!submitted_) {
+    return;
+  }
+
+  // Wait for the fence to be signaled (command buffer execution complete)
+  VK_CHECK(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX));
+  submitted_ = false;
 }
 
 } // namespace cut
