@@ -41,6 +41,10 @@ constexpr uint32_t DecorationNonWritable = 24;
 constexpr uint32_t DecorationNonReadable = 25;
 constexpr uint32_t DecorationBlock = 2;
 constexpr uint32_t DecorationBufferBlock = 3;
+constexpr uint32_t DecorationOffset = 35;
+
+// Opcodes for member decoration
+constexpr uint32_t OpMemberDecorate = 72;
 
 // Storage classes
 constexpr uint32_t StorageClassUniformConstant = 0;
@@ -137,6 +141,18 @@ protected:
     code.push_back(spirv::makeOp(3, spirv::OpDecorate));
     code.push_back(targetId);
     code.push_back(spirv::DecorationBufferBlock);
+  }
+
+  // Helper to add OpMemberDecorate with Offset decoration
+  void addMemberOffsetDecoration(std::vector<uint32_t> &code,
+                                 uint32_t structId,
+                                 uint32_t memberIndex,
+                                 uint32_t offset) {
+    code.push_back(spirv::makeOp(5, spirv::OpMemberDecorate));
+    code.push_back(structId);
+    code.push_back(memberIndex);
+    code.push_back(spirv::DecorationOffset);
+    code.push_back(offset);
   }
 
   // Helper to add OpTypeVoid
@@ -413,6 +429,9 @@ TEST_F(SpirvReflectionTest, PushConstant) {
   addMemoryModel(code);
 
   // No binding decoration for push constants
+  // But we need member offset decorations for size calculation
+  addMemberOffsetDecoration(code, 3, 0, 0); // first float at offset 0
+  addMemberOffsetDecoration(code, 3, 1, 4); // second float at offset 4
 
   // Types
   addTypeVoid(code, 1);
@@ -428,6 +447,8 @@ TEST_F(SpirvReflectionTest, PushConstant) {
   ASSERT_EQ(reflection.bindings.size(), 1);
   EXPECT_EQ(reflection.bindings[0].type, BindingType::PushConstant);
   EXPECT_EQ(reflection.bindings[0].access, BindingAccess::ReadOnly);
+  // Verify push constant size is calculated: offset 4 + sizeof(float) = 8 bytes
+  EXPECT_EQ(reflection.pushConstantSize, 8);
 }
 
 // Test: Sampler binding
@@ -594,4 +615,30 @@ TEST_F(SpirvReflectionTest, StorageBufferWithBufferBlock) {
   EXPECT_EQ(reflection.bindings[0].type,
             BindingType::StorageBuffer); // Should be SSBO due to BufferBlock
   EXPECT_EQ(reflection.bindings[0].access, BindingAccess::ReadWrite);
+}
+
+// Test: Push constant size with single uint (like Vector_Add.shader)
+TEST_F(SpirvReflectionTest, PushConstantSingleUint) {
+  auto code = makeHeader(10);
+  addCapability(code);
+  addMemoryModel(code);
+
+  // Member offset decoration for single uint at offset 0
+  addMemberOffsetDecoration(code, 3, 0, 0);
+
+  // Types
+  addTypeVoid(code, 1);
+  addTypeInt(code, 2, 32, 0); // uint32
+  addTypeStruct(code, 3, {2}); // struct { uint }
+  addTypePointer(code, 4, spirv::StorageClassPushConstant, 3);
+
+  // Variable (push constant)
+  addVariable(code, 4, 5, spirv::StorageClassPushConstant);
+
+  auto reflection = reflectSpirvBindings(code);
+
+  ASSERT_EQ(reflection.bindings.size(), 1);
+  EXPECT_EQ(reflection.bindings[0].type, BindingType::PushConstant);
+  // Verify push constant size: offset 0 + sizeof(uint) = 4 bytes
+  EXPECT_EQ(reflection.pushConstantSize, 4);
 }

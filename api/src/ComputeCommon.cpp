@@ -69,6 +69,12 @@ constexpr uint32_t MagicNumber = 0x07230203;
 
 // Opcodes
 constexpr uint32_t OpDecorate = 71;
+constexpr uint32_t OpMemberDecorate = 72;
+constexpr uint32_t OpTypeInt = 21;
+constexpr uint32_t OpTypeFloat = 22;
+constexpr uint32_t OpTypeVector = 23;
+constexpr uint32_t OpTypeMatrix = 24;
+constexpr uint32_t OpTypeStruct = 30;
 constexpr uint32_t OpTypePointer = 32;
 constexpr uint32_t OpVariable = 59;
 constexpr uint32_t OpTypeImage = 25;
@@ -82,6 +88,7 @@ constexpr uint32_t DecorationNonWritable = 24;
 constexpr uint32_t DecorationNonReadable = 25;
 constexpr uint32_t DecorationBlock = 2;
 constexpr uint32_t DecorationBufferBlock = 3;
+constexpr uint32_t DecorationOffset = 35;
 
 // Storage classes
 constexpr uint32_t StorageClassUniform = 2;
@@ -110,6 +117,15 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
   std::unordered_map<uint32_t, bool> idIsImage;
   std::unordered_map<uint32_t, bool> idIsSampler;
   std::unordered_map<uint32_t, bool> idIsSampledImage;
+
+  // Maps for type size calculation
+  std::unordered_map<uint32_t, uint32_t>
+      idToTypeSize; // Type ID -> size in bytes
+  std::unordered_map<uint32_t, std::vector<uint32_t>>
+      structMembers; // Struct ID -> member type IDs
+  // Map: struct ID -> (member index -> offset)
+  std::unordered_map<uint32_t, std::unordered_map<uint32_t, uint32_t>>
+      memberOffsets;
 
   // First pass: collect decorations and type info
   size_t i = 5; // Skip header
@@ -140,6 +156,65 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
         } else if (decoration == spirv::DecorationBufferBlock) {
           idIsBufferBlock[targetId] = true;
         }
+      }
+      break;
+    }
+    case spirv::OpMemberDecorate: {
+      // OpMemberDecorate %structType member decoration [operands...]
+      if (wordCount >= 4) {
+        uint32_t structId = spirvCode[i + 1];
+        uint32_t memberIndex = spirvCode[i + 2];
+        uint32_t decoration = spirvCode[i + 3];
+
+        if (decoration == spirv::DecorationOffset && wordCount >= 5) {
+          memberOffsets[structId][memberIndex] = spirvCode[i + 4];
+        }
+      }
+      break;
+    }
+    case spirv::OpTypeInt:
+    case spirv::OpTypeFloat: {
+      // OpTypeInt/OpTypeFloat %result width [signedness]
+      if (wordCount >= 3) {
+        uint32_t resultId = spirvCode[i + 1];
+        uint32_t width = spirvCode[i + 2]; // Width in bits
+        idToTypeSize[resultId] = width / 8;
+      }
+      break;
+    }
+    case spirv::OpTypeVector: {
+      // OpTypeVector %result %componentType componentCount
+      if (wordCount >= 4) {
+        uint32_t resultId = spirvCode[i + 1];
+        uint32_t componentType = spirvCode[i + 2];
+        uint32_t componentCount = spirvCode[i + 3];
+        if (idToTypeSize.count(componentType) > 0) {
+          idToTypeSize[resultId] = idToTypeSize[componentType] * componentCount;
+        }
+      }
+      break;
+    }
+    case spirv::OpTypeMatrix: {
+      // OpTypeMatrix %result %columnType columnCount
+      if (wordCount >= 4) {
+        uint32_t resultId = spirvCode[i + 1];
+        uint32_t columnType = spirvCode[i + 2];
+        uint32_t columnCount = spirvCode[i + 3];
+        if (idToTypeSize.count(columnType) > 0) {
+          idToTypeSize[resultId] = idToTypeSize[columnType] * columnCount;
+        }
+      }
+      break;
+    }
+    case spirv::OpTypeStruct: {
+      // OpTypeStruct %result [memberTypes...]
+      if (wordCount >= 2) {
+        uint32_t resultId = spirvCode[i + 1];
+        std::vector<uint32_t> members;
+        for (uint32_t m = 2; m < wordCount; ++m) {
+          members.push_back(spirvCode[i + m]);
+        }
+        structMembers[resultId] = members;
       }
       break;
     }
@@ -177,6 +252,57 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
     i += wordCount;
   }
 
+  // Helper lambda to calculate struct size from member offsets and sizes
+  auto calculateStructSize = [&](uint32_t structId) -> uint32_t {
+    if (structMembers.count(structId) == 0) {
+      return 0;
+    }
+
+    const auto &members = structMembers[structId];
+    if (members.empty()) {
+      return 0;
+    }
+
+    // If we have offset decorations, use offset + size of last member
+    if (memberOffsets.count(structId) > 0) {
+      const auto &offsets = memberOffsets[structId];
+      uint32_t maxOffset = 0;
+      uint32_t lastMemberSize = 0;
+      uint32_t lastMemberIndex = 0;
+
+      for (const auto &[memberIdx, offset] : offsets) {
+        if (offset >= maxOffset) {
+          maxOffset = offset;
+          lastMemberIndex = memberIdx;
+        }
+      }
+
+      // Get size of the last member
+      if (lastMemberIndex < members.size()) {
+        uint32_t lastMemberType = members[lastMemberIndex];
+        if (idToTypeSize.count(lastMemberType) > 0) {
+          lastMemberSize = idToTypeSize[lastMemberType];
+        } else {
+          // Default to 4 bytes if unknown
+          lastMemberSize = 4;
+        }
+      }
+
+      return maxOffset + lastMemberSize;
+    }
+
+    // Fallback: sum up member sizes
+    uint32_t totalSize = 0;
+    for (uint32_t memberType : members) {
+      if (idToTypeSize.count(memberType) > 0) {
+        totalSize += idToTypeSize[memberType];
+      } else {
+        totalSize += 4; // Default
+      }
+    }
+    return totalSize;
+  };
+
   // Second pass: find variables
   i = 5;
   while (i < spirvCode.size()) {
@@ -202,6 +328,12 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
         info.type = BindingType::PushConstant;
         info.access = BindingAccess::ReadOnly;
         reflection.bindings.push_back(info);
+
+        // Calculate push constant size from the pointed struct type
+        if (pointerToPointedType.count(pointerTypeId) > 0) {
+          uint32_t structTypeId = pointerToPointedType[pointerTypeId];
+          reflection.pushConstantSize = calculateStructSize(structTypeId);
+        }
       }
       // Handle bound resources
       else if (idToBinding.count(resultId) > 0) {

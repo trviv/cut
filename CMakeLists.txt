@@ -38,7 +38,7 @@ if(NOT Vulkan_FOUND)
 endif()
 
 # Shader compilation disabled - using pre-built Shaders.cpp
-# include(${CMAKE_CURRENT_LIST_DIR}/shader_loader.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/shader_loader.cmake)
 
 if (OPENL_CL_WITH_VULKAN)
     # Check for clspv (OpenCL to SPIR-V compiler)
