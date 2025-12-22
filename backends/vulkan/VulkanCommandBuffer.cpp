@@ -168,7 +168,7 @@ createComputePipelines(VkDevice device,
       pipelineLayoutCreateInfos.data(), pipelineLayoutCreateInfos.size());
 
   // Get all VkPipelineLayout values for compute pipeline creation
-  const auto vkPipelineLayouts =
+  const auto &vkPipelineLayouts =
       pipelineLayoutContainer.getLayouts(pipelineLayoutHandles);
 
   // Build compute pipeline create data
@@ -180,7 +180,7 @@ createComputePipelines(VkDevice device,
 
   for (size_t i = 0; i < dispatches.size(); ++i) {
     VulkanPipelineStruct pipelineStruct{};
-    pipelineStruct.pipelineLayoutHandle_ = pipelineLayoutHandles[i];
+    pipelineStruct.pipelineLayoutHandle = pipelineLayoutHandles[i];
     pipelines.emplace_back(pipelineStruct);
 
     ComputePipelineCreateData createData{};
@@ -212,7 +212,7 @@ createComputePipelines(VkDevice device,
       pipelineCreateInfos.data(), nullptr, vkPipelines.data()));
 
   for (size_t i = 0; i < vkPipelines.size(); ++i) {
-    pipelines[i].computePipeline_ = vkPipelines[i];
+    pipelines[i].computePipeline = vkPipelines[i];
   }
 
   return pipelines;
@@ -258,7 +258,7 @@ void VulkanCommandBuffer::end() {
 
   // Create descriptor pool and allocate descriptor sets
   if (!preparation.poolSizes.empty() && !descriptorSetLayoutHandles.empty()) {
-    const auto descriptorSetLayouts =
+    const auto &descriptorSetLayouts =
         descriptorSetLayoutContainer_.getLayouts(descriptorSetLayoutHandles);
 
     descriptorsHandle_ = descriptorContainer_.createDescriptorSets(
@@ -268,11 +268,13 @@ void VulkanCommandBuffer::end() {
     const auto &descriptorSets =
         descriptorContainer_.getDescriptorSets(descriptorsHandle_);
 
+    std::vector<ComputeHandle> pipelineLayoutHandles;
+
     // Create compute pipelines from descriptor set layouts
     pipelines_ = createComputePipelines(
         device_, dispatches(), descriptorSetLayoutHandles, shaderContainer_,
         descriptorSetLayoutContainer_, pipelineLayoutContainer_,
-        pipelineLayoutHandles_);
+        pipelineLayoutHandles);
 
     // Update descriptor sets with buffer bindings from dispatches
     std::vector<VkWriteDescriptorSet> descriptorWrites;
@@ -350,7 +352,7 @@ void VulkanCommandBuffer::end() {
 
     // Pre-fetch VkPipelineLayout values for command recording
     const auto pipelineLayouts =
-        pipelineLayoutContainer_.getLayouts(pipelineLayoutHandles_);
+        pipelineLayoutContainer_.getLayouts(pipelineLayoutHandles);
 
     // Record commands: bind pipelines, descriptor sets, and dispatch
     dispatchIndex = 0;
@@ -368,7 +370,7 @@ void VulkanCommandBuffer::end() {
 
       // Bind the compute pipeline
       vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
-                        pipeline.computePipeline_);
+                        pipeline.computePipeline);
 
       // Bind the descriptor set
       vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -410,14 +412,11 @@ void VulkanCommandBuffer::submit() {
 
   // Clean up pipelines after GPU execution completes
   for (auto &pipeline : pipelines_) {
-    if (pipeline.computePipeline_ != VK_NULL_HANDLE) {
-      vkDestroyPipeline(device_, pipeline.computePipeline_, nullptr);
+    if (pipeline.computePipeline != VK_NULL_HANDLE) {
+      vkDestroyPipeline(device_, pipeline.computePipeline, nullptr);
     }
   }
   pipelines_.clear();
-
-  // Clean up pipeline layout handles (the container will destroy the layouts)
-  pipelineLayoutHandles_.clear();
 
   // Clean up descriptor pool handle
   descriptorsHandle_ = ComputeHandle();

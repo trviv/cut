@@ -54,8 +54,8 @@ TEST(VulkanShaderStruct, DefaultInitialization) {
 
 TEST(VulkanPipelineStruct, DefaultInitialization) {
   VulkanPipelineStruct pipeline;
-  EXPECT_FALSE(pipeline.pipelineLayoutHandle_);
-  EXPECT_EQ(pipeline.computePipeline_, VK_NULL_HANDLE);
+  EXPECT_FALSE(pipeline.pipelineLayoutHandle);
+  EXPECT_EQ(pipeline.computePipeline, VK_NULL_HANDLE);
 }
 
 // PhysicalDeviceAndQueueIndex tests

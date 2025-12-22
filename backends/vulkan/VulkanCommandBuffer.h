@@ -81,9 +81,6 @@ private:
 
   /// Pipelines created during end(), cleaned up in submit().
   std::vector<VulkanPipelineStruct> pipelines_;
-
-  /// Pipeline layout handles created during end(), cleaned up in submit().
-  std::vector<ComputeHandle> pipelineLayoutHandles_;
 };
 
 } // namespace cut
