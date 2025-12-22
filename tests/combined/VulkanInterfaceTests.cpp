@@ -184,52 +184,88 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
   EXPECT_EQ(referenceResult, outputData);
 }
 
-TEST_F(VulkanTestEnvironment, Shader) {
-  //    cut::ComputeHandle buffer1;
-  //    cut::ComputeHandle buffer2;
-  //    cut::ComputeHandle outBuffer;
-  //    const uint32_t elements = 10;
-  //    const uint32_t dtypeSize = sizeof(uint32_t);
-  //
-  //    {
-  //        const auto refData = generateRandomUint(elements);
-  //        buffer1 = interface->createBuffer(elements * dtypeSize,
-  //        refData.data());
-  //    }
-  //
-  //    {
-  //        const auto refData = generateRandomUint(elements);
-  //        buffer2 = interface->createBuffer(elements * dtypeSize,
-  //        refData.data());
-  //    }
-  //
-  //    {
-  //        const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
-  //        interface->createShaderModule(shader);
-  //    }
-  //
-  //    outBuffer = interface->createBuffer(elements * dtypeSize, nullptr);
-  //
-  //    interface->copyDataToBuffer(refData.data(), buffer1, elements *
-  //    dtypeSize,
-  //                                0, 0, false, true);
-  //
-  //    std::vector<uint32_t> outData(elements);
-  //
-  //    EXPECT_NO_THROW({
-  //        interface->copyDataFromBuffer(buffer1, outData.data(),
-  //                                      elements * dtypeSize, 0, 0, false,
-  //                                      false);
-  //    });
-  //
-  //    EXPECT_THROW(
-  //        {
-  //            // reading outside range
-  //            interface->copyDataFromBuffer(buffer1, outData.data(),
-  //                                          elements * dtypeSize, 1, 0, false,
-  //                                          false);
-  //        },
-  //        std::runtime_error);
-  //
-  //    EXPECT_EQ(refData, outData);
+TEST_F(VulkanTestEnvironment, MultipleDispatches) {
+  // Test with 5 separate vector addition dispatches in a single command buffer
+  // Each dispatch operates on completely independent buffers with unique data
+
+  constexpr size_t numDispatches = 5;
+  constexpr uint32_t elementsPerDispatch = 256;
+  constexpr size_t bufferSize = elementsPerDispatch * sizeof(float);
+
+  // Create separate input/output data for each dispatch
+  struct DispatchData {
+    std::vector<float> inputA;
+    std::vector<float> inputB;
+    std::vector<float> expected;
+    cut::ComputeHandle bufferA;
+    cut::ComputeHandle bufferB;
+    cut::ComputeHandle bufferOut;
+  };
+
+  std::vector<DispatchData> dispatchData(numDispatches);
+
+  // Initialize each dispatch with unique data patterns
+  for (size_t i = 0; i < numDispatches; ++i) {
+    auto &d = dispatchData[i];
+    d.inputA.resize(elementsPerDispatch);
+    d.inputB.resize(elementsPerDispatch);
+    d.expected.resize(elementsPerDispatch);
+
+    // Each dispatch uses a different multiplier to ensure unique data
+    const float multiplierA = static_cast<float>(i + 1) * 10.0f;
+    const float multiplierB = static_cast<float>(i + 1) * 5.0f;
+
+    for (uint32_t j = 0; j < elementsPerDispatch; ++j) {
+      d.inputA[j] = static_cast<float>(j) * multiplierA;
+      d.inputB[j] = static_cast<float>(j) * multiplierB;
+      d.expected[j] = d.inputA[j] + d.inputB[j];
+    }
+
+    // Create independent buffers for each dispatch
+    d.bufferA = interface->createBuffer(bufferSize, d.inputA.data());
+    d.bufferB = interface->createBuffer(bufferSize, d.inputB.data());
+    d.bufferOut = interface->createBuffer(bufferSize, nullptr);
+  }
+
+  // Load vector add shader
+  cut::ComputeHandle shaderModule;
+  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  shaderModule = interface->createShaderModule(shader);
+
+  // Record all 5 dispatches in a single command buffer
+  cut::ComputeHandle cmdBuffer;
+  const uint32_t threadGroups = (elementsPerDispatch + 63) / 64;
+
+  interface->beginCommandBuffer();
+
+  for (size_t i = 0; i < numDispatches; ++i) {
+    const auto &d = dispatchData[i];
+    cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+
+    interface->encode({shaderModule, tgSize,
+                       {cut::ComputeBinding(0, d.bufferA),
+                        cut::ComputeBinding(1, d.bufferB),
+                        cut::ComputeBinding(2, d.bufferOut)}});
+  }
+
+  cmdBuffer = interface->endCommandBuffer();
+  interface->submit(cmdBuffer);
+
+  // Verify output from each dispatch independently
+  for (size_t i = 0; i < numDispatches; ++i) {
+    const auto &d = dispatchData[i];
+    std::vector<float> outputData(elementsPerDispatch);
+
+    interface->copyDataFromBuffer(d.bufferOut, outputData.data(), bufferSize, 0,
+                                  0, false, false);
+
+    // Compare each element with expected result
+    for (uint32_t j = 0; j < elementsPerDispatch; ++j) {
+      EXPECT_FLOAT_EQ(d.expected[j], outputData[j])
+          << "Dispatch " << i << ", element " << j << ": expected "
+          << d.expected[j] << " but got " << outputData[j];
+    }
+  }
+
+  cmdBuffer.reset();
 }
