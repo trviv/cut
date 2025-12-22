@@ -253,8 +253,12 @@ void VulkanCommandBuffer::end() {
         }
 
         // Find the corresponding binding info from shader reflection
+        // Skip push constants as they don't use descriptor bindings
         const BindingInfo *bindingInfo = nullptr;
         for (const auto &info : reflection.bindings) {
+          if (info.type == BindingType::PushConstant) {
+            continue;
+          }
           if (info.binding == binding.index()) {
             bindingInfo = &info;
             break;
@@ -314,7 +318,8 @@ void VulkanCommandBuffer::end() {
           containers_.pipelineLayoutContainer.getLayout(layoutHandle));
     }
 
-    // Record commands: bind pipelines, descriptor sets, and dispatch
+    // Record commands: bind pipelines, descriptor sets, push constants, and
+    // dispatch
     dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
       const auto &shaderHandle = dispatch.shader();
@@ -334,6 +339,16 @@ void VulkanCommandBuffer::end() {
       vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
                               pipelineLayouts[dispatchIndex], 0, 1,
                               &descriptorSets[dispatchIndex], 0, nullptr);
+
+      // Push constants from data bindings
+      for (const auto &binding : dispatch.bindings()) {
+        if (binding.isData()) {
+          const auto &data = binding.getData();
+          vkCmdPushConstants(commandBuffer_, pipelineLayouts[dispatchIndex],
+                             VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                             static_cast<uint32_t>(data.size()), data.data());
+        }
+      }
 
       // Dispatch compute work
       const auto &tgSize = dispatch.threadgroupSize();

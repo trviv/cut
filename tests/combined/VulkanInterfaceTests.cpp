@@ -70,6 +70,24 @@ TEST_F(VulkanTestEnvironment, ShaderModule) {
   interface->createShaderModule(shader);
 }
 
+TEST_F(VulkanTestEnvironment, ShaderReflection) {
+  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  auto reflection = cut::reflectSpirvBindings(shader);
+
+  std::cout << "Push constant size: " << reflection.pushConstantSize << "\n";
+  std::cout << "Bindings count: " << reflection.bindings.size() << "\n";
+
+  for (const auto &b : reflection.bindings) {
+    std::cout << "  set=" << b.set << " binding=" << b.binding
+              << " type=" << static_cast<int>(b.type)
+              << " access=" << static_cast<int>(b.access) << "\n";
+  }
+
+  // Expect 4 bindings: 3 storage buffers + 1 push constant
+  EXPECT_EQ(reflection.bindings.size(), 4);
+  EXPECT_EQ(reflection.pushConstantSize, 4); // uint numElements
+}
+
 TEST_F(VulkanTestEnvironment, BufferToBufferCopy) {
   cut::ComputeHandle srcBuffer;
   cut::ComputeHandle dstBuffer;
@@ -163,7 +181,8 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
         {shaderModule,
          threadGroups,
          {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
-          cut::ComputeBinding(2, bufferOut)}});
+          cut::ComputeBinding(2, bufferOut),
+          cut::ComputeBinding(3, cut::DataReference(elements))}});
 
     cmdBuffer = interface->endCommandBuffer();
 
@@ -242,10 +261,12 @@ TEST_F(VulkanTestEnvironment, MultipleDispatches) {
     const auto &d = dispatchData[i];
     cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
 
-    interface->encode({shaderModule, tgSize,
-                       {cut::ComputeBinding(0, d.bufferA),
-                        cut::ComputeBinding(1, d.bufferB),
-                        cut::ComputeBinding(2, d.bufferOut)}});
+    interface->encode(
+        {shaderModule,
+         tgSize,
+         {cut::ComputeBinding(0, d.bufferA), cut::ComputeBinding(1, d.bufferB),
+          cut::ComputeBinding(2, d.bufferOut),
+          cut::ComputeBinding(3, cut::DataReference(elementsPerDispatch))}});
   }
 
   cmdBuffer = interface->endCommandBuffer();
