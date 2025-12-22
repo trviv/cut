@@ -47,52 +47,42 @@ createDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
   }
 
   std::unordered_map<VkDescriptorType, uint32_t> descriptorTypeCounts;
+  {
+    // Collect all layout bindings for each dispatch
+    std::vector<std::vector<VkDescriptorSetLayoutBinding>> allLayoutBindings;
+    allLayoutBindings.reserve(dispatches.size());
 
-  // Collect all layout bindings (must stay alive until createLayouts)
-  std::vector<std::vector<VkDescriptorSetLayoutBinding>> allLayoutBindings;
-  allLayoutBindings.reserve(dispatches.size());
+    for (const auto &dispatch : dispatches) {
+      const auto &reflection = shaderContainer.getReflection(dispatch.shader());
 
-  std::vector<VkDescriptorSetLayoutCreateInfo> layoutCreateInfos;
-  layoutCreateInfos.reserve(dispatches.size());
+      // Create layout bindings for this dispatch
+      std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
+      layoutBindings.reserve(reflection.bindings.size());
 
-  for (const auto &dispatch : dispatches) {
-    const auto &reflection = shaderContainer.getReflection(dispatch.shader());
+      for (const auto &binding : reflection.bindings) {
+        auto descriptorType = toVkDescriptorType(binding.type);
+        if (!descriptorType) {
+          continue;
+        }
 
-    // Create layout bindings for this dispatch
-    std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
-    layoutBindings.reserve(reflection.bindings.size());
+        descriptorTypeCounts[*descriptorType]++;
 
-    for (const auto &binding : reflection.bindings) {
-      auto descriptorType = toVkDescriptorType(binding.type);
-      if (!descriptorType) {
-        continue;
+        VkDescriptorSetLayoutBinding layoutBinding{};
+        layoutBinding.binding = binding.binding;
+        layoutBinding.descriptorCount = 1;
+        layoutBinding.descriptorType = *descriptorType;
+        layoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        layoutBinding.pImmutableSamplers = nullptr;
+
+        layoutBindings.emplace_back(layoutBinding);
       }
 
-      descriptorTypeCounts[*descriptorType]++;
-
-      VkDescriptorSetLayoutBinding layoutBinding{};
-      layoutBinding.binding = binding.binding;
-      layoutBinding.descriptorCount = 1;
-      layoutBinding.descriptorType = *descriptorType;
-      layoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-      layoutBinding.pImmutableSamplers = nullptr;
-
-      layoutBindings.emplace_back(layoutBinding);
+      allLayoutBindings.emplace_back(std::move(layoutBindings));
     }
 
-    allLayoutBindings.emplace_back(std::move(layoutBindings));
-    const auto &bindings = allLayoutBindings.back();
-
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings = bindings.empty() ? nullptr : bindings.data();
-
-    layoutCreateInfos.emplace_back(layoutInfo);
+    // Create all descriptor set layouts
+    result.layoutHandles = layoutContainer.createLayouts(allLayoutBindings);
   }
-
-  // Create all descriptor set layouts
-  result.layoutHandles = layoutContainer.createLayouts(layoutCreateInfos);
 
   // Convert descriptor type counts to pool sizes
   std::vector<VkDescriptorPoolSize> poolSizes;

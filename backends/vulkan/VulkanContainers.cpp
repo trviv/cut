@@ -129,12 +129,20 @@ ComputeHandle VulkanDescriptorSetLayoutContainer::createLayout(
 }
 
 std::vector<ComputeHandle> VulkanDescriptorSetLayoutContainer::createLayouts(
-    const std::vector<VkDescriptorSetLayoutCreateInfo> &createInfos) {
+    const std::vector<std::vector<VkDescriptorSetLayoutBinding>>
+        &layoutBindings) {
   std::vector<ComputeHandle> handles;
-  handles.reserve(createInfos.size());
-  for (const auto &createInfo : createInfos) {
+  handles.reserve(layoutBindings.size());
+
+  for (const auto &bindings : layoutBindings) {
+    VkDescriptorSetLayoutCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    createInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    createInfo.pBindings = bindings.empty() ? nullptr : bindings.data();
+
     handles.emplace_back(createLayout(createInfo));
   }
+
   return handles;
 }
 

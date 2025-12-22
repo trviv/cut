@@ -174,12 +174,14 @@ public:
   VulkanDescriptorSetLayoutContainer() = default;
 
   /**
-   * Creates multiple descriptor set layouts from a vector of create infos.
-   * @param createInfos Vector of Vulkan descriptor set layout create infos.
+   * Creates multiple descriptor set layouts from layout bindings.
+   * @param layoutBindings Vector of binding vectors for each descriptor set
+   * layout.
    * @return Vector of handles to the created descriptor set layouts.
    */
-  std::vector<ComputeHandle> createLayouts(
-      const std::vector<VkDescriptorSetLayoutCreateInfo> &createInfos);
+  std::vector<ComputeHandle>
+  createLayouts(const std::vector<std::vector<VkDescriptorSetLayoutBinding>>
+                    &layoutBindings);
 
   /**
    * Returns multiple descriptor set layouts for the given handles.
