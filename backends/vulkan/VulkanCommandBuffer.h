@@ -8,13 +8,7 @@
 
 namespace cut {
 
-class VulkanBufferContainer;
-class VulkanShaderContainer;
-class VulkanDescriptorContainer;
-class VulkanDescriptorSetLayoutContainer;
-class VulkanPipelineLayoutContainer;
-class VulkanPipelineContainer;
-struct VulkanContainerRefs;
+struct VulkanContainers;
 
 /**
  * Vulkan implementation of CommandBuffer.
@@ -27,12 +21,12 @@ public:
    * @param device The Vulkan logical device.
    * @param commandPool The command pool to allocate command buffers from.
    * @param queue The compute queue for submissions.
-   * @param containers References to all Vulkan containers.
+   * @param containers Reference to the Vulkan containers struct.
    */
   VulkanCommandBuffer(VkDevice device,
                       VkCommandPool commandPool,
                       VkQueue queue,
-                      VulkanContainerRefs &containers);
+                      VulkanContainers &containers);
 
   /**
    * Begins recording commands to this command buffer.
@@ -67,7 +61,7 @@ private:
   VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;
   bool submitted_ = false;
-  VulkanContainerRefs &containers_;
+  VulkanContainers &containers_;
 
   /// Active descriptor pool handle created during end().
   ComputeHandle descriptorsHandle_;

@@ -6,7 +6,7 @@
 namespace cut {
 
 VulkanCommandBufferContainer::VulkanCommandBufferContainer(
-    VkDevice device, uint32_t queueFamilyIndex, VulkanContainerRefs containers)
+    VkDevice device, uint32_t queueFamilyIndex, VulkanContainers &containers)
     : containers_(containers) {
   setDevice(device);
   vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue_);
@@ -120,14 +120,56 @@ void VulkanDescriptorContainer::destroyAPIObject(const ComputeHandle &handle) {
   }
 }
 
+namespace {
+
+/// Compares two VkDescriptorSetLayoutBinding structs for equality.
+bool bindingsEqual(const VkDescriptorSetLayoutBinding &a,
+                   const VkDescriptorSetLayoutBinding &b) {
+  return a.binding == b.binding && a.descriptorType == b.descriptorType &&
+         a.descriptorCount == b.descriptorCount &&
+         a.stageFlags == b.stageFlags &&
+         a.pImmutableSamplers == b.pImmutableSamplers;
+}
+
+/// Compares two binding vectors for equality (assumes both are sorted).
+bool bindingVectorsEqual(const std::vector<VkDescriptorSetLayoutBinding> &a,
+                         const std::vector<VkDescriptorSetLayoutBinding> &b) {
+  if (a.size() != b.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (!bindingsEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
+
+ComputeHandle VulkanDescriptorSetLayoutContainer::findCachedLayout(
+    const std::vector<VkDescriptorSetLayoutBinding> &bindings) {
+  for (const auto &handle : layoutCache_) {
+    if (handle) {
+      const auto &cached = ComputeDataContainer::get(handle);
+      if (bindingVectorsEqual(cached.bindings, bindings)) {
+        return handle;
+      }
+    }
+  }
+  return {};
+}
+
 ComputeHandle VulkanDescriptorSetLayoutContainer::createLayout(
     const VkDescriptorSetLayoutCreateInfo &createInfo,
     const std::vector<VkDescriptorSetLayoutBinding> &bindings) {
   VulkanDescriptorSetLayoutStruct layoutStruct{};
-  layoutStruct.bindings = std::move(bindings);
+  layoutStruct.bindings = bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(getDevice(), &createInfo, nullptr,
                                        &layoutStruct.layout));
-  return ComputeDataContainer::create(std::move(layoutStruct));
+  auto handle = ComputeDataContainer::create(std::move(layoutStruct));
+  layoutCache_.emplace_back(handle);
+  return handle;
 }
 
 std::vector<ComputeHandle> VulkanDescriptorSetLayoutContainer::createLayouts(
@@ -137,6 +179,14 @@ std::vector<ComputeHandle> VulkanDescriptorSetLayoutContainer::createLayouts(
   handles.reserve(layoutBindings.size());
 
   for (const auto &bindings : layoutBindings) {
+    // Check if a layout with these bindings already exists
+    ComputeHandle cachedHandle = findCachedLayout(bindings);
+    if (cachedHandle) {
+      handles.emplace_back(cachedHandle);
+      continue;
+    }
+
+    // Create a new layout
     VkDescriptorSetLayoutCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     createInfo.bindingCount = static_cast<uint32_t>(bindings.size());

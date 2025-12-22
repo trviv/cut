@@ -11,23 +11,6 @@
 
 namespace cut {
 
-class VulkanBufferContainer;
-class VulkanShaderContainer;
-class VulkanDescriptorContainer;
-class VulkanDescriptorSetLayoutContainer;
-class VulkanPipelineLayoutContainer;
-class VulkanPipelineContainer;
-
-/// Holds references to all Vulkan containers needed by command buffers.
-struct VulkanContainerRefs {
-  VulkanBufferContainer &bufferContainer;
-  VulkanShaderContainer &shaderContainer;
-  VulkanDescriptorContainer &descriptorContainer;
-  VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer;
-  VulkanPipelineLayoutContainer &pipelineLayoutContainer;
-  VulkanPipelineContainer &pipelineContainer;
-};
-
 /// Base class for Vulkan containers that require a device handle.
 class VulkanContainerBase {
 public:
@@ -40,36 +23,6 @@ protected:
 
 private:
   VkDevice device_ = VK_NULL_HANDLE;
-};
-
-/// Vulkan implementation of CommandBufferContainer.
-class VulkanCommandBufferContainer final : public VulkanContainerBase,
-                                           public CommandBufferContainer {
-public:
-  /**
-   * Constructs a Vulkan command buffer container.
-   * Creates the command pool and retrieves the queue internally.
-   * @param device The Vulkan logical device.
-   * @param queueFamilyIndex The queue family index for command submission.
-   * @param containers References to all Vulkan containers.
-   */
-  VulkanCommandBufferContainer(VkDevice device,
-                               uint32_t queueFamilyIndex,
-                               VulkanContainerRefs containers);
-
-  /// Destroys the command pool and waits for the queue to idle.
-  ~VulkanCommandBufferContainer();
-
-  /// Creates a Vulkan-specific command buffer.
-  ComputeHandle createCommandBuffer() override {
-    return ComputeDataContainer::create(new VulkanCommandBuffer(
-        getDevice(), commandPool_, queue_, containers_));
-  }
-
-private:
-  VkCommandPool commandPool_ = VK_NULL_HANDLE;
-  VkQueue queue_ = VK_NULL_HANDLE;
-  VulkanContainerRefs containers_;
 };
 
 /// Container managing GPU buffer allocations and their lifecycle.
@@ -175,6 +128,7 @@ public:
 
   /**
    * Creates multiple descriptor set layouts from layout bindings.
+   * Reuses existing layout handles if bindings match (bindings must be sorted).
    * @param layoutBindings Vector of binding vectors for each descriptor set
    * layout.
    * @return Vector of handles to the created descriptor set layouts.
@@ -207,8 +161,16 @@ private:
     return ComputeDataContainer::get(handle).layout;
   }
 
+  /// Finds a cached layout handle matching the given bindings, or returns
+  /// invalid handle.
+  ComputeHandle
+  findCachedLayout(const std::vector<VkDescriptorSetLayoutBinding> &bindings);
+
   /// Destroys a descriptor set layout and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
+
+  /// Cache of created layout handles for reuse.
+  std::vector<ComputeHandle> layoutCache_;
 };
 
 /// Container managing pipeline layout allocations and their lifecycle.
@@ -294,6 +256,56 @@ public:
 private:
   /// Destroys a compute pipeline and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
+};
+
+/// Holds all Vulkan containers needed by command buffers.
+struct VulkanContainers {
+  VulkanBufferContainer bufferContainer;
+  VulkanShaderContainer shaderContainer;
+  VulkanDescriptorContainer descriptorContainer;
+  VulkanDescriptorSetLayoutContainer descriptorSetLayoutContainer;
+  VulkanPipelineLayoutContainer pipelineLayoutContainer;
+  VulkanPipelineContainer pipelineContainer;
+
+  /// Sets the Vulkan device handle on all containers.
+  void setDevice(VkDevice device) {
+    bufferContainer.setDevice(device);
+    shaderContainer.setDevice(device);
+    descriptorContainer.setDevice(device);
+    descriptorSetLayoutContainer.setDevice(device);
+    pipelineLayoutContainer.setDevice(device);
+    pipelineContainer.setDevice(device);
+  }
+};
+
+/// Vulkan implementation of CommandBufferContainer.
+class VulkanCommandBufferContainer final : public VulkanContainerBase,
+                                           public CommandBufferContainer {
+public:
+  /**
+   * Constructs a Vulkan command buffer container.
+   * Creates the command pool and retrieves the queue internally.
+   * @param device The Vulkan logical device.
+   * @param queueFamilyIndex The queue family index for command submission.
+   * @param containers Reference to the Vulkan containers struct.
+   */
+  VulkanCommandBufferContainer(VkDevice device,
+                               uint32_t queueFamilyIndex,
+                               VulkanContainers &containers);
+
+  /// Destroys the command pool and waits for the queue to idle.
+  ~VulkanCommandBufferContainer();
+
+  /// Creates a Vulkan-specific command buffer.
+  ComputeHandle createCommandBuffer() override {
+    return ComputeDataContainer::create(new VulkanCommandBuffer(
+        getDevice(), commandPool_, queue_, containers_));
+  }
+
+private:
+  VkCommandPool commandPool_ = VK_NULL_HANDLE;
+  VkQueue queue_ = VK_NULL_HANDLE;
+  VulkanContainers &containers_;
 };
 
 } // namespace cut

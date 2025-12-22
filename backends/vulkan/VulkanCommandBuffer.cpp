@@ -187,7 +187,7 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
 VulkanCommandBuffer::VulkanCommandBuffer(VkDevice device,
                                          VkCommandPool commandPool,
                                          VkQueue queue,
-                                         VulkanContainerRefs &containers)
+                                         VulkanContainers &containers)
     : device_(device), commandPool_(commandPool), queue_(queue),
       containers_(containers) {
   // Allocate command buffer

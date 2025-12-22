@@ -71,12 +71,8 @@ private:
   // VMA dependent allocations
   IF_VMA_ENABLED_THEN(VmaAllocator allocator_ = VK_NULL_HANDLE);
 
-  VulkanDescriptorSetLayoutContainer descriptorSetLayoutContainer_;
-  VulkanDescriptorContainer descriptorContainer_;
-  VulkanPipelineLayoutContainer pipelineLayoutContainer_;
-  VulkanPipelineContainer pipelineContainer_;
-  VulkanBufferContainer bufferContainer_;
-  VulkanShaderContainer shaderContainer_;
+  std::unique_ptr<VulkanContainers> containers_;
+  VulkanContainers &containersRef_;
 };
 
 class VulkanInstance : public std::enable_shared_from_this<VulkanInstance> {
