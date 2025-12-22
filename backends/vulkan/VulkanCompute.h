@@ -72,7 +72,6 @@ private:
   IF_VMA_ENABLED_THEN(VmaAllocator allocator_ = VK_NULL_HANDLE);
 
   std::unique_ptr<VulkanContainers> containers_;
-  VulkanContainers &containersRef_;
 };
 
 class VulkanInstance : public std::enable_shared_from_this<VulkanInstance> {

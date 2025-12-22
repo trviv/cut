@@ -7,8 +7,7 @@ namespace cut {
 
 VulkanCommandBufferContainer::VulkanCommandBufferContainer(
     VkDevice device, uint32_t queueFamilyIndex, VulkanContainers &containers)
-    : containers_(containers) {
-  setDevice(device);
+    : VulkanContainerBase(device), containers_(containers) {
   vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue_);
 
   VkCommandPoolCreateInfo poolInfo = {};

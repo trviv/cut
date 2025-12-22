@@ -14,15 +14,14 @@ namespace cut {
 /// Base class for Vulkan containers that require a device handle.
 class VulkanContainerBase {
 public:
-  /// Sets the Vulkan device handle.
-  void setDevice(VkDevice device) { device_ = device; }
+  explicit VulkanContainerBase(VkDevice device) : device_(device) {}
 
 protected:
   /// Returns the Vulkan device handle.
   VkDevice getDevice() const { return device_; }
 
 private:
-  VkDevice device_ = VK_NULL_HANDLE;
+  VkDevice device_;
 };
 
 /// Container managing GPU buffer allocations and their lifecycle.
@@ -31,7 +30,8 @@ class VulkanBufferContainer final
       public ComputeDataContainer<VulkanBufferStruct> {
 public:
   /// Constructs a buffer container.
-  VulkanBufferContainer() = default;
+  explicit VulkanBufferContainer(VkDevice device)
+      : VulkanContainerBase(device) {}
 
   ComputeHandle create(VulkanBufferStruct &&structData) {
     return ComputeDataContainer::create(std::move(structData));
@@ -57,7 +57,8 @@ class VulkanShaderContainer final
       public ComputeDataContainer<VulkanShaderStruct> {
 public:
   /// Constructs a shader container.
-  VulkanShaderContainer() = default;
+  explicit VulkanShaderContainer(VkDevice device)
+      : VulkanContainerBase(device) {}
 
   /// Creates a shader module from SPIR-V code and performs reflection.
   /// @param spirvCode The SPIR-V bytecode.
@@ -89,7 +90,8 @@ class VulkanDescriptorContainer final
       public VulkanContainerBase {
 public:
   /// Constructs a descriptor container.
-  VulkanDescriptorContainer() = default;
+  explicit VulkanDescriptorContainer(VkDevice device)
+      : VulkanContainerBase(device) {}
 
   /**
    * Creates a descriptor pool and allocates descriptor sets.
@@ -124,7 +126,8 @@ class VulkanDescriptorSetLayoutContainer final
       public VulkanContainerBase {
 public:
   /// Constructs a descriptor set layout container.
-  VulkanDescriptorSetLayoutContainer() = default;
+  explicit VulkanDescriptorSetLayoutContainer(VkDevice device)
+      : VulkanContainerBase(device) {}
 
   /**
    * Creates multiple descriptor set layouts from layout bindings.
@@ -179,7 +182,8 @@ class VulkanPipelineLayoutContainer final
       public VulkanContainerBase {
 public:
   /// Constructs a pipeline layout container.
-  VulkanPipelineLayoutContainer() = default;
+  explicit VulkanPipelineLayoutContainer(VkDevice device)
+      : VulkanContainerBase(device) {}
 
   /**
    * Creates multiple pipeline layouts from a vector of create infos.
@@ -221,7 +225,8 @@ class VulkanPipelineContainer final
       public VulkanContainerBase {
 public:
   /// Constructs a compute pipeline container.
-  VulkanPipelineContainer() = default;
+  explicit VulkanPipelineContainer(VkDevice device)
+      : VulkanContainerBase(device) {}
 
   /**
    * Creates multiple compute pipelines from shader stages and pipeline layouts.
@@ -260,22 +265,17 @@ private:
 
 /// Holds all Vulkan containers needed by command buffers.
 struct VulkanContainers {
+  explicit VulkanContainers(VkDevice device)
+      : bufferContainer(device), shaderContainer(device),
+        descriptorContainer(device), descriptorSetLayoutContainer(device),
+        pipelineLayoutContainer(device), pipelineContainer(device) {}
+
   VulkanBufferContainer bufferContainer;
   VulkanShaderContainer shaderContainer;
   VulkanDescriptorContainer descriptorContainer;
   VulkanDescriptorSetLayoutContainer descriptorSetLayoutContainer;
   VulkanPipelineLayoutContainer pipelineLayoutContainer;
   VulkanPipelineContainer pipelineContainer;
-
-  /// Sets the Vulkan device handle on all containers.
-  void setDevice(VkDevice device) {
-    bufferContainer.setDevice(device);
-    shaderContainer.setDevice(device);
-    descriptorContainer.setDevice(device);
-    descriptorSetLayoutContainer.setDevice(device);
-    pipelineLayoutContainer.setDevice(device);
-    pipelineContainer.setDevice(device);
-  }
 };
 
 /// Vulkan implementation of CommandBufferContainer.

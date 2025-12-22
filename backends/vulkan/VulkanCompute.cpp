@@ -6,8 +6,7 @@ namespace cut {
 
 VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
                              VulkanContextConfig config)
-    : instance_(instance), containers_(std::make_unique<VulkanContainers>()),
-      containersRef_(*containers_) {
+    : instance_(instance) {
   const PhysicalDeviceAndQueueIndex physicalDeviceAndQueueIdx =
       pickPhysicalDevice(*instance_, config.preferredType);
 
@@ -52,13 +51,15 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   VK_CHECK(vmaCreateAllocator(&allocatorInfo, &allocator_));
 #endif
 
+  // Create containers with device
+  containers_ = std::make_unique<VulkanContainers>(device_);
+
   // Vma dependent initializations
-  IF_VMA_ENABLED_THEN(containersRef_.bufferContainer.setAllocator(allocator_));
-  containersRef_.setDevice(device_);
+  IF_VMA_ENABLED_THEN(containers_->bufferContainer.setAllocator(allocator_));
 
   // Create and set the command buffer container
   setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
-      device_, computeQueueFamilyIndex_, containersRef_));
+      device_, computeQueueFamilyIndex_, *containers_));
 }
 
 PhysicalDeviceAndQueueIndex
@@ -211,7 +212,7 @@ VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
   }
 #endif
 
-  auto handle = containersRef_.bufferContainer.create(std::move(bufferStruct));
+  auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
 
   if (srcPtr != nullptr) {
     copyDataToBuffer(srcPtr, handle, size, 0, 0);
@@ -227,7 +228,7 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
                                      size_t dstOffset,
                                      bool useStaging,
                                      bool wait) {
-  const auto &buffer = containersRef_.bufferContainer.get(dstBuffer);
+  const auto &buffer = containers_->bufferContainer.get(dstBuffer);
   const bool localUseStaging = useStaging || (buffer.mappedData == nullptr);
 
   if (buffer.size < dstOffset + size) {
@@ -251,7 +252,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
                                        size_t dstOffset,
                                        bool useStaging,
                                        bool wait) {
-  const auto &buffer = containersRef_.bufferContainer.get(srcBuffer);
+  const auto &buffer = containers_->bufferContainer.get(srcBuffer);
   const bool localUseStaging = useStaging || (buffer.mappedData == nullptr);
 
   if (buffer.size < srcOffset + size) {
@@ -281,7 +282,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
 
 ComputeHandle
 VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
-  return containersRef_.shaderContainer.createShader(spirvCode);
+  return containers_->shaderContainer.createShader(spirvCode);
 }
 
 // auto pipeline = std::make_shared<ComputePipeline>();
