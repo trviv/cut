@@ -174,14 +174,12 @@ public:
   VulkanDescriptorSetLayoutContainer() = default;
 
   /**
-   * Creates multiple descriptor set layouts from an array of create infos.
-   * @param createInfos Array of Vulkan descriptor set layout create infos.
-   * @param count Number of create infos in the array.
+   * Creates multiple descriptor set layouts from a vector of create infos.
+   * @param createInfos Vector of Vulkan descriptor set layout create infos.
    * @return Vector of handles to the created descriptor set layouts.
    */
-  std::vector<ComputeHandle>
-  createLayouts(const VkDescriptorSetLayoutCreateInfo *createInfos,
-                size_t count);
+  std::vector<ComputeHandle> createLayouts(
+      const std::vector<VkDescriptorSetLayoutCreateInfo> &createInfos);
 
   /// Returns the descriptor set layout for the given handle.
   VkDescriptorSetLayout getLayout(const ComputeHandle &handle) const {
@@ -225,14 +223,12 @@ public:
   ComputeHandle createLayout(const VulkanPipelineLayoutCreateInfo &createInfo);
 
   /**
-   * Creates multiple pipeline layouts from an array of create infos.
-   * @param createInfos Array of pipeline layout create infos.
-   * @param count Number of create infos in the array.
+   * Creates multiple pipeline layouts from a vector of create infos.
+   * @param createInfos Vector of pipeline layout create infos.
    * @return Vector of handles to the created pipeline layouts.
    */
   std::vector<ComputeHandle>
-  createLayouts(const VulkanPipelineLayoutCreateInfo *createInfos,
-                size_t count);
+  createLayouts(const std::vector<VulkanPipelineLayoutCreateInfo> &createInfos);
 
   /// Returns the pipeline layout for the given handle.
   VkPipelineLayout getLayout(const ComputeHandle &handle) const {

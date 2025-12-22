@@ -129,11 +129,11 @@ ComputeHandle VulkanDescriptorSetLayoutContainer::createLayout(
 }
 
 std::vector<ComputeHandle> VulkanDescriptorSetLayoutContainer::createLayouts(
-    const VkDescriptorSetLayoutCreateInfo *createInfos, size_t count) {
+    const std::vector<VkDescriptorSetLayoutCreateInfo> &createInfos) {
   std::vector<ComputeHandle> handles;
-  handles.reserve(count);
-  for (size_t i = 0; i < count; ++i) {
-    handles.emplace_back(createLayout(createInfos[i]));
+  handles.reserve(createInfos.size());
+  for (const auto &createInfo : createInfos) {
+    handles.emplace_back(createLayout(createInfo));
   }
   return handles;
 }
@@ -166,11 +166,11 @@ ComputeHandle VulkanPipelineLayoutContainer::createLayout(
 }
 
 std::vector<ComputeHandle> VulkanPipelineLayoutContainer::createLayouts(
-    const VulkanPipelineLayoutCreateInfo *createInfos, size_t count) {
+    const std::vector<VulkanPipelineLayoutCreateInfo> &createInfos) {
   std::vector<ComputeHandle> handles;
-  handles.reserve(count);
-  for (size_t i = 0; i < count; ++i) {
-    handles.emplace_back(createLayout(createInfos[i]));
+  handles.reserve(createInfos.size());
+  for (const auto &createInfo : createInfos) {
+    handles.emplace_back(createLayout(createInfo));
   }
   return handles;
 }

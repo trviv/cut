@@ -92,8 +92,7 @@ createDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
   }
 
   // Create all descriptor set layouts
-  result.layoutHandles = layoutContainer.createLayouts(
-      layoutCreateInfos.data(), layoutCreateInfos.size());
+  result.layoutHandles = layoutContainer.createLayouts(layoutCreateInfos);
 
   // Convert descriptor type counts to pool sizes
   std::vector<VkDescriptorPoolSize> poolSizes;
@@ -167,8 +166,8 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
   }
 
   // Create all pipeline layouts in a single call
-  const auto &pipelineLayoutHandles = pipelineLayoutContainer.createLayouts(
-      pipelineLayoutCreateInfos.data(), pipelineLayoutCreateInfos.size());
+  const auto &pipelineLayoutHandles =
+      pipelineLayoutContainer.createLayouts(pipelineLayoutCreateInfos);
 
   // Get all VkPipelineLayout values for compute pipeline creation and command
   // recording
