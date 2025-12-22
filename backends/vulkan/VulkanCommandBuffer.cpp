@@ -117,17 +117,25 @@ createDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
   return result;
 }
 
+/// Result of compute pipeline creation.
+struct ComputePipelineResult {
+  std::vector<ComputeHandle> pipelineHandles;
+  std::vector<VkPipelineLayout> pipelineLayouts;
+};
+
 /// Creates compute pipelines for all dispatches based on shader reflection.
-/// Returns vector of pipeline handles.
-std::vector<ComputeHandle>
+/// Returns pipeline handles and VkPipelineLayouts for command recording.
+ComputePipelineResult
 createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
                        const std::vector<ComputeHandle> &layoutHandles,
                        VulkanShaderContainer &shaderContainer,
                        VulkanDescriptorSetLayoutContainer &layoutContainer,
                        VulkanPipelineLayoutContainer &pipelineLayoutContainer,
                        VulkanPipelineContainer &pipelineContainer) {
+  ComputePipelineResult result;
+
   if (dispatches.empty()) {
-    return {};
+    return result;
   }
 
   // Pre-fetch VkDescriptorSetLayout values for pipeline creation
@@ -160,11 +168,12 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
   }
 
   // Create all pipeline layouts in a single call
-  auto pipelineLayoutHandles = pipelineLayoutContainer.createLayouts(
+  const auto &pipelineLayoutHandles = pipelineLayoutContainer.createLayouts(
       pipelineLayoutCreateInfos.data(), pipelineLayoutCreateInfos.size());
 
-  // Get all VkPipelineLayout values for compute pipeline creation
-  const auto vkPipelineLayouts =
+  // Get all VkPipelineLayout values for compute pipeline creation and command
+  // recording
+  result.pipelineLayouts =
       pipelineLayoutContainer.getLayouts(pipelineLayoutHandles);
 
   // Build shader stage create infos
@@ -181,8 +190,10 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
   }
 
   // Create pipelines using the container
-  return pipelineContainer.createPipelines(shaderStages, vkPipelineLayouts,
-                                           pipelineLayoutHandles);
+  result.pipelineHandles = pipelineContainer.createPipelines(
+      shaderStages, result.pipelineLayouts, pipelineLayoutHandles);
+
+  return result;
 }
 
 VulkanCommandBuffer::VulkanCommandBuffer(VkDevice device,
@@ -223,10 +234,12 @@ void VulkanCommandBuffer::end() {
         containers_.descriptorContainer.getDescriptorSets(descriptorsHandle_);
 
     // Create compute pipelines from descriptor set layouts
-    pipelineHandles_ = createComputePipelines(
+    auto pipelineResult = createComputePipelines(
         dispatches(), descriptorSetLayoutHandles, containers_.shaderContainer,
         containers_.descriptorSetLayoutContainer,
         containers_.pipelineLayoutContainer, containers_.pipelineContainer);
+    pipelineHandles_ = std::move(pipelineResult.pipelineHandles);
+    const auto &pipelineLayouts = pipelineResult.pipelineLayouts;
 
     // Update descriptor sets with buffer bindings from dispatches
     std::vector<VkWriteDescriptorSet> descriptorWrites;
@@ -239,6 +252,7 @@ void VulkanCommandBuffer::end() {
       totalBindings += dispatch.bindings().size();
     }
     bufferInfos.reserve(totalBindings);
+    descriptorWrites.reserve(totalBindings);
 
     size_t dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
@@ -306,31 +320,14 @@ void VulkanCommandBuffer::end() {
                              descriptorWrites.data(), 0, nullptr);
     }
 
-    // Pre-fetch VkPipeline and VkPipelineLayout values for command recording
-    const auto vkPipelines =
+    // Pre-fetch VkPipeline values for command recording
+    const auto &vkPipelines =
         containers_.pipelineContainer.getPipelines(pipelineHandles_);
-    std::vector<VkPipelineLayout> pipelineLayouts;
-    pipelineLayouts.reserve(pipelineHandles_.size());
-    for (const auto &handle : pipelineHandles_) {
-      auto layoutHandle =
-          containers_.pipelineContainer.getPipelineLayoutHandle(handle);
-      pipelineLayouts.emplace_back(
-          containers_.pipelineLayoutContainer.getLayout(layoutHandle));
-    }
 
     // Record commands: bind pipelines, descriptor sets, push constants, and
     // dispatch
     dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
-      const auto &shaderHandle = dispatch.shader();
-      if (!shaderHandle) {
-        continue;
-      }
-
-      if (dispatchIndex >= pipelineHandles_.size()) {
-        break;
-      }
-
       // Bind the compute pipeline
       vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
                         vkPipelines[dispatchIndex]);

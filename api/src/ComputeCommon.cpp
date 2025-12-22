@@ -212,7 +212,7 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
         uint32_t resultId = spirvCode[i + 1];
         std::vector<uint32_t> members;
         for (uint32_t m = 2; m < wordCount; ++m) {
-          members.push_back(spirvCode[i + m]);
+          members.emplace_back(spirvCode[i + m]);
         }
         structMembers[resultId] = members;
       }
@@ -327,7 +327,7 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
         info.set = 0;
         info.type = BindingType::PushConstant;
         info.access = BindingAccess::ReadOnly;
-        reflection.bindings.push_back(info);
+        reflection.bindings.emplace_back(info);
 
         // Calculate push constant size from the pointed struct type
         if (pointerToPointedType.count(pointerTypeId) > 0) {
@@ -396,7 +396,7 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
           info.access = BindingAccess::ReadWrite;
         }
 
-        reflection.bindings.push_back(info);
+        reflection.bindings.emplace_back(info);
       }
     }
     i += wordCount;
