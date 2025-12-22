@@ -1,5 +1,6 @@
 #include <ComputeCommon.h>
 
+#include <algorithm>
 #include <fstream>
 #include <string>
 #include <unordered_map>
@@ -401,6 +402,15 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
     }
     i += wordCount;
   }
+
+  // Sort bindings by set, then by binding index
+  std::sort(reflection.bindings.begin(), reflection.bindings.end(),
+            [](const BindingInfo &a, const BindingInfo &b) {
+              if (a.set != b.set) {
+                return a.set < b.set;
+              }
+              return a.binding < b.binding;
+            });
 
   return reflection;
 }

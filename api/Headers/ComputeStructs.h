@@ -122,6 +122,9 @@ public:
   /// Returns the list of resource bindings for this dispatch.
   const std::vector<ComputeBinding> &bindings() const;
 
+  /// Sorts the bindings by their binding index.
+  void sortBindings();
+
 private:
   ThreadGroupSize tgSize_;               ///< Thread group dimensions.
   ComputeHandle shader_;                 ///< Bound shader handle.

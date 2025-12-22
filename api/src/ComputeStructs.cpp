@@ -1,5 +1,7 @@
 #include <ComputeStructs.h>
 
+#include <algorithm>
+
 namespace cut {
 
 ComputeDispatch::ComputeDispatch(const ComputeHandle &shader,
@@ -40,8 +42,16 @@ const std::vector<ComputeBinding> &ComputeDispatch::bindings() const {
   return bindings_;
 }
 
+void ComputeDispatch::sortBindings() {
+  std::sort(bindings_.begin(), bindings_.end(),
+            [](const ComputeBinding &a, const ComputeBinding &b) {
+              return a.index() < b.index();
+            });
+}
+
 void CommandBuffer::encode(ComputeDispatch &&dispatch) {
-  dispatches_.push_back(std::move(dispatch));
+  dispatch.sortBindings();
+  dispatches_.emplace_back(std::move(dispatch));
 }
 
 } // namespace cut
