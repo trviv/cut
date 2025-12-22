@@ -112,6 +112,13 @@ public:
    */
   void submit(const ComputeHandle &commandBufferHandle);
 
+  /**
+   * Waits for a command buffer to finish execution.
+   * Blocks until all submitted commands have completed.
+   * @param commandBufferHandle Handle to the command buffer to wait on.
+   */
+  void wait(const ComputeHandle &commandBufferHandle);
+
 protected:
   /**
    * Sets the command buffer container for this interface.

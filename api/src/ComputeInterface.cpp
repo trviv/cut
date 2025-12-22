@@ -42,6 +42,14 @@ void ComputeInterface::submit(const ComputeHandle &commandBufferHandle) {
   commandBufferContainer_->get(commandBufferHandle)->submit();
 }
 
+void ComputeInterface::wait(const ComputeHandle &commandBufferHandle) {
+  if (!commandBufferHandle) {
+    logErr("Invalid command buffer handle. "
+           "Call endCommandBuffer() to get a valid handle.");
+  }
+  commandBufferContainer_->get(commandBufferHandle)->wait();
+}
+
 void ComputeInterface::setCommandBufferContainer(
     std::unique_ptr<CommandBufferContainer> commandBufferContainer) {
   commandBufferContainer_ = std::move(commandBufferContainer);

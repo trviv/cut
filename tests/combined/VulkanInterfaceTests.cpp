@@ -186,8 +186,9 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
 
     cmdBuffer = interface->endCommandBuffer();
 
-    // Submit for execution
+    // Submit for execution and wait for completion
     interface->submit(cmdBuffer);
+    interface->wait(cmdBuffer);
   });
 
   // Read back results
@@ -271,6 +272,7 @@ TEST_F(VulkanTestEnvironment, MultipleDispatches) {
 
   cmdBuffer = interface->endCommandBuffer();
   interface->submit(cmdBuffer);
+  interface->wait(cmdBuffer);
 
   // Verify output from each dispatch independently
   for (size_t i = 0; i < numDispatches; ++i) {
