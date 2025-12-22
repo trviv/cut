@@ -1,6 +1,8 @@
 #include <VulkanCompute.h>
 #include <VulkanContainers.h>
 
+#include <ComputeCommon.h>
+
 namespace cut {
 
 VulkanCommandBufferContainer::VulkanCommandBufferContainer(
@@ -50,6 +52,24 @@ void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
     vkFreeMemory(getDevice(), buffer.memory, nullptr);
   }
 #endif
+}
+
+ComputeHandle
+VulkanShaderContainer::createShader(const std::vector<uint32_t> &spirvCode) {
+  VulkanShaderStruct shaderStruct{};
+
+  VkShaderModuleCreateInfo createInfo{};
+  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  createInfo.codeSize = spirvCode.size() * sizeof(uint32_t);
+  createInfo.pCode = spirvCode.data();
+
+  VK_CHECK(vkCreateShaderModule(getDevice(), &createInfo, nullptr,
+                                &shaderStruct.shader));
+
+  // Store reflection data for descriptor set layout creation
+  shaderStruct.reflection = reflectSpirvBindings(spirvCode);
+
+  return ComputeDataContainer::create(std::move(shaderStruct));
 }
 
 void VulkanShaderContainer::destroyAPIObject(const ComputeHandle &handle) {

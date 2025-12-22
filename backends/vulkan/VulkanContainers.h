@@ -106,9 +106,10 @@ public:
   /// Constructs a shader container.
   VulkanShaderContainer() = default;
 
-  ComputeHandle createShader(VulkanShaderStruct &&structData) {
-    return ComputeDataContainer::create(std::move(structData));
-  }
+  /// Creates a shader module from SPIR-V code and performs reflection.
+  /// @param spirvCode The SPIR-V bytecode.
+  /// @return Handle to the created shader module.
+  ComputeHandle createShader(const std::vector<uint32_t> &spirvCode);
 
   /// Returns the shader struct for the given handle.
   VkShaderModule getShader(const ComputeHandle &handle) const {

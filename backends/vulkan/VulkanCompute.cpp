@@ -288,20 +288,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
 
 ComputeHandle
 VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
-  VulkanShaderStruct shaderStruct = {};
-
-  VkShaderModuleCreateInfo createInfo = {};
-  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  createInfo.codeSize = spirvCode.size() * sizeof(uint32_t);
-  createInfo.pCode = spirvCode.data();
-
-  VK_CHECK(vkCreateShaderModule(device_, &createInfo, nullptr,
-                                &shaderStruct.shader));
-
-  // Store reflection data for descriptor set layout creation
-  shaderStruct.reflection = reflectSpirvBindings(spirvCode);
-
-  return shaderContainer_.createShader(std::move(shaderStruct));
+  return shaderContainer_.createShader(spirvCode);
 }
 
 // auto pipeline = std::make_shared<ComputePipeline>();
