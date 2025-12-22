@@ -49,6 +49,10 @@ void ComputeDispatch::sortBindings() {
             });
 }
 
+CommandBuffer::~CommandBuffer() {
+  wait();
+}
+
 void CommandBuffer::encode(ComputeDispatch &&dispatch) {
   dispatch.sortBindings();
   dispatches_.emplace_back(std::move(dispatch));

@@ -34,8 +34,6 @@ public:
                       VkQueue queue,
                       VulkanContainerRefs &containers);
 
-  ~VulkanCommandBuffer() override = default;
-
   /**
    * Begins recording commands to this command buffer.
    * Calls vkBeginCommandBuffer with one-time submit flag.
