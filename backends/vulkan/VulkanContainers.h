@@ -66,12 +66,6 @@ public:
         getDevice(), commandPool_, queue_, containers_));
   }
 
-  /// Returns the queue handle.
-  VkQueue getQueue() const { return queue_; }
-
-  /// Returns the command pool handle.
-  VkCommandPool getCommandPool() const { return commandPool_; }
-
 private:
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   VkQueue queue_ = VK_NULL_HANDLE;
