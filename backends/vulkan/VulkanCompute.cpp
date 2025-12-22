@@ -367,18 +367,53 @@ VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
 // pipelines.push_back(pipeline);
 // return pipeline;
 
+// Debug callback for validation layer messages
+static VKAPI_ATTR VkBool32 VKAPI_CALL
+debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+              VkDebugUtilsMessageTypeFlagsEXT messageType,
+              const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+              void *pUserData) {
+  const char *severity = "UNKNOWN";
+  if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+    severity = "ERROR";
+  } else if (messageSeverity &
+             VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+    severity = "WARNING";
+  } else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+    severity = "INFO";
+  } else if (messageSeverity &
+             VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+    severity = "VERBOSE";
+  }
+
+  const char *type = "GENERAL";
+  if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
+    type = "VALIDATION";
+  } else if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) {
+    type = "PERFORMANCE";
+  }
+
+  fprintf(stderr, "[Vulkan %s] [%s]: %s\n", severity, type,
+          pCallbackData->pMessage);
+
+  return VK_FALSE;
+}
+
 VulkanInstance::VulkanInstance() {
-  const bool validation = false;
+  const bool validation = true;
 
   const char *validationLayerName = "VK_LAYER_KHRONOS_validation";
-  //    const char *validationLayerName = "MoltenVK";
 
   // MoltenVK extensions
-  const std::vector<const char *> requestedExtensions = {
-      //        VK_KHR_SURFACE_EXTENSION_NAME,
+  std::vector<const char *> requestedExtensions = {
       VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
       VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
   };
+
+  // Add debug utils extension for validation messages
+  if (validation) {
+    requestedExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
 
   std::vector<std::string> supportedExtensions;
 
@@ -474,6 +509,31 @@ VulkanInstance::VulkanInstance() {
   }
 
   VK_CHECK(vkCreateInstance(&createInfo, nullptr, &instance_));
+
+  // Set up debug messenger for validation messages
+  if (validation) {
+    VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {};
+    debugCreateInfo.sType =
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    debugCreateInfo.messageSeverity =
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    debugCreateInfo.messageType =
+        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    debugCreateInfo.pfnUserCallback = debugCallback;
+    debugCreateInfo.pUserData = nullptr;
+
+    auto createDebugUtilsMessenger =
+        reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(instance_, "vkCreateDebugUtilsMessengerEXT"));
+
+    if (createDebugUtilsMessenger != nullptr) {
+      VK_CHECK(createDebugUtilsMessenger(instance_, &debugCreateInfo, nullptr,
+                                         &debugMessenger_));
+    }
+  }
 }
 
 std::unique_ptr<VulkanCompute>
@@ -482,6 +542,17 @@ VulkanInstance::createInterface(VulkanContextConfig config) {
 }
 
 VulkanInstance::~VulkanInstance() {
+  // Destroy debug messenger before instance
+  if (debugMessenger_ != VK_NULL_HANDLE) {
+    auto destroyDebugUtilsMessenger =
+        reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(instance_,
+                                  "vkDestroyDebugUtilsMessengerEXT"));
+    if (destroyDebugUtilsMessenger != nullptr) {
+      destroyDebugUtilsMessenger(instance_, debugMessenger_, nullptr);
+    }
+  }
+
   // Destroy instance
   if (instance_ != VK_NULL_HANDLE) {
     vkDestroyInstance(instance_, nullptr);

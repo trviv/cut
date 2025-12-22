@@ -93,6 +93,7 @@ private:
   std::shared_ptr<VulkanInstance> getShared() { return shared_from_this(); }
 
   VkInstance instance_ = VK_NULL_HANDLE;
+  VkDebugUtilsMessengerEXT debugMessenger_ = VK_NULL_HANDLE;
   std::array<VkPhysicalDevice, 1> physicalDevices_ = {};
 };
 

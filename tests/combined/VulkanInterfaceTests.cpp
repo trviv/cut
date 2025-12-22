@@ -292,3 +292,310 @@ TEST_F(VulkanTestEnvironment, MultipleDispatches) {
 
   cmdBuffer.reset();
 }
+
+TEST_F(VulkanTestEnvironment, DependentDispatches) {
+  // Test where a third add operation depends on results from two previous adds:
+  // Dispatch 1: A + B = C
+  // Dispatch 2: D + E = F
+  // Dispatch 3: C + F = G (depends on results of dispatch 1 and 2)
+
+  constexpr uint32_t elements = 256;
+  constexpr size_t bufferSize = elements * sizeof(float);
+
+  // Prepare input data
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> dataD(elements);
+  std::vector<float> dataE(elements);
+  std::vector<float> expectedC(elements);
+  std::vector<float> expectedF(elements);
+  std::vector<float> expectedG(elements);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 1.0f;
+    dataB[i] = static_cast<float>(i) * 2.0f;
+    dataD[i] = static_cast<float>(i) * 3.0f;
+    dataE[i] = static_cast<float>(i) * 4.0f;
+
+    expectedC[i] = dataA[i] + dataB[i]; // i * 3
+    expectedF[i] = dataD[i] + dataE[i]; // i * 7
+    expectedG[i] = expectedC[i] + expectedF[i]; // i * 10
+  }
+
+  // Create buffers
+  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
+  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
+  auto bufferC = interface->createBuffer(bufferSize, nullptr); // Output of A + B
+  auto bufferD = interface->createBuffer(bufferSize, dataD.data());
+  auto bufferE = interface->createBuffer(bufferSize, dataE.data());
+  auto bufferF = interface->createBuffer(bufferSize, nullptr); // Output of D + E
+  auto bufferG = interface->createBuffer(bufferSize, nullptr); // Output of C + F
+
+  // Load vector add shader
+  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  auto shaderModule = interface->createShaderModule(shader);
+
+  const uint32_t threadGroups = (elements + 63) / 64;
+  cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+
+  // Record command buffer with 3 dispatches
+  interface->beginCommandBuffer();
+
+  // Dispatch 1: A + B = C
+  interface->encode(
+      {shaderModule,
+       tgSize,
+       {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
+        cut::ComputeBinding(2, bufferC),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Dispatch 2: D + E = F
+  interface->encode(
+      {shaderModule,
+       tgSize,
+       {cut::ComputeBinding(0, bufferD), cut::ComputeBinding(1, bufferE),
+        cut::ComputeBinding(2, bufferF),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Dispatch 3: C + F = G (dependent on dispatch 1 and 2)
+  interface->encode(
+      {shaderModule,
+       tgSize,
+       {cut::ComputeBinding(0, bufferC), cut::ComputeBinding(1, bufferF),
+        cut::ComputeBinding(2, bufferG),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->endCommandBuffer();
+  interface->submit(cmdBuffer);
+  interface->wait(cmdBuffer);
+
+  // Verify intermediate result C
+  std::vector<float> outputC(elements);
+  interface->copyDataFromBuffer(bufferC, outputC.data(), bufferSize, 0, 0,
+                                false, false);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expectedC[i], outputC[i])
+        << "C[" << i << "]: expected " << expectedC[i] << " but got "
+        << outputC[i];
+  }
+
+  // Verify intermediate result F
+  std::vector<float> outputF(elements);
+  interface->copyDataFromBuffer(bufferF, outputF.data(), bufferSize, 0, 0,
+                                false, false);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expectedF[i], outputF[i])
+        << "F[" << i << "]: expected " << expectedF[i] << " but got "
+        << outputF[i];
+  }
+
+  // Verify final result G (C + F)
+  std::vector<float> outputG(elements);
+  interface->copyDataFromBuffer(bufferG, outputG.data(), bufferSize, 0, 0,
+                                false, false);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expectedG[i], outputG[i])
+        << "G[" << i << "]: expected " << expectedG[i] << " but got "
+        << outputG[i];
+  }
+
+  cmdBuffer.reset();
+}
+
+TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
+  // Test a diamond dependency pattern:
+  //       A + B = C
+  //      /         \
+  //   C + D = E     C + F = G
+  //      \         /
+  //       E + G = H
+  //
+  // This tests that the same intermediate buffer (C) can be used as input
+  // to multiple subsequent dispatches, and their results combined.
+
+  constexpr uint32_t elements = 128;
+  constexpr size_t bufferSize = elements * sizeof(float);
+
+  // Prepare input data
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> dataD(elements);
+  std::vector<float> dataF(elements);
+  std::vector<float> expectedC(elements);
+  std::vector<float> expectedE(elements);
+  std::vector<float> expectedG(elements);
+  std::vector<float> expectedH(elements);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 1.0f;
+    dataB[i] = static_cast<float>(i) * 2.0f;
+    dataD[i] = static_cast<float>(i) * 0.5f;
+    dataF[i] = static_cast<float>(i) * 0.25f;
+
+    expectedC[i] = dataA[i] + dataB[i];         // C = A + B
+    expectedE[i] = expectedC[i] + dataD[i];     // E = C + D
+    expectedG[i] = expectedC[i] + dataF[i];     // G = C + F
+    expectedH[i] = expectedE[i] + expectedG[i]; // H = E + G
+  }
+
+  // Create buffers
+  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
+  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
+  auto bufferC = interface->createBuffer(bufferSize, nullptr);
+  auto bufferD = interface->createBuffer(bufferSize, dataD.data());
+  auto bufferE = interface->createBuffer(bufferSize, nullptr);
+  auto bufferF = interface->createBuffer(bufferSize, dataF.data());
+  auto bufferG = interface->createBuffer(bufferSize, nullptr);
+  auto bufferH = interface->createBuffer(bufferSize, nullptr);
+
+  // Load shader
+  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  auto shaderModule = interface->createShaderModule(shader);
+
+  const uint32_t threadGroups = (elements + 63) / 64;
+  cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+
+  interface->beginCommandBuffer();
+
+  // Dispatch 1: A + B = C
+  interface->encode(
+      {shaderModule,
+       tgSize,
+       {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
+        cut::ComputeBinding(2, bufferC),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Dispatch 2: C + D = E (depends on C)
+  interface->encode(
+      {shaderModule,
+       tgSize,
+       {cut::ComputeBinding(0, bufferC), cut::ComputeBinding(1, bufferD),
+        cut::ComputeBinding(2, bufferE),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Dispatch 3: C + F = G (also depends on C)
+  interface->encode(
+      {shaderModule,
+       tgSize,
+       {cut::ComputeBinding(0, bufferC), cut::ComputeBinding(1, bufferF),
+        cut::ComputeBinding(2, bufferG),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Dispatch 4: E + G = H (depends on E and G)
+  interface->encode(
+      {shaderModule,
+       tgSize,
+       {cut::ComputeBinding(0, bufferE), cut::ComputeBinding(1, bufferG),
+        cut::ComputeBinding(2, bufferH),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->endCommandBuffer();
+  interface->submit(cmdBuffer);
+  interface->wait(cmdBuffer);
+
+  // Verify final result H
+  std::vector<float> outputH(elements);
+  interface->copyDataFromBuffer(bufferH, outputH.data(), bufferSize, 0, 0,
+                                false, false);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expectedH[i], outputH[i])
+        << "H[" << i << "]: expected " << expectedH[i] << " but got "
+        << outputH[i];
+  }
+
+  cmdBuffer.reset();
+}
+
+TEST_F(VulkanTestEnvironment, DependentDispatchesChain) {
+  // Test a linear chain of dependent dispatches:
+  // A + B = R1
+  // R1 + C = R2
+  // R2 + D = R3
+  // R3 + E = R4
+  // Each dispatch depends on the result of the previous one.
+
+  constexpr uint32_t elements = 64;
+  constexpr size_t bufferSize = elements * sizeof(float);
+  constexpr size_t chainLength = 4;
+
+  // Prepare input data: A, B, C, D, E
+  std::vector<std::vector<float>> inputs(chainLength + 1);
+  for (size_t i = 0; i < chainLength + 1; ++i) {
+    inputs[i].resize(elements);
+    for (uint32_t j = 0; j < elements; ++j) {
+      inputs[i][j] = static_cast<float>(j) * static_cast<float>(i + 1) * 0.1f;
+    }
+  }
+
+  // Calculate expected results
+  std::vector<std::vector<float>> expectedResults(chainLength);
+  expectedResults[0].resize(elements);
+  for (uint32_t j = 0; j < elements; ++j) {
+    expectedResults[0][j] = inputs[0][j] + inputs[1][j]; // R1 = A + B
+  }
+  for (size_t i = 1; i < chainLength; ++i) {
+    expectedResults[i].resize(elements);
+    for (uint32_t j = 0; j < elements; ++j) {
+      expectedResults[i][j] = expectedResults[i - 1][j] + inputs[i + 1][j];
+    }
+  }
+
+  // Create input buffers
+  std::vector<cut::ComputeHandle> inputBuffers(chainLength + 1);
+  for (size_t i = 0; i < chainLength + 1; ++i) {
+    inputBuffers[i] = interface->createBuffer(bufferSize, inputs[i].data());
+  }
+
+  // Create result buffers
+  std::vector<cut::ComputeHandle> resultBuffers(chainLength);
+  for (size_t i = 0; i < chainLength; ++i) {
+    resultBuffers[i] = interface->createBuffer(bufferSize, nullptr);
+  }
+
+  // Load shader
+  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  auto shaderModule = interface->createShaderModule(shader);
+
+  const uint32_t threadGroups = (elements + 63) / 64;
+  cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+
+  interface->beginCommandBuffer();
+
+  // First dispatch: A + B = R1
+  interface->encode(
+      {shaderModule,
+       tgSize,
+       {cut::ComputeBinding(0, inputBuffers[0]),
+        cut::ComputeBinding(1, inputBuffers[1]),
+        cut::ComputeBinding(2, resultBuffers[0]),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Subsequent dispatches: R[i-1] + input[i+1] = R[i]
+  for (size_t i = 1; i < chainLength; ++i) {
+    interface->encode(
+        {shaderModule,
+         tgSize,
+         {cut::ComputeBinding(0, resultBuffers[i - 1]),
+          cut::ComputeBinding(1, inputBuffers[i + 1]),
+          cut::ComputeBinding(2, resultBuffers[i]),
+          cut::ComputeBinding(3, cut::DataReference(elements))}});
+  }
+
+  auto cmdBuffer = interface->endCommandBuffer();
+  interface->submit(cmdBuffer);
+  interface->wait(cmdBuffer);
+
+  // Verify all intermediate and final results
+  for (size_t i = 0; i < chainLength; ++i) {
+    std::vector<float> output(elements);
+    interface->copyDataFromBuffer(resultBuffers[i], output.data(), bufferSize,
+                                  0, 0, false, false);
+    for (uint32_t j = 0; j < elements; ++j) {
+      EXPECT_FLOAT_EQ(expectedResults[i][j], output[j])
+          << "R" << (i + 1) << "[" << j << "]: expected "
+          << expectedResults[i][j] << " but got " << output[j];
+    }
+  }
+
+  cmdBuffer.reset();
+}
