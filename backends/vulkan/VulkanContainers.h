@@ -193,11 +193,14 @@ public:
 
 private:
   /**
-   * Creates a descriptor set layout from the given create info.
+   * Creates a descriptor set layout from the given bindings and create info.
+   * @param bindings The layout bindings to store.
    * @param createInfo The Vulkan descriptor set layout create info.
    * @return Handle to the created descriptor set layout.
    */
-  ComputeHandle createLayout(const VkDescriptorSetLayoutCreateInfo &createInfo);
+  ComputeHandle
+  createLayout(const VkDescriptorSetLayoutCreateInfo &createInfo,
+               const std::vector<VkDescriptorSetLayoutBinding> &bindings);
 
   /// Returns the descriptor set layout for the given handle.
   VkDescriptorSetLayout getLayout(const ComputeHandle &handle) const {

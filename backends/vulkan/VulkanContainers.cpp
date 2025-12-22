@@ -121,8 +121,10 @@ void VulkanDescriptorContainer::destroyAPIObject(const ComputeHandle &handle) {
 }
 
 ComputeHandle VulkanDescriptorSetLayoutContainer::createLayout(
-    const VkDescriptorSetLayoutCreateInfo &createInfo) {
+    const VkDescriptorSetLayoutCreateInfo &createInfo,
+    const std::vector<VkDescriptorSetLayoutBinding> &bindings) {
   VulkanDescriptorSetLayoutStruct layoutStruct{};
+  layoutStruct.bindings = std::move(bindings);
   VK_CHECK(vkCreateDescriptorSetLayout(getDevice(), &createInfo, nullptr,
                                        &layoutStruct.layout));
   return ComputeDataContainer::create(std::move(layoutStruct));
@@ -140,7 +142,7 @@ std::vector<ComputeHandle> VulkanDescriptorSetLayoutContainer::createLayouts(
     createInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     createInfo.pBindings = bindings.empty() ? nullptr : bindings.data();
 
-    handles.emplace_back(createLayout(createInfo));
+    handles.emplace_back(createLayout(createInfo, bindings));
   }
 
   return handles;

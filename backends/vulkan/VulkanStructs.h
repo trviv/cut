@@ -60,6 +60,7 @@ struct VulkanDescriptorSetLayoutStruct {
   static constexpr std::string_view Name = "VulkanDescriptorSetLayoutStruct";
 
   VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSetLayoutBinding> bindings;
 };
 
 /// Wrapper for a Vulkan pipeline layout.
