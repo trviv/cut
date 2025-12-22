@@ -73,7 +73,6 @@ struct VulkanPipelineLayoutStruct {
 struct VulkanPipelineLayoutCreateInfo {
   VkPipelineLayoutCreateInfo createInfo;
   VkPushConstantRange pushConstantRange;
-  ComputeHandle descriptorSetLayoutHandle;
 };
 
 /// Contains the pipeline layout and compute pipeline for shader execution.

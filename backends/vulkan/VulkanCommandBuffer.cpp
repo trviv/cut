@@ -107,7 +107,7 @@ createDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
 
   // Create descriptor pool and allocate sets
   if (!poolSizes.empty()) {
-    const auto descriptorSetLayouts =
+    const auto &descriptorSetLayouts =
         layoutContainer.getLayouts(result.layoutHandles);
 
     result.descriptorsHandle = descriptorContainer.createDescriptorSets(
@@ -151,7 +151,6 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
 
     VulkanPipelineLayoutCreateInfo createInfo{};
     createInfo.createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    createInfo.descriptorSetLayoutHandle = layoutHandles[i];
     createInfo.createInfo.setLayoutCount = 1;
     createInfo.createInfo.pSetLayouts = &descriptorSetLayouts[i];
 
