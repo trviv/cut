@@ -381,12 +381,6 @@ void VulkanCommandBuffer::submit() {
 
 void VulkanCommandBuffer::wait() {
   VK_CHECK(vkQueueWaitIdle(queue_));
-
-  // Clear pipeline handles (container manages cleanup)
-  pipelineHandles_.clear();
-
-  // Clean up descriptor pool handle
-  descriptorsHandle_ = ComputeHandle();
 }
 
 } // namespace cut
