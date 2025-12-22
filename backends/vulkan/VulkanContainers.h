@@ -16,6 +16,7 @@ class VulkanShaderContainer;
 class VulkanDescriptorContainer;
 class VulkanDescriptorSetLayoutContainer;
 class VulkanPipelineLayoutContainer;
+class VulkanPipelineContainer;
 
 /// Base class for Vulkan containers that require a device handle.
 class VulkanContainerBase {
@@ -262,6 +263,49 @@ public:
 
 private:
   /// Destroys a pipeline layout and releases its Vulkan resources.
+  void destroyAPIObject(const ComputeHandle &handle) override;
+};
+
+/// Container managing compute pipeline allocations and their lifecycle.
+class VulkanPipelineContainer final
+    : public ComputeDataContainer<VulkanPipelineStruct>,
+      public VulkanContainerBase {
+public:
+  /// Constructs a compute pipeline container.
+  VulkanPipelineContainer() = default;
+
+  /**
+   * Creates multiple compute pipelines from shader stages and pipeline layouts.
+   * @param shaderStages Vector of shader stage create infos.
+   * @param pipelineLayouts Vector of pipeline layouts.
+   * @param pipelineLayoutHandles Vector of handles to pipeline layouts.
+   * @return Vector of handles to the created compute pipelines.
+   */
+  std::vector<ComputeHandle> createPipelines(
+      const std::vector<VkPipelineShaderStageCreateInfo> &shaderStages,
+      const std::vector<VkPipelineLayout> &pipelineLayouts,
+      const std::vector<ComputeHandle> &pipelineLayoutHandles);
+
+  /// Returns the compute pipeline for the given handle.
+  VkPipeline getPipeline(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle).computePipeline;
+  }
+
+  /// Returns the pipeline layout handle for the given pipeline handle.
+  ComputeHandle getPipelineLayoutHandle(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle).pipelineLayoutHandle;
+  }
+
+  /**
+   * Returns multiple compute pipelines for the given handles.
+   * @param handles Vector of handles to compute pipelines.
+   * @return Vector of Vulkan compute pipelines.
+   */
+  std::vector<VkPipeline>
+  getPipelines(const std::vector<ComputeHandle> &handles) const;
+
+private:
+  /// Destroys a compute pipeline and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
 };
 

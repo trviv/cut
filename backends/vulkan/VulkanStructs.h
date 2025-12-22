@@ -78,6 +78,8 @@ struct VulkanPipelineLayoutCreateInfo {
 
 /// Contains the pipeline layout and compute pipeline for shader execution.
 struct VulkanPipelineStruct {
+  static constexpr std::string_view Name = "VulkanPipelineStruct";
+
   ComputeHandle pipelineLayoutHandle;
   VkPipeline computePipeline = VK_NULL_HANDLE;
 };

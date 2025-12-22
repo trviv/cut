@@ -182,4 +182,63 @@ void VulkanPipelineLayoutContainer::destroyAPIObject(
   }
 }
 
+std::vector<ComputeHandle> VulkanPipelineContainer::createPipelines(
+    const std::vector<VkPipelineShaderStageCreateInfo> &shaderStages,
+    const std::vector<VkPipelineLayout> &pipelineLayouts,
+    const std::vector<ComputeHandle> &pipelineLayoutHandles) {
+  if (shaderStages.empty()) {
+    return {};
+  }
+
+  // Build compute pipeline create infos
+  std::vector<VkComputePipelineCreateInfo> createInfos;
+  createInfos.reserve(shaderStages.size());
+
+  for (size_t i = 0; i < shaderStages.size(); ++i) {
+    VkComputePipelineCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    createInfo.stage = shaderStages[i];
+    createInfo.layout = pipelineLayouts[i];
+    createInfos.emplace_back(createInfo);
+  }
+
+  // Create all pipelines in a single Vulkan call
+  std::vector<VkPipeline> vkPipelines(createInfos.size());
+  VK_CHECK(vkCreateComputePipelines(
+      getDevice(), VK_NULL_HANDLE, static_cast<uint32_t>(createInfos.size()),
+      createInfos.data(), nullptr, vkPipelines.data()));
+
+  // Store each pipeline in the container
+  std::vector<ComputeHandle> handles;
+  handles.reserve(vkPipelines.size());
+
+  for (size_t i = 0; i < vkPipelines.size(); ++i) {
+    VulkanPipelineStruct pipelineStruct{};
+    pipelineStruct.computePipeline = vkPipelines[i];
+    pipelineStruct.pipelineLayoutHandle = pipelineLayoutHandles[i];
+    handles.emplace_back(
+        ComputeDataContainer::create(std::move(pipelineStruct)));
+  }
+
+  return handles;
+}
+
+std::vector<VkPipeline> VulkanComputePipelineContainer::getPipelines(
+    const std::vector<ComputeHandle> &handles) const {
+  std::vector<VkPipeline> pipelines;
+  pipelines.reserve(handles.size());
+  for (const auto &handle : handles) {
+    pipelines.emplace_back(getPipeline(handle));
+  }
+  return pipelines;
+}
+
+void VulkanComputePipelineContainer::destroyAPIObject(
+    const ComputeHandle &handle) {
+  auto &pipelineStruct = get(handle);
+  if (pipelineStruct.computePipeline != VK_NULL_HANDLE) {
+    vkDestroyPipeline(getDevice(), pipelineStruct.computePipeline, nullptr);
+  }
+}
+
 } // namespace cut

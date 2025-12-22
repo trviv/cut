@@ -116,7 +116,6 @@ prepareDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
 struct ComputePipelineCreateData {
   VkComputePipelineCreateInfo pipelineInfo{};
   VkPipelineShaderStageCreateInfo shaderStageInfo{};
-  VkPushConstantRange pushConstantRange{};
 };
 
 /// Result of creating compute pipelines.
