@@ -377,6 +377,9 @@ void VulkanCommandBuffer::submit() {
   submitInfo.pCommandBuffers = &commandBuffer_;
 
   VK_CHECK(vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE));
+}
+
+void VulkanCommandBuffer::wait() {
   VK_CHECK(vkQueueWaitIdle(queue_));
 
   // Clear pipeline handles (container manages cleanup)

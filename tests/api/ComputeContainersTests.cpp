@@ -15,6 +15,9 @@ public:
 
   /// Mock implementation of submit that does nothing.
   void submit() override {}
+
+  /// Mock implementation of wait that does nothing.
+  void wait() override {}
 };
 
 /// Mock CommandBufferContainer for testing.

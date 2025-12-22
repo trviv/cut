@@ -167,9 +167,14 @@ public:
   /**
    * Submits the command buffer for execution on the GPU.
    * Ends recording and submits all encoded dispatches to the compute queue.
-   * Blocks until execution completes.
    */
   virtual void submit() = 0;
+
+  /**
+   * Waits for the command buffer to finish execution.
+   * Blocks until all submitted commands have completed.
+   */
+  virtual void wait() = 0;
 
 protected:
   /// Returns the list of encoded compute dispatches.

@@ -50,9 +50,15 @@ public:
 
   /**
    * Vulkan-specific implementation for submitting the command buffer.
-   * Submits the command buffer to the queue and waits for completion.
+   * Submits the command buffer to the queue.
    */
   void submit() override;
+
+  /**
+   * Waits for the command buffer to finish execution.
+   * Blocks until all submitted commands have completed.
+   */
+  void wait() override;
 
 private:
   VkDevice device_;
