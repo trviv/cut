@@ -50,6 +50,8 @@ public:
    * container for creating descriptor set layouts.
    * @param pipelineLayoutContainer Reference to pipeline layout container for
    * creating pipeline layouts.
+   * @param pipelineContainer Reference to pipeline container for creating
+   * compute pipelines.
    */
   VulkanCommandBufferContainer(
       VkDevice device,
@@ -58,7 +60,8 @@ public:
       VulkanShaderContainer &shaderContainer,
       VulkanDescriptorContainer &descriptorContainer,
       VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
-      VulkanPipelineLayoutContainer &pipelineLayoutContainer);
+      VulkanPipelineLayoutContainer &pipelineLayoutContainer,
+      VulkanPipelineContainer &pipelineContainer);
 
   /// Destroys the command pool and waits for the queue to idle.
   ~VulkanCommandBufferContainer();
@@ -68,7 +71,7 @@ public:
     return ComputeDataContainer::create(new VulkanCommandBuffer(
         getDevice(), commandPool_, queue_, bufferContainer_, shaderContainer_,
         descriptorContainer_, descriptorSetLayoutContainer_,
-        pipelineLayoutContainer_));
+        pipelineLayoutContainer_, pipelineContainer_));
   }
 
   /// Returns the queue handle.
@@ -85,6 +88,7 @@ private:
   VulkanDescriptorContainer &descriptorContainer_;
   VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer_;
   VulkanPipelineLayoutContainer &pipelineLayoutContainer_;
+  VulkanPipelineContainer &pipelineContainer_;
 };
 
 /// Container managing GPU buffer allocations and their lifecycle.

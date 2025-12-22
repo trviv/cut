@@ -58,13 +58,14 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   descriptorContainer_.setDevice(device_);
   descriptorSetLayoutContainer_.setDevice(device_);
   pipelineLayoutContainer_.setDevice(device_);
+  pipelineContainer_.setDevice(device_);
 
   // Create and set the command buffer container (after shaderContainer_ is set
   // up)
   setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
       device_, computeQueueFamilyIndex_, bufferContainer_, shaderContainer_,
       descriptorContainer_, descriptorSetLayoutContainer_,
-      pipelineLayoutContainer_));
+      pipelineLayoutContainer_, pipelineContainer_));
 }
 
 PhysicalDeviceAndQueueIndex

@@ -74,6 +74,7 @@ private:
   VulkanDescriptorSetLayoutContainer descriptorSetLayoutContainer_;
   VulkanDescriptorContainer descriptorContainer_;
   VulkanPipelineLayoutContainer pipelineLayoutContainer_;
+  VulkanPipelineContainer pipelineContainer_;
   VulkanBufferContainer bufferContainer_;
   VulkanShaderContainer shaderContainer_;
 };

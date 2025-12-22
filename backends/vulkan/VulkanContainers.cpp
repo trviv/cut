@@ -10,11 +10,13 @@ VulkanCommandBufferContainer::VulkanCommandBufferContainer(
     VulkanShaderContainer &shaderContainer,
     VulkanDescriptorContainer &descriptorContainer,
     VulkanDescriptorSetLayoutContainer &descriptorSetLayoutContainer,
-    VulkanPipelineLayoutContainer &pipelineLayoutContainer)
+    VulkanPipelineLayoutContainer &pipelineLayoutContainer,
+    VulkanPipelineContainer &pipelineContainer)
     : bufferContainer_(bufferContainer), shaderContainer_(shaderContainer),
       descriptorContainer_(descriptorContainer),
       descriptorSetLayoutContainer_(descriptorSetLayoutContainer),
-      pipelineLayoutContainer_(pipelineLayoutContainer) {
+      pipelineLayoutContainer_(pipelineLayoutContainer),
+      pipelineContainer_(pipelineContainer) {
   setDevice(device);
   vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue_);
 
@@ -223,7 +225,7 @@ std::vector<ComputeHandle> VulkanPipelineContainer::createPipelines(
   return handles;
 }
 
-std::vector<VkPipeline> VulkanComputePipelineContainer::getPipelines(
+std::vector<VkPipeline> VulkanPipelineContainer::getPipelines(
     const std::vector<ComputeHandle> &handles) const {
   std::vector<VkPipeline> pipelines;
   pipelines.reserve(handles.size());
@@ -233,8 +235,7 @@ std::vector<VkPipeline> VulkanComputePipelineContainer::getPipelines(
   return pipelines;
 }
 
-void VulkanComputePipelineContainer::destroyAPIObject(
-    const ComputeHandle &handle) {
+void VulkanPipelineContainer::destroyAPIObject(const ComputeHandle &handle) {
   auto &pipelineStruct = get(handle);
   if (pipelineStruct.computePipeline != VK_NULL_HANDLE) {
     vkDestroyPipeline(getDevice(), pipelineStruct.computePipeline, nullptr);
