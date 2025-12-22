@@ -181,11 +181,6 @@ public:
   std::vector<ComputeHandle> createLayouts(
       const std::vector<VkDescriptorSetLayoutCreateInfo> &createInfos);
 
-  /// Returns the descriptor set layout for the given handle.
-  VkDescriptorSetLayout getLayout(const ComputeHandle &handle) const {
-    return ComputeDataContainer::get(handle).layout;
-  }
-
   /**
    * Returns multiple descriptor set layouts for the given handles.
    * @param handles Vector of handles to descriptor set layouts.
@@ -202,6 +197,11 @@ private:
    */
   ComputeHandle createLayout(const VkDescriptorSetLayoutCreateInfo &createInfo);
 
+  /// Returns the descriptor set layout for the given handle.
+  VkDescriptorSetLayout getLayout(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle).layout;
+  }
+
   /// Destroys a descriptor set layout and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
 };
@@ -215,25 +215,12 @@ public:
   VulkanPipelineLayoutContainer() = default;
 
   /**
-   * Creates a pipeline layout from the given create info.
-   * @param createInfo The pipeline layout create info containing layout and
-   * push constant configuration.
-   * @return Handle to the created pipeline layout.
-   */
-  ComputeHandle createLayout(const VulkanPipelineLayoutCreateInfo &createInfo);
-
-  /**
    * Creates multiple pipeline layouts from a vector of create infos.
    * @param createInfos Vector of pipeline layout create infos.
    * @return Vector of handles to the created pipeline layouts.
    */
   std::vector<ComputeHandle>
   createLayouts(const std::vector<VulkanPipelineLayoutCreateInfo> &createInfos);
-
-  /// Returns the pipeline layout for the given handle.
-  VkPipelineLayout getLayout(const ComputeHandle &handle) const {
-    return ComputeDataContainer::get(handle).layout;
-  }
 
   /**
    * Returns multiple pipeline layouts for the given handles.
@@ -244,6 +231,19 @@ public:
   getLayouts(const std::vector<ComputeHandle> &handles) const;
 
 private:
+  /**
+   * Creates a pipeline layout from the given create info.
+   * @param createInfo The pipeline layout create info containing layout and
+   * push constant configuration.
+   * @return Handle to the created pipeline layout.
+   */
+  ComputeHandle createLayout(const VulkanPipelineLayoutCreateInfo &createInfo);
+
+  /// Returns the pipeline layout for the given handle.
+  VkPipelineLayout getLayout(const ComputeHandle &handle) const {
+    return ComputeDataContainer::get(handle).layout;
+  }
+
   /// Destroys a pipeline layout and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
 };
