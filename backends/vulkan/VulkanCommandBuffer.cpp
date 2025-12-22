@@ -28,49 +28,27 @@ std::optional<VkDescriptorType> toVkDescriptorType(BindingType type) {
   }
 }
 
-std::vector<VkDescriptorSetLayoutBinding> createDescriptorSetLayoutBindings(
-    const std::vector<BindingInfo> &bindings,
-    std::unordered_map<VkDescriptorType, uint32_t> &descriptorTypeCounts) {
-  std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
-  layoutBindings.reserve(bindings.size());
-
-  for (const auto &binding : bindings) {
-    auto descriptorType = toVkDescriptorType(binding.type);
-    if (!descriptorType) {
-      continue;
-    }
-
-    descriptorTypeCounts[*descriptorType]++;
-
-    VkDescriptorSetLayoutBinding layoutBinding = {};
-    layoutBinding.binding = binding.binding;
-    layoutBinding.descriptorCount = 1;
-    layoutBinding.descriptorType = *descriptorType;
-    layoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    layoutBinding.pImmutableSamplers = nullptr;
-
-    layoutBindings.emplace_back(layoutBinding);
-  }
-
-  return layoutBindings;
-}
-
-/// Result of descriptor set preparation containing layouts and pool sizes.
-struct DescriptorSetPreparationResult {
+/// Result of descriptor set creation.
+struct DescriptorSetResult {
   std::vector<ComputeHandle> layoutHandles;
-  std::vector<VkDescriptorPoolSize> poolSizes;
+  ComputeHandle descriptorsHandle;
 };
 
-/// Creates descriptor set layouts and calculates pool sizes for all dispatches.
-DescriptorSetPreparationResult
-prepareDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
-                      VulkanShaderContainer &shaderContainer,
-                      VulkanDescriptorSetLayoutContainer &layoutContainer) {
-  DescriptorSetPreparationResult result;
+/// Creates descriptor set layouts, pool, and allocates descriptor sets.
+DescriptorSetResult
+createDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
+                     VulkanShaderContainer &shaderContainer,
+                     VulkanDescriptorSetLayoutContainer &layoutContainer,
+                     VulkanDescriptorContainer &descriptorContainer) {
+  DescriptorSetResult result;
+
+  if (dispatches.empty()) {
+    return result;
+  }
 
   std::unordered_map<VkDescriptorType, uint32_t> descriptorTypeCounts;
 
-  // Collect all layout bindings first (must stay alive until createLayouts)
+  // Collect all layout bindings (must stay alive until createLayouts)
   std::vector<std::vector<VkDescriptorSetLayoutBinding>> allLayoutBindings;
   allLayoutBindings.reserve(dispatches.size());
 
@@ -80,33 +58,60 @@ prepareDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
   for (const auto &dispatch : dispatches) {
     const auto &reflection = shaderContainer.getReflection(dispatch.shader());
 
-    // Create descriptor set layout bindings and accumulate type counts
-    allLayoutBindings.emplace_back(createDescriptorSetLayoutBindings(
-        reflection.bindings, descriptorTypeCounts));
+    // Create layout bindings for this dispatch
+    std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
+    layoutBindings.reserve(reflection.bindings.size());
 
-    const auto &layoutBindings = allLayoutBindings.back();
+    for (const auto &binding : reflection.bindings) {
+      auto descriptorType = toVkDescriptorType(binding.type);
+      if (!descriptorType) {
+        continue;
+      }
 
-    // Create descriptor set layout (can be empty if no bindings)
+      descriptorTypeCounts[*descriptorType]++;
+
+      VkDescriptorSetLayoutBinding layoutBinding{};
+      layoutBinding.binding = binding.binding;
+      layoutBinding.descriptorCount = 1;
+      layoutBinding.descriptorType = *descriptorType;
+      layoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+      layoutBinding.pImmutableSamplers = nullptr;
+
+      layoutBindings.emplace_back(layoutBinding);
+    }
+
+    allLayoutBindings.emplace_back(std::move(layoutBindings));
+    const auto &bindings = allLayoutBindings.back();
+
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<uint32_t>(layoutBindings.size());
-    layoutInfo.pBindings =
-        layoutBindings.empty() ? nullptr : layoutBindings.data();
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.empty() ? nullptr : bindings.data();
 
     layoutCreateInfos.emplace_back(layoutInfo);
   }
 
-  // Create all descriptor set layouts in a single call
+  // Create all descriptor set layouts
   result.layoutHandles = layoutContainer.createLayouts(
       layoutCreateInfos.data(), layoutCreateInfos.size());
 
   // Convert descriptor type counts to pool sizes
-  result.poolSizes.reserve(descriptorTypeCounts.size());
+  std::vector<VkDescriptorPoolSize> poolSizes;
+  poolSizes.reserve(descriptorTypeCounts.size());
   for (const auto &[type, count] : descriptorTypeCounts) {
     VkDescriptorPoolSize poolSize{};
     poolSize.type = type;
     poolSize.descriptorCount = count;
-    result.poolSizes.emplace_back(poolSize);
+    poolSizes.emplace_back(poolSize);
+  }
+
+  // Create descriptor pool and allocate sets
+  if (!poolSizes.empty()) {
+    const auto descriptorSetLayouts =
+        layoutContainer.getLayouts(result.layoutHandles);
+
+    result.descriptorsHandle = descriptorContainer.createDescriptorSets(
+        poolSizes, result.layoutHandles, descriptorSetLayouts);
   }
 
   return result;
@@ -215,20 +220,14 @@ void VulkanCommandBuffer::begin() {
 }
 
 void VulkanCommandBuffer::end() {
-  // Prepare descriptor sets: create layouts and calculate pool sizes
-  auto preparation = prepareDescriptorSets(dispatches(), shaderContainer_,
-                                           descriptorSetLayoutContainer_);
-  auto descriptorSetLayoutHandles = std::move(preparation.layoutHandles);
+  // Create descriptor set layouts, pool, and allocate descriptor sets
+  auto descriptorResult =
+      createDescriptorSets(dispatches(), shaderContainer_,
+                           descriptorSetLayoutContainer_, descriptorContainer_);
+  auto descriptorSetLayoutHandles = std::move(descriptorResult.layoutHandles);
+  descriptorsHandle_ = std::move(descriptorResult.descriptorsHandle);
 
-  // Create descriptor pool and allocate descriptor sets
-  if (!preparation.poolSizes.empty() && !descriptorSetLayoutHandles.empty()) {
-    const auto &descriptorSetLayouts =
-        descriptorSetLayoutContainer_.getLayouts(descriptorSetLayoutHandles);
-
-    descriptorsHandle_ = descriptorContainer_.createDescriptorSets(
-        preparation.poolSizes, descriptorSetLayoutHandles,
-        descriptorSetLayouts);
-
+  if (!descriptorSetLayoutHandles.empty() && descriptorsHandle_) {
     const auto &descriptorSets =
         descriptorContainer_.getDescriptorSets(descriptorsHandle_);
 
