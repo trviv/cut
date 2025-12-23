@@ -127,8 +127,8 @@ public:
   void sortBindings();
 
 private:
-  ThreadSize wgSize_ = {64, 1, 1}; ///< Workgroup dimensions (default 64x1x1).
-  ComputeHandle shader_;           ///< Bound shader handle.
+  ThreadSize wgSize_;    ///< Workgroup dimensions (default 64x1x1).
+  ComputeHandle shader_; ///< Bound shader handle.
   std::vector<ComputeBinding> bindings_; ///< All bindings (handles and data).
 };
 

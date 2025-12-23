@@ -12,6 +12,14 @@ namespace py = pybind11;
 PYBIND11_MODULE(_cut_core, m) {
   m.doc() = "CUT (Compute Unified Toolkit) - GPU Compute Library Python Bindings";
 
+  // Expose ScalarDataType
+  py::enum_<cut::ScalarDataType>(m, "ScalarDataType")
+      .value("Float", cut::ScalarDataType::Float)
+      .value("Half", cut::ScalarDataType::Half)
+      .value("UInt", cut::ScalarDataType::UInt)
+      .value("Int", cut::ScalarDataType::Int)
+      .export_values();
+
   // Expose ShaderEnum
   py::enum_<cut::ShaderEnum>(m, "ShaderEnum")
       .value("VECTOR_ADD", cut::ShaderEnum::VECTOR_ADD)

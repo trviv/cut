@@ -81,7 +81,7 @@ def precompile_shaders():
 
     for shader_enum in shader_enums:
         if shader_enum not in _shader_cache:
-            spirv_code = _cut_core.get_shader(shader_enum)
+            spirv_code = _cut_core.get_shader(shader_enum, _cut_core.ScalarDataType.Float)
             handle = _interface.create_shader_module(spirv_code)
             _shader_cache[shader_enum] = handle
 
@@ -176,7 +176,7 @@ class Shader:
                 self._handle = _shader_cache[spirv]
                 return
             # Compile and cache
-            spirv_code = _cut_core.get_shader(spirv)
+            spirv_code = _cut_core.get_shader(spirv, _cut_core.ScalarDataType.Float)
             self._handle = _interface.create_shader_module(spirv_code)
             _shader_cache[spirv] = self._handle
         else:
