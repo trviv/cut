@@ -88,6 +88,7 @@ set(LIB_HEADERS
 # Source files
 set(LIB_SOURCES
     shaders/Shaders.cpp
+    shaders/ShadersGenerated.cpp
     api/src/ComputeCommon.cpp
     api/src/ComputeHandle.cpp
     api/src/ComputeStructs.cpp
