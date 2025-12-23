@@ -11,7 +11,7 @@ static const char *binaryVecVecShaderTemplate = R"(
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(constant_id = 0) const uint dtype_vec_size = 1;
+layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
 
 layout(push_constant) uniform PushConstants {
     uint numElements;
@@ -30,9 +30,9 @@ layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
 };
 
 void main() {
-    uint index = gl_GlobalInvocationID.x;
+    const uint index = gl_GlobalInvocationID.x;
 
-    if (index >= numElements) {
+    if (index * dtype_vec_size >= numElements) {
         return;
     }
 
@@ -46,7 +46,7 @@ static const char *binaryVecVecFuncShaderTemplate = R"(
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(constant_id = 0) const uint dtype_vec_size = 1;
+layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
 
 layout(push_constant) uniform PushConstants {
     uint numElements;
@@ -65,9 +65,9 @@ layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
 };
 
 void main() {
-    uint index = gl_GlobalInvocationID.x;
+    const uint index = gl_GlobalInvocationID.x;
 
-    if (index >= numElements) {
+    if (index * dtype_vec_size >= numElements) {
         return;
     }
 
@@ -81,7 +81,7 @@ static const char *binaryVecVecCompareShaderTemplate = R"(
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(constant_id = 0) const uint dtype_vec_size = 1;
+layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
 
 layout(push_constant) uniform PushConstants {
     uint numElements;
@@ -100,13 +100,13 @@ layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
 };
 
 void main() {
-    uint index = gl_GlobalInvocationID.x;
+    const uint index = gl_GlobalInvocationID.x;
 
-    if (index >= numElements) {
+    if (index * dtype_vec_size >= numElements) {
         return;
     }
 
-    dataOut[index] = (dataA[index] %OP% dataB[index]) ? 1.0 : 0.0;
+    dataOut[index] = %DTYPE%(%EXPR%);
 }
 )";
 
@@ -116,7 +116,7 @@ static const char *unaryShaderTemplate = R"(
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(constant_id = 0) const uint dtype_vec_size = 1;
+layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
 
 layout(push_constant) uniform PushConstants {
     uint numElements;
@@ -131,9 +131,9 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOutput {
 };
 
 void main() {
-    uint index = gl_GlobalInvocationID.x;
+    const uint index = gl_GlobalInvocationID.x;
 
-    if (index >= numElements) {
+    if (index * dtype_vec_size >= numElements) {
         return;
     }
 
@@ -156,20 +156,15 @@ static std::string replaceAll(const std::string &str,
 static const char *getGLSLType(ScalarDataType datatype) {
   switch (datatype) {
   case ScalarDataType::Float:
-    // return "vec4";
-    return "float";
+    return "vec4";
   case ScalarDataType::Half:
-    // return "mediump vec4";
-    return "mediump float";
+    return "mediump vec4";
   case ScalarDataType::UInt:
-    // return "uvec4";
-    return "uint";
+    return "uvec4";
   case ScalarDataType::Int:
-    // return "ivec4";
-    return "int";
+    return "ivec4";
   default:
-    // return "vec4";
-    return "float";
+    return "vec4";
   }
 }
 
@@ -178,6 +173,7 @@ static std::string generateBinaryVecVecShader(const char *op,
   std::string shader = binaryVecVecShaderTemplate;
   shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%OP%", op);
+  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
   return shader;
 }
 
@@ -186,14 +182,16 @@ static std::string generateBinaryVecVecFuncShader(const char *func,
   std::string shader = binaryVecVecFuncShaderTemplate;
   shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%FUNC%", func);
+  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
   return shader;
 }
 
-static std::string generateBinaryVecVecCompareShader(const char *op,
+static std::string generateBinaryVecVecCompareShader(const char *expr,
                                                      ScalarDataType datatype) {
   std::string shader = binaryVecVecCompareShaderTemplate;
   shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
-  shader = replaceAll(shader, "%OP%", op);
+  shader = replaceAll(shader, "%EXPR%", expr);
+  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
   return shader;
 }
 
@@ -202,6 +200,7 @@ static std::string generateUnaryShader(const char *expr,
   std::string shader = unaryShaderTemplate;
   shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%EXPR%", expr);
+  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
   return shader;
 }
 
@@ -247,27 +246,33 @@ getGeneratedShader(const ShaderEnum shader, const ScalarDataType datatype) {
 
   // Binary comparison operations
   case BinaryVecVecEqual:
-    shaderSource = generateBinaryVecVecCompareShader("==", datatype);
+    shaderSource = generateBinaryVecVecCompareShader(
+        "equal(dataA[index], dataB[index])", datatype);
     shaderName = "binary_vec_vec_equal";
     break;
   case BinaryVecVecNotEqual:
-    shaderSource = generateBinaryVecVecCompareShader("!=", datatype);
+    shaderSource = generateBinaryVecVecCompareShader(
+        "notEqual(dataA[index], dataB[index])", datatype);
     shaderName = "binary_vec_vec_not_equal";
     break;
   case BinaryVecVecLess:
-    shaderSource = generateBinaryVecVecCompareShader("<", datatype);
+    shaderSource = generateBinaryVecVecCompareShader(
+        "lessThan(dataA[index], dataB[index])", datatype);
     shaderName = "binary_vec_vec_less";
     break;
   case BinaryVecVecLessEqual:
-    shaderSource = generateBinaryVecVecCompareShader("<=", datatype);
+    shaderSource = generateBinaryVecVecCompareShader(
+        "lessThanEqual(dataA[index], dataB[index])", datatype);
     shaderName = "binary_vec_vec_less_equal";
     break;
   case BinaryVecVecGreater:
-    shaderSource = generateBinaryVecVecCompareShader(">", datatype);
+    shaderSource = generateBinaryVecVecCompareShader(
+        "greaterThan(dataA[index], dataB[index])", datatype);
     shaderName = "binary_vec_vec_greater";
     break;
   case BinaryVecVecGreaterEqual:
-    shaderSource = generateBinaryVecVecCompareShader(">=", datatype);
+    shaderSource = generateBinaryVecVecCompareShader(
+        "greaterThanEqual(dataA[index], dataB[index])", datatype);
     shaderName = "binary_vec_vec_greater_equal";
     break;
 
