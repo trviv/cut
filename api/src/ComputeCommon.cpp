@@ -171,6 +171,7 @@ constexpr uint32_t MagicNumber = 0x07230203;
 // Opcodes
 constexpr uint32_t OpDecorate = 71;
 constexpr uint32_t OpMemberDecorate = 72;
+constexpr uint32_t OpExecutionMode = 16;
 constexpr uint32_t OpTypeInt = 21;
 constexpr uint32_t OpTypeFloat = 22;
 constexpr uint32_t OpTypeVector = 23;
@@ -191,6 +192,9 @@ constexpr uint32_t DecorationBlock = 2;
 constexpr uint32_t DecorationBufferBlock = 3;
 constexpr uint32_t DecorationOffset = 35;
 
+// Execution modes
+constexpr uint32_t ExecutionModeLocalSize = 17;
+
 // Storage classes
 constexpr uint32_t StorageClassUniform = 2;
 constexpr uint32_t StorageClassUniformConstant = 0;
@@ -201,6 +205,7 @@ constexpr uint32_t StorageClassPushConstant = 9;
 ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
   ShaderReflection reflection{};
   reflection.pushConstantSize = 0;
+  reflection.tgSize = {0, 0, 0};
 
   if (spirvCode.size() < 5 || spirvCode[0] != spirv::MagicNumber) {
     logErr("Invalid SPIR-V: bad magic number or too small");
@@ -269,6 +274,19 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
 
         if (decoration == spirv::DecorationOffset && wordCount >= 5) {
           memberOffsets[structId][memberIndex] = spirvCode[i + 4];
+        }
+      }
+      break;
+    }
+    case spirv::OpExecutionMode: {
+      // OpExecutionMode %entryPoint mode [operands...]
+      // For LocalSize: OpExecutionMode %entryPoint LocalSize x y z
+      if (wordCount >= 3) {
+        uint32_t mode = spirvCode[i + 2];
+        if (mode == spirv::ExecutionModeLocalSize && wordCount >= 6) {
+          reflection.tgSize.x = spirvCode[i + 3];
+          reflection.tgSize.y = spirvCode[i + 4];
+          reflection.tgSize.z = spirvCode[i + 5];
         }
       }
       break;

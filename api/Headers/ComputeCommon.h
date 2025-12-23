@@ -143,6 +143,7 @@ struct BindingInfo {
 struct ShaderReflection {
   std::vector<BindingInfo> bindings; ///< All resource bindings.
   uint32_t pushConstantSize;         ///< Size of push constants in bytes.
+  ThreadSize tgSize; ///< Workgroup/threadgroup size from shader.
 };
 
 /**
