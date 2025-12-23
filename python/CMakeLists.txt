@@ -11,6 +11,13 @@ find_package(pybind11 CONFIG REQUIRED)
 # Find Vulkan
 find_package(Vulkan REQUIRED)
 
+# Find shaderc library (part of Vulkan SDK)
+find_library(SHADERC_LIB shaderc_combined
+    PATHS ${Vulkan_INCLUDE_DIRS}/../lib
+    REQUIRED
+)
+message(STATUS "shaderc library: ${SHADERC_LIB}")
+
 # CUT_ROOT can be set externally, otherwise try to find it
 if(NOT DEFINED CUT_ROOT)
     # Try parent of source directory first (in-tree build)
@@ -47,7 +54,7 @@ pybind11_add_module(_cut_core
     ${SHADER_SOURCES}
 )
 
-target_link_libraries(_cut_core PRIVATE Vulkan::Vulkan)
+target_link_libraries(_cut_core PRIVATE Vulkan::Vulkan ${SHADERC_LIB})
 
 # Set RPATH to find Vulkan at runtime
 if(APPLE)

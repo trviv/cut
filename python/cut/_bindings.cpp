@@ -4,8 +4,8 @@
 #include <pybind11/stl.h>
 #include <vector>
 
-#include "VulkanCompute.h"
 #include "Shaders.h"
+#include "VulkanCompute.h"
 
 namespace py = pybind11;
 
@@ -15,6 +15,48 @@ PYBIND11_MODULE(_cut_core, m) {
   // Expose ShaderEnum
   py::enum_<cut::ShaderEnum>(m, "ShaderEnum")
       .value("VECTOR_ADD", cut::ShaderEnum::VECTOR_ADD)
+      // Binary arithmetic operations (vec-vec)
+      .value("BinaryVecVecAdd", cut::ShaderEnum::BinaryVecVecAdd)
+      .value("BinaryVecVecSub", cut::ShaderEnum::BinaryVecVecSub)
+      .value("BinaryVecVecMul", cut::ShaderEnum::BinaryVecVecMul)
+      .value("BinaryVecVecDiv", cut::ShaderEnum::BinaryVecVecDiv)
+      .value("BinaryVecVecMod", cut::ShaderEnum::BinaryVecVecMod)
+      .value("BinaryVecVecPow", cut::ShaderEnum::BinaryVecVecPow)
+      .value("BinaryVecVecFloorDiv", cut::ShaderEnum::BinaryVecVecFloorDiv)
+      // Binary comparison operations (vec-vec)
+      .value("BinaryVecVecEqual", cut::ShaderEnum::BinaryVecVecEqual)
+      .value("BinaryVecVecNotEqual", cut::ShaderEnum::BinaryVecVecNotEqual)
+      .value("BinaryVecVecLess", cut::ShaderEnum::BinaryVecVecLess)
+      .value("BinaryVecVecLessEqual", cut::ShaderEnum::BinaryVecVecLessEqual)
+      .value("BinaryVecVecGreater", cut::ShaderEnum::BinaryVecVecGreater)
+      .value("BinaryVecVecGreaterEqual",
+             cut::ShaderEnum::BinaryVecVecGreaterEqual)
+      // Binary min/max operations (vec-vec)
+      .value("BinaryVecVecMin", cut::ShaderEnum::BinaryVecVecMin)
+      .value("BinaryVecVecMax", cut::ShaderEnum::BinaryVecVecMax)
+      // Unary operations
+      .value("UnaryNeg", cut::ShaderEnum::UnaryNeg)
+      .value("UnaryAbs", cut::ShaderEnum::UnaryAbs)
+      .value("UnarySqrt", cut::ShaderEnum::UnarySqrt)
+      .value("UnaryExp", cut::ShaderEnum::UnaryExp)
+      .value("UnaryLog", cut::ShaderEnum::UnaryLog)
+      .value("UnaryLog2", cut::ShaderEnum::UnaryLog2)
+      .value("UnaryLog10", cut::ShaderEnum::UnaryLog10)
+      .value("UnarySin", cut::ShaderEnum::UnarySin)
+      .value("UnaryCos", cut::ShaderEnum::UnaryCos)
+      .value("UnaryTan", cut::ShaderEnum::UnaryTan)
+      .value("UnaryAsin", cut::ShaderEnum::UnaryAsin)
+      .value("UnaryAcos", cut::ShaderEnum::UnaryAcos)
+      .value("UnaryAtan", cut::ShaderEnum::UnaryAtan)
+      .value("UnarySinh", cut::ShaderEnum::UnarySinh)
+      .value("UnaryCosh", cut::ShaderEnum::UnaryCosh)
+      .value("UnaryTanh", cut::ShaderEnum::UnaryTanh)
+      .value("UnaryFloor", cut::ShaderEnum::UnaryFloor)
+      .value("UnaryCeil", cut::ShaderEnum::UnaryCeil)
+      .value("UnaryRound", cut::ShaderEnum::UnaryRound)
+      .value("UnarySign", cut::ShaderEnum::UnarySign)
+      .value("UnaryReciprocal", cut::ShaderEnum::UnaryReciprocal)
+      .value("UnarySquare", cut::ShaderEnum::UnarySquare)
       .export_values();
 
   // Expose ThreadGroupSize
@@ -76,26 +118,28 @@ PYBIND11_MODULE(_cut_core, m) {
             return self.createBuffer(size, nullptr, isUniform);
           },
           py::arg("size"), py::arg("is_uniform") = false)
-      .def("copy_to_buffer",
-           [](cut::VulkanCompute &self, cut::ComputeHandle handle,
-              py::array arr, size_t srcOffset, size_t dstOffset) {
-             py::buffer_info info = arr.request();
-             size_t size = info.size * info.itemsize;
-             self.copyDataToBuffer(info.ptr, handle, size, srcOffset, dstOffset,
-                                   false, true);
-           },
-           py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
-           py::arg("dst_offset") = 0)
-      .def("copy_from_buffer",
-           [](cut::VulkanCompute &self, cut::ComputeHandle handle,
-              py::array arr, size_t srcOffset, size_t dstOffset) {
-             py::buffer_info info = arr.request();
-             size_t size = info.size * info.itemsize;
-             self.copyDataFromBuffer(handle, info.ptr, size, srcOffset,
-                                     dstOffset, false, true);
-           },
-           py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
-           py::arg("dst_offset") = 0)
+      .def(
+          "copy_to_buffer",
+          [](cut::VulkanCompute &self, cut::ComputeHandle handle, py::array arr,
+             size_t srcOffset, size_t dstOffset) {
+            py::buffer_info info = arr.request();
+            size_t size = info.size * info.itemsize;
+            self.copyDataToBuffer(info.ptr, handle, size, srcOffset, dstOffset,
+                                  false, true);
+          },
+          py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
+          py::arg("dst_offset") = 0)
+      .def(
+          "copy_from_buffer",
+          [](cut::VulkanCompute &self, cut::ComputeHandle handle, py::array arr,
+             size_t srcOffset, size_t dstOffset) {
+            py::buffer_info info = arr.request();
+            size_t size = info.size * info.itemsize;
+            self.copyDataFromBuffer(handle, info.ptr, size, srcOffset,
+                                    dstOffset, false, true);
+          },
+          py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
+          py::arg("dst_offset") = 0)
       .def("create_shader_module",
            [](cut::VulkanCompute &self, const std::vector<uint32_t> &spirv) {
              return self.createShaderModule(spirv);
