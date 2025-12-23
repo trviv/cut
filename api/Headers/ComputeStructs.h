@@ -109,6 +109,19 @@ public:
   void bindData(const DataReference &dataRef, uint32_t bindIndex);
 
   /**
+   * Binds a scalar value to this dispatch.
+   * The value is copied and owned by this dispatch.
+   * @tparam T The type of the value (e.g., uint32_t, int32_t, float).
+   * @param value The scalar value to bind.
+   * @param bindIndex The binding index in the shader.
+   */
+  template <typename T>
+  void bindValue(T value, uint32_t bindIndex) {
+    DataReference ref(&value, sizeof(T));
+    bindData(ref, bindIndex);
+  }
+
+  /**
    * Sets the workgroup size for this dispatch.
    * @param wgSize The workgroup dimensions.
    */

@@ -208,12 +208,12 @@ class Dispatch:
         )
         self._bindings = []
 
-    def bind(self, resource: Union[Buffer, np.ndarray], binding: int) -> "Dispatch":
+    def bind(self, resource: Union[Buffer, np.ndarray, int, float], binding: int) -> "Dispatch":
         """
         Bind a resource to a binding point.
 
         Args:
-            resource: Buffer or numpy array (for push constants)
+            resource: Buffer, numpy array, int (as uint32), or float (as float32)
             binding: Binding index
 
         Returns:
@@ -221,10 +221,14 @@ class Dispatch:
         """
         if isinstance(resource, Buffer):
             self._dispatch.bind_resource(resource.handle, binding)
-        else:
+        elif isinstance(resource, np.ndarray):
             data = np.ascontiguousarray(resource)
             self._dispatch.bind_data(data, binding)
             self._bindings.append(data)  # Keep reference alive
+        elif isinstance(resource, int):
+            self._dispatch.bind_uint(resource, binding)
+        elif isinstance(resource, float):
+            self._dispatch.bind_float(resource, binding)
         return self
 
     @property
@@ -264,7 +268,6 @@ def _binary_op(a: Buffer, b: Buffer, shader_enum, out: Optional[Buffer] = None) 
         out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
 
     num_elements = a.size // 4  # float32 is 4 bytes
-    num_elements_arr = np.array([num_elements], dtype=np.uint32)
 
     shader = Shader(shader_enum)
     # Pass number of elements; runtime divides by tgSize and dtypeVecSize
@@ -272,7 +275,7 @@ def _binary_op(a: Buffer, b: Buffer, shader_enum, out: Optional[Buffer] = None) 
     dispatch.bind(a, 0)
     dispatch.bind(b, 1)
     dispatch.bind(out, 2)
-    dispatch.bind(num_elements_arr, 3)
+    dispatch.bind(num_elements, 3)
 
     run(dispatch)
 
@@ -287,14 +290,13 @@ def _unary_op(a: Buffer, shader_enum, out: Optional[Buffer] = None) -> Buffer:
         out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
 
     num_elements = a.size // 4  # float32 is 4 bytes
-    num_elements_arr = np.array([num_elements], dtype=np.uint32)
 
     shader = Shader(shader_enum)
     # Pass number of elements; runtime divides by tgSize and dtypeVecSize
     dispatch = Dispatch(shader, (num_elements, 1, 1))
     dispatch.bind(a, 0)
     dispatch.bind(out, 1)
-    dispatch.bind(num_elements_arr, 2)
+    dispatch.bind(num_elements, 2)
 
     run(dispatch)
 
@@ -523,7 +525,6 @@ def vector_add(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
         out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
 
     num_elements = a.size // 4  # float32 is 4 bytes
-    num_elements_arr = np.array([num_elements], dtype=np.uint32)
 
     shader = Shader(_cut_core.ShaderEnum.VECTOR_ADD)
     workgroups = (num_elements + 63) // 64  # 64 threads per workgroup
@@ -532,7 +533,7 @@ def vector_add(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     dispatch.bind(a, 0)
     dispatch.bind(b, 1)
     dispatch.bind(out, 2)
-    dispatch.bind(num_elements_arr, 3)  # Push constant
+    dispatch.bind(num_elements, 3)  # Push constant
 
     run(dispatch)
 

@@ -100,6 +100,17 @@ PYBIND11_MODULE(_cut_core, m) {
              cut::DataReference ref(
                  info.ptr, static_cast<uint32_t>(info.size * info.itemsize));
              self.bindData(ref, binding);
+           })
+      .def("bind_uint",
+           [](cut::ComputeDispatch &self, uint32_t value, uint32_t binding) {
+             // Store value in dispatch's internal storage to keep it alive
+             self.bindValue(value, binding);
+           })
+      .def("bind_int", [](cut::ComputeDispatch &self, int32_t value,
+                          uint32_t binding) { self.bindValue(value, binding); })
+      .def("bind_float",
+           [](cut::ComputeDispatch &self, float value, uint32_t binding) {
+             self.bindValue(value, binding);
            });
 
   // Expose VulkanInstance
