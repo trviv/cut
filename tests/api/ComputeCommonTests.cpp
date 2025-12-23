@@ -5,27 +5,27 @@
 
 using namespace cut;
 
-// ThreadGroupSize tests
+// ThreadSize tests
 
-TEST(ThreadGroupSize, DefaultConstructorInitializesToZero) {
-  ThreadGroupSize tgs;
-  EXPECT_EQ(tgs.tgSizeX, 0);
-  EXPECT_EQ(tgs.tgSizeY, 0);
-  EXPECT_EQ(tgs.tgSizeZ, 0);
+TEST(ThreadSize, DefaultConstructorInitializesToZero) {
+  ThreadSize tgs;
+  EXPECT_EQ(tgs.x, 0);
+  EXPECT_EQ(tgs.y, 0);
+  EXPECT_EQ(tgs.z, 0);
 }
 
-TEST(ThreadGroupSize, AggregateInitialization) {
-  ThreadGroupSize tgs{8, 8, 1};
-  EXPECT_EQ(tgs.tgSizeX, 8);
-  EXPECT_EQ(tgs.tgSizeY, 8);
-  EXPECT_EQ(tgs.tgSizeZ, 1);
+TEST(ThreadSize, AggregateInitialization) {
+  ThreadSize tgs{8, 8, 1};
+  EXPECT_EQ(tgs.x, 8);
+  EXPECT_EQ(tgs.y, 8);
+  EXPECT_EQ(tgs.z, 1);
 }
 
-TEST(ThreadGroupSize, PartialInitialization) {
-  ThreadGroupSize tgs{16};
-  EXPECT_EQ(tgs.tgSizeX, 16);
-  EXPECT_EQ(tgs.tgSizeY, 0);
-  EXPECT_EQ(tgs.tgSizeZ, 0);
+TEST(ThreadSize, PartialInitialization) {
+  ThreadSize tgs{16};
+  EXPECT_EQ(tgs.x, 16);
+  EXPECT_EQ(tgs.y, 0);
+  EXPECT_EQ(tgs.z, 0);
 }
 
 // DataReference tests
@@ -79,7 +79,8 @@ void main() {
 }
 )";
 
-  std::vector<uint32_t> spirv = compileShaderToSpirv(source, "test_shader.comp");
+  std::vector<uint32_t> spirv =
+      compileShaderToSpirv(source, "test_shader.comp");
 
   // Verify SPIR-V magic number (0x07230203)
   ASSERT_FALSE(spirv.empty());
@@ -117,8 +118,7 @@ void main() {
 }
 )";
 
-  std::vector<uint32_t> spirv =
-      compileShaderToSpirv(source, "vector_add.comp");
+  std::vector<uint32_t> spirv = compileShaderToSpirv(source, "vector_add.comp");
 
   ASSERT_FALSE(spirv.empty());
   EXPECT_EQ(spirv[0], 0x07230203u);
@@ -248,7 +248,8 @@ void main() {
 }
 )";
 
-  std::vector<uint32_t> spirv = compileShaderToSpirv(source, "reflect_test.comp");
+  std::vector<uint32_t> spirv =
+      compileShaderToSpirv(source, "reflect_test.comp");
   ASSERT_FALSE(spirv.empty());
 
   ShaderReflection reflection = reflectSpirvBindings(spirv);

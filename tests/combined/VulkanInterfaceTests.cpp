@@ -170,7 +170,7 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
   });
 
   // Create dispatch
-  cut::ThreadGroupSize threadGroups{1, 1, 1}; // 1 workgroup of 64 threads
+  cut::ThreadSize threadGroups{1, 1, 1}; // 1 workgroup of 64 threads
 
   cut::ComputeHandle cmdBuffer;
 
@@ -260,7 +260,7 @@ TEST_F(VulkanTestEnvironment, MultipleDispatches) {
 
   for (size_t i = 0; i < numDispatches; ++i) {
     const auto &d = dispatchData[i];
-    cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+    cut::ThreadSize tgSize{threadGroups, 1, 1};
 
     interface->encode(
         {shaderModule,
@@ -317,26 +317,29 @@ TEST_F(VulkanTestEnvironment, DependentDispatches) {
     dataD[i] = static_cast<float>(i) * 3.0f;
     dataE[i] = static_cast<float>(i) * 4.0f;
 
-    expectedC[i] = dataA[i] + dataB[i]; // i * 3
-    expectedF[i] = dataD[i] + dataE[i]; // i * 7
+    expectedC[i] = dataA[i] + dataB[i];         // i * 3
+    expectedF[i] = dataD[i] + dataE[i];         // i * 7
     expectedG[i] = expectedC[i] + expectedF[i]; // i * 10
   }
 
   // Create buffers
   auto bufferA = interface->createBuffer(bufferSize, dataA.data());
   auto bufferB = interface->createBuffer(bufferSize, dataB.data());
-  auto bufferC = interface->createBuffer(bufferSize, nullptr); // Output of A + B
+  auto bufferC =
+      interface->createBuffer(bufferSize, nullptr); // Output of A + B
   auto bufferD = interface->createBuffer(bufferSize, dataD.data());
   auto bufferE = interface->createBuffer(bufferSize, dataE.data());
-  auto bufferF = interface->createBuffer(bufferSize, nullptr); // Output of D + E
-  auto bufferG = interface->createBuffer(bufferSize, nullptr); // Output of C + F
+  auto bufferF =
+      interface->createBuffer(bufferSize, nullptr); // Output of D + E
+  auto bufferG =
+      interface->createBuffer(bufferSize, nullptr); // Output of C + F
 
   // Load vector add shader
   const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
   auto shaderModule = interface->createShaderModule(shader);
 
   const uint32_t threadGroups = (elements + 63) / 64;
-  cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+  cut::ThreadSize tgSize{threadGroups, 1, 1};
 
   // Record command buffer with 3 dispatches
   interface->beginCommandBuffer();
@@ -453,7 +456,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
   auto shaderModule = interface->createShaderModule(shader);
 
   const uint32_t threadGroups = (elements + 63) / 64;
-  cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+  cut::ThreadSize tgSize{threadGroups, 1, 1};
 
   interface->beginCommandBuffer();
 
@@ -557,28 +560,26 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesChain) {
   auto shaderModule = interface->createShaderModule(shader);
 
   const uint32_t threadGroups = (elements + 63) / 64;
-  cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+  cut::ThreadSize tgSize{threadGroups, 1, 1};
 
   interface->beginCommandBuffer();
 
   // First dispatch: A + B = R1
-  interface->encode(
-      {shaderModule,
-       tgSize,
-       {cut::ComputeBinding(0, inputBuffers[0]),
-        cut::ComputeBinding(1, inputBuffers[1]),
-        cut::ComputeBinding(2, resultBuffers[0]),
-        cut::ComputeBinding(3, cut::DataReference(elements))}});
+  interface->encode({shaderModule,
+                     tgSize,
+                     {cut::ComputeBinding(0, inputBuffers[0]),
+                      cut::ComputeBinding(1, inputBuffers[1]),
+                      cut::ComputeBinding(2, resultBuffers[0]),
+                      cut::ComputeBinding(3, cut::DataReference(elements))}});
 
   // Subsequent dispatches: R[i-1] + input[i+1] = R[i]
   for (size_t i = 1; i < chainLength; ++i) {
-    interface->encode(
-        {shaderModule,
-         tgSize,
-         {cut::ComputeBinding(0, resultBuffers[i - 1]),
-          cut::ComputeBinding(1, inputBuffers[i + 1]),
-          cut::ComputeBinding(2, resultBuffers[i]),
-          cut::ComputeBinding(3, cut::DataReference(elements))}});
+    interface->encode({shaderModule,
+                       tgSize,
+                       {cut::ComputeBinding(0, resultBuffers[i - 1]),
+                        cut::ComputeBinding(1, inputBuffers[i + 1]),
+                        cut::ComputeBinding(2, resultBuffers[i]),
+                        cut::ComputeBinding(3, cut::DataReference(elements))}});
   }
 
   auto cmdBuffer = interface->endCommandBuffer();

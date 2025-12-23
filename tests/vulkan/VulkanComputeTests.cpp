@@ -134,7 +134,7 @@ TEST_F(VulkanComputeTest, CanRegisterDispatch) {
 
 TEST_F(VulkanComputeTest, CanRegisterDispatchWithBindings) {
   auto buffer = compute_->createBuffer(1024);
-  ThreadGroupSize tgs{8, 8, 1};
+  ThreadSize tgs{8, 8, 1};
 
   compute_->beginCommandBuffer();
 

@@ -74,9 +74,9 @@ protected:
 
 // ComputeDispatch tests via ComputeInterface
 
-TEST_F(ComputeContainersTest, RegisterDispatchWithThreadGroupSize) {
+TEST_F(ComputeContainersTest, RegisterDispatchWithThreadSize) {
   interface_->beginCommandBuffer();
-  ThreadGroupSize tgs{8, 8, 1};
+  ThreadSize tgs{8, 8, 1};
   interface_->encode({{}, tgs});
   auto cmdBufferHandle = interface_->endCommandBuffer();
   cmdBufferHandle.reset();

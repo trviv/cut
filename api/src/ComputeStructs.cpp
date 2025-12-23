@@ -5,9 +5,9 @@
 namespace cut {
 
 ComputeDispatch::ComputeDispatch(const ComputeHandle &shader,
-                                 const ThreadGroupSize &tgSize,
+                                 const ThreadSize &wgSize,
                                  const std::vector<ComputeBinding> &bindings)
-    : shader_(shader), tgSize_(tgSize), bindings_(bindings) {}
+    : shader_(shader), wgSize_(wgSize), bindings_(bindings) {}
 
 void ComputeDispatch::bindShader(const ComputeHandle &shaderHandle) {
   shader_ = shaderHandle;
@@ -26,12 +26,12 @@ void ComputeDispatch::bindData(const DataReference &data, uint32_t index) {
   bindings_.emplace_back(static_cast<int32_t>(index), data);
 }
 
-void ComputeDispatch::setThreadGroupSize(const ThreadGroupSize &tgSize) {
-  tgSize_ = tgSize;
+void ComputeDispatch::setWorkgroupSize(const ThreadSize &wgSize) {
+  wgSize_ = wgSize;
 }
 
-const ThreadGroupSize &ComputeDispatch::threadgroupSize() const {
-  return tgSize_;
+const ThreadSize &ComputeDispatch::workgroupSize() const {
+  return wgSize_;
 }
 
 const ComputeHandle &ComputeDispatch::shader() const {

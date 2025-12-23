@@ -64,18 +64,19 @@ private:
 
 /**
  * Represents a single compute dispatch operation.
- * Contains shader, thread group size, and resource/data bindings.
+ * Contains shader, thread group size, workgroup size, and resource/data
+ * bindings.
  */
 class ComputeDispatch final {
 public:
   /**
    * Constructs a ComputeDispatch with optional parameters.
    * @param shaderHandle Handle to the compute shader.
-   * @param tgSize Thread group dimensions for dispatch.
+   * @param wgSize Workgroup dimensions for dispatch.
    * @param bindings Vector of compute bindings (handles or data references).
    */
   ComputeDispatch(const ComputeHandle &shaderHandle = {},
-                  const ThreadGroupSize &tgSize = {},
+                  const ThreadSize &wgSize = {},
                   const std::vector<ComputeBinding> &bindings = {});
 
   /** Deleted copy constructor. */
@@ -108,13 +109,13 @@ public:
   void bindData(const DataReference &dataRef, uint32_t bindIndex);
 
   /**
-   * Sets the thread group size for this dispatch.
-   * @param tgSize The thread group dimensions.
+   * Sets the workgroup size for this dispatch.
+   * @param wgSize The workgroup dimensions.
    */
-  void setThreadGroupSize(const ThreadGroupSize &tgSize);
+  void setWorkgroupSize(const ThreadSize &wgSize);
 
-  /// Returns the thread group size for this dispatch.
-  const ThreadGroupSize &threadgroupSize() const;
+  /// Returns the workgroup size for this dispatch.
+  const ThreadSize &workgroupSize() const;
 
   /// Returns the shader handle bound to this dispatch.
   const ComputeHandle &shader() const;
@@ -126,8 +127,8 @@ public:
   void sortBindings();
 
 private:
-  ThreadGroupSize tgSize_;               ///< Thread group dimensions.
-  ComputeHandle shader_;                 ///< Bound shader handle.
+  ThreadSize wgSize_ = {64, 1, 1}; ///< Workgroup dimensions (default 64x1x1).
+  ComputeHandle shader_;           ///< Bound shader handle.
   std::vector<ComputeBinding> bindings_; ///< All bindings (handles and data).
 };
 

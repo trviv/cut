@@ -349,10 +349,9 @@ void VulkanCommandBuffer::end() {
         }
       }
 
-      // Dispatch compute work
-      const auto &tgSize = dispatch.threadgroupSize();
-      vkCmdDispatch(commandBuffer_, tgSize.tgSizeX, tgSize.tgSizeY,
-                    tgSize.tgSizeZ);
+      // Dispatch compute work using workgroup size
+      const auto &wgSize = dispatch.workgroupSize();
+      vkCmdDispatch(commandBuffer_, wgSize.x, wgSize.y, wgSize.z);
 
       ++dispatchIndex;
     }

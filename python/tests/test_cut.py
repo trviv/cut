@@ -275,13 +275,13 @@ class TestRun:
         np.testing.assert_allclose(result, expected)
 
 
-class TestThreadGroupSize:
-    """Test ThreadGroupSize from core module."""
+class TestThreadSize:
+    """Test ThreadSize from core module."""
 
     def test_create_default(self):
         """Test creating with default values."""
         from cut import _cut_core
-        tgs = _cut_core.ThreadGroupSize()
+        tgs = _cut_core.ThreadSize()
         assert tgs.x == 0
         assert tgs.y == 0
         assert tgs.z == 0
@@ -289,7 +289,7 @@ class TestThreadGroupSize:
     def test_create_with_values(self):
         """Test creating with specific values."""
         from cut import _cut_core
-        tgs = _cut_core.ThreadGroupSize(64, 1, 1)
+        tgs = _cut_core.ThreadSize(64, 1, 1)
         assert tgs.x == 64
         assert tgs.y == 1
         assert tgs.z == 1
@@ -297,7 +297,7 @@ class TestThreadGroupSize:
     def test_modify_values(self):
         """Test modifying values."""
         from cut import _cut_core
-        tgs = _cut_core.ThreadGroupSize(1, 1, 1)
+        tgs = _cut_core.ThreadSize(1, 1, 1)
         tgs.x = 128
         tgs.y = 2
         tgs.z = 4

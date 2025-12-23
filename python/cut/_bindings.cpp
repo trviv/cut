@@ -59,20 +59,20 @@ PYBIND11_MODULE(_cut_core, m) {
       .value("UnarySquare", cut::ShaderEnum::UnarySquare)
       .export_values();
 
-  // Expose ThreadGroupSize
-  py::class_<cut::ThreadGroupSize>(m, "ThreadGroupSize")
+  // Expose ThreadSize
+  py::class_<cut::ThreadSize>(m, "ThreadSize")
       .def(py::init<>())
       .def(py::init([](uint32_t x, uint32_t y, uint32_t z) {
-             cut::ThreadGroupSize tgs;
-             tgs.tgSizeX = x;
-             tgs.tgSizeY = y;
-             tgs.tgSizeZ = z;
+             cut::ThreadSize tgs;
+             tgs.x = x;
+             tgs.y = y;
+             tgs.z = z;
              return tgs;
            }),
            py::arg("x") = 1, py::arg("y") = 1, py::arg("z") = 1)
-      .def_readwrite("x", &cut::ThreadGroupSize::tgSizeX)
-      .def_readwrite("y", &cut::ThreadGroupSize::tgSizeY)
-      .def_readwrite("z", &cut::ThreadGroupSize::tgSizeZ);
+      .def_readwrite("x", &cut::ThreadSize::x)
+      .def_readwrite("y", &cut::ThreadSize::y)
+      .def_readwrite("z", &cut::ThreadSize::z);
 
   // Expose ComputeHandle as opaque type
   py::class_<cut::ComputeHandle>(m, "ComputeHandle")
@@ -82,7 +82,7 @@ PYBIND11_MODULE(_cut_core, m) {
   // Expose ComputeDispatch
   py::class_<cut::ComputeDispatch>(m, "ComputeDispatch")
       .def(py::init<cut::ComputeHandle>())
-      .def("set_thread_group_size", &cut::ComputeDispatch::setThreadGroupSize)
+      .def("set_workgroup_size", &cut::ComputeDispatch::setWorkgroupSize)
       .def("bind_resource",
            [](cut::ComputeDispatch &self, cut::ComputeHandle handle,
               uint32_t binding) { self.bindResource(handle, binding); })

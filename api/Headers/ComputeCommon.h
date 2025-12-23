@@ -73,12 +73,12 @@ compileShaderToSpirv(const std::string &source,
 std::vector<uint32_t> compileShaderFileToSpirv(const std::string &filepath);
 
 /**
- * Represents the dimensions of a compute shader thread group.
+ * Represents thread dimensions (workgroup or dispatch size).
  */
-struct ThreadGroupSize {
-  uint32_t tgSizeX = 0; ///< Thread group size in the X dimension.
-  uint32_t tgSizeY = 0; ///< Thread group size in the Y dimension.
-  uint32_t tgSizeZ = 0; ///< Thread group size in the Z dimension.
+struct ThreadSize {
+  uint32_t x = 0; ///< Size in the X dimension.
+  uint32_t y = 0; ///< Size in the Y dimension.
+  uint32_t z = 0; ///< Size in the Z dimension.
 };
 
 /**

@@ -35,7 +35,7 @@ protected:
     auto shaderModule = interface->createShaderModule(shader);
 
     const uint32_t threadGroups = (elements + 63) / 64;
-    cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+    cut::ThreadSize tgSize{threadGroups, 1, 1};
 
     interface->beginCommandBuffer();
     interface->encode(
@@ -66,7 +66,7 @@ protected:
     auto shaderModule = interface->createShaderModule(shader);
 
     const uint32_t threadGroups = (elements + 63) / 64;
-    cut::ThreadGroupSize tgSize{threadGroups, 1, 1};
+    cut::ThreadSize tgSize{threadGroups, 1, 1};
 
     interface->beginCommandBuffer();
     interface->encode(
@@ -186,7 +186,8 @@ TEST_F(GeneratedShadersTest, BinaryVecVecMod) {
     EXPECT_LT(output[i], dataB[i] + 1e-5f) << "Mod result >= b at index " << i;
 
     // Also verify the mathematical property: a = b * floor(a/b) + mod(a,b)
-    float reconstructed = dataB[i] * std::floor(dataA[i] / dataB[i]) + output[i];
+    float reconstructed =
+        dataB[i] * std::floor(dataA[i] / dataB[i]) + output[i];
     EXPECT_NEAR(dataA[i], reconstructed, dataB[i] + 1e-4f)
         << "Mod reconstruction failed at index " << i;
   }

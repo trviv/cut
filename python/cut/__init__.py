@@ -200,8 +200,8 @@ class Dispatch:
             thread_groups: Number of thread groups (x, y, z)
         """
         self._dispatch = _cut_core.ComputeDispatch(shader.handle)
-        self._dispatch.set_thread_group_size(
-            _cut_core.ThreadGroupSize(thread_groups[0], thread_groups[1], thread_groups[2])
+        self._dispatch.set_workgroup_size(
+            _cut_core.ThreadSize(thread_groups[0], thread_groups[1], thread_groups[2])
         )
         self._bindings = []
 
