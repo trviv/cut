@@ -42,16 +42,26 @@ extern void logErr(const char *format, ...);
 static std::vector<char> readShaderFile(const std::string &filename);
 
 /**
- * Compiles GLSL compute shader source code to SPIR-V bytecode at runtime.
+ * Shader source language for compilation.
+ */
+enum class ShaderLanguage {
+  GLSL, ///< OpenGL Shading Language
+  HLSL, ///< High Level Shading Language (DirectX)
+};
+
+/**
+ * Compiles compute shader source code to SPIR-V bytecode at runtime.
  * Uses the shaderc library for compilation.
- * @param source The GLSL source code string.
+ * @param source The shader source code string.
  * @param filename Optional filename for error messages (defaults to "shader").
+ * @param language Shader source language (defaults to GLSL).
  * @return A vector containing the compiled SPIR-V bytecode as uint32_t words.
  * @throws std::runtime_error if compilation fails.
  */
 std::vector<uint32_t>
 compileShaderToSpirv(const std::string &source,
-                     const std::string &filename = "shader");
+                     const std::string &filename = "shader",
+                     ShaderLanguage language = ShaderLanguage::GLSL);
 
 /**
  * Compiles a GLSL compute shader file to SPIR-V bytecode at runtime.

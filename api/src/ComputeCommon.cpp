@@ -67,7 +67,8 @@ std::vector<char> readShaderFile(const std::string &filename) {
 }
 
 std::vector<uint32_t> compileShaderToSpirv(const std::string &source,
-                                           const std::string &filename) {
+                                           const std::string &filename,
+                                           ShaderLanguage language) {
   // Create compiler and options
   shaderc_compiler_t compiler = shaderc_compiler_initialize();
   if (!compiler) {
@@ -85,6 +86,15 @@ std::vector<uint32_t> compileShaderToSpirv(const std::string &source,
                                          shaderc_env_version_vulkan_1_0);
   shaderc_compile_options_set_optimization_level(
       options, shaderc_optimization_level_performance);
+
+  // Set source language
+  if (language == ShaderLanguage::HLSL) {
+    shaderc_compile_options_set_source_language(options,
+                                                shaderc_source_language_hlsl);
+  } else {
+    shaderc_compile_options_set_source_language(options,
+                                                shaderc_source_language_glsl);
+  }
 
   // Compile to SPIR-V (compute shader only)
   shaderc_compilation_result_t result = shaderc_compile_into_spv(

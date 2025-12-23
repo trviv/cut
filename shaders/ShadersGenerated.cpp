@@ -6,35 +6,29 @@
 namespace cut {
 
 static const char *binaryVecVecShaderTemplate = R"(
-#version 450
-
-// Local workgroup size
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
-
 // Push constant for element count
-layout(push_constant) uniform PushConstants {
+[[vk::push_constant]]
+struct PushConstants {
     uint numElements;
-};
+} pushConstants;
 
 // Buffer bindings
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    %DTYPE% dataA[];
-};
+[[vk::binding(0, 0)]]
+StructuredBuffer<%DTYPE%> dataA;
 
-layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
-    %DTYPE% dataB[];
-};
+[[vk::binding(1, 0)]]
+StructuredBuffer<%DTYPE%> dataB;
 
-layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
-    %DTYPE% dataOut[];
-};
+[[vk::binding(2, 0)]]
+RWStructuredBuffer<%DTYPE%> dataOut;
 
-void main() {
+[numthreads(64, 1, 1)]
+void main(uint3 dispatchThreadID : SV_DispatchThreadID) {
     // Get the current thread's index
-    uint index = gl_GlobalInvocationID.x;
+    uint index = dispatchThreadID.x;
 
     // Make sure we don't go out of bounds
-    if (index >= numElements) {
+    if (index >= pushConstants.numElements) {
         return;
     }
 
@@ -83,7 +77,8 @@ getGeneratedShader(const ShaderEnum shader) {
     return std::nullopt;
   }
 
-  return compileShaderToSpirv(shaderSource, "generated_binary_vec_vec");
+  return compileShaderToSpirv(shaderSource, "generated_binary_vec_vec",
+                              ShaderLanguage::HLSL);
 }
 
 } // namespace cut
