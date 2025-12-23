@@ -4,10 +4,7 @@ file(MAKE_DIRECTORY ${SHADER_BINARY_DIR})
 
 set(SHADER_SOURCE_DIR ${CMAKE_SOURCE_DIR}/shaders)
 
-set(SHADER_FILE_NAME Shaders)
-
-# Create a header file with shader paths for easier access in code
-set(SHADERS_HEADER_FILE ${SHADER_SOURCE_DIR}/${SHADER_FILE_NAME}.h)
+set(SHADER_FILE_NAME CompiledShaders)
 
 set(SHADERS_SOURCE_FILE ${SHADER_SOURCE_DIR}/${SHADER_FILE_NAME}.cpp)
 
@@ -109,11 +106,11 @@ function(generate_shader_source SHADER_SOURCES)
         # OUTPUT ${SHADERS_SOURCE_FILE}_header
         OUTPUT ${SHADERS_SOURCE_FILE}
         COMMAND ${CMAKE_COMMAND} -E echo "
-#include <${SHADER_FILE_NAME}.h>
+#include <Shaders.h>
 
 namespace cut {
 
-std::vector<uint32_t> getShader(const ShaderEnum shader) {
+std::optional<std::vector<uint32_t>> getCompiledShader(const ShaderEnum shader) {
     switch (shader) {
 " > ${SHADERS_SOURCE_FILE}
         COMMENT "Starting shader source embedding"
@@ -140,10 +137,9 @@ std::vector<uint32_t> getShader(const ShaderEnum shader) {
             # OUTPUT ${SHADER_CUSTOM_COMMAND}
             OUTPUT ${SHADERS_SOURCE_FILE}
             COMMAND ${CMAKE_COMMAND} -E echo "    case ${SHADER_ENUM}:
-        return " >> ${SHADERS_SOURCE_FILE}
-            
+        return {" >> ${SHADERS_SOURCE_FILE}
             COMMAND ${CMAKE_COMMAND} -E cat ${SHADER_BINARY} >> ${SHADERS_SOURCE_FILE}
-            COMMAND ${CMAKE_COMMAND} -E echo ";" >> ${SHADERS_SOURCE_FILE}
+            COMMAND ${CMAKE_COMMAND} -E echo "};" >> ${SHADERS_SOURCE_FILE}
 
             # COMMAND cat ${SHADER_BINARY} >> temp
             DEPENDS ${LAST_OUTPUT} ${SHADER_BINARY}
@@ -169,7 +165,7 @@ std::vector<uint32_t> getShader(const ShaderEnum shader) {
         OUTPUT ${SHADERS_SOURCE_FILE}
         COMMAND ${CMAKE_COMMAND} -E echo "
         default:
-            throw std::runtime_error(\"Shader Enum \" + std::to_string(shader) + \" does not exist.\");
+            std::nullopt;
     }
 }
 } // namespace cut" >> ${SHADERS_SOURCE_FILE}
@@ -211,8 +207,6 @@ message(STATUS "Found shader files ${SHADER_SOURCES}")
 foreach(SHADER_SOURCE ${SHADER_SOURCES})
     compile_shader(${SHADER_SOURCE})
 endforeach()
-
-generate_shader_header(${SHADER_SOURCES})
 
 file(WRITE ${SHADERS_SOURCE_FILE} "")
 generate_shader_source(${SHADER_SOURCES})

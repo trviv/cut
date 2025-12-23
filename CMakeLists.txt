@@ -47,7 +47,7 @@ if(NOT SHADERC_LIB)
 endif()
 message(STATUS "shaderc library: ${SHADERC_LIB}")
 
-# Shader compilation disabled - using pre-built Shaders.cpp
+# Shader compilation disabled - using pre-built CompiledShaders.cpp
 include(${CMAKE_CURRENT_LIST_DIR}/shader_loader.cmake)
 
 if (OPENL_CL_WITH_VULKAN)
@@ -89,6 +89,7 @@ set(LIB_HEADERS
 set(LIB_SOURCES
     shaders/Shaders.cpp
     shaders/ShadersGenerated.cpp
+    shaders/CompiledShaders.cpp
     api/src/ComputeCommon.cpp
     api/src/ComputeHandle.cpp
     api/src/ComputeStructs.cpp

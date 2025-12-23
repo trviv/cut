@@ -30,4 +30,10 @@ std::vector<uint32_t> getShader(const ShaderEnum shader);
 std::optional<std::vector<uint32_t>>
 getGeneratedShader(const ShaderEnum shader);
 
+/*
+ * Function returns spirv encoding for a pre-compiled shader.
+ * Returns std::nullopt if the shader enum is not handled by CompiledShaders.
+ */
+std::optional<std::vector<uint32_t>> getCompiledShader(const ShaderEnum shader);
+
 } // namespace cut

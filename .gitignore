@@ -1,5 +1,5 @@
 /build/
-/shaders/shaders.cpp
+/shaders/CompiledShaders.cpp
 .DS_Store
 /python/venv/
 /python/build
