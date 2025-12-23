@@ -51,6 +51,11 @@ def run_benchmarks():
     print(f"CUT vs NumPy Benchmark - {N:,} elements ({NUM_ITERATIONS} iterations)")
     print("=" * 80)
 
+    # Precompile and cache all shaders before benchmarking
+    print("\nPrecompiling shaders...")
+    cut.precompile_shaders()
+    print("Shader precompilation complete.\n")
+
     # Generate test data
     np.random.seed(42)
     a = np.random.randn(N).astype(np.float32)

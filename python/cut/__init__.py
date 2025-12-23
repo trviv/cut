@@ -15,6 +15,9 @@ __version__ = "0.1.0"
 _instance: Optional[_cut_core.VulkanInstance] = None
 _interface: Optional[_cut_core.VulkanCompute] = None
 
+# Shader cache: maps ShaderEnum -> ComputeHandle (VkShaderModule)
+_shader_cache: dict = {}
+
 
 def _ensure_initialized():
     """Ensure Vulkan instance and interface are initialized."""
@@ -22,6 +25,65 @@ def _ensure_initialized():
     if _instance is None:
         _instance = _cut_core.VulkanInstance()
         _interface = _instance.create_interface()
+
+
+def precompile_shaders():
+    """
+    Precompile and cache all built-in shaders.
+    Call this once at startup to avoid compilation overhead during operations.
+    """
+    _ensure_initialized()
+
+    # All shader enums used in benchmarks
+    shader_enums = [
+        # Binary arithmetic operations
+        _cut_core.ShaderEnum.BinaryVecVecAdd,
+        _cut_core.ShaderEnum.BinaryVecVecSub,
+        _cut_core.ShaderEnum.BinaryVecVecMul,
+        _cut_core.ShaderEnum.BinaryVecVecDiv,
+        _cut_core.ShaderEnum.BinaryVecVecMod,
+        _cut_core.ShaderEnum.BinaryVecVecPow,
+        _cut_core.ShaderEnum.BinaryVecVecFloorDiv,
+        # Binary comparison operations
+        _cut_core.ShaderEnum.BinaryVecVecEqual,
+        _cut_core.ShaderEnum.BinaryVecVecNotEqual,
+        _cut_core.ShaderEnum.BinaryVecVecLess,
+        _cut_core.ShaderEnum.BinaryVecVecLessEqual,
+        _cut_core.ShaderEnum.BinaryVecVecGreater,
+        _cut_core.ShaderEnum.BinaryVecVecGreaterEqual,
+        # Binary min/max operations
+        _cut_core.ShaderEnum.BinaryVecVecMin,
+        _cut_core.ShaderEnum.BinaryVecVecMax,
+        # Unary operations
+        _cut_core.ShaderEnum.UnaryNeg,
+        _cut_core.ShaderEnum.UnaryAbs,
+        _cut_core.ShaderEnum.UnarySqrt,
+        _cut_core.ShaderEnum.UnaryExp,
+        _cut_core.ShaderEnum.UnaryLog,
+        _cut_core.ShaderEnum.UnaryLog2,
+        _cut_core.ShaderEnum.UnaryLog10,
+        _cut_core.ShaderEnum.UnarySin,
+        _cut_core.ShaderEnum.UnaryCos,
+        _cut_core.ShaderEnum.UnaryTan,
+        _cut_core.ShaderEnum.UnaryAsin,
+        _cut_core.ShaderEnum.UnaryAcos,
+        _cut_core.ShaderEnum.UnaryAtan,
+        _cut_core.ShaderEnum.UnarySinh,
+        _cut_core.ShaderEnum.UnaryCosh,
+        _cut_core.ShaderEnum.UnaryTanh,
+        _cut_core.ShaderEnum.UnaryFloor,
+        _cut_core.ShaderEnum.UnaryCeil,
+        _cut_core.ShaderEnum.UnaryRound,
+        _cut_core.ShaderEnum.UnarySign,
+        _cut_core.ShaderEnum.UnaryReciprocal,
+        _cut_core.ShaderEnum.UnarySquare,
+    ]
+
+    for shader_enum in shader_enums:
+        if shader_enum not in _shader_cache:
+            spirv_code = _cut_core.get_shader(shader_enum)
+            handle = _interface.create_shader_module(spirv_code)
+            _shader_cache[shader_enum] = handle
 
 
 def get_interface() -> _cut_core.VulkanCompute:
@@ -109,8 +171,16 @@ class Shader:
         """
         _ensure_initialized()
         if isinstance(spirv, _cut_core.ShaderEnum):
-            spirv = _cut_core.get_shader(spirv)
-        self._handle = _interface.create_shader_module(spirv)
+            # Check cache first
+            if spirv in _shader_cache:
+                self._handle = _shader_cache[spirv]
+                return
+            # Compile and cache
+            spirv_code = _cut_core.get_shader(spirv)
+            self._handle = _interface.create_shader_module(spirv_code)
+            _shader_cache[spirv] = self._handle
+        else:
+            self._handle = _interface.create_shader_module(spirv)
 
     @property
     def handle(self) -> _cut_core.ComputeHandle:
@@ -499,6 +569,7 @@ __all__ = [
     # Core functions
     "run",
     "get_interface",
+    "precompile_shaders",
     "vector_add",
     # Binary arithmetic operations
     "add",
