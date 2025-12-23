@@ -5,6 +5,8 @@ A Python library for GPU compute operations using Vulkan.
 Automatically initializes a Vulkan instance on import.
 """
 
+import atexit
+import weakref
 import numpy as np
 from typing import Optional, Union, List
 from . import _cut_core
@@ -17,6 +19,23 @@ _interface: Optional[_cut_core.VulkanCompute] = None
 
 # Shader cache: maps ShaderEnum -> ComputeHandle (VkShaderModule)
 _shader_cache: dict = {}
+
+# Track all live buffers using weak references
+_live_buffers: weakref.WeakSet = weakref.WeakSet()
+
+
+def _cleanup():
+    """Clean up resources in correct order: buffers -> shaders -> interface -> instance."""
+    global _shader_cache, _interface, _instance
+    # Invalidate all live buffers first
+    for buf in list(_live_buffers):
+        buf._handle = None
+    _shader_cache.clear()
+    _interface = None
+    _instance = None
+
+
+atexit.register(_cleanup)
 
 
 def _ensure_initialized():
@@ -122,6 +141,7 @@ class Buffer:
             self._shape = shape
         else:
             raise ValueError("Either data or size must be provided")
+        _live_buffers.add(self)
 
     @property
     def handle(self) -> _cut_core.ComputeHandle:
