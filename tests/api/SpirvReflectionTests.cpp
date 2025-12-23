@@ -628,7 +628,7 @@ TEST_F(SpirvReflectionTest, PushConstantSingleUint) {
 
   // Types
   addTypeVoid(code, 1);
-  addTypeInt(code, 2, 32, 0); // uint32
+  addTypeInt(code, 2, 32, 0);  // uint32
   addTypeStruct(code, 3, {2}); // struct { uint }
   addTypePointer(code, 4, spirv::StorageClassPushConstant, 3);
 
@@ -641,4 +641,49 @@ TEST_F(SpirvReflectionTest, PushConstantSingleUint) {
   EXPECT_EQ(reflection.bindings[0].type, BindingType::PushConstant);
   // Verify push constant size: offset 0 + sizeof(uint) = 4 bytes
   EXPECT_EQ(reflection.pushConstantSize, 4);
+}
+
+// Test: Workgroup size extraction from OpExecutionMode LocalSize
+TEST_F(SpirvReflectionTest, WorkgroupSizeExtraction) {
+  // Compile a real shader with local_size and check reflection
+  const char *shaderSource = R"(
+#version 450
+layout(local_size_x = 64, local_size_y = 2, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) buffer Data {
+    float data[];
+};
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    data[idx] = float(idx);
+}
+)";
+
+  auto spirv = compileShaderToSpirv(shaderSource, "wgsize_test.comp");
+  auto reflection = reflectSpirvBindings(spirv);
+
+  EXPECT_EQ(reflection.tgSize.x, 64);
+  EXPECT_EQ(reflection.tgSize.y, 2);
+  EXPECT_EQ(reflection.tgSize.z, 1);
+}
+
+// Test: Default workgroup size when not specified (should be 1,1,1)
+TEST_F(SpirvReflectionTest, WorkgroupSizeDefaultsToOne) {
+  // Create minimal SPIR-V without OpExecutionMode LocalSize
+  auto code = makeHeader(10);
+  addCapability(code);
+  addMemoryModel(code);
+
+  // Types
+  addTypeVoid(code, 1);
+  addTypeInt(code, 2);
+
+  auto reflection = reflectSpirvBindings(code);
+
+  // Should default to 1,1,1 when no LocalSize is specified
+  // This ensures dispatch scaling doesn't divide by zero
+  EXPECT_EQ(reflection.tgSize.x, 1);
+  EXPECT_EQ(reflection.tgSize.y, 1);
+  EXPECT_EQ(reflection.tgSize.z, 1);
 }

@@ -272,9 +272,8 @@ def _binary_op(a: np.ndarray, b: np.ndarray, shader_enum, out: Optional[np.ndarr
     buf_out = Buffer(size=out.nbytes)
 
     shader = Shader(shader_enum)
-    workgroups = (a.size + 63) // 64
-
-    dispatch = Dispatch(shader, (workgroups, 1, 1))
+    # Pass number of elements; runtime divides by tgSize and dtypeVecSize
+    dispatch = Dispatch(shader, (a.size, 1, 1))
     dispatch.bind(buf_a, 0)
     dispatch.bind(buf_b, 1)
     dispatch.bind(buf_out, 2)
@@ -302,9 +301,8 @@ def _unary_op(a: np.ndarray, shader_enum, out: Optional[np.ndarray] = None) -> n
     buf_out = Buffer(size=out.nbytes)
 
     shader = Shader(shader_enum)
-    workgroups = (a.size + 63) // 64
-
-    dispatch = Dispatch(shader, (workgroups, 1, 1))
+    # Pass number of elements; runtime divides by tgSize and dtypeVecSize
+    dispatch = Dispatch(shader, (a.size, 1, 1))
     dispatch.bind(buf_a, 0)
     dispatch.bind(buf_out, 1)
     dispatch.bind(num_elements, 2)

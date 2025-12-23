@@ -169,8 +169,9 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
     shaderModule = interface->createShaderModule(shader);
   });
 
-  // Create dispatch
-  cut::ThreadSize threadGroups{1, 1, 1}; // 1 workgroup of 64 threads
+  // Create dispatch - pass number of elements; runtime divides by tgSize and
+  // dtypeVecSize
+  cut::ThreadSize dispatchSize{elements, 1, 1};
 
   cut::ComputeHandle cmdBuffer;
 
@@ -179,7 +180,7 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
 
     interface->encode(
         {shaderModule,
-         threadGroups,
+         dispatchSize,
          {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
           cut::ComputeBinding(2, bufferOut),
           cut::ComputeBinding(3, cut::DataReference(elements))}});
@@ -254,17 +255,18 @@ TEST_F(VulkanTestEnvironment, MultipleDispatches) {
 
   // Record all 5 dispatches in a single command buffer
   cut::ComputeHandle cmdBuffer;
-  const uint32_t threadGroups = (elementsPerDispatch + 63) / 64;
 
   interface->beginCommandBuffer();
 
   for (size_t i = 0; i < numDispatches; ++i) {
     const auto &d = dispatchData[i];
-    cut::ThreadSize tgSize{threadGroups, 1, 1};
+    // Pass the number of elements; the runtime will divide by tgSize and
+    // dtypeVecSize
+    cut::ThreadSize dispatchSize{elementsPerDispatch, 1, 1};
 
     interface->encode(
         {shaderModule,
-         tgSize,
+         dispatchSize,
          {cut::ComputeBinding(0, d.bufferA), cut::ComputeBinding(1, d.bufferB),
           cut::ComputeBinding(2, d.bufferOut),
           cut::ComputeBinding(3, cut::DataReference(elementsPerDispatch))}});
@@ -338,8 +340,9 @@ TEST_F(VulkanTestEnvironment, DependentDispatches) {
   const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
   auto shaderModule = interface->createShaderModule(shader);
 
-  const uint32_t threadGroups = (elements + 63) / 64;
-  cut::ThreadSize tgSize{threadGroups, 1, 1};
+  // Pass the number of elements; the runtime will divide by tgSize and
+  // dtypeVecSize
+  cut::ThreadSize dispatchSize{elements, 1, 1};
 
   // Record command buffer with 3 dispatches
   interface->beginCommandBuffer();
@@ -347,7 +350,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatches) {
   // Dispatch 1: A + B = C
   interface->encode(
       {shaderModule,
-       tgSize,
+       dispatchSize,
        {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
         cut::ComputeBinding(2, bufferC),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
@@ -355,7 +358,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatches) {
   // Dispatch 2: D + E = F
   interface->encode(
       {shaderModule,
-       tgSize,
+       dispatchSize,
        {cut::ComputeBinding(0, bufferD), cut::ComputeBinding(1, bufferE),
         cut::ComputeBinding(2, bufferF),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
@@ -363,7 +366,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatches) {
   // Dispatch 3: C + F = G (dependent on dispatch 1 and 2)
   interface->encode(
       {shaderModule,
-       tgSize,
+       dispatchSize,
        {cut::ComputeBinding(0, bufferC), cut::ComputeBinding(1, bufferF),
         cut::ComputeBinding(2, bufferG),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
@@ -455,15 +458,16 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
   const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
   auto shaderModule = interface->createShaderModule(shader);
 
-  const uint32_t threadGroups = (elements + 63) / 64;
-  cut::ThreadSize tgSize{threadGroups, 1, 1};
+  // Pass the number of elements; the runtime will divide by tgSize and
+  // dtypeVecSize
+  cut::ThreadSize dispatchSize{elements, 1, 1};
 
   interface->beginCommandBuffer();
 
   // Dispatch 1: A + B = C
   interface->encode(
       {shaderModule,
-       tgSize,
+       dispatchSize,
        {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
         cut::ComputeBinding(2, bufferC),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
@@ -471,7 +475,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
   // Dispatch 2: C + D = E (depends on C)
   interface->encode(
       {shaderModule,
-       tgSize,
+       dispatchSize,
        {cut::ComputeBinding(0, bufferC), cut::ComputeBinding(1, bufferD),
         cut::ComputeBinding(2, bufferE),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
@@ -479,7 +483,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
   // Dispatch 3: C + F = G (also depends on C)
   interface->encode(
       {shaderModule,
-       tgSize,
+       dispatchSize,
        {cut::ComputeBinding(0, bufferC), cut::ComputeBinding(1, bufferF),
         cut::ComputeBinding(2, bufferG),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
@@ -487,7 +491,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
   // Dispatch 4: E + G = H (depends on E and G)
   interface->encode(
       {shaderModule,
-       tgSize,
+       dispatchSize,
        {cut::ComputeBinding(0, bufferE), cut::ComputeBinding(1, bufferG),
         cut::ComputeBinding(2, bufferH),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
@@ -559,14 +563,15 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesChain) {
   const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
   auto shaderModule = interface->createShaderModule(shader);
 
-  const uint32_t threadGroups = (elements + 63) / 64;
-  cut::ThreadSize tgSize{threadGroups, 1, 1};
+  // Pass the number of elements; the runtime will divide by tgSize and
+  // dtypeVecSize
+  cut::ThreadSize dispatchSize{elements, 1, 1};
 
   interface->beginCommandBuffer();
 
   // First dispatch: A + B = R1
   interface->encode({shaderModule,
-                     tgSize,
+                     dispatchSize,
                      {cut::ComputeBinding(0, inputBuffers[0]),
                       cut::ComputeBinding(1, inputBuffers[1]),
                       cut::ComputeBinding(2, resultBuffers[0]),
@@ -575,7 +580,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesChain) {
   // Subsequent dispatches: R[i-1] + input[i+1] = R[i]
   for (size_t i = 1; i < chainLength; ++i) {
     interface->encode({shaderModule,
-                       tgSize,
+                       dispatchSize,
                        {cut::ComputeBinding(0, resultBuffers[i - 1]),
                         cut::ComputeBinding(1, inputBuffers[i + 1]),
                         cut::ComputeBinding(2, resultBuffers[i]),

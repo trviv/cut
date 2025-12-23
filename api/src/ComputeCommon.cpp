@@ -202,12 +202,17 @@ constexpr uint32_t StorageClassUniform = 2;
 constexpr uint32_t StorageClassUniformConstant = 0;
 constexpr uint32_t StorageClassStorageBuffer = 12;
 constexpr uint32_t StorageClassPushConstant = 9;
+
+// Execution mode
+constexpr uint32_t OpExecutionMode = 16;
+constexpr uint32_t ExecutionModeLocalSize = 17;
 } // namespace spirv
 
 ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
   ShaderReflection reflection{};
   reflection.pushConstantSize = 0;
   reflection.dtypeVecSize = 1;
+  reflection.tgSize = {1, 1, 1};
 
   if (spirvCode.size() < 5 || spirvCode[0] != spirv::MagicNumber) {
     logErr("Invalid SPIR-V: bad magic number or too small");
@@ -366,6 +371,19 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
     case spirv::OpTypeSampledImage: {
       if (wordCount >= 2) {
         idIsSampledImage[spirvCode[i + 1]] = true;
+      }
+      break;
+    }
+    case spirv::OpExecutionMode: {
+      // OpExecutionMode %entryPoint mode [operands...]
+      // For LocalSize: OpExecutionMode %entryPoint LocalSize x y z
+      if (wordCount >= 6) {
+        uint32_t mode = spirvCode[i + 2];
+        if (mode == spirv::ExecutionModeLocalSize) {
+          reflection.tgSize.x = spirvCode[i + 3];
+          reflection.tgSize.y = spirvCode[i + 4];
+          reflection.tgSize.z = spirvCode[i + 5];
+        }
       }
       break;
     }
