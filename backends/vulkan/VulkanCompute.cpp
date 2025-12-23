@@ -150,15 +150,19 @@ findMemoryType(uint32_t typeFilter,
 
 ComputeHandle
 VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
+  // Align buffer size to 16 bytes (vec4 alignment) for optimal GPU access
+  constexpr size_t kAlignment = 16;
+  const size_t alignedSize = (size + kAlignment - 1) & ~(kAlignment - 1);
+
   VkBufferCreateInfo bufferInfo = {};
   bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  bufferInfo.size = size;
+  bufferInfo.size = alignedSize;
   bufferInfo.usage = isUniform ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
                                : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct bufferStruct;
-  bufferStruct.size = size;
+  bufferStruct.size = size; // Store original size for user queries
 
 #if CUT_USE_VMA
   const auto &allocator = allocator_;

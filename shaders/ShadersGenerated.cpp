@@ -9,7 +9,7 @@ namespace cut {
 static const char *binaryVecVecShaderTemplate = R"(
 #version 450
 
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
 
@@ -44,7 +44,7 @@ void main() {
 static const char *binaryVecVecFuncShaderTemplate = R"(
 #version 450
 
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
 
@@ -79,7 +79,7 @@ void main() {
 static const char *binaryVecVecCompareShaderTemplate = R"(
 #version 450
 
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
 
@@ -114,7 +114,7 @@ void main() {
 static const char *unaryShaderTemplate = R"(
 #version 450
 
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
 
