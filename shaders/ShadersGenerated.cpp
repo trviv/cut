@@ -145,73 +145,93 @@ static std::string replaceAll(const std::string &str,
   return result;
 }
 
+static const char *getGLSLType(ScalarDataType datatype) {
+  switch (datatype) {
+  case ScalarDataType::Float:
+    // return "vec4";
+    return "float";
+  case ScalarDataType::Half:
+    // return "mediump vec4";
+    return "mediump float";
+  case ScalarDataType::UInt:
+    // return "uvec4";
+    return "uint";
+  case ScalarDataType::Int:
+    // return "ivec4";
+    return "int";
+  default:
+    // return "vec4";
+    return "float";
+  }
+}
+
 static std::string generateBinaryVecVecShader(const char *op,
-                                              const char *dtype = "float") {
+                                              ScalarDataType datatype) {
   std::string shader = binaryVecVecShaderTemplate;
-  shader = replaceAll(shader, "%DTYPE%", dtype);
+  shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%OP%", op);
   return shader;
 }
 
 static std::string generateBinaryVecVecFuncShader(const char *func,
-                                                  const char *dtype = "float") {
+                                                  ScalarDataType datatype) {
   std::string shader = binaryVecVecFuncShaderTemplate;
-  shader = replaceAll(shader, "%DTYPE%", dtype);
+  shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%FUNC%", func);
   return shader;
 }
 
-static std::string
-generateBinaryVecVecCompareShader(const char *op, const char *dtype = "float") {
+static std::string generateBinaryVecVecCompareShader(const char *op,
+                                                     ScalarDataType datatype) {
   std::string shader = binaryVecVecCompareShaderTemplate;
-  shader = replaceAll(shader, "%DTYPE%", dtype);
+  shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%OP%", op);
   return shader;
 }
 
 static std::string generateUnaryShader(const char *expr,
-                                       const char *dtype = "float") {
+                                       ScalarDataType datatype) {
   std::string shader = unaryShaderTemplate;
-  shader = replaceAll(shader, "%DTYPE%", dtype);
+  shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%EXPR%", expr);
   return shader;
 }
 
 std::optional<std::vector<uint32_t>>
-getGeneratedShader(const ShaderEnum shader) {
+getGeneratedShader(const ShaderEnum shader, const ScalarDataType datatype) {
   std::string shaderSource;
   std::string shaderName = "generated_shader";
 
   switch (shader) {
   // Binary arithmetic operations
   case BinaryVecVecAdd:
-    shaderSource = generateBinaryVecVecShader("+");
+    shaderSource = generateBinaryVecVecShader("+", datatype);
     shaderName = "binary_vec_vec_add";
     break;
   case BinaryVecVecSub:
-    shaderSource = generateBinaryVecVecShader("-");
+    shaderSource = generateBinaryVecVecShader("-", datatype);
     shaderName = "binary_vec_vec_sub";
     break;
   case BinaryVecVecMul:
-    shaderSource = generateBinaryVecVecShader("*");
+    shaderSource = generateBinaryVecVecShader("*", datatype);
     shaderName = "binary_vec_vec_mul";
     break;
   case BinaryVecVecDiv:
-    shaderSource = generateBinaryVecVecShader("/");
+    shaderSource = generateBinaryVecVecShader("/", datatype);
     shaderName = "binary_vec_vec_div";
     break;
   case BinaryVecVecMod:
     // GLSL uses mod() instead of fmod()
-    shaderSource = generateBinaryVecVecFuncShader("mod");
+    shaderSource = generateBinaryVecVecFuncShader("mod", datatype);
     shaderName = "binary_vec_vec_mod";
     break;
   case BinaryVecVecPow:
-    shaderSource = generateBinaryVecVecFuncShader("pow");
+    shaderSource = generateBinaryVecVecFuncShader("pow", datatype);
     shaderName = "binary_vec_vec_pow";
     break;
   case BinaryVecVecFloorDiv:
     // floor(a / b) - integer division rounded down
-    shaderSource = generateBinaryVecVecShader("/");
+    shaderSource = generateBinaryVecVecShader("/", datatype);
     shaderSource = replaceAll(shaderSource, "dataA[index] / dataB[index]",
                               "floor(dataA[index] / dataB[index])");
     shaderName = "binary_vec_vec_floor_div";
@@ -219,128 +239,130 @@ getGeneratedShader(const ShaderEnum shader) {
 
   // Binary comparison operations
   case BinaryVecVecEqual:
-    shaderSource = generateBinaryVecVecCompareShader("==");
+    shaderSource = generateBinaryVecVecCompareShader("==", datatype);
     shaderName = "binary_vec_vec_equal";
     break;
   case BinaryVecVecNotEqual:
-    shaderSource = generateBinaryVecVecCompareShader("!=");
+    shaderSource = generateBinaryVecVecCompareShader("!=", datatype);
     shaderName = "binary_vec_vec_not_equal";
     break;
   case BinaryVecVecLess:
-    shaderSource = generateBinaryVecVecCompareShader("<");
+    shaderSource = generateBinaryVecVecCompareShader("<", datatype);
     shaderName = "binary_vec_vec_less";
     break;
   case BinaryVecVecLessEqual:
-    shaderSource = generateBinaryVecVecCompareShader("<=");
+    shaderSource = generateBinaryVecVecCompareShader("<=", datatype);
     shaderName = "binary_vec_vec_less_equal";
     break;
   case BinaryVecVecGreater:
-    shaderSource = generateBinaryVecVecCompareShader(">");
+    shaderSource = generateBinaryVecVecCompareShader(">", datatype);
     shaderName = "binary_vec_vec_greater";
     break;
   case BinaryVecVecGreaterEqual:
-    shaderSource = generateBinaryVecVecCompareShader(">=");
+    shaderSource = generateBinaryVecVecCompareShader(">=", datatype);
     shaderName = "binary_vec_vec_greater_equal";
     break;
 
   // Binary min/max operations
   case BinaryVecVecMin:
-    shaderSource = generateBinaryVecVecFuncShader("min");
+    shaderSource = generateBinaryVecVecFuncShader("min", datatype);
     shaderName = "binary_vec_vec_min";
     break;
   case BinaryVecVecMax:
-    shaderSource = generateBinaryVecVecFuncShader("max");
+    shaderSource = generateBinaryVecVecFuncShader("max", datatype);
     shaderName = "binary_vec_vec_max";
     break;
 
   // Unary operations
   case UnaryNeg:
-    shaderSource = generateUnaryShader("-dataIn[index]");
+    shaderSource = generateUnaryShader("-dataIn[index]", datatype);
     shaderName = "unary_neg";
     break;
   case UnaryAbs:
-    shaderSource = generateUnaryShader("abs(dataIn[index])");
+    shaderSource = generateUnaryShader("abs(dataIn[index])", datatype);
     shaderName = "unary_abs";
     break;
   case UnarySqrt:
-    shaderSource = generateUnaryShader("sqrt(dataIn[index])");
+    shaderSource = generateUnaryShader("sqrt(dataIn[index])", datatype);
     shaderName = "unary_sqrt";
     break;
   case UnaryExp:
-    shaderSource = generateUnaryShader("exp(dataIn[index])");
+    shaderSource = generateUnaryShader("exp(dataIn[index])", datatype);
     shaderName = "unary_exp";
     break;
   case UnaryLog:
-    shaderSource = generateUnaryShader("log(dataIn[index])");
+    shaderSource = generateUnaryShader("log(dataIn[index])", datatype);
     shaderName = "unary_log";
     break;
   case UnaryLog2:
-    shaderSource = generateUnaryShader("log2(dataIn[index])");
+    shaderSource = generateUnaryShader("log2(dataIn[index])", datatype);
     shaderName = "unary_log2";
     break;
   case UnaryLog10:
     // GLSL doesn't have log10, use log(x) / log(10) = log(x) * 0.4342944819
-    shaderSource = generateUnaryShader("log(dataIn[index]) * 0.4342944819");
+    shaderSource =
+        generateUnaryShader("log(dataIn[index]) * 0.4342944819", datatype);
     shaderName = "unary_log10";
     break;
   case UnarySin:
-    shaderSource = generateUnaryShader("sin(dataIn[index])");
+    shaderSource = generateUnaryShader("sin(dataIn[index])", datatype);
     shaderName = "unary_sin";
     break;
   case UnaryCos:
-    shaderSource = generateUnaryShader("cos(dataIn[index])");
+    shaderSource = generateUnaryShader("cos(dataIn[index])", datatype);
     shaderName = "unary_cos";
     break;
   case UnaryTan:
-    shaderSource = generateUnaryShader("tan(dataIn[index])");
+    shaderSource = generateUnaryShader("tan(dataIn[index])", datatype);
     shaderName = "unary_tan";
     break;
   case UnaryAsin:
-    shaderSource = generateUnaryShader("asin(dataIn[index])");
+    shaderSource = generateUnaryShader("asin(dataIn[index])", datatype);
     shaderName = "unary_asin";
     break;
   case UnaryAcos:
-    shaderSource = generateUnaryShader("acos(dataIn[index])");
+    shaderSource = generateUnaryShader("acos(dataIn[index])", datatype);
     shaderName = "unary_acos";
     break;
   case UnaryAtan:
-    shaderSource = generateUnaryShader("atan(dataIn[index])");
+    shaderSource = generateUnaryShader("atan(dataIn[index])", datatype);
     shaderName = "unary_atan";
     break;
   case UnarySinh:
-    shaderSource = generateUnaryShader("sinh(dataIn[index])");
+    shaderSource = generateUnaryShader("sinh(dataIn[index])", datatype);
     shaderName = "unary_sinh";
     break;
   case UnaryCosh:
-    shaderSource = generateUnaryShader("cosh(dataIn[index])");
+    shaderSource = generateUnaryShader("cosh(dataIn[index])", datatype);
     shaderName = "unary_cosh";
     break;
   case UnaryTanh:
-    shaderSource = generateUnaryShader("tanh(dataIn[index])");
+    shaderSource = generateUnaryShader("tanh(dataIn[index])", datatype);
     shaderName = "unary_tanh";
     break;
   case UnaryFloor:
-    shaderSource = generateUnaryShader("floor(dataIn[index])");
+    shaderSource = generateUnaryShader("floor(dataIn[index])", datatype);
     shaderName = "unary_floor";
     break;
   case UnaryCeil:
-    shaderSource = generateUnaryShader("ceil(dataIn[index])");
+    shaderSource = generateUnaryShader("ceil(dataIn[index])", datatype);
     shaderName = "unary_ceil";
     break;
   case UnaryRound:
-    shaderSource = generateUnaryShader("round(dataIn[index])");
+    shaderSource = generateUnaryShader("round(dataIn[index])", datatype);
     shaderName = "unary_round";
     break;
   case UnarySign:
-    shaderSource = generateUnaryShader("sign(dataIn[index])");
+    shaderSource = generateUnaryShader("sign(dataIn[index])", datatype);
     shaderName = "unary_sign";
     break;
   case UnaryReciprocal:
-    shaderSource = generateUnaryShader("1.0 / dataIn[index]");
+    shaderSource = generateUnaryShader("1.0 / dataIn[index]", datatype);
     shaderName = "unary_reciprocal";
     break;
   case UnarySquare:
-    shaderSource = generateUnaryShader("dataIn[index] * dataIn[index]");
+    shaderSource =
+        generateUnaryShader("dataIn[index] * dataIn[index]", datatype);
     shaderName = "unary_square";
     break;
 
