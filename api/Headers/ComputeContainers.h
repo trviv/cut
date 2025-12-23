@@ -19,7 +19,6 @@ public:
 
   virtual ~CommandBufferContainer() = default;
 
-protected:
   /**
    * Creates a new backend-specific CommandBuffer instance.
    * @return ComputeHandle to the created CommandBuffer.

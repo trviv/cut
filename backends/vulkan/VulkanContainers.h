@@ -43,8 +43,6 @@ public:
   }
 
 private:
-  friend class VulkanCompute;
-
   IF_VMA_ENABLED_THEN(VmaAllocator allocator_);
 
   /// Destroys a buffer and frees its associated GPU memory.

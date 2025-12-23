@@ -228,7 +228,7 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
                                      size_t dstOffset,
                                      bool useStaging,
                                      bool wait) {
-  const auto &buffer = containers_->bufferContainer.get(dstBuffer);
+  const auto &buffer = containers_->bufferContainer.getBuffer(dstBuffer);
   const bool localUseStaging = useStaging || (buffer.mappedData == nullptr);
 
   if (buffer.size < dstOffset + size) {
@@ -252,7 +252,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
                                        size_t dstOffset,
                                        bool useStaging,
                                        bool wait) {
-  const auto &buffer = containers_->bufferContainer.get(srcBuffer);
+  const auto &buffer = containers_->bufferContainer.getBuffer(srcBuffer);
   const bool localUseStaging = useStaging || (buffer.mappedData == nullptr);
 
   if (buffer.size < srcOffset + size) {
