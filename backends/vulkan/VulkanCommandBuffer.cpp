@@ -350,8 +350,17 @@ void VulkanCommandBuffer::end() {
       }
 
       // Dispatch compute work using workgroup size
+      // Scale down by dtypeVecSize from shader reflection if specified
       const auto &wgSize = dispatch.workgroupSize();
-      vkCmdDispatch(commandBuffer_, wgSize.x, wgSize.y, wgSize.z);
+      const auto &reflection =
+          containers_.shaderContainer.getReflection(dispatch.shader());
+      const uint32_t dtypeVecSize = reflection.dtypeVecSize;
+
+      // Scale down dispatch X by dtypeVecSize (ceiling division)
+      const uint32_t dispatchX =
+          (wgSize.x + dtypeVecSize - 1) / std::max(dtypeVecSize, 1u);
+
+      vkCmdDispatch(commandBuffer_, dispatchX, wgSize.y, wgSize.z);
 
       ++dispatchIndex;
     }

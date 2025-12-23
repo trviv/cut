@@ -1,5 +1,6 @@
 /build/
 /shaders/CompiledShaders.cpp
 .DS_Store
+/python/.pytest_cache
 /python/venv/
 /python/build

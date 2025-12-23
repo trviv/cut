@@ -11,6 +11,8 @@ static const char *binaryVecVecShaderTemplate = R"(
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
+layout(constant_id = 0) const uint dtype_vec_size = 1;
+
 layout(push_constant) uniform PushConstants {
     uint numElements;
 };
@@ -43,6 +45,8 @@ static const char *binaryVecVecFuncShaderTemplate = R"(
 #version 450
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint dtype_vec_size = 1;
 
 layout(push_constant) uniform PushConstants {
     uint numElements;
@@ -77,6 +81,8 @@ static const char *binaryVecVecCompareShaderTemplate = R"(
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
+layout(constant_id = 0) const uint dtype_vec_size = 1;
+
 layout(push_constant) uniform PushConstants {
     uint numElements;
 };
@@ -109,6 +115,8 @@ static const char *unaryShaderTemplate = R"(
 #version 450
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint dtype_vec_size = 1;
 
 layout(push_constant) uniform PushConstants {
     uint numElements;

@@ -171,7 +171,6 @@ constexpr uint32_t MagicNumber = 0x07230203;
 // Opcodes
 constexpr uint32_t OpDecorate = 71;
 constexpr uint32_t OpMemberDecorate = 72;
-constexpr uint32_t OpExecutionMode = 16;
 constexpr uint32_t OpTypeInt = 21;
 constexpr uint32_t OpTypeFloat = 22;
 constexpr uint32_t OpTypeVector = 23;
@@ -191,9 +190,12 @@ constexpr uint32_t DecorationNonReadable = 25;
 constexpr uint32_t DecorationBlock = 2;
 constexpr uint32_t DecorationBufferBlock = 3;
 constexpr uint32_t DecorationOffset = 35;
+constexpr uint32_t DecorationSpecId = 1;
 
-// Execution modes
-constexpr uint32_t ExecutionModeLocalSize = 17;
+// Spec constant opcodes
+constexpr uint32_t OpSpecConstant = 50;
+constexpr uint32_t OpSpecConstantTrue = 48;
+constexpr uint32_t OpSpecConstantFalse = 49;
 
 // Storage classes
 constexpr uint32_t StorageClassUniform = 2;
@@ -205,7 +207,7 @@ constexpr uint32_t StorageClassPushConstant = 9;
 ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
   ShaderReflection reflection{};
   reflection.pushConstantSize = 0;
-  reflection.tgSize = {0, 0, 0};
+  reflection.dtypeVecSize = 1;
 
   if (spirvCode.size() < 5 || spirvCode[0] != spirv::MagicNumber) {
     logErr("Invalid SPIR-V: bad magic number or too small");
@@ -232,6 +234,10 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
   // Map: struct ID -> (member index -> offset)
   std::unordered_map<uint32_t, std::unordered_map<uint32_t, uint32_t>>
       memberOffsets;
+
+  // Maps for specialization constants
+  std::unordered_map<uint32_t, uint32_t> idToSpecId;    // ID -> SpecId
+  std::unordered_map<uint32_t, uint32_t> idToSpecValue; // ID -> default value
 
   // First pass: collect decorations and type info
   size_t i = 5; // Skip header
@@ -261,7 +267,18 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
           idIsNonReadable[targetId] = true;
         } else if (decoration == spirv::DecorationBufferBlock) {
           idIsBufferBlock[targetId] = true;
+        } else if (decoration == spirv::DecorationSpecId && wordCount >= 4) {
+          idToSpecId[targetId] = spirvCode[i + 3];
         }
+      }
+      break;
+    }
+    case spirv::OpSpecConstant: {
+      // OpSpecConstant %type %result value
+      if (wordCount >= 4) {
+        uint32_t resultId = spirvCode[i + 2];
+        uint32_t value = spirvCode[i + 3];
+        idToSpecValue[resultId] = value;
       }
       break;
     }
@@ -274,19 +291,6 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
 
         if (decoration == spirv::DecorationOffset && wordCount >= 5) {
           memberOffsets[structId][memberIndex] = spirvCode[i + 4];
-        }
-      }
-      break;
-    }
-    case spirv::OpExecutionMode: {
-      // OpExecutionMode %entryPoint mode [operands...]
-      // For LocalSize: OpExecutionMode %entryPoint LocalSize x y z
-      if (wordCount >= 3) {
-        uint32_t mode = spirvCode[i + 2];
-        if (mode == spirv::ExecutionModeLocalSize && wordCount >= 6) {
-          reflection.tgSize.x = spirvCode[i + 3];
-          reflection.tgSize.y = spirvCode[i + 4];
-          reflection.tgSize.z = spirvCode[i + 5];
         }
       }
       break;
@@ -529,6 +533,14 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
               }
               return a.binding < b.binding;
             });
+
+  // Extract dtypeVecSize from specialization constant with SpecId = 0
+  for (const auto &[id, specId] : idToSpecId) {
+    if (specId == 0 && idToSpecValue.count(id) > 0) {
+      reflection.dtypeVecSize = idToSpecValue[id];
+      break;
+    }
+  }
 
   return reflection;
 }
