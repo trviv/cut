@@ -96,7 +96,8 @@ class Buffer:
     """GPU buffer wrapper with automatic memory management."""
 
     def __init__(self, data: Optional[np.ndarray] = None, size: Optional[int] = None,
-                 is_uniform: bool = False):
+                 is_uniform: bool = False, dtype: Optional[np.dtype] = None,
+                 shape: Optional[tuple] = None):
         """
         Create a GPU buffer.
 
@@ -104,6 +105,8 @@ class Buffer:
             data: NumPy array to initialize buffer with (optional)
             size: Buffer size in bytes (required if data is None)
             is_uniform: If True, create a uniform buffer; otherwise storage buffer
+            dtype: Data type for the buffer (used when creating from size)
+            shape: Shape for the buffer (used when creating from size)
         """
         _ensure_initialized()
         if data is not None:
@@ -115,8 +118,8 @@ class Buffer:
         elif size is not None:
             self._handle = _interface.create_buffer_empty(size, is_uniform)
             self._size = size
-            self._dtype = None
-            self._shape = None
+            self._dtype = dtype
+            self._shape = shape
         else:
             raise ValueError("Either data or size must be provided")
 
@@ -250,104 +253,90 @@ def run(*dispatches: Dispatch):
 # High-level shader functions (direct API for built-in shaders)
 # =============================================================================
 
-def _binary_op(a: np.ndarray, b: np.ndarray, shader_enum, out: Optional[np.ndarray] = None) -> np.ndarray:
+def _binary_op(a: Buffer, b: Buffer, shader_enum, out: Optional[Buffer] = None) -> Buffer:
     """Generic binary operation on GPU."""
     _ensure_initialized()
 
-    a = np.ascontiguousarray(a, dtype=np.float32)
-    b = np.ascontiguousarray(b, dtype=np.float32)
-
-    if a.shape != b.shape:
-        raise ValueError(f"Shape mismatch: {a.shape} vs {b.shape}")
+    if a.size != b.size:
+        raise ValueError(f"Size mismatch: {a.size} vs {b.size}")
 
     if out is None:
-        out = np.empty_like(a)
-    else:
-        out = np.ascontiguousarray(out, dtype=np.float32)
+        out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
 
-    num_elements = np.array([a.size], dtype=np.uint32)
-
-    buf_a = Buffer(a)
-    buf_b = Buffer(b)
-    buf_out = Buffer(size=out.nbytes)
+    num_elements = a.size // 4  # float32 is 4 bytes
+    num_elements_arr = np.array([num_elements], dtype=np.uint32)
 
     shader = Shader(shader_enum)
     # Pass number of elements; runtime divides by tgSize and dtypeVecSize
-    dispatch = Dispatch(shader, (a.size, 1, 1))
-    dispatch.bind(buf_a, 0)
-    dispatch.bind(buf_b, 1)
-    dispatch.bind(buf_out, 2)
-    dispatch.bind(num_elements, 3)
+    dispatch = Dispatch(shader, (num_elements, 1, 1))
+    dispatch.bind(a, 0)
+    dispatch.bind(b, 1)
+    dispatch.bind(out, 2)
+    dispatch.bind(num_elements_arr, 3)
 
     run(dispatch)
 
-    return buf_out.copy_to(out)
+    return out
 
 
-def _unary_op(a: np.ndarray, shader_enum, out: Optional[np.ndarray] = None) -> np.ndarray:
+def _unary_op(a: Buffer, shader_enum, out: Optional[Buffer] = None) -> Buffer:
     """Generic unary operation on GPU."""
     _ensure_initialized()
 
-    a = np.ascontiguousarray(a, dtype=np.float32)
-
     if out is None:
-        out = np.empty_like(a)
-    else:
-        out = np.ascontiguousarray(out, dtype=np.float32)
+        out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
 
-    num_elements = np.array([a.size], dtype=np.uint32)
-
-    buf_a = Buffer(a)
-    buf_out = Buffer(size=out.nbytes)
+    num_elements = a.size // 4  # float32 is 4 bytes
+    num_elements_arr = np.array([num_elements], dtype=np.uint32)
 
     shader = Shader(shader_enum)
     # Pass number of elements; runtime divides by tgSize and dtypeVecSize
-    dispatch = Dispatch(shader, (a.size, 1, 1))
-    dispatch.bind(buf_a, 0)
-    dispatch.bind(buf_out, 1)
-    dispatch.bind(num_elements, 2)
+    dispatch = Dispatch(shader, (num_elements, 1, 1))
+    dispatch.bind(a, 0)
+    dispatch.bind(out, 1)
+    dispatch.bind(num_elements_arr, 2)
 
     run(dispatch)
 
-    return buf_out.copy_to(out)
+    return out
 
 
 # =============================================================================
 # Binary arithmetic operations
 # =============================================================================
 
-def add(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Add two arrays element-wise on GPU."""
+def add(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Add two buffers element-wise on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecAdd, out)
 
 
-def subtract(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Subtract two arrays element-wise on GPU."""
+def subtract(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Subtract two buffers element-wise on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecSub, out)
 
 
-def multiply(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Multiply two arrays element-wise on GPU."""
+def multiply(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Multiply two buffers element-wise on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecMul, out)
 
 
-def divide(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Divide two arrays element-wise on GPU."""
+def divide(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Divide two buffers element-wise on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecDiv, out)
 
 
-def mod(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Modulo of two arrays element-wise on GPU."""
+def mod(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Modulo of two buffers element-wise on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecMod, out)
 
 
-def power(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Power of two arrays element-wise on GPU."""
+def power(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Power of two buffers element-wise on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecPow, out)
 
 
-def floor_divide(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Floor division of two arrays element-wise on GPU."""
+def floor_divide(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Floor division of two buffers element-wise on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecFloorDiv, out)
 
 
@@ -355,32 +344,32 @@ def floor_divide(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None)
 # Binary comparison operations
 # =============================================================================
 
-def equal(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def equal(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise equality comparison on GPU. Returns 1.0 for True, 0.0 for False."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecEqual, out)
 
 
-def not_equal(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def not_equal(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise inequality comparison on GPU. Returns 1.0 for True, 0.0 for False."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecNotEqual, out)
 
 
-def less(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def less(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise less-than comparison on GPU. Returns 1.0 for True, 0.0 for False."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecLess, out)
 
 
-def less_equal(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def less_equal(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise less-than-or-equal comparison on GPU. Returns 1.0 for True, 0.0 for False."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecLessEqual, out)
 
 
-def greater(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def greater(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise greater-than comparison on GPU. Returns 1.0 for True, 0.0 for False."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecGreater, out)
 
 
-def greater_equal(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def greater_equal(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise greater-than-or-equal comparison on GPU. Returns 1.0 for True, 0.0 for False."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecGreaterEqual, out)
 
@@ -389,13 +378,13 @@ def greater_equal(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None
 # Binary min/max operations
 # =============================================================================
 
-def minimum(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Element-wise minimum of two arrays on GPU."""
+def minimum(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise minimum of two buffers on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecMin, out)
 
 
-def maximum(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Element-wise maximum of two arrays on GPU."""
+def maximum(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise maximum of two buffers on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecMax, out)
 
 
@@ -403,159 +392,151 @@ def maximum(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> n
 # Unary operations
 # =============================================================================
 
-def negative(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
-    """Negate array element-wise on GPU."""
+def negative(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """Negate buffer element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryNeg, out)
 
 
-def abs(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def abs(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Absolute value element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryAbs, out)
 
 
-def sqrt(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def sqrt(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Square root element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnarySqrt, out)
 
 
-def exp(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def exp(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Exponential element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryExp, out)
 
 
-def log(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def log(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Natural logarithm element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryLog, out)
 
 
-def log2(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def log2(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Base-2 logarithm element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryLog2, out)
 
 
-def log10(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def log10(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Base-10 logarithm element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryLog10, out)
 
 
-def sin(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def sin(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Sine element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnarySin, out)
 
 
-def cos(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def cos(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Cosine element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryCos, out)
 
 
-def tan(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def tan(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Tangent element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryTan, out)
 
 
-def arcsin(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def arcsin(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Inverse sine element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryAsin, out)
 
 
-def arccos(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def arccos(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Inverse cosine element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryAcos, out)
 
 
-def arctan(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def arctan(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Inverse tangent element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryAtan, out)
 
 
-def sinh(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def sinh(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Hyperbolic sine element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnarySinh, out)
 
 
-def cosh(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def cosh(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Hyperbolic cosine element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryCosh, out)
 
 
-def tanh(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def tanh(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Hyperbolic tangent element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryTanh, out)
 
 
-def floor(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def floor(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Floor element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryFloor, out)
 
 
-def ceil(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def ceil(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Ceiling element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryCeil, out)
 
 
-def round(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def round(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Round element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryRound, out)
 
 
-def sign(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def sign(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Sign element-wise on GPU (-1, 0, or 1)."""
     return _unary_op(a, _cut_core.ShaderEnum.UnarySign, out)
 
 
-def reciprocal(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def reciprocal(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Reciprocal (1/x) element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnaryReciprocal, out)
 
 
-def square(a: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def square(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Square (x*x) element-wise on GPU."""
     return _unary_op(a, _cut_core.ShaderEnum.UnarySquare, out)
 
 
-def vector_add(a: np.ndarray, b: np.ndarray, out: Optional[np.ndarray] = None) -> np.ndarray:
+def vector_add(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """
-    Add two vectors element-wise on the GPU.
+    Add two buffers element-wise on the GPU.
 
     Args:
-        a: First input array (float32)
-        b: Second input array (float32)
-        out: Output array (created if not provided)
+        a: First input buffer (float32)
+        b: Second input buffer (float32)
+        out: Output buffer (created if not provided)
 
     Returns:
-        Result array (a + b)
+        Result buffer (a + b)
     """
     _ensure_initialized()
 
-    a = np.ascontiguousarray(a, dtype=np.float32)
-    b = np.ascontiguousarray(b, dtype=np.float32)
-
-    if a.shape != b.shape:
-        raise ValueError(f"Shape mismatch: {a.shape} vs {b.shape}")
+    if a.size != b.size:
+        raise ValueError(f"Size mismatch: {a.size} vs {b.size}")
 
     if out is None:
-        out = np.empty_like(a)
-    else:
-        out = np.ascontiguousarray(out, dtype=np.float32)
+        out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
 
-    num_elements = np.array([a.size], dtype=np.uint32)
-
-    buf_a = Buffer(a)
-    buf_b = Buffer(b)
-    buf_out = Buffer(size=out.nbytes)
+    num_elements = a.size // 4  # float32 is 4 bytes
+    num_elements_arr = np.array([num_elements], dtype=np.uint32)
 
     shader = Shader(_cut_core.ShaderEnum.VECTOR_ADD)
-    workgroups = (a.size + 63) // 64  # 64 threads per workgroup
+    workgroups = (num_elements + 63) // 64  # 64 threads per workgroup
 
     dispatch = Dispatch(shader, (workgroups, 1, 1))
-    dispatch.bind(buf_a, 0)
-    dispatch.bind(buf_b, 1)
-    dispatch.bind(buf_out, 2)
-    dispatch.bind(num_elements, 3)  # Push constant
+    dispatch.bind(a, 0)
+    dispatch.bind(b, 1)
+    dispatch.bind(out, 2)
+    dispatch.bind(num_elements_arr, 3)  # Push constant
 
     run(dispatch)
 
-    return buf_out.copy_to(out)
+    return out
 
 
 # Export public API

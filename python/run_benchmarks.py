@@ -178,53 +178,64 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     b_pos = np.abs(b) + 0.1
     a_unit = np.clip(a, -0.99, 0.99).astype(np.float32)
     b_small = (np.random.randn(N) * 2).astype(np.float32)
+    a_div10 = (a / 10).astype(np.float32)
+
+    # Create GPU buffers for all test data
+    buf_a = cut.Buffer(a)
+    buf_b = cut.Buffer(b)
+    buf_a_pos = cut.Buffer(a_pos)
+    buf_b_pos = cut.Buffer(b_pos)
+    buf_a_unit = cut.Buffer(a_unit)
+    buf_b_small = cut.Buffer(b_small)
+    buf_a_div10 = cut.Buffer(a_div10)
 
     # Define all operations by category
+    # Each entry: (name, cut_func, np_func, cut_args, np_args)
     operations = {
         "Binary Arithmetic": [
-            ("add", cut.add, np.add, a, b),
-            ("subtract", cut.subtract, np.subtract, a, b),
-            ("multiply", cut.multiply, np.multiply, a, b),
-            ("divide", cut.divide, np.divide, a, b_pos),
-            ("mod", cut.mod, np.mod, a_pos, b_pos),
-            ("power", cut.power, np.power, a_pos, b_small),
-            ("floor_divide", cut.floor_divide, np.floor_divide, a, b_pos),
+            ("add", cut.add, np.add, (buf_a, buf_b), (a, b)),
+            ("subtract", cut.subtract, np.subtract, (buf_a, buf_b), (a, b)),
+            ("multiply", cut.multiply, np.multiply, (buf_a, buf_b), (a, b)),
+            ("divide", cut.divide, np.divide, (buf_a, buf_b_pos), (a, b_pos)),
+            ("mod", cut.mod, np.mod, (buf_a_pos, buf_b_pos), (a_pos, b_pos)),
+            ("power", cut.power, np.power, (buf_a_pos, buf_b_small), (a_pos, b_small)),
+            ("floor_divide", cut.floor_divide, np.floor_divide, (buf_a, buf_b_pos), (a, b_pos)),
         ],
         "Binary Comparison": [
-            ("equal", cut.equal, lambda x, y: np.equal(x, y).astype(np.float32), a, b),
-            ("not_equal", cut.not_equal, lambda x, y: np.not_equal(x, y).astype(np.float32), a, b),
-            ("less", cut.less, lambda x, y: np.less(x, y).astype(np.float32), a, b),
-            ("less_equal", cut.less_equal, lambda x, y: np.less_equal(x, y).astype(np.float32), a, b),
-            ("greater", cut.greater, lambda x, y: np.greater(x, y).astype(np.float32), a, b),
-            ("greater_equal", cut.greater_equal, lambda x, y: np.greater_equal(x, y).astype(np.float32), a, b),
+            ("equal", cut.equal, lambda x, y: np.equal(x, y).astype(np.float32), (buf_a, buf_b), (a, b)),
+            ("not_equal", cut.not_equal, lambda x, y: np.not_equal(x, y).astype(np.float32), (buf_a, buf_b), (a, b)),
+            ("less", cut.less, lambda x, y: np.less(x, y).astype(np.float32), (buf_a, buf_b), (a, b)),
+            ("less_equal", cut.less_equal, lambda x, y: np.less_equal(x, y).astype(np.float32), (buf_a, buf_b), (a, b)),
+            ("greater", cut.greater, lambda x, y: np.greater(x, y).astype(np.float32), (buf_a, buf_b), (a, b)),
+            ("greater_equal", cut.greater_equal, lambda x, y: np.greater_equal(x, y).astype(np.float32), (buf_a, buf_b), (a, b)),
         ],
         "Binary Min/Max": [
-            ("minimum", cut.minimum, np.minimum, a, b),
-            ("maximum", cut.maximum, np.maximum, a, b),
+            ("minimum", cut.minimum, np.minimum, (buf_a, buf_b), (a, b)),
+            ("maximum", cut.maximum, np.maximum, (buf_a, buf_b), (a, b)),
         ],
         "Unary Operations": [
-            ("negative", cut.negative, np.negative, a),
-            ("abs", cut.abs, np.abs, a),
-            ("sqrt", cut.sqrt, np.sqrt, a_pos),
-            ("exp", cut.exp, np.exp, a / 10),
-            ("log", cut.log, np.log, a_pos),
-            ("log2", cut.log2, np.log2, a_pos),
-            ("log10", cut.log10, np.log10, a_pos),
-            ("sin", cut.sin, np.sin, a),
-            ("cos", cut.cos, np.cos, a),
-            ("tan", cut.tan, np.tan, a),
-            ("arcsin", cut.arcsin, np.arcsin, a_unit),
-            ("arccos", cut.arccos, np.arccos, a_unit),
-            ("arctan", cut.arctan, np.arctan, a),
-            ("sinh", cut.sinh, np.sinh, a / 10),
-            ("cosh", cut.cosh, np.cosh, a / 10),
-            ("tanh", cut.tanh, np.tanh, a),
-            ("floor", cut.floor, np.floor, a),
-            ("ceil", cut.ceil, np.ceil, a),
-            ("round", cut.round, np.round, a),
-            ("sign", cut.sign, np.sign, a),
-            ("reciprocal", cut.reciprocal, np.reciprocal, a_pos),
-            ("square", cut.square, np.square, a),
+            ("negative", cut.negative, np.negative, (buf_a,), (a,)),
+            ("abs", cut.abs, np.abs, (buf_a,), (a,)),
+            ("sqrt", cut.sqrt, np.sqrt, (buf_a_pos,), (a_pos,)),
+            ("exp", cut.exp, np.exp, (buf_a_div10,), (a_div10,)),
+            ("log", cut.log, np.log, (buf_a_pos,), (a_pos,)),
+            ("log2", cut.log2, np.log2, (buf_a_pos,), (a_pos,)),
+            ("log10", cut.log10, np.log10, (buf_a_pos,), (a_pos,)),
+            ("sin", cut.sin, np.sin, (buf_a,), (a,)),
+            ("cos", cut.cos, np.cos, (buf_a,), (a,)),
+            ("tan", cut.tan, np.tan, (buf_a,), (a,)),
+            ("arcsin", cut.arcsin, np.arcsin, (buf_a_unit,), (a_unit,)),
+            ("arccos", cut.arccos, np.arccos, (buf_a_unit,), (a_unit,)),
+            ("arctan", cut.arctan, np.arctan, (buf_a,), (a,)),
+            ("sinh", cut.sinh, np.sinh, (buf_a_div10,), (a_div10,)),
+            ("cosh", cut.cosh, np.cosh, (buf_a_div10,), (a_div10,)),
+            ("tanh", cut.tanh, np.tanh, (buf_a,), (a,)),
+            ("floor", cut.floor, np.floor, (buf_a,), (a,)),
+            ("ceil", cut.ceil, np.ceil, (buf_a,), (a,)),
+            ("round", cut.round, np.round, (buf_a,), (a,)),
+            ("sign", cut.sign, np.sign, (buf_a,), (a,)),
+            ("reciprocal", cut.reciprocal, np.reciprocal, (buf_a_pos,), (a_pos,)),
+            ("square", cut.square, np.square, (buf_a,), (a,)),
         ],
     }
 
@@ -238,16 +249,17 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
             name = op_def[0]
             cut_func = op_def[1]
             np_func = op_def[2]
+            cut_args = op_def[3]
+            np_args = op_def[4]
 
-            if len(op_def) == 5:  # Binary operation
-                op_a, op_b = op_def[3], op_def[4]
-                cut_time, cut_std, cut_result = benchmark(cut_func, op_a, op_b, config=config)
-                np_time, np_std, np_result = benchmark(np_func, op_a, op_b, config=config)
-            else:  # Unary operation
-                op_a = op_def[3]
-                cut_time, cut_std, cut_result = benchmark(cut_func, op_a, config=config)
-                np_time, np_std, np_result = benchmark(np_func, op_a, config=config)
-                np_result = np_result.astype(np.float32)
+            # Run CUT benchmark (returns Buffer)
+            cut_time, cut_std, cut_result_buf = benchmark(cut_func, *cut_args, config=config)
+            # Convert Buffer result to numpy for verification
+            cut_result = cut_result_buf.numpy()
+
+            # Run NumPy benchmark
+            np_time, np_std, np_result = benchmark(np_func, *np_args, config=config)
+            np_result = np_result.astype(np.float32)
 
             valid = verify_results(cut_result, np_result)
             speedup = np_time / cut_time if cut_time > 0 else float('inf')
