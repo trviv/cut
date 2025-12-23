@@ -282,28 +282,32 @@ class VulkanCommandBufferContainer final : public VulkanContainerBase,
 public:
   /**
    * Constructs a Vulkan command buffer container.
-   * Creates the command pool and retrieves the queue internally.
+   * Creates the command pool, retrieves the queue, and pre-allocates command
+   * buffers.
    * @param device The Vulkan logical device.
    * @param queueFamilyIndex The queue family index for command submission.
+   * @param maxCommandBuffers Maximum number of command buffers to pre-allocate.
    * @param containers Reference to the Vulkan containers struct.
    */
   VulkanCommandBufferContainer(VkDevice device,
                                uint32_t queueFamilyIndex,
+                               uint32_t maxCommandBuffers,
                                VulkanContainers &containers);
 
   /// Destroys the command pool and waits for the queue to idle.
   ~VulkanCommandBufferContainer();
 
-  /// Creates a Vulkan-specific command buffer.
-  ComputeHandle createCommandBuffer() override {
-    return ComputeDataContainer::create(new VulkanCommandBuffer(
-        getDevice(), commandPool_, queue_, containers_));
-  }
+  /// Creates a Vulkan-specific command buffer using a pre-allocated buffer in
+  /// round-robin fashion.
+  ComputeHandle createCommandBuffer() override;
 
 private:
   VkCommandPool commandPool_ = VK_NULL_HANDLE;
   VkQueue queue_ = VK_NULL_HANDLE;
   VulkanContainers &containers_;
+  std::vector<VkCommandBuffer> commandBuffers_;
+  std::vector<VkFence> fences_;
+  uint32_t nextBufferIndex_ = 0;
 };
 
 } // namespace cut

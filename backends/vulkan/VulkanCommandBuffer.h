@@ -19,12 +19,14 @@ public:
   /**
    * Constructs a VulkanCommandBuffer with the necessary Vulkan resources.
    * @param device The Vulkan logical device.
-   * @param commandPool The command pool to allocate command buffers from.
+   * @param commandBuffer Pre-allocated Vulkan command buffer.
+   * @param fence Pre-allocated Vulkan fence for synchronization.
    * @param queue The compute queue for submissions.
    * @param containers Reference to the Vulkan containers struct.
    */
   VulkanCommandBuffer(VkDevice device,
-                      VkCommandPool commandPool,
+                      VkCommandBuffer commandBuffer,
+                      VkFence fence,
                       VkQueue queue,
                       VulkanContainers &containers);
 
@@ -56,7 +58,6 @@ public:
 
 private:
   VkDevice device_;
-  VkCommandPool commandPool_;
   VkQueue queue_;
   VkCommandBuffer commandBuffer_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;

@@ -185,33 +185,15 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
 }
 
 VulkanCommandBuffer::VulkanCommandBuffer(VkDevice device,
-                                         VkCommandPool commandPool,
+                                         VkCommandBuffer commandBuffer,
+                                         VkFence fence,
                                          VkQueue queue,
                                          VulkanContainers &containers)
-    : device_(device), commandPool_(commandPool), queue_(queue),
-      containers_(containers) {
-  // Allocate command buffer
-  VkCommandBufferAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  allocInfo.commandPool = commandPool_;
-  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  allocInfo.commandBufferCount = 1;
-
-  VK_CHECK(vkAllocateCommandBuffers(device_, &allocInfo, &commandBuffer_));
-
-  // Create fence for synchronization
-  VkFenceCreateInfo fenceInfo{};
-  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fenceInfo.flags = 0; // Unsignaled state
-
-  VK_CHECK(vkCreateFence(device_, &fenceInfo, nullptr, &fence_));
-}
+    : device_(device), queue_(queue), commandBuffer_(commandBuffer),
+      fence_(fence), containers_(containers) {}
 
 VulkanCommandBuffer::~VulkanCommandBuffer() {
   wait();
-  if (fence_ != VK_NULL_HANDLE) {
-    vkDestroyFence(device_, fence_, nullptr);
-  }
 }
 
 void VulkanCommandBuffer::begin() {

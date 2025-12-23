@@ -59,7 +59,8 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 
   // Create and set the command buffer container
   setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
-      device_, computeQueueFamilyIndex_, *containers_));
+      device_, computeQueueFamilyIndex_, config.maxCommandBuffers,
+      *containers_));
 }
 
 PhysicalDeviceAndQueueIndex

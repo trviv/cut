@@ -6,7 +6,10 @@
 namespace cut {
 
 VulkanCommandBufferContainer::VulkanCommandBufferContainer(
-    VkDevice device, uint32_t queueFamilyIndex, VulkanContainers &containers)
+    VkDevice device,
+    uint32_t queueFamilyIndex,
+    uint32_t maxCommandBuffers,
+    VulkanContainers &containers)
     : VulkanContainerBase(device), containers_(containers) {
   vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue_);
 
@@ -16,15 +19,53 @@ VulkanCommandBufferContainer::VulkanCommandBufferContainer(
   poolInfo.queueFamilyIndex = queueFamilyIndex;
 
   VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool_));
+
+  // Pre-allocate command buffers
+  commandBuffers_.resize(maxCommandBuffers);
+
+  VkCommandBufferAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  allocInfo.commandPool = commandPool_;
+  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  allocInfo.commandBufferCount = maxCommandBuffers;
+
+  VK_CHECK(
+      vkAllocateCommandBuffers(device, &allocInfo, commandBuffers_.data()));
+
+  // Pre-allocate fences
+  fences_.resize(maxCommandBuffers);
+
+  VkFenceCreateInfo fenceInfo{};
+  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fenceInfo.flags = 0; // Unsignaled state
+
+  for (uint32_t i = 0; i < maxCommandBuffers; ++i) {
+    VK_CHECK(vkCreateFence(device, &fenceInfo, nullptr, &fences_[i]));
+  }
 }
 
 VulkanCommandBufferContainer::~VulkanCommandBufferContainer() {
   if (queue_ != VK_NULL_HANDLE) {
     vkQueueWaitIdle(queue_);
   }
+  for (auto fence : fences_) {
+    if (fence != VK_NULL_HANDLE) {
+      vkDestroyFence(getDevice(), fence, nullptr);
+    }
+  }
   if (commandPool_ != VK_NULL_HANDLE) {
     vkDestroyCommandPool(getDevice(), commandPool_, nullptr);
   }
+}
+
+ComputeHandle VulkanCommandBufferContainer::createCommandBuffer() {
+  // Get the next command buffer and fence in round-robin fashion
+  VkCommandBuffer commandBuffer = commandBuffers_[nextBufferIndex_];
+  VkFence fence = fences_[nextBufferIndex_];
+  nextBufferIndex_ = (nextBufferIndex_ + 1) % commandBuffers_.size();
+
+  return ComputeDataContainer::create(new VulkanCommandBuffer(
+      getDevice(), commandBuffer, fence, queue_, containers_));
 }
 
 void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
