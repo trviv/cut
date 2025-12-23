@@ -44,6 +44,7 @@ set(COMBINED_TEST_SOURCES
     combined/ComputeHandleTests.cpp
     combined/ComputeInterfaceTests.cpp
     combined/VulkanInterfaceTests.cpp
+    combined/GeneratedShadersTests.cpp
 )
 
 # Create single test executable with all tests

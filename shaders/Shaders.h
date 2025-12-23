@@ -12,10 +12,51 @@ namespace cut {
 
 enum ShaderEnum {
   VECTOR_ADD,
+
+  // Binary arithmetic operations (vec-vec)
   BinaryVecVecAdd,
   BinaryVecVecSub,
   BinaryVecVecMul,
   BinaryVecVecDiv,
+  BinaryVecVecMod,
+  BinaryVecVecPow,
+  BinaryVecVecFloorDiv,
+
+  // Binary comparison operations (vec-vec)
+  BinaryVecVecEqual,
+  BinaryVecVecNotEqual,
+  BinaryVecVecLess,
+  BinaryVecVecLessEqual,
+  BinaryVecVecGreater,
+  BinaryVecVecGreaterEqual,
+
+  // Binary min/max operations (vec-vec)
+  BinaryVecVecMin,
+  BinaryVecVecMax,
+
+  // Unary operations
+  UnaryNeg,
+  UnaryAbs,
+  UnarySqrt,
+  UnaryExp,
+  UnaryLog,
+  UnaryLog2,
+  UnaryLog10,
+  UnarySin,
+  UnaryCos,
+  UnaryTan,
+  UnaryAsin,
+  UnaryAcos,
+  UnaryAtan,
+  UnarySinh,
+  UnaryCosh,
+  UnaryTanh,
+  UnaryFloor,
+  UnaryCeil,
+  UnaryRound,
+  UnarySign,
+  UnaryReciprocal,
+  UnarySquare,
 };
 
 /*
