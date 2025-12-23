@@ -97,8 +97,7 @@ std::vector<uint32_t> compileShaderToSpirv(const std::string &source,
 
   if (status != shaderc_compilation_status_success) {
     const char *errorMsg = shaderc_result_get_error_message(result);
-    std::string errorStr =
-        errorMsg ? errorMsg : "Unknown compilation error";
+    std::string errorStr = errorMsg ? errorMsg : "Unknown compilation error";
 
     shaderc_result_release(result);
     shaderc_compile_options_release(options);
@@ -148,8 +147,9 @@ std::vector<uint32_t> compileShaderFileToSpirv(const std::string &filepath) {
 
   // Extract filename for error messages
   size_t slashPos = filepath.rfind('/');
-  std::string filename =
-      (slashPos != std::string::npos) ? filepath.substr(slashPos + 1) : filepath;
+  std::string filename = (slashPos != std::string::npos)
+                             ? filepath.substr(slashPos + 1)
+                             : filepath;
 
   return compileShaderToSpirv(source, filename);
 }
