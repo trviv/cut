@@ -63,6 +63,11 @@ target_include_directories(tests PRIVATE
     ${CMAKE_SOURCE_DIR}/tests
 )
 
+# Define shader directory for tests
+target_compile_definitions(tests PRIVATE
+    SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders"
+)
+
 target_link_libraries(tests PRIVATE
     ${Vulkan_LIBRARIES}
     CUTLib

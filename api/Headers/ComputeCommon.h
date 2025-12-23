@@ -42,6 +42,27 @@ extern void logErr(const char *format, ...);
 static std::vector<char> readShaderFile(const std::string &filename);
 
 /**
+ * Compiles GLSL compute shader source code to SPIR-V bytecode at runtime.
+ * Uses the shaderc library for compilation.
+ * @param source The GLSL source code string.
+ * @param filename Optional filename for error messages (defaults to "shader").
+ * @return A vector containing the compiled SPIR-V bytecode as uint32_t words.
+ * @throws std::runtime_error if compilation fails.
+ */
+std::vector<uint32_t>
+compileShaderToSpirv(const std::string &source,
+                     const std::string &filename = "shader");
+
+/**
+ * Compiles a GLSL compute shader file to SPIR-V bytecode at runtime.
+ * Reads the file and compiles it using shaderc.
+ * @param filepath Path to the shader source file.
+ * @return A vector containing the compiled SPIR-V bytecode as uint32_t words.
+ * @throws std::runtime_error if the file cannot be read or compilation fails.
+ */
+std::vector<uint32_t> compileShaderFileToSpirv(const std::string &filepath);
+
+/**
  * Represents the dimensions of a compute shader thread group.
  */
 struct ThreadGroupSize {

@@ -5,6 +5,8 @@
 #include <string>
 #include <unordered_map>
 
+#include <shaderc/shaderc.h>
+
 namespace cut {
 
 #define WRITE_MSG(prefix)                                                      \
@@ -62,6 +64,94 @@ std::vector<char> readShaderFile(const std::string &filename) {
   file.close();
 
   return buffer;
+}
+
+std::vector<uint32_t> compileShaderToSpirv(const std::string &source,
+                                           const std::string &filename) {
+  // Create compiler and options
+  shaderc_compiler_t compiler = shaderc_compiler_initialize();
+  if (!compiler) {
+    logErr("Failed to initialize shaderc compiler");
+  }
+
+  shaderc_compile_options_t options = shaderc_compile_options_initialize();
+  if (!options) {
+    shaderc_compiler_release(compiler);
+    logErr("Failed to initialize shaderc compile options");
+  }
+
+  // Set compilation options
+  shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan,
+                                         shaderc_env_version_vulkan_1_0);
+  shaderc_compile_options_set_optimization_level(
+      options, shaderc_optimization_level_performance);
+
+  // Compile to SPIR-V (compute shader only)
+  shaderc_compilation_result_t result = shaderc_compile_into_spv(
+      compiler, source.c_str(), source.size(), shaderc_compute_shader,
+      filename.c_str(), "main", options);
+
+  // Check compilation status
+  shaderc_compilation_status status =
+      shaderc_result_get_compilation_status(result);
+
+  if (status != shaderc_compilation_status_success) {
+    const char *errorMsg = shaderc_result_get_error_message(result);
+    std::string errorStr =
+        errorMsg ? errorMsg : "Unknown compilation error";
+
+    shaderc_result_release(result);
+    shaderc_compile_options_release(options);
+    shaderc_compiler_release(compiler);
+
+    logErr("Shader compilation failed for '%s': %s", filename.c_str(),
+           errorStr.c_str());
+  }
+
+  // Get the compiled SPIR-V bytecode
+  size_t spirvSize = shaderc_result_get_length(result);
+  const char *spirvBytes =
+      reinterpret_cast<const char *>(shaderc_result_get_bytes(result));
+
+  // Copy to vector of uint32_t (SPIR-V is always 4-byte aligned)
+  std::vector<uint32_t> spirvCode(spirvSize / sizeof(uint32_t));
+  std::memcpy(spirvCode.data(), spirvBytes, spirvSize);
+
+  // Log compilation info
+  size_t numWarnings = shaderc_result_get_num_warnings(result);
+  if (numWarnings > 0) {
+    logMsg("Shader '%s' compiled with %zu warning(s)", filename.c_str(),
+           numWarnings);
+  }
+
+  // Cleanup
+  shaderc_result_release(result);
+  shaderc_compile_options_release(options);
+  shaderc_compiler_release(compiler);
+
+  logMsg("Shader '%s' compiled successfully: %zu bytes of SPIR-V",
+         filename.c_str(), spirvSize);
+
+  return spirvCode;
+}
+
+std::vector<uint32_t> compileShaderFileToSpirv(const std::string &filepath) {
+  // Read the shader source file
+  std::ifstream file(filepath);
+  if (!file.is_open()) {
+    logErr("Failed to open shader file: %s", filepath.c_str());
+  }
+
+  std::string source((std::istreambuf_iterator<char>(file)),
+                     std::istreambuf_iterator<char>());
+  file.close();
+
+  // Extract filename for error messages
+  size_t slashPos = filepath.rfind('/');
+  std::string filename =
+      (slashPos != std::string::npos) ? filepath.substr(slashPos + 1) : filepath;
+
+  return compileShaderToSpirv(source, filename);
 }
 
 // SPIR-V constants

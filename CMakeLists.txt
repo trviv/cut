@@ -37,6 +37,16 @@ if(NOT Vulkan_FOUND)
     message(FATAL_ERROR "Vulkan SDK not found. Please install Vulkan SDK from https://vulkan.lunarg.com/")
 endif()
 
+# Find shaderc library (part of Vulkan SDK)
+find_library(SHADERC_LIB shaderc_combined
+    PATHS ${Vulkan_INCLUDE_DIRS}/../lib
+    REQUIRED
+)
+if(NOT SHADERC_LIB)
+    message(FATAL_ERROR "shaderc library not found. Please ensure Vulkan SDK is properly installed.")
+endif()
+message(STATUS "shaderc library: ${SHADERC_LIB}")
+
 # Shader compilation disabled - using pre-built Shaders.cpp
 include(${CMAKE_CURRENT_LIST_DIR}/shader_loader.cmake)
 
@@ -108,6 +118,7 @@ endif()
 # Link libraries
 target_link_libraries(CUTLib PRIVATE
     ${Vulkan_LIBRARIES}
+    ${SHADERC_LIB}
 )
 
 # Create executable
