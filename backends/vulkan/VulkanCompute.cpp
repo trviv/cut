@@ -180,13 +180,10 @@ VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
                            &bufferStruct.buffer, &bufferStruct.allocation,
                            nullptr));
 #else
-  // Note: Avoid HOST_CACHED_BIT as it can cause issues with GPU writes
-  // on some platforms (especially with MoltenVK)
+  // Note: Using non-coherent memory for better performance on some platforms.
+  // Requires explicit flush/invalidate for CPU-GPU synchronization.
   const VkMemoryPropertyFlags memoryPropertyFlag =
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  //        (isUniform ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-  //                   : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
 
   VK_CHECK(vkCreateBuffer(device_, &bufferInfo, nullptr, &bufferStruct.buffer));
 
@@ -212,9 +209,8 @@ VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
     VK_CHECK(vkMapMemory(device_, bufferStruct.memory, 0, size, 0,
                          &bufferStruct.mappedData));
   }
-  if (memoryPropertyFlag & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {
-    bufferStruct.isCoherent = true;
-  }
+  bufferStruct.isCoherent =
+      (memoryPropertyFlag & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
 #endif
 
   auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
@@ -243,10 +239,23 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
   if (localUseStaging) {
     logErr("Staging buffer copy is not yet implemented.");
   } else {
+    memcpy(static_cast<char *>(buffer.mappedData) + dstOffset,
+           static_cast<const char *>(srcPtr) + srcOffset, size);
+
+    // Flush memory to make writes visible to GPU
     if (!buffer.isCoherent) {
-      logErr("Incoherent memory behaviour is not yet implemented.");
+#if CUT_USE_VMA
+      vmaFlushAllocation(allocator_, buffer.allocation, dstOffset, size);
+#else
+      VkMappedMemoryRange memoryRange = {};
+      memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+      memoryRange.memory = buffer.memory;
+      memoryRange.offset = dstOffset;
+      memoryRange.size = size;
+
+      VK_CHECK(vkFlushMappedMemoryRanges(device_, 1, &memoryRange));
+#endif
     }
-    memcpy(buffer.mappedData, srcPtr, size);
   }
 }
 
@@ -267,21 +276,22 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
   if (localUseStaging) {
     logErr("Staging buffer copy is not yet implemented.");
   } else {
+    // Invalidate memory to make GPU writes visible to CPU
     if (!buffer.isCoherent) {
-      logErr("Incoherent memory behaviour is not yet verified.");
 #if CUT_USE_VMA
       vmaInvalidateAllocation(allocator_, buffer.allocation, srcOffset, size);
 #else
-      VkMappedMemoryRange memoryRanges = {};
-      memoryRanges.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
-      memoryRanges.memory = buffer.memory;
-      memoryRanges.offset = srcOffset;
-      memoryRanges.size = size;
+      VkMappedMemoryRange memoryRange = {};
+      memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+      memoryRange.memory = buffer.memory;
+      memoryRange.offset = srcOffset;
+      memoryRange.size = size;
 
-      VK_CHECK(vkInvalidateMappedMemoryRanges(device_, 1, &memoryRanges));
+      VK_CHECK(vkInvalidateMappedMemoryRanges(device_, 1, &memoryRange));
 #endif
     }
-    memcpy(dstPtr, buffer.mappedData, size);
+    memcpy(static_cast<char *>(dstPtr) + dstOffset,
+           static_cast<const char *>(buffer.mappedData) + srcOffset, size);
   }
 }
 
