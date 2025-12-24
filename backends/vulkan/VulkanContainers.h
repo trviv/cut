@@ -232,9 +232,11 @@ class VulkanPipelineContainer final
     : public ComputeDataContainer<VulkanPipelineStruct>,
       public VulkanContainerBase {
 public:
-  /// Constructs a compute pipeline container.
-  explicit VulkanPipelineContainer(VkDevice device)
-      : VulkanContainerBase(device) {}
+  /// Constructs a compute pipeline container with an optional pipeline cache.
+  explicit VulkanPipelineContainer(VkDevice device);
+
+  /// Destroys the pipeline cache.
+  ~VulkanPipelineContainer();
 
   /**
    * Creates multiple compute pipelines from shader stages and pipeline layouts.
@@ -269,6 +271,9 @@ public:
 private:
   /// Destroys a compute pipeline and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
+
+  /// Vulkan pipeline cache for faster pipeline creation.
+  VkPipelineCache pipelineCache_ = VK_NULL_HANDLE;
 };
 
 /// Holds all Vulkan containers needed by command buffers.

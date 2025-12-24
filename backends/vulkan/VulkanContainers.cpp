@@ -321,6 +321,20 @@ void VulkanPipelineLayoutContainer::destroyAPIObject(
   }
 }
 
+VulkanPipelineContainer::VulkanPipelineContainer(VkDevice device)
+    : VulkanContainerBase(device) {
+  VkPipelineCacheCreateInfo cacheCreateInfo{};
+  cacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+  VK_CHECK(vkCreatePipelineCache(device, &cacheCreateInfo, nullptr,
+                                 &pipelineCache_));
+}
+
+VulkanPipelineContainer::~VulkanPipelineContainer() {
+  if (pipelineCache_ != VK_NULL_HANDLE) {
+    vkDestroyPipelineCache(getDevice(), pipelineCache_, nullptr);
+  }
+}
+
 std::vector<ComputeHandle> VulkanPipelineContainer::createPipelines(
     const std::vector<VkPipelineShaderStageCreateInfo> &shaderStages,
     const std::vector<VkPipelineLayout> &pipelineLayouts,
@@ -341,10 +355,10 @@ std::vector<ComputeHandle> VulkanPipelineContainer::createPipelines(
     createInfos.emplace_back(createInfo);
   }
 
-  // Create all pipelines in a single Vulkan call
+  // Create all pipelines in a single Vulkan call using the pipeline cache
   std::vector<VkPipeline> vkPipelines(createInfos.size());
   VK_CHECK(vkCreateComputePipelines(
-      getDevice(), VK_NULL_HANDLE, static_cast<uint32_t>(createInfos.size()),
+      getDevice(), pipelineCache_, static_cast<uint32_t>(createInfos.size()),
       createInfos.data(), nullptr, vkPipelines.data()));
 
   // Store each pipeline in the container
