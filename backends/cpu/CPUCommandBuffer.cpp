@@ -1,5 +1,7 @@
 #include "CPUCommandBuffer.h"
+#include "CPUKernels.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace cut {
@@ -9,86 +11,97 @@ CPUCommandBuffer::CPUCommandBuffer(CPUContainers &containers,
     : containers_(containers), threadPool_(threadPool) {}
 
 CPUCommandBuffer::~CPUCommandBuffer() {
+  // Wait for any pending operations
   wait();
 }
 
 void CPUCommandBuffer::submit() {
-  for (const auto &dispatch : dispatches()) {
-    const auto &shaderStruct =
+  const auto &dispatchList = dispatches();
+
+  for (const auto &dispatch : dispatchList) {
+    const auto &shader =
         containers_.shaderContainer.getShader(dispatch.shader());
+    const CPUKernelType kernelType = shader.kernelType;
 
-    // Verify kernel is registered
-    if (!shaderStruct.kernel) {
-      throw std::runtime_error(
-          "CPU kernel not registered for shader. Call registerKernel() before "
-          "dispatch.");
-    }
+    // Get bindings - sort by index
+    const auto &bindings = dispatch.bindings();
 
-    // Collect buffer pointers and push constant data from bindings
+    // Extract buffer pointers from bindings
     std::vector<void *> bufferPtrs;
-    std::vector<uint8_t> pushConstantData;
+    uint32_t numElements = 0;
 
-    // Find maximum binding index to size the buffer array
-    uint32_t maxBindingIndex = 0;
-    for (const auto &binding : dispatch.bindings()) {
-      if (binding.isHandle()) {
-        maxBindingIndex = std::max(maxBindingIndex, binding.index() + 1);
-      }
-    }
-    bufferPtrs.resize(maxBindingIndex, nullptr);
-
-    // Populate buffer pointers and push constants
-    for (const auto &binding : dispatch.bindings()) {
+    for (const auto &binding : bindings) {
       if (binding.isHandle()) {
         const auto &buffer =
             containers_.bufferContainer.getBuffer(binding.getHandle());
-        bufferPtrs[binding.index()] = buffer.data;
+        bufferPtrs.push_back(buffer.data);
       } else if (binding.isData()) {
-        // Accumulate push constant data
+        // Push constant data (e.g., numElements)
         const auto &data = binding.getData();
-        pushConstantData.insert(pushConstantData.end(), data.begin(),
-                                data.end());
+        if (data.size() >= sizeof(uint32_t)) {
+          numElements = *reinterpret_cast<const uint32_t *>(data.data());
+        }
       }
     }
 
-    // Calculate total iterations from workgroup size (simple flat count)
-    const auto &wgSize = dispatch.workgroupSize();
-    const uint32_t totalIterations = std::max(1u, wgSize.x);
+    if (numElements == 0) {
+      continue; // Skip if no elements to process
+    }
 
-    // Capture kernel and data for lambda
-    const CPUKernel &kernel = shaderStruct.kernel;
-    auto capturedBufferPtrs = bufferPtrs;
-    auto capturedPushConstants = pushConstantData;
-
-    // Determine chunk size for thread distribution
+    // Determine number of chunks based on thread pool size
     const size_t numThreads = threadPool_.numThreads();
-    const uint32_t chunkSize =
-        (totalIterations + static_cast<uint32_t>(numThreads) - 1) /
-        static_cast<uint32_t>(numThreads);
+    const size_t chunkSize =
+        std::max(size_t(1), (numElements + numThreads - 1) / numThreads);
+
+    // Increment pending task counter
+    size_t numChunks = (numElements + chunkSize - 1) / chunkSize;
+    pendingTasks_.fetch_add(numChunks, std::memory_order_relaxed);
 
     // Submit chunks to thread pool
-    for (uint32_t start = 0; start < totalIterations; start += chunkSize) {
-      ++pendingWorkgroups_;
-      const uint32_t end = std::min(start + chunkSize, totalIterations);
+    if (isBinaryKernel(kernelType)) {
+      // Binary operation: need 3 buffers (a, b, out)
+      if (bufferPtrs.size() < 3) {
+        pendingTasks_.fetch_sub(numChunks, std::memory_order_relaxed);
+        continue;
+      }
+      const float *a = static_cast<const float *>(bufferPtrs[0]);
+      const float *b = static_cast<const float *>(bufferPtrs[1]);
+      float *out = static_cast<float *>(bufferPtrs[2]);
 
-      threadPool_.submit([this, kernel, capturedBufferPtrs,
-                          capturedPushConstants, start, end]() {
-        const void *pushConstPtr = capturedPushConstants.empty()
-                                       ? nullptr
-                                       : capturedPushConstants.data();
+      for (size_t chunkStart = 0; chunkStart < numElements;
+           chunkStart += chunkSize) {
+        const size_t chunkEnd =
+            std::min(chunkStart + chunkSize, static_cast<size_t>(numElements));
+        threadPool_.submit(
+            [this, kernelType, a, b, out, chunkStart, chunkEnd]() {
+              executeBinaryKernel(kernelType, a, b, out, chunkStart, chunkEnd);
+              if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                cv_.notify_all();
+              }
+            });
+      }
+    } else if (isUnaryKernel(kernelType)) {
+      // Unary operation: need 2 buffers (in, out)
+      if (bufferPtrs.size() < 2) {
+        pendingTasks_.fetch_sub(numChunks, std::memory_order_relaxed);
+        continue;
+      }
+      const float *in = static_cast<const float *>(bufferPtrs[0]);
+      float *out = static_cast<float *>(bufferPtrs[1]);
 
-        // Simple iteration over assigned range
-        for (uint32_t i = start; i < end; ++i) {
-          kernel(i, capturedBufferPtrs, pushConstPtr);
-        }
-
-        // Signal chunk completion
-        {
-          std::lock_guard<std::mutex> lock(mutex_);
-          --pendingWorkgroups_;
-        }
-        cv_.notify_all();
-      });
+      for (size_t chunkStart = 0; chunkStart < numElements;
+           chunkStart += chunkSize) {
+        const size_t chunkEnd =
+            std::min(chunkStart + chunkSize, static_cast<size_t>(numElements));
+        threadPool_.submit([this, kernelType, in, out, chunkStart, chunkEnd]() {
+          executeUnaryKernel(kernelType, in, out, chunkStart, chunkEnd);
+          if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            cv_.notify_all();
+          }
+        });
+      }
     }
   }
 
@@ -101,7 +114,9 @@ void CPUCommandBuffer::wait() {
   }
 
   std::unique_lock<std::mutex> lock(mutex_);
-  cv_.wait(lock, [this] { return pendingWorkgroups_ == 0; });
+  cv_.wait(lock, [this]() {
+    return pendingTasks_.load(std::memory_order_acquire) == 0;
+  });
   submitted_ = false;
 }
 

@@ -1,4 +1,6 @@
 #include "CPUCompute.h"
+#include "CPUCommandBuffer.h"
+#include "CPUContainers.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -10,13 +12,11 @@ CPUCompute::CPUCompute(size_t numThreads) {
   threadPool_ = std::make_unique<ThreadPool>(numThreads);
   containers_ = std::make_unique<CPUContainers>();
 
-  // Set up command buffer container
   setCommandBufferContainer(
       std::make_unique<CPUCommandBufferContainer>(*containers_, *threadPool_));
 }
 
 CPUCompute::~CPUCompute() {
-  // Reset command buffer container before containers
   setCommandBufferContainer(nullptr);
   containers_.reset();
   threadPool_.reset();
@@ -24,23 +24,19 @@ CPUCompute::~CPUCompute() {
 
 ComputeHandle
 CPUCompute::createBuffer(size_t size, const void *srcPtr, bool /*immutable*/) {
-  // Align buffer size to 16 bytes for optimal access
   constexpr size_t kAlignment = 16;
   const size_t alignedSize = (size + kAlignment - 1) & ~(kAlignment - 1);
 
   CPUBufferStruct bufferStruct;
   bufferStruct.size = size;
+  bufferStruct.data = aligned_alloc(kAlignment, alignedSize);
 
-  // Allocate aligned memory
-  // Note: std::aligned_alloc requires size to be a multiple of alignment
-  bufferStruct.data = std::aligned_alloc(kAlignment, alignedSize);
   if (bufferStruct.data == nullptr) {
     throw std::runtime_error("Failed to allocate CPU buffer");
   }
 
   auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
 
-  // Copy initial data if provided
   if (srcPtr != nullptr) {
     copyDataToBuffer(srcPtr, handle, size, 0, 0);
   }
@@ -84,13 +80,23 @@ void CPUCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
 }
 
 ComputeHandle
-CPUCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
-  return containers_->shaderContainer.createShader(spirvCode);
+CPUCompute::createShaderModule(const std::vector<uint32_t> & /*spirvCode*/) {
+  // For CPU backend, we don't parse SPIR-V.
+  // The kernel type must be set via createKernel().
+  // Create a default shader that will need to be configured.
+  CPUShaderStruct shaderStruct;
+  shaderStruct.kernelType = CPUKernelType::BinaryVecVecAdd;
+  return containers_->shaderContainer.create(std::move(shaderStruct));
 }
 
-void CPUCompute::registerKernel(const ComputeHandle &shaderHandle,
-                                CPUKernel kernel) {
-  containers_->shaderContainer.registerKernel(shaderHandle, std::move(kernel));
+ComputeHandle CPUCompute::createKernel(CPUKernelType kernelType) {
+  CPUShaderStruct shaderStruct;
+  shaderStruct.kernelType = kernelType;
+  return containers_->shaderContainer.create(std::move(shaderStruct));
+}
+
+size_t CPUCompute::numThreads() const {
+  return threadPool_->numThreads();
 }
 
 } // namespace cut

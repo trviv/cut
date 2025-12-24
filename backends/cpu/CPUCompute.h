@@ -1,14 +1,37 @@
 #pragma once
 
-#include "CPUContainers.h"
-#include "CPUStructs.h"
+#include "CPUKernels.h"
 #include "ThreadPool.h"
 
 #include <ComputeInterface.h>
 
 #include <memory>
+#include <string_view>
 
 namespace cut {
+
+// Forward declarations
+class CPUContainers;
+
+/**
+ * CPU buffer data structure.
+ */
+struct CPUBufferStruct {
+  static constexpr std::string_view Name = "CPUBuffer";
+
+  void *data = nullptr;
+  size_t size = 0;
+};
+
+/**
+ * CPU shader/kernel data structure.
+ * Maps a kernel type to execute instead of SPIR-V.
+ */
+struct CPUShaderStruct {
+  static constexpr std::string_view Name = "CPUShader";
+
+  CPUKernelType kernelType;
+};
 
 /**
  * CPU implementation of ComputeInterface.
@@ -22,7 +45,6 @@ public:
    */
   explicit CPUCompute(size_t numThreads = 0);
 
-  /// Destructor.
   ~CPUCompute() override;
 
   /**
@@ -38,13 +60,6 @@ public:
 
   /**
    * Copies data from host memory to a CPU buffer.
-   * @param srcPtr Pointer to the source data.
-   * @param dstBuffer Handle to the destination buffer.
-   * @param size Number of bytes to copy.
-   * @param srcOffset Offset in the source data.
-   * @param dstOffset Offset in the destination buffer.
-   * @param useStaging Ignored for CPU backend.
-   * @param wait Ignored for CPU backend (always synchronous).
    */
   void copyDataToBuffer(const void *srcPtr,
                         const ComputeHandle &dstBuffer,
@@ -56,13 +71,6 @@ public:
 
   /**
    * Copies data from a CPU buffer to host memory.
-   * @param srcBuffer Handle to the source buffer.
-   * @param dstPtr Pointer to the destination in host memory.
-   * @param size Number of bytes to copy.
-   * @param srcOffset Offset in the source buffer.
-   * @param dstOffset Offset in the destination data.
-   * @param useStaging Ignored for CPU backend.
-   * @param wait Ignored for CPU backend (always synchronous).
    */
   void copyDataFromBuffer(const ComputeHandle &srcBuffer,
                           void *dstPtr,
@@ -73,27 +81,35 @@ public:
                           bool wait = false) override;
 
   /**
-   * Creates a shader module from SPIR-V bytecode.
-   * Performs reflection to extract binding information.
-   * The kernel function must be registered separately via registerKernel().
-   * @param spirvCode Vector containing the SPIR-V bytecode.
+   * Creates a shader module (maps kernel type from SPIR-V enum).
+   * @param spirvCode Vector containing the SPIR-V bytecode (used for reflection
+   * only).
    * @return Handle to the created shader module.
    */
   ComputeHandle
   createShaderModule(const std::vector<uint32_t> &spirvCode) override;
 
   /**
-   * Registers a C++ kernel function for a shader handle.
-   * Must be called before dispatching with this shader.
-   * @param shaderHandle Handle to the shader.
-   * @param kernel The C++ kernel function matching the GLSL shader logic.
+   * Creates a shader module from a kernel type directly.
+   * @param kernelType The CPU kernel type to use.
+   * @return Handle to the created shader module.
    */
-  void registerKernel(const ComputeHandle &shaderHandle, CPUKernel kernel);
+  ComputeHandle createKernel(CPUKernelType kernelType);
 
   /**
    * Returns the number of worker threads in the thread pool.
    */
-  size_t numThreads() const { return threadPool_->numThreads(); }
+  size_t numThreads() const;
+
+  /**
+   * Get the thread pool for parallel execution.
+   */
+  ThreadPool &threadPool() { return *threadPool_; }
+
+  /**
+   * Get the containers.
+   */
+  CPUContainers &containers() { return *containers_; }
 
 private:
   std::unique_ptr<CPUContainers> containers_;

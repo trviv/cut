@@ -1,75 +1,65 @@
-#include <memory>
-#include <pybind11/functional.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <vector>
 
 #include "CPUCompute.h"
-#include "CPUStructs.h"
-#include "Shaders.h"
+#include "CPUKernels.h"
+
+#include <ComputeCommon.h>
+#include <ComputeStructs.h>
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(_cut_cpu, m) {
-  m.doc() = "CUT (Compute Unified Toolkit) - CPU Compute Backend Python Bindings";
+  m.doc() = "CUT (Compute Unified Toolkit) - CPU Compute Backend";
 
-  // Expose ScalarDataType (module_local to avoid conflict with vulkan bindings)
-  py::enum_<cut::ScalarDataType>(m, "ScalarDataType", py::module_local())
-      .value("Float", cut::ScalarDataType::Float)
-      .value("Half", cut::ScalarDataType::Half)
-      .value("UInt", cut::ScalarDataType::UInt)
-      .value("Int", cut::ScalarDataType::Int)
-      .export_values();
-
-  // Expose ShaderEnum (module_local to avoid conflict with vulkan bindings)
-  py::enum_<cut::ShaderEnum>(m, "ShaderEnum", py::module_local())
-      .value("VECTOR_ADD", cut::ShaderEnum::VECTOR_ADD)
-      // Binary arithmetic operations (vec-vec)
-      .value("BinaryVecVecAdd", cut::ShaderEnum::BinaryVecVecAdd)
-      .value("BinaryVecVecSub", cut::ShaderEnum::BinaryVecVecSub)
-      .value("BinaryVecVecMul", cut::ShaderEnum::BinaryVecVecMul)
-      .value("BinaryVecVecDiv", cut::ShaderEnum::BinaryVecVecDiv)
-      .value("BinaryVecVecMod", cut::ShaderEnum::BinaryVecVecMod)
-      .value("BinaryVecVecPow", cut::ShaderEnum::BinaryVecVecPow)
-      .value("BinaryVecVecFloorDiv", cut::ShaderEnum::BinaryVecVecFloorDiv)
-      // Binary comparison operations (vec-vec)
-      .value("BinaryVecVecEqual", cut::ShaderEnum::BinaryVecVecEqual)
-      .value("BinaryVecVecNotEqual", cut::ShaderEnum::BinaryVecVecNotEqual)
-      .value("BinaryVecVecLess", cut::ShaderEnum::BinaryVecVecLess)
-      .value("BinaryVecVecLessEqual", cut::ShaderEnum::BinaryVecVecLessEqual)
-      .value("BinaryVecVecGreater", cut::ShaderEnum::BinaryVecVecGreater)
+  // Expose CPUKernelType enum (matches ShaderEnum values)
+  py::enum_<cut::CPUKernelType>(m, "CPUKernelType")
+      // Binary arithmetic
+      .value("BinaryVecVecAdd", cut::CPUKernelType::BinaryVecVecAdd)
+      .value("BinaryVecVecSub", cut::CPUKernelType::BinaryVecVecSub)
+      .value("BinaryVecVecMul", cut::CPUKernelType::BinaryVecVecMul)
+      .value("BinaryVecVecDiv", cut::CPUKernelType::BinaryVecVecDiv)
+      .value("BinaryVecVecMod", cut::CPUKernelType::BinaryVecVecMod)
+      .value("BinaryVecVecPow", cut::CPUKernelType::BinaryVecVecPow)
+      .value("BinaryVecVecFloorDiv", cut::CPUKernelType::BinaryVecVecFloorDiv)
+      // Binary comparison
+      .value("BinaryVecVecEqual", cut::CPUKernelType::BinaryVecVecEqual)
+      .value("BinaryVecVecNotEqual", cut::CPUKernelType::BinaryVecVecNotEqual)
+      .value("BinaryVecVecLess", cut::CPUKernelType::BinaryVecVecLess)
+      .value("BinaryVecVecLessEqual", cut::CPUKernelType::BinaryVecVecLessEqual)
+      .value("BinaryVecVecGreater", cut::CPUKernelType::BinaryVecVecGreater)
       .value("BinaryVecVecGreaterEqual",
-             cut::ShaderEnum::BinaryVecVecGreaterEqual)
-      // Binary min/max operations (vec-vec)
-      .value("BinaryVecVecMin", cut::ShaderEnum::BinaryVecVecMin)
-      .value("BinaryVecVecMax", cut::ShaderEnum::BinaryVecVecMax)
-      // Unary operations
-      .value("UnaryNeg", cut::ShaderEnum::UnaryNeg)
-      .value("UnaryAbs", cut::ShaderEnum::UnaryAbs)
-      .value("UnarySqrt", cut::ShaderEnum::UnarySqrt)
-      .value("UnaryExp", cut::ShaderEnum::UnaryExp)
-      .value("UnaryLog", cut::ShaderEnum::UnaryLog)
-      .value("UnaryLog2", cut::ShaderEnum::UnaryLog2)
-      .value("UnaryLog10", cut::ShaderEnum::UnaryLog10)
-      .value("UnarySin", cut::ShaderEnum::UnarySin)
-      .value("UnaryCos", cut::ShaderEnum::UnaryCos)
-      .value("UnaryTan", cut::ShaderEnum::UnaryTan)
-      .value("UnaryAsin", cut::ShaderEnum::UnaryAsin)
-      .value("UnaryAcos", cut::ShaderEnum::UnaryAcos)
-      .value("UnaryAtan", cut::ShaderEnum::UnaryAtan)
-      .value("UnarySinh", cut::ShaderEnum::UnarySinh)
-      .value("UnaryCosh", cut::ShaderEnum::UnaryCosh)
-      .value("UnaryTanh", cut::ShaderEnum::UnaryTanh)
-      .value("UnaryFloor", cut::ShaderEnum::UnaryFloor)
-      .value("UnaryCeil", cut::ShaderEnum::UnaryCeil)
-      .value("UnaryRound", cut::ShaderEnum::UnaryRound)
-      .value("UnarySign", cut::ShaderEnum::UnarySign)
-      .value("UnaryReciprocal", cut::ShaderEnum::UnaryReciprocal)
-      .value("UnarySquare", cut::ShaderEnum::UnarySquare)
+             cut::CPUKernelType::BinaryVecVecGreaterEqual)
+      // Binary min/max
+      .value("BinaryVecVecMin", cut::CPUKernelType::BinaryVecVecMin)
+      .value("BinaryVecVecMax", cut::CPUKernelType::BinaryVecVecMax)
+      // Unary
+      .value("UnaryNeg", cut::CPUKernelType::UnaryNeg)
+      .value("UnaryAbs", cut::CPUKernelType::UnaryAbs)
+      .value("UnarySqrt", cut::CPUKernelType::UnarySqrt)
+      .value("UnaryExp", cut::CPUKernelType::UnaryExp)
+      .value("UnaryLog", cut::CPUKernelType::UnaryLog)
+      .value("UnaryLog2", cut::CPUKernelType::UnaryLog2)
+      .value("UnaryLog10", cut::CPUKernelType::UnaryLog10)
+      .value("UnarySin", cut::CPUKernelType::UnarySin)
+      .value("UnaryCos", cut::CPUKernelType::UnaryCos)
+      .value("UnaryTan", cut::CPUKernelType::UnaryTan)
+      .value("UnaryAsin", cut::CPUKernelType::UnaryAsin)
+      .value("UnaryAcos", cut::CPUKernelType::UnaryAcos)
+      .value("UnaryAtan", cut::CPUKernelType::UnaryAtan)
+      .value("UnarySinh", cut::CPUKernelType::UnarySinh)
+      .value("UnaryCosh", cut::CPUKernelType::UnaryCosh)
+      .value("UnaryTanh", cut::CPUKernelType::UnaryTanh)
+      .value("UnaryFloor", cut::CPUKernelType::UnaryFloor)
+      .value("UnaryCeil", cut::CPUKernelType::UnaryCeil)
+      .value("UnaryRound", cut::CPUKernelType::UnaryRound)
+      .value("UnarySign", cut::CPUKernelType::UnarySign)
+      .value("UnaryReciprocal", cut::CPUKernelType::UnaryReciprocal)
+      .value("UnarySquare", cut::CPUKernelType::UnarySquare)
       .export_values();
 
-  // Expose ThreadSize (module_local to avoid conflict with vulkan bindings)
+  // Expose ThreadSize (module-local to avoid conflict with _cut_core)
   py::class_<cut::ThreadSize>(m, "ThreadSize", py::module_local())
       .def(py::init<>())
       .def(py::init([](uint32_t x, uint32_t y, uint32_t z) {
@@ -84,12 +74,12 @@ PYBIND11_MODULE(_cut_cpu, m) {
       .def_readwrite("y", &cut::ThreadSize::y)
       .def_readwrite("z", &cut::ThreadSize::z);
 
-  // Expose ComputeHandle as opaque type (module_local to avoid conflict)
+  // Expose ComputeHandle as opaque type (module-local)
   py::class_<cut::ComputeHandle>(m, "ComputeHandle", py::module_local())
       .def("__bool__", &cut::ComputeHandle::operator bool)
       .def("valid", &cut::ComputeHandle::operator bool);
 
-  // Expose ComputeDispatch (module_local to avoid conflict)
+  // Expose ComputeDispatch (module-local)
   py::class_<cut::ComputeDispatch>(m, "ComputeDispatch", py::module_local())
       .def(py::init<cut::ComputeHandle>())
       .def("set_workgroup_size", &cut::ComputeDispatch::setWorkgroupSize)
@@ -114,43 +104,24 @@ PYBIND11_MODULE(_cut_cpu, m) {
              self.bindValue(value, binding);
            });
 
-  // Expose CPUKernel type for Python
-  // Python can provide a callable that will be converted to CPUKernel
-  m.def(
-      "make_cpu_kernel",
-      [](py::function py_func) -> cut::CPUKernel {
-        return [py_func](uint32_t index, const std::vector<void *> &bindings,
-                         const void *pushConstants) {
-          py::gil_scoped_acquire acquire;
-          // Convert bindings to a list of capsules for Python
-          py::list py_bindings;
-          for (void *ptr : bindings) {
-            py_bindings.append(reinterpret_cast<uintptr_t>(ptr));
-          }
-          py_func(index, py_bindings,
-                  reinterpret_cast<uintptr_t>(pushConstants));
-        };
-      },
-      "Create a CPUKernel from a Python callable");
-
-  // Expose CPUCompute
+  // Expose CPUCompute (ComputeInterface implementation)
   py::class_<cut::CPUCompute>(m, "CPUCompute")
       .def(py::init<size_t>(), py::arg("num_threads") = 0)
       .def("num_threads", &cut::CPUCompute::numThreads)
       .def(
           "create_buffer",
-          [](cut::CPUCompute &self, py::array arr) {
+          [](cut::CPUCompute &self, py::array arr, bool isUniform) {
             py::buffer_info info = arr.request();
             size_t size = info.size * info.itemsize;
-            return self.createBuffer(size, info.ptr, false);
+            return self.createBuffer(size, info.ptr, isUniform);
           },
-          py::arg("data"))
+          py::arg("data"), py::arg("is_uniform") = false)
       .def(
           "create_buffer_empty",
-          [](cut::CPUCompute &self, size_t size) {
-            return self.createBuffer(size, nullptr, false);
+          [](cut::CPUCompute &self, size_t size, bool isUniform) {
+            return self.createBuffer(size, nullptr, isUniform);
           },
-          py::arg("size"))
+          py::arg("size"), py::arg("is_uniform") = false)
       .def(
           "copy_to_buffer",
           [](cut::CPUCompute &self, cut::ComputeHandle handle, py::array arr,
@@ -173,22 +144,11 @@ PYBIND11_MODULE(_cut_cpu, m) {
           },
           py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
           py::arg("dst_offset") = 0)
-      .def("create_shader_module",
-           [](cut::CPUCompute &self, const std::vector<uint32_t> &spirv) {
-             return self.createShaderModule(spirv);
-           })
-      .def("register_kernel",
-           [](cut::CPUCompute &self, cut::ComputeHandle shaderHandle,
-              cut::CPUKernel kernel) {
-             self.registerKernel(shaderHandle, std::move(kernel));
-           })
+      .def("create_kernel", &cut::CPUCompute::createKernel)
       .def("encode",
            [](cut::CPUCompute &self, cut::ComputeDispatch &dispatch) {
              self.encode(std::move(dispatch));
            })
       .def("submit", &cut::CPUCompute::submit)
       .def("wait", &cut::CPUCompute::wait);
-
-  // Helper function to get built-in shaders (same as vulkan)
-  m.def("get_shader", &cut::getShader, "Get SPIR-V code for a built-in shader");
 }

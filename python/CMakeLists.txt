@@ -87,10 +87,9 @@ pybind11_add_module(_cut_cpu
     cut/_cpu_bindings.cpp
     ${API_SOURCES}
     ${CPU_SOURCES}
-    ${SHADER_SOURCES}
 )
 
-target_link_libraries(_cut_cpu PRIVATE ${SHADERC_LIB})
+# CPU backend needs no external libraries but uses API base classes
 
 # Install both modules to the cut package directory
 install(TARGETS _cut_core _cut_cpu DESTINATION cut)
