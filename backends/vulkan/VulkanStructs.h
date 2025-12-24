@@ -33,6 +33,9 @@ struct VulkanBufferStruct {
   void *mappedData = nullptr;
   bool isCoherent = false;
 
+  /// Returns true if this buffer is device-only (not host-visible).
+  bool isDeviceOnly() const { return mappedData == nullptr; }
+
   // VMA dependent members
   IF_VMA_ENABLED_THEN(VmaAllocation allocation = VK_NULL_HANDLE);
   IF_VMA_DISABLED_THEN(VkDeviceMemory memory = VK_NULL_HANDLE);

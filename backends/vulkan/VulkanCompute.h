@@ -59,6 +59,39 @@ private:
   /// Releases all Vulkan resources held by this instance.
   void cleanup();
 
+  /// Creates a GPU buffer with specified memory type.
+  /// @param size Buffer size in bytes.
+  /// @param deviceOnly If true, allocates device-local memory (requires staging
+  /// for CPU access).
+  /// @param srcPtr Optional host data to initialize the buffer.
+  /// @param isUniform If true, creates a uniform buffer; otherwise storage.
+  /// @return Handle to the created buffer.
+  ComputeHandle createBuffer(size_t size,
+                             bool deviceOnly,
+                             const void *srcPtr,
+                             bool isUniform = false);
+
+  /// Creates a staging buffer for transfer operations.
+  /// @param size Size of the staging buffer in bytes.
+  /// @return VulkanBufferStruct for the staging buffer.
+  VulkanBufferStruct createStagingBuffer(size_t size);
+
+  /// Destroys a staging buffer and frees its resources.
+  /// @param stagingBuffer The staging buffer to destroy.
+  void destroyStagingBuffer(VulkanBufferStruct &stagingBuffer);
+
+  /// Executes a buffer-to-buffer copy using a one-shot command buffer.
+  /// @param srcBuffer Source Vulkan buffer.
+  /// @param dstBuffer Destination Vulkan buffer.
+  /// @param size Number of bytes to copy.
+  /// @param srcOffset Offset in the source buffer.
+  /// @param dstOffset Offset in the destination buffer.
+  void executeBufferCopy(VkBuffer srcBuffer,
+                         VkBuffer dstBuffer,
+                         VkDeviceSize size,
+                         VkDeviceSize srcOffset,
+                         VkDeviceSize dstOffset);
+
 private:
   std::shared_ptr<VulkanInstance> instance_;
 

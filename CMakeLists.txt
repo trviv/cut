@@ -176,35 +176,37 @@ endif()
 
 add_subdirectory(tests)
 
-target_include_directories(benchmarks PRIVATE
-    ${Vulkan_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/api/Headers
-    ${CMAKE_SOURCE_DIR}/backends/vulkan
-    ${CMAKE_SOURCE_DIR}/backends/cpu
-    ${CMAKE_SOURCE_DIR}/shaders
-    ${CMAKE_SOURCE_DIR}/benchmarks
-)
-
-target_link_libraries(benchmarks PRIVATE
-    ${Vulkan_LIBRARIES}
-    CUTLib
-)
-
-if(APPLE)
-    target_compile_definitions(benchmarks PRIVATE VK_USE_PLATFORM_MACOS_MVK)
-    target_compile_definitions(benchmarks PRIVATE VK_USE_PLATFORM_METAL_EXT)
+if(TARGET benchmarks)
+    target_include_directories(benchmarks PRIVATE
+        ${Vulkan_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/api/Headers
+        ${CMAKE_SOURCE_DIR}/backends/vulkan
+        ${CMAKE_SOURCE_DIR}/backends/cpu
+        ${CMAKE_SOURCE_DIR}/shaders
+        ${CMAKE_SOURCE_DIR}/benchmarks
+    )
 
     target_link_libraries(benchmarks PRIVATE
-        "-framework Metal"
-        "-framework IOKit"
-        "-framework CoreGraphics"
-        "-framework Foundation"
-        "-framework QuartzCore"
+        ${Vulkan_LIBRARIES}
+        CUTLib
     )
-endif()
 
-# Optimize benchmarks even in debug mode for meaningful results
-target_compile_options(benchmarks PRIVATE -O2)
+    if(APPLE)
+        target_compile_definitions(benchmarks PRIVATE VK_USE_PLATFORM_MACOS_MVK)
+        target_compile_definitions(benchmarks PRIVATE VK_USE_PLATFORM_METAL_EXT)
+
+        target_link_libraries(benchmarks PRIVATE
+            "-framework Metal"
+            "-framework IOKit"
+            "-framework CoreGraphics"
+            "-framework Foundation"
+            "-framework QuartzCore"
+        )
+    endif()
+
+    # Optimize benchmarks even in debug mode for meaningful results
+    target_compile_options(benchmarks PRIVATE -O2)
+endif()
 
 # Print configuration summary
 message(STATUS "=== CUT (Compute Unified Toolkit) Configuration ===")

@@ -151,6 +151,14 @@ findMemoryType(uint32_t typeFilter,
 
 ComputeHandle
 VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
+  // Default to device-only for optimal GPU performance
+  return createBuffer(size, true, srcPtr, isUniform);
+}
+
+ComputeHandle VulkanCompute::createBuffer(size_t size,
+                                          bool deviceOnly,
+                                          const void *srcPtr,
+                                          bool isUniform) {
   // Align buffer size to 16 bytes (vec4 alignment) for optimal GPU access
   constexpr size_t kAlignment = 16;
   const size_t alignedSize = (size + kAlignment - 1) & ~(kAlignment - 1);
@@ -160,6 +168,13 @@ VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
   bufferInfo.size = alignedSize;
   bufferInfo.usage = isUniform ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
                                : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+
+  // Add transfer flags for staging buffer support
+  if (deviceOnly) {
+    bufferInfo.usage |=
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  }
+
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct bufferStruct;
@@ -180,10 +195,15 @@ VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
                            &bufferStruct.buffer, &bufferStruct.allocation,
                            nullptr));
 #else
-  // Note: Using non-coherent memory for better performance on some platforms.
-  // Requires explicit flush/invalidate for CPU-GPU synchronization.
-  const VkMemoryPropertyFlags memoryPropertyFlag =
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+  // Choose memory properties based on buffer type
+  VkMemoryPropertyFlags memoryPropertyFlag;
+  if (deviceOnly) {
+    memoryPropertyFlag = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+  } else {
+    // Host-visible and coherent for direct CPU access
+    memoryPropertyFlag = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  }
 
   VK_CHECK(vkCreateBuffer(device_, &bufferInfo, nullptr, &bufferStruct.buffer));
 
@@ -205,8 +225,9 @@ VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
   VK_CHECK(
       vkBindBufferMemory(device_, bufferStruct.buffer, bufferStruct.memory, 0));
 
+  // Only map host-visible memory
   if (memoryPropertyFlag & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-    VK_CHECK(vkMapMemory(device_, bufferStruct.memory, 0, size, 0,
+    VK_CHECK(vkMapMemory(device_, bufferStruct.memory, 0, alignedSize, 0,
                          &bufferStruct.mappedData));
   }
   bufferStruct.isCoherent =
@@ -216,10 +237,152 @@ VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
   auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
 
   if (srcPtr != nullptr) {
-    copyDataToBuffer(srcPtr, handle, size, 0, 0);
+    // Use staging for device-only buffers
+    copyDataToBuffer(srcPtr, handle, size, 0, 0, deviceOnly);
   }
 
   return handle;
+}
+
+VulkanBufferStruct VulkanCompute::createStagingBuffer(size_t size) {
+  // Align buffer size to 16 bytes
+  constexpr size_t kAlignment = 16;
+  const size_t alignedSize = (size + kAlignment - 1) & ~(kAlignment - 1);
+
+  VkBufferCreateInfo bufferInfo = {};
+  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bufferInfo.size = alignedSize;
+  bufferInfo.usage =
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  VulkanBufferStruct stagingBuffer;
+  stagingBuffer.size = size;
+
+#if CUT_USE_VMA
+  VmaAllocationCreateInfo allocInfo = {};
+  allocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+  VmaAllocationInfo allocationInfo;
+  VK_CHECK(vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo,
+                           &stagingBuffer.buffer, &stagingBuffer.allocation,
+                           &allocationInfo));
+  stagingBuffer.mappedData = allocationInfo.pMappedData;
+  stagingBuffer.isCoherent = true;
+#else
+  const VkMemoryPropertyFlags memoryPropertyFlag =
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+  VK_CHECK(
+      vkCreateBuffer(device_, &bufferInfo, nullptr, &stagingBuffer.buffer));
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(device_, stagingBuffer.buffer,
+                                &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo = {};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memRequirements.size;
+  allocInfo.memoryTypeIndex = findMemoryType(
+      memRequirements.memoryTypeBits, memoryProperties_, memoryPropertyFlag);
+
+  if (vkAllocateMemory(device_, &allocInfo, nullptr, &stagingBuffer.memory) !=
+      VK_SUCCESS) {
+    vkDestroyBuffer(device_, stagingBuffer.buffer, nullptr);
+    logErr("Failed to allocate staging buffer memory");
+  }
+
+  VK_CHECK(vkBindBufferMemory(device_, stagingBuffer.buffer,
+                              stagingBuffer.memory, 0));
+
+  VK_CHECK(vkMapMemory(device_, stagingBuffer.memory, 0, alignedSize, 0,
+                       &stagingBuffer.mappedData));
+  stagingBuffer.isCoherent = true;
+#endif
+
+  return stagingBuffer;
+}
+
+void VulkanCompute::destroyStagingBuffer(VulkanBufferStruct &stagingBuffer) {
+  if (stagingBuffer.buffer == VK_NULL_HANDLE) {
+    return;
+  }
+
+#if CUT_USE_VMA
+  vmaDestroyBuffer(allocator_, stagingBuffer.buffer, stagingBuffer.allocation);
+#else
+  if (stagingBuffer.mappedData != nullptr) {
+    vkUnmapMemory(device_, stagingBuffer.memory);
+  }
+  vkFreeMemory(device_, stagingBuffer.memory, nullptr);
+  vkDestroyBuffer(device_, stagingBuffer.buffer, nullptr);
+#endif
+
+  stagingBuffer.buffer = VK_NULL_HANDLE;
+  stagingBuffer.mappedData = nullptr;
+}
+
+void VulkanCompute::executeBufferCopy(VkBuffer srcBuffer,
+                                      VkBuffer dstBuffer,
+                                      VkDeviceSize size,
+                                      VkDeviceSize srcOffset,
+                                      VkDeviceSize dstOffset) {
+  // Create a one-shot command buffer for the copy operation
+  VkCommandPoolCreateInfo poolInfo = {};
+  poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  poolInfo.queueFamilyIndex = computeQueueFamilyIndex_;
+  poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
+  VkCommandPool commandPool;
+  VK_CHECK(vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool));
+
+  VkCommandBufferAllocateInfo allocInfo = {};
+  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  allocInfo.commandPool = commandPool;
+  allocInfo.commandBufferCount = 1;
+
+  VkCommandBuffer commandBuffer;
+  VK_CHECK(vkAllocateCommandBuffers(device_, &allocInfo, &commandBuffer));
+
+  VkCommandBufferBeginInfo beginInfo = {};
+  beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+  VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+
+  VkBufferCopy copyRegion = {};
+  copyRegion.srcOffset = srcOffset;
+  copyRegion.dstOffset = dstOffset;
+  copyRegion.size = size;
+
+  vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+  VK_CHECK(vkEndCommandBuffer(commandBuffer));
+
+  // Submit and wait for completion
+  VkQueue queue;
+  vkGetDeviceQueue(device_, computeQueueFamilyIndex_, 0, &queue);
+
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &commandBuffer;
+
+  VkFenceCreateInfo fenceInfo = {};
+  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+  VkFence fence;
+  VK_CHECK(vkCreateFence(device_, &fenceInfo, nullptr, &fence));
+
+  VK_CHECK(vkQueueSubmit(queue, 1, &submitInfo, fence));
+  VK_CHECK(vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX));
+
+  // Cleanup
+  vkDestroyFence(device_, fence, nullptr);
+  vkDestroyCommandPool(device_, commandPool, nullptr);
 }
 
 void VulkanCompute::copyDataToBuffer(const void *srcPtr,
@@ -237,7 +400,18 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
   }
 
   if (localUseStaging) {
-    logErr("Staging buffer copy is not yet implemented.");
+    // Create a staging buffer, copy host data to it, then copy to device
+    VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
+
+    // Copy host data to staging buffer
+    memcpy(stagingBuffer.mappedData,
+           static_cast<const char *>(srcPtr) + srcOffset, size);
+
+    // Copy from staging buffer to device buffer
+    executeBufferCopy(stagingBuffer.buffer, buffer.buffer, size, 0, dstOffset);
+
+    // Clean up staging buffer
+    destroyStagingBuffer(stagingBuffer);
   } else {
     memcpy(static_cast<char *>(buffer.mappedData) + dstOffset,
            static_cast<const char *>(srcPtr) + srcOffset, size);
@@ -274,7 +448,18 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
   }
 
   if (localUseStaging) {
-    logErr("Staging buffer copy is not yet implemented.");
+    // Create a staging buffer, copy device data to it, then copy to host
+    VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
+
+    // Copy from device buffer to staging buffer
+    executeBufferCopy(buffer.buffer, stagingBuffer.buffer, size, srcOffset, 0);
+
+    // Copy staging buffer data to host
+    memcpy(static_cast<char *>(dstPtr) + dstOffset, stagingBuffer.mappedData,
+           size);
+
+    // Clean up staging buffer
+    destroyStagingBuffer(stagingBuffer);
   } else {
     // Invalidate memory to make GPU writes visible to CPU
     if (!buffer.isCoherent) {
