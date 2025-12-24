@@ -2,8 +2,21 @@
 #include <ComputeCommon.h>
 #include <Shaders.h>
 #include <optional>
+#include <unordered_map>
 
 namespace cut {
+
+/// Enable/disable caching for generated SPIR-V shaders
+constexpr bool kEnableShaderCache = false;
+
+/// Cache for generated SPIR-V shaders, keyed by (ShaderEnum, ScalarDataType)
+static std::unordered_map<uint64_t, std::vector<uint32_t>> shaderCache;
+
+/// Creates a cache key from shader enum and datatype
+static uint64_t makeCacheKey(ShaderEnum shader, ScalarDataType datatype) {
+  return (static_cast<uint64_t>(shader) << 32) |
+         static_cast<uint64_t>(datatype);
+}
 
 // Template for binary operations using an operator (e.g., +, -, *, /)
 static const char *binaryVecVecShaderTemplate = R"(
@@ -206,6 +219,15 @@ static std::string generateUnaryShader(const char *expr,
 
 std::optional<std::vector<uint32_t>>
 getGeneratedShader(const ShaderEnum shader, const ScalarDataType datatype) {
+  // Check cache first
+  if constexpr (kEnableShaderCache) {
+    uint64_t cacheKey = makeCacheKey(shader, datatype);
+    auto it = shaderCache.find(cacheKey);
+    if (it != shaderCache.end()) {
+      return it->second;
+    }
+  }
+
   std::string shaderSource;
   std::string shaderName = "generated_shader";
 
@@ -383,7 +405,12 @@ getGeneratedShader(const ShaderEnum shader, const ScalarDataType datatype) {
     return std::nullopt;
   }
 
-  return compileShaderToSpirv(shaderSource, shaderName, ShaderLanguage::GLSL);
+  auto spirv =
+      compileShaderToSpirv(shaderSource, shaderName, ShaderLanguage::GLSL);
+  if constexpr (kEnableShaderCache) {
+    shaderCache[makeCacheKey(shader, datatype)] = spirv;
+  }
+  return spirv;
 }
 
 } // namespace cut
