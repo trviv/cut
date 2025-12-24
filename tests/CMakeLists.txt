@@ -47,12 +47,18 @@ set(COMBINED_TEST_SOURCES
     combined/GeneratedShadersTests.cpp
 )
 
+# CPU test sources
+set(CPU_TEST_SOURCES
+    cpu/CPUComputeTests.cpp
+)
+
 # Create single test executable with all tests
 add_executable(tests
     Utils.h
     ${API_TEST_SOURCES}
     ${VULKAN_TEST_SOURCES}
     ${COMBINED_TEST_SOURCES}
+    ${CPU_TEST_SOURCES}
 )
 
 # Include directories
@@ -61,6 +67,7 @@ target_include_directories(tests PRIVATE
     ${CMAKE_SOURCE_DIR}/shaders
     ${CMAKE_SOURCE_DIR}/api/Headers
     ${CMAKE_SOURCE_DIR}/backends/vulkan
+    ${CMAKE_SOURCE_DIR}/backends/cpu
     ${CMAKE_SOURCE_DIR}/tests
 )
 

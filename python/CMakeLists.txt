@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find Python and pybind11
-find_package(Python REQUIRED COMPONENTS Interpreter Development)
+find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(pybind11 CONFIG REQUIRED)
 
 # Find Vulkan
@@ -39,14 +39,18 @@ message(STATUS "CUT_ROOT: ${CUT_ROOT}")
 include_directories(${CUT_ROOT})
 include_directories(${CUT_ROOT}/api/Headers)
 include_directories(${CUT_ROOT}/backends/vulkan)
+include_directories(${CUT_ROOT}/backends/cpu)
 include_directories(${CUT_ROOT}/shaders)
 
 # Collect CUT library sources
 file(GLOB API_SOURCES ${CUT_ROOT}/api/src/*.cpp)
 file(GLOB VULKAN_SOURCES ${CUT_ROOT}/backends/vulkan/*.cpp)
+file(GLOB CPU_SOURCES ${CUT_ROOT}/backends/cpu/*.cpp)
 file(GLOB SHADER_SOURCES ${CUT_ROOT}/shaders/*.cpp)
 
-# Create pybind11 module
+# =============================================================================
+# Vulkan backend module (_cut_core)
+# =============================================================================
 pybind11_add_module(_cut_core
     cut/_bindings.cpp
     ${API_SOURCES}
@@ -76,5 +80,17 @@ if(APPLE)
     )
 endif()
 
-# Install to the cut package directory
-install(TARGETS _cut_core DESTINATION cut)
+# =============================================================================
+# CPU backend module (_cut_cpu)
+# =============================================================================
+pybind11_add_module(_cut_cpu
+    cut/_cpu_bindings.cpp
+    ${API_SOURCES}
+    ${CPU_SOURCES}
+    ${SHADER_SOURCES}
+)
+
+target_link_libraries(_cut_cpu PRIVATE ${SHADERC_LIB})
+
+# Install both modules to the cut package directory
+install(TARGETS _cut_core _cut_cpu DESTINATION cut)

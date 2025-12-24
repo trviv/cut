@@ -82,6 +82,11 @@ set(LIB_HEADERS
     backends/vulkan/VulkanContainers.h
     backends/vulkan/VulkanCompute.h
     backends/vulkan/VulkanCommandBuffer.h
+    backends/cpu/CPUStructs.h
+    backends/cpu/ThreadPool.h
+    backends/cpu/CPUContainers.h
+    backends/cpu/CPUCommandBuffer.h
+    backends/cpu/CPUCompute.h
     shaders/Shaders.h
 )
 
@@ -96,10 +101,13 @@ set(LIB_SOURCES
     api/src/ComputeContainer.cpp
     api/src/ComputeInterface.cpp
     backends/vulkan/VulkanCommon.cpp
-    backends/vulkan/VulkanStructs.cpp
     backends/vulkan/VulkanContainers.cpp
     backends/vulkan/VulkanCompute.cpp
     backends/vulkan/VulkanCommandBuffer.cpp
+    backends/cpu/ThreadPool.cpp
+    backends/cpu/CPUContainers.cpp
+    backends/cpu/CPUCommandBuffer.cpp
+    backends/cpu/CPUCompute.cpp
 )
 
 if (OPENL_CL_WITH_VULKAN)
@@ -131,6 +139,7 @@ target_include_directories(CUTLib PRIVATE
     ${Vulkan_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/api/Headers
     ${CMAKE_SOURCE_DIR}/backends/vulkan
+    ${CMAKE_SOURCE_DIR}/backends/cpu
     ${CMAKE_SOURCE_DIR}/shaders
 )
 
@@ -166,6 +175,36 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 
 add_subdirectory(tests)
+
+target_include_directories(benchmarks PRIVATE
+    ${Vulkan_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/api/Headers
+    ${CMAKE_SOURCE_DIR}/backends/vulkan
+    ${CMAKE_SOURCE_DIR}/backends/cpu
+    ${CMAKE_SOURCE_DIR}/shaders
+    ${CMAKE_SOURCE_DIR}/benchmarks
+)
+
+target_link_libraries(benchmarks PRIVATE
+    ${Vulkan_LIBRARIES}
+    CUTLib
+)
+
+if(APPLE)
+    target_compile_definitions(benchmarks PRIVATE VK_USE_PLATFORM_MACOS_MVK)
+    target_compile_definitions(benchmarks PRIVATE VK_USE_PLATFORM_METAL_EXT)
+
+    target_link_libraries(benchmarks PRIVATE
+        "-framework Metal"
+        "-framework IOKit"
+        "-framework CoreGraphics"
+        "-framework Foundation"
+        "-framework QuartzCore"
+    )
+endif()
+
+# Optimize benchmarks even in debug mode for meaningful results
+target_compile_options(benchmarks PRIVATE -O2)
 
 # Print configuration summary
 message(STATUS "=== CUT (Compute Unified Toolkit) Configuration ===")
