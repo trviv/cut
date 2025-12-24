@@ -335,6 +335,20 @@ VulkanPipelineContainer::~VulkanPipelineContainer() {
   }
 }
 
+ComputeHandle VulkanPipelineContainer::findCachedPipeline(
+    VkShaderModule shaderModule, const ComputeHandle &pipelineLayoutHandle) {
+  for (const auto &handle : pipelineCache_handles_) {
+    if (handle) {
+      const auto &cached = ComputeDataContainer::get(handle);
+      if (cached.shaderModule == shaderModule &&
+          cached.pipelineLayoutHandle == pipelineLayoutHandle) {
+        return handle;
+      }
+    }
+  }
+  return {};
+}
+
 std::vector<ComputeHandle> VulkanPipelineContainer::createPipelines(
     const std::vector<VkPipelineShaderStageCreateInfo> &shaderStages,
     const std::vector<VkPipelineLayout> &pipelineLayouts,
@@ -343,11 +357,26 @@ std::vector<ComputeHandle> VulkanPipelineContainer::createPipelines(
     return {};
   }
 
-  // Build compute pipeline create infos
+  std::vector<ComputeHandle> handles;
+  handles.reserve(shaderStages.size());
+
+  // Track which pipelines need to be created (not cached)
+  std::vector<size_t> indicesToCreate;
   std::vector<VkComputePipelineCreateInfo> createInfos;
-  createInfos.reserve(shaderStages.size());
 
   for (size_t i = 0; i < shaderStages.size(); ++i) {
+    // Check if a pipeline with this shader and layout already exists
+    ComputeHandle cachedHandle =
+        findCachedPipeline(shaderStages[i].module, pipelineLayoutHandles[i]);
+    if (cachedHandle) {
+      handles.emplace_back(cachedHandle);
+      continue;
+    }
+
+    // Need to create this pipeline
+    handles.emplace_back(ComputeHandle{}); // Placeholder
+    indicesToCreate.emplace_back(i);
+
     VkComputePipelineCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     createInfo.stage = shaderStages[i];
@@ -355,22 +384,25 @@ std::vector<ComputeHandle> VulkanPipelineContainer::createPipelines(
     createInfos.emplace_back(createInfo);
   }
 
-  // Create all pipelines in a single Vulkan call using the pipeline cache
-  std::vector<VkPipeline> vkPipelines(createInfos.size());
-  VK_CHECK(vkCreateComputePipelines(
-      getDevice(), pipelineCache_, static_cast<uint32_t>(createInfos.size()),
-      createInfos.data(), nullptr, vkPipelines.data()));
+  // Create all non-cached pipelines in a single Vulkan call
+  if (!createInfos.empty()) {
+    std::vector<VkPipeline> vkPipelines(createInfos.size());
+    VK_CHECK(vkCreateComputePipelines(
+        getDevice(), pipelineCache_, static_cast<uint32_t>(createInfos.size()),
+        createInfos.data(), nullptr, vkPipelines.data()));
 
-  // Store each pipeline in the container
-  std::vector<ComputeHandle> handles;
-  handles.reserve(vkPipelines.size());
+    // Store each new pipeline in the container and update handles
+    for (size_t j = 0; j < indicesToCreate.size(); ++j) {
+      size_t i = indicesToCreate[j];
+      VulkanPipelineStruct pipelineStruct{};
+      pipelineStruct.computePipeline = vkPipelines[j];
+      pipelineStruct.shaderModule = shaderStages[i].module;
+      pipelineStruct.pipelineLayoutHandle = pipelineLayoutHandles[i];
 
-  for (size_t i = 0; i < vkPipelines.size(); ++i) {
-    VulkanPipelineStruct pipelineStruct{};
-    pipelineStruct.computePipeline = vkPipelines[i];
-    pipelineStruct.pipelineLayoutHandle = pipelineLayoutHandles[i];
-    handles.emplace_back(
-        ComputeDataContainer::create(std::move(pipelineStruct)));
+      auto handle = ComputeDataContainer::create(std::move(pipelineStruct));
+      pipelineCache_handles_.emplace_back(handle);
+      handles[i] = handle;
+    }
   }
 
   return handles;

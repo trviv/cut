@@ -82,6 +82,7 @@ struct VulkanPipelineStruct {
   static constexpr std::string_view Name = "VulkanPipelineStruct";
 
   ComputeHandle pipelineLayoutHandle;
+  VkShaderModule shaderModule = VK_NULL_HANDLE;
   VkPipeline computePipeline = VK_NULL_HANDLE;
 };
 

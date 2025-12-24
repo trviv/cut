@@ -185,6 +185,17 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
   result.pipelineHandles = pipelineContainer.createPipelines(
       shaderStages, result.pipelineLayouts, pipelineLayoutHandles);
 
+  // Get pipeline layouts from the returned pipelines (may be cached)
+  // This ensures we use the correct layout for each pipeline
+  result.pipelineLayouts.clear();
+  result.pipelineLayouts.reserve(result.pipelineHandles.size());
+  for (const auto &pipelineHandle : result.pipelineHandles) {
+    auto layoutHandle =
+        pipelineContainer.getPipelineLayoutHandle(pipelineHandle);
+    result.pipelineLayouts.emplace_back(
+        pipelineLayoutContainer.getLayouts({layoutHandle})[0]);
+  }
+
   return result;
 }
 

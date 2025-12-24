@@ -269,11 +269,19 @@ public:
   getPipelines(const std::vector<ComputeHandle> &handles) const;
 
 private:
+  /// Finds a cached pipeline handle matching the given shader module and layout
+  /// handle, or returns invalid handle.
+  ComputeHandle findCachedPipeline(VkShaderModule shaderModule,
+                                   const ComputeHandle &pipelineLayoutHandle);
+
   /// Destroys a compute pipeline and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
 
   /// Vulkan pipeline cache for faster pipeline creation.
   VkPipelineCache pipelineCache_ = VK_NULL_HANDLE;
+
+  /// Cache of created pipeline handles for reuse.
+  std::vector<ComputeHandle> pipelineCache_handles_;
 };
 
 /// Holds all Vulkan containers needed by command buffers.
