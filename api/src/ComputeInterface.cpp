@@ -2,50 +2,35 @@
 
 namespace cut {
 
-void ComputeInterface::beginCommandBuffer() {
-  if (activeCommandBuffer_) {
-    logErr("Cannot begin a new command buffer while one is already recording. "
-           "Call endCommandBuffer() first.");
-  }
-  activeCommandBuffer_ = commandBufferContainer_->createCommandBuffer();
-  commandBufferContainer_->get(activeCommandBuffer_)->begin();
-}
-
 void ComputeInterface::encode(ComputeDispatch &&dispatch) {
   if (!activeCommandBuffer_) {
-    logErr("No command buffer is currently recording. "
-           "Call beginCommandBuffer() before encode().");
+    activeCommandBuffer_ = commandBufferContainer_->createCommandBuffer();
+    commandBufferContainer_->get(activeCommandBuffer_)->begin();
   }
 
   commandBufferContainer_->get(activeCommandBuffer_)
       ->encode(std::move(dispatch));
 }
 
-ComputeHandle ComputeInterface::endCommandBuffer() {
+ComputeHandle ComputeInterface::submit() {
   if (!activeCommandBuffer_) {
     logErr("No command buffer is currently recording. "
-           "Call beginCommandBuffer() first.");
+           "Call encode() before submit().");
   }
   commandBufferContainer_->get(activeCommandBuffer_)->end();
 
   ComputeHandle result = std::move(activeCommandBuffer_);
   activeCommandBuffer_.reset();
 
-  return result;
-}
+  commandBufferContainer_->get(result)->submit();
 
-void ComputeInterface::submit(const ComputeHandle &commandBufferHandle) {
-  if (!commandBufferHandle) {
-    logErr("Invalid command buffer handle. "
-           "Call endCommandBuffer() to get a valid handle.");
-  }
-  commandBufferContainer_->get(commandBufferHandle)->submit();
+  return result;
 }
 
 void ComputeInterface::wait(const ComputeHandle &commandBufferHandle) {
   if (!commandBufferHandle) {
     logErr("Invalid command buffer handle. "
-           "Call endCommandBuffer() to get a valid handle.");
+           "Call submit() to get a valid handle.");
   }
   commandBufferContainer_->get(commandBufferHandle)->wait();
 }

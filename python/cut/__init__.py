@@ -265,11 +265,9 @@ def run(*dispatches: Dispatch):
         *dispatches: Dispatch objects to execute
     """
     _ensure_initialized()
-    _interface.begin_command_buffer()
     for d in dispatches:
         _interface.encode(d.inner)
-    cmd = _interface.end_command_buffer()
-    _interface.submit(cmd)
+    cmd = _interface.submit()
     _interface.wait(cmd)
 
 

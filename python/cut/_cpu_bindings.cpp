@@ -1,8 +1,8 @@
 #include <memory>
+#include <pybind11/functional.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <pybind11/functional.h>
 #include <vector>
 
 #include "CPUCompute.h"
@@ -116,22 +116,22 @@ PYBIND11_MODULE(_cut_cpu, m) {
 
   // Expose CPUKernel type for Python
   // Python can provide a callable that will be converted to CPUKernel
-  m.def("make_cpu_kernel",
-        [](py::function py_func) -> cut::CPUKernel {
-          return [py_func](uint32_t index,
-                           const std::vector<void *> &bindings,
-                           const void *pushConstants) {
-            py::gil_scoped_acquire acquire;
-            // Convert bindings to a list of capsules for Python
-            py::list py_bindings;
-            for (void *ptr : bindings) {
-              py_bindings.append(reinterpret_cast<uintptr_t>(ptr));
-            }
-            py_func(index, py_bindings,
-                    reinterpret_cast<uintptr_t>(pushConstants));
-          };
-        },
-        "Create a CPUKernel from a Python callable");
+  m.def(
+      "make_cpu_kernel",
+      [](py::function py_func) -> cut::CPUKernel {
+        return [py_func](uint32_t index, const std::vector<void *> &bindings,
+                         const void *pushConstants) {
+          py::gil_scoped_acquire acquire;
+          // Convert bindings to a list of capsules for Python
+          py::list py_bindings;
+          for (void *ptr : bindings) {
+            py_bindings.append(reinterpret_cast<uintptr_t>(ptr));
+          }
+          py_func(index, py_bindings,
+                  reinterpret_cast<uintptr_t>(pushConstants));
+        };
+      },
+      "Create a CPUKernel from a Python callable");
 
   // Expose CPUCompute
   py::class_<cut::CPUCompute>(m, "CPUCompute")
@@ -182,12 +182,10 @@ PYBIND11_MODULE(_cut_cpu, m) {
               cut::CPUKernel kernel) {
              self.registerKernel(shaderHandle, std::move(kernel));
            })
-      .def("begin_command_buffer", &cut::CPUCompute::beginCommandBuffer)
       .def("encode",
            [](cut::CPUCompute &self, cut::ComputeDispatch &dispatch) {
              self.encode(std::move(dispatch));
            })
-      .def("end_command_buffer", &cut::CPUCompute::endCommandBuffer)
       .def("submit", &cut::CPUCompute::submit)
       .def("wait", &cut::CPUCompute::wait);
 

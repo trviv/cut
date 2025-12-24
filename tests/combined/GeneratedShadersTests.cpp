@@ -37,7 +37,6 @@ protected:
     const uint32_t threadGroups = (elements + 63) / 64;
     cut::ThreadSize tgSize{threadGroups, 1, 1};
 
-    interface->beginCommandBuffer();
     interface->encode(
         {shaderModule,
          tgSize,
@@ -45,8 +44,7 @@ protected:
           cut::ComputeBinding(2, bufferOut),
           cut::ComputeBinding(3, cut::DataReference(elements))}});
 
-    auto cmdBuffer = interface->endCommandBuffer();
-    interface->submit(cmdBuffer);
+    auto cmdBuffer = interface->submit();
     interface->wait(cmdBuffer);
 
     output.resize(elements);
@@ -68,15 +66,13 @@ protected:
     const uint32_t threadGroups = (elements + 63) / 64;
     cut::ThreadSize tgSize{threadGroups, 1, 1};
 
-    interface->beginCommandBuffer();
     interface->encode(
         {shaderModule,
          tgSize,
          {cut::ComputeBinding(0, bufferIn), cut::ComputeBinding(1, bufferOut),
           cut::ComputeBinding(2, cut::DataReference(elements))}});
 
-    auto cmdBuffer = interface->endCommandBuffer();
-    interface->submit(cmdBuffer);
+    auto cmdBuffer = interface->submit();
     interface->wait(cmdBuffer);
 
     output.resize(elements);
@@ -890,8 +886,6 @@ TEST_F(GeneratedShadersTest, ChainedBinaryThenUnary_AddThenSqrt) {
   const uint32_t threadGroups = (elements + 63) / 64;
   cut::ThreadSize tgSize{threadGroups, 1, 1};
 
-  interface->beginCommandBuffer();
-
   // First: add A + B -> intermediate
   interface->encode(
       {addShader,
@@ -901,15 +895,13 @@ TEST_F(GeneratedShadersTest, ChainedBinaryThenUnary_AddThenSqrt) {
         cut::ComputeBinding(3, cut::DataReference(elements))}});
 
   // Second: sqrt(intermediate) -> out
-  interface->encode(
-      {sqrtShader,
-       tgSize,
-       {cut::ComputeBinding(0, bufferIntermediate),
-        cut::ComputeBinding(1, bufferOut),
-        cut::ComputeBinding(2, cut::DataReference(elements))}});
+  interface->encode({sqrtShader,
+                     tgSize,
+                     {cut::ComputeBinding(0, bufferIntermediate),
+                      cut::ComputeBinding(1, bufferOut),
+                      cut::ComputeBinding(2, cut::DataReference(elements))}});
 
-  auto cmdBuffer = interface->endCommandBuffer();
-  interface->submit(cmdBuffer);
+  auto cmdBuffer = interface->submit();
   interface->wait(cmdBuffer);
 
   std::vector<float> output(elements);
@@ -940,23 +932,19 @@ TEST_F(GeneratedShadersTest, ChainedUnaryThenBinary_AbsThenMul) {
   auto bufferIntermediate = interface->createBuffer(bufferSize, nullptr);
   auto bufferOut = interface->createBuffer(bufferSize, nullptr);
 
-  auto absShader =
-      interface->createShaderModule(cut::getShader(cut::UnaryAbs));
+  auto absShader = interface->createShaderModule(cut::getShader(cut::UnaryAbs));
   auto mulShader =
       interface->createShaderModule(cut::getShader(cut::BinaryVecVecMul));
 
   const uint32_t threadGroups = (elements + 63) / 64;
   cut::ThreadSize tgSize{threadGroups, 1, 1};
 
-  interface->beginCommandBuffer();
-
   // First: abs(A) -> intermediate
-  interface->encode(
-      {absShader,
-       tgSize,
-       {cut::ComputeBinding(0, bufferA),
-        cut::ComputeBinding(1, bufferIntermediate),
-        cut::ComputeBinding(2, cut::DataReference(elements))}});
+  interface->encode({absShader,
+                     tgSize,
+                     {cut::ComputeBinding(0, bufferA),
+                      cut::ComputeBinding(1, bufferIntermediate),
+                      cut::ComputeBinding(2, cut::DataReference(elements))}});
 
   // Second: intermediate * B -> out
   interface->encode(
@@ -966,8 +954,7 @@ TEST_F(GeneratedShadersTest, ChainedUnaryThenBinary_AbsThenMul) {
         cut::ComputeBinding(1, bufferB), cut::ComputeBinding(2, bufferOut),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
 
-  auto cmdBuffer = interface->endCommandBuffer();
-  interface->submit(cmdBuffer);
+  auto cmdBuffer = interface->submit();
   interface->wait(cmdBuffer);
 
   std::vector<float> output(elements);
@@ -1004,15 +991,12 @@ TEST_F(GeneratedShadersTest, ChainedBinaryUnaryBinary_SubNegAdd) {
 
   auto subShader =
       interface->createShaderModule(cut::getShader(cut::BinaryVecVecSub));
-  auto negShader =
-      interface->createShaderModule(cut::getShader(cut::UnaryNeg));
+  auto negShader = interface->createShaderModule(cut::getShader(cut::UnaryNeg));
   auto addShader =
       interface->createShaderModule(cut::getShader(cut::BinaryVecVecAdd));
 
   const uint32_t threadGroups = (elements + 63) / 64;
   cut::ThreadSize tgSize{threadGroups, 1, 1};
-
-  interface->beginCommandBuffer();
 
   // Step 1: A - B -> temp1
   interface->encode(
@@ -1023,12 +1007,11 @@ TEST_F(GeneratedShadersTest, ChainedBinaryUnaryBinary_SubNegAdd) {
         cut::ComputeBinding(3, cut::DataReference(elements))}});
 
   // Step 2: -temp1 -> temp2
-  interface->encode(
-      {negShader,
-       tgSize,
-       {cut::ComputeBinding(0, bufferTemp1),
-        cut::ComputeBinding(1, bufferTemp2),
-        cut::ComputeBinding(2, cut::DataReference(elements))}});
+  interface->encode({negShader,
+                     tgSize,
+                     {cut::ComputeBinding(0, bufferTemp1),
+                      cut::ComputeBinding(1, bufferTemp2),
+                      cut::ComputeBinding(2, cut::DataReference(elements))}});
 
   // Step 3: temp2 + C -> out
   interface->encode(
@@ -1038,8 +1021,7 @@ TEST_F(GeneratedShadersTest, ChainedBinaryUnaryBinary_SubNegAdd) {
         cut::ComputeBinding(2, bufferOut),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
 
-  auto cmdBuffer = interface->endCommandBuffer();
-  interface->submit(cmdBuffer);
+  auto cmdBuffer = interface->submit();
   interface->wait(cmdBuffer);
 
   std::vector<float> output(elements);
@@ -1071,17 +1053,13 @@ TEST_F(GeneratedShadersTest, ChainedUnaryBinaryUnary_ExpMulLog) {
   auto bufferTemp2 = interface->createBuffer(bufferSize, nullptr);
   auto bufferOut = interface->createBuffer(bufferSize, nullptr);
 
-  auto expShader =
-      interface->createShaderModule(cut::getShader(cut::UnaryExp));
+  auto expShader = interface->createShaderModule(cut::getShader(cut::UnaryExp));
   auto mulShader =
       interface->createShaderModule(cut::getShader(cut::BinaryVecVecMul));
-  auto logShader =
-      interface->createShaderModule(cut::getShader(cut::UnaryLog));
+  auto logShader = interface->createShaderModule(cut::getShader(cut::UnaryLog));
 
   const uint32_t threadGroups = (elements + 63) / 64;
   cut::ThreadSize tgSize{threadGroups, 1, 1};
-
-  interface->beginCommandBuffer();
 
   // Step 1: exp(A) -> temp1
   interface->encode(
@@ -1105,8 +1083,7 @@ TEST_F(GeneratedShadersTest, ChainedUnaryBinaryUnary_ExpMulLog) {
        {cut::ComputeBinding(0, bufferTemp2), cut::ComputeBinding(1, bufferOut),
         cut::ComputeBinding(2, cut::DataReference(elements))}});
 
-  auto cmdBuffer = interface->endCommandBuffer();
-  interface->submit(cmdBuffer);
+  auto cmdBuffer = interface->submit();
   interface->wait(cmdBuffer);
 
   std::vector<float> output(elements);
@@ -1138,13 +1115,10 @@ TEST_F(GeneratedShadersTest, ChainedWithBufferReuse_AddThenNegInPlace) {
 
   auto addShader =
       interface->createShaderModule(cut::getShader(cut::BinaryVecVecAdd));
-  auto negShader =
-      interface->createShaderModule(cut::getShader(cut::UnaryNeg));
+  auto negShader = interface->createShaderModule(cut::getShader(cut::UnaryNeg));
 
   const uint32_t threadGroups = (elements + 63) / 64;
   cut::ThreadSize tgSize{threadGroups, 1, 1};
-
-  interface->beginCommandBuffer();
 
   // Step 1: A + B -> result
   interface->encode(
@@ -1161,8 +1135,7 @@ TEST_F(GeneratedShadersTest, ChainedWithBufferReuse_AddThenNegInPlace) {
        {cut::ComputeBinding(0, bufferResult), cut::ComputeBinding(1, bufferA),
         cut::ComputeBinding(2, cut::DataReference(elements))}});
 
-  auto cmdBuffer = interface->endCommandBuffer();
-  interface->submit(cmdBuffer);
+  auto cmdBuffer = interface->submit();
   interface->wait(cmdBuffer);
 
   std::vector<float> output(elements);

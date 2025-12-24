@@ -163,12 +163,10 @@ PYBIND11_MODULE(_cut_core, m) {
            [](cut::VulkanCompute &self, const std::vector<uint32_t> &spirv) {
              return self.createShaderModule(spirv);
            })
-      .def("begin_command_buffer", &cut::VulkanCompute::beginCommandBuffer)
       .def("encode",
            [](cut::VulkanCompute &self, cut::ComputeDispatch &dispatch) {
              self.encode(std::move(dispatch));
            })
-      .def("end_command_buffer", &cut::VulkanCompute::endCommandBuffer)
       .def("submit", &cut::VulkanCompute::submit)
       .def("wait", &cut::VulkanCompute::wait);
 

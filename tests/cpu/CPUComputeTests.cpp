@@ -171,8 +171,6 @@ TEST_F(CPUComputeTest, SimpleKernelExecution) {
   } pushConstants = {numElements, 5.0f};
 
   // Dispatch
-  interface_->beginCommandBuffer();
-
   ComputeDispatch dispatch;
   dispatch.bindShader(shaderHandle);
   dispatch.bindResource(buffer, 0);
@@ -180,8 +178,7 @@ TEST_F(CPUComputeTest, SimpleKernelExecution) {
   dispatch.setWorkgroupSize({numElements, 1, 1});
 
   interface_->encode(std::move(dispatch));
-  auto cmd = interface_->endCommandBuffer();
-  interface_->submit(cmd);
+  auto cmd = interface_->submit();
   interface_->wait(cmd);
 
   // Verify results
@@ -233,8 +230,6 @@ TEST_F(CPUComputeTest, MultiBufferKernel) {
   } pushConstants = {numElements, 2.5f};
 
   // Dispatch
-  interface_->beginCommandBuffer();
-
   ComputeDispatch dispatch;
   dispatch.bindShader(shaderHandle);
   dispatch.bindResource(inputBuffer, 0);
@@ -243,8 +238,7 @@ TEST_F(CPUComputeTest, MultiBufferKernel) {
   dispatch.setWorkgroupSize({numElements, 1, 1});
 
   interface_->encode(std::move(dispatch));
-  auto cmd = interface_->endCommandBuffer();
-  interface_->submit(cmd);
+  auto cmd = interface_->submit();
   interface_->wait(cmd);
 
   // Verify results
@@ -289,8 +283,6 @@ TEST_F(CPUComputeTest, LargeDispatch) {
     float addValue;
   } pushConstants = {numElements, 1.0f};
 
-  interface_->beginCommandBuffer();
-
   ComputeDispatch dispatch;
   dispatch.bindShader(shaderHandle);
   dispatch.bindResource(buffer, 0);
@@ -298,8 +290,7 @@ TEST_F(CPUComputeTest, LargeDispatch) {
   dispatch.setWorkgroupSize({numElements, 1, 1});
 
   interface_->encode(std::move(dispatch));
-  auto cmd = interface_->endCommandBuffer();
-  interface_->submit(cmd);
+  auto cmd = interface_->submit();
   interface_->wait(cmd);
 
   std::vector<float> result(numElements);
@@ -344,8 +335,6 @@ TEST_F(CPUComputeTest, MultipleDispatches) {
 
   // Execute multiple dispatches in sequence
   for (int i = 0; i < 5; ++i) {
-    interface_->beginCommandBuffer();
-
     ComputeDispatch dispatch;
     dispatch.bindShader(shaderHandle);
     dispatch.bindResource(buffer, 0);
@@ -353,8 +342,7 @@ TEST_F(CPUComputeTest, MultipleDispatches) {
     dispatch.setWorkgroupSize({numElements, 1, 1});
 
     interface_->encode(std::move(dispatch));
-    auto cmd = interface_->endCommandBuffer();
-    interface_->submit(cmd);
+    auto cmd = interface_->submit();
     interface_->wait(cmd);
   }
 

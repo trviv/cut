@@ -176,8 +176,6 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
   cut::ComputeHandle cmdBuffer;
 
   EXPECT_NO_THROW({
-    interface->beginCommandBuffer();
-
     interface->encode(
         {shaderModule,
          dispatchSize,
@@ -185,10 +183,8 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
           cut::ComputeBinding(2, bufferOut),
           cut::ComputeBinding(3, cut::DataReference(elements))}});
 
-    cmdBuffer = interface->endCommandBuffer();
-
     // Submit for execution and wait for completion
-    interface->submit(cmdBuffer);
+    cmdBuffer = interface->submit();
     interface->wait(cmdBuffer);
   });
 
@@ -256,8 +252,6 @@ TEST_F(VulkanTestEnvironment, MultipleDispatches) {
   // Record all 5 dispatches in a single command buffer
   cut::ComputeHandle cmdBuffer;
 
-  interface->beginCommandBuffer();
-
   for (size_t i = 0; i < numDispatches; ++i) {
     const auto &d = dispatchData[i];
     // Pass the number of elements; the runtime will divide by tgSize and
@@ -272,8 +266,7 @@ TEST_F(VulkanTestEnvironment, MultipleDispatches) {
           cut::ComputeBinding(3, cut::DataReference(elementsPerDispatch))}});
   }
 
-  cmdBuffer = interface->endCommandBuffer();
-  interface->submit(cmdBuffer);
+  cmdBuffer = interface->submit();
   interface->wait(cmdBuffer);
 
   // Verify output from each dispatch independently
@@ -345,7 +338,6 @@ TEST_F(VulkanTestEnvironment, DependentDispatches) {
   cut::ThreadSize dispatchSize{elements, 1, 1};
 
   // Record command buffer with 3 dispatches
-  interface->beginCommandBuffer();
 
   // Dispatch 1: A + B = C
   interface->encode(
@@ -371,8 +363,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatches) {
         cut::ComputeBinding(2, bufferG),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
 
-  auto cmdBuffer = interface->endCommandBuffer();
-  interface->submit(cmdBuffer);
+  auto cmdBuffer = interface->submit();
   interface->wait(cmdBuffer);
 
   // Verify intermediate result C
@@ -462,8 +453,6 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
   // dtypeVecSize
   cut::ThreadSize dispatchSize{elements, 1, 1};
 
-  interface->beginCommandBuffer();
-
   // Dispatch 1: A + B = C
   interface->encode(
       {shaderModule,
@@ -496,8 +485,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
         cut::ComputeBinding(2, bufferH),
         cut::ComputeBinding(3, cut::DataReference(elements))}});
 
-  auto cmdBuffer = interface->endCommandBuffer();
-  interface->submit(cmdBuffer);
+  auto cmdBuffer = interface->submit();
   interface->wait(cmdBuffer);
 
   // Verify final result H
@@ -567,8 +555,6 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesChain) {
   // dtypeVecSize
   cut::ThreadSize dispatchSize{elements, 1, 1};
 
-  interface->beginCommandBuffer();
-
   // First dispatch: A + B = R1
   interface->encode({shaderModule,
                      dispatchSize,
@@ -587,8 +573,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesChain) {
                         cut::ComputeBinding(3, cut::DataReference(elements))}});
   }
 
-  auto cmdBuffer = interface->endCommandBuffer();
-  interface->submit(cmdBuffer);
+  auto cmdBuffer = interface->submit();
   interface->wait(cmdBuffer);
 
   // Verify all intermediate and final results

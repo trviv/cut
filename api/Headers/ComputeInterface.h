@@ -88,29 +88,17 @@ public:
   createShaderModule(const std::vector<uint32_t> &spirvCode) = 0;
 
   /**
-   * Begins recording commands to a new command buffer.
-   * Must be paired with endCommandBuffer().
-   */
-  void beginCommandBuffer();
-
-  /**
    * Encodes a compute dispatch to the active command buffer.
-   * Must be called between beginCommandBuffer() and endCommandBuffer().
+   * If no command buffer is currently recording, one will be created.
    * @param dispatch The compute dispatch object to encode (moved).
    */
   void encode(ComputeDispatch &&dispatch);
 
   /**
-   * Ends recording and returns the completed command buffer.
-   * @return Handle to the recorded command buffer.
+   * Ends recording and submits the command buffer for GPU execution.
+   * @return Handle to the submitted command buffer.
    */
-  ComputeHandle endCommandBuffer();
-
-  /**
-   * Submits a command buffer for GPU execution.
-   * @param commandBufferHandle Handle to the command buffer to submit.
-   */
-  void submit(const ComputeHandle &commandBufferHandle);
+  ComputeHandle submit();
 
   /**
    * Waits for a command buffer to finish execution.

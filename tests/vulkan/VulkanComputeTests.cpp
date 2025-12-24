@@ -126,9 +126,8 @@ TEST_F(VulkanComputeTest, BufferHandleBecomesInvalidAfterReset) {
 // Dispatch tests through ComputeInterface
 
 TEST_F(VulkanComputeTest, CanRegisterDispatch) {
-  compute_->beginCommandBuffer();
   compute_->encode({});
-  auto cmdBufferHandle = compute_->endCommandBuffer();
+  auto cmdBufferHandle = compute_->submit();
   cmdBufferHandle.reset();
 }
 
@@ -136,10 +135,8 @@ TEST_F(VulkanComputeTest, CanRegisterDispatchWithBindings) {
   auto buffer = compute_->createBuffer(1024);
   ThreadSize tgs{8, 8, 1};
 
-  compute_->beginCommandBuffer();
-
   compute_->encode({{}, tgs, {ComputeBinding(0, buffer)}});
 
-  auto cmdBufferHandle = compute_->endCommandBuffer();
+  auto cmdBufferHandle = compute_->submit();
   cmdBufferHandle.reset();
 }
