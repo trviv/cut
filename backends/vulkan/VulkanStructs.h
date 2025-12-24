@@ -51,6 +51,7 @@ struct VulkanDescriptorStruct {
   static constexpr std::string_view Name = "VulkanDescriptorStruct";
 
   VkDescriptorPool pool = VK_NULL_HANDLE;
+  std::vector<VkDescriptorPoolSize> poolSizes;
   std::vector<ComputeHandle> descriptorSetLayoutHandles;
   std::vector<VkDescriptorSet> descriptorSets;
 };

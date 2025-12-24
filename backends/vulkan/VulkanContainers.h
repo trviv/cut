@@ -93,6 +93,7 @@ public:
 
   /**
    * Creates a descriptor pool and allocates descriptor sets.
+   * Reuses existing descriptor sets if layout handles match.
    * @param poolSizes The descriptor pool sizes.
    * @param descriptorSetLayoutHandles Handles to descriptor set layouts.
    * @param descriptorSetLayouts The Vulkan descriptor set layouts.
@@ -114,8 +115,17 @@ public:
   }
 
 private:
+  /// Finds a cached descriptor handle matching the given layout handles, or
+  /// returns invalid handle.
+  ComputeHandle findCachedDescriptor(
+      const std::vector<ComputeHandle> &descriptorSetLayoutHandles,
+      const std::vector<VkDescriptorPoolSize> &poolSizes);
+
   /// Destroys a descriptor pool and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
+
+  /// Cache of created descriptor handles for reuse.
+  std::vector<ComputeHandle> descriptorCache_;
 };
 
 /// Container managing descriptor set layout allocations and their lifecycle.
@@ -268,12 +278,12 @@ struct VulkanContainers {
         descriptorContainer(device), descriptorSetLayoutContainer(device),
         pipelineLayoutContainer(device), pipelineContainer(device) {}
 
-  VulkanBufferContainer bufferContainer;
-  VulkanShaderContainer shaderContainer;
-  VulkanDescriptorContainer descriptorContainer;
   VulkanDescriptorSetLayoutContainer descriptorSetLayoutContainer;
+  VulkanDescriptorContainer descriptorContainer;
   VulkanPipelineLayoutContainer pipelineLayoutContainer;
   VulkanPipelineContainer pipelineContainer;
+  VulkanBufferContainer bufferContainer;
+  VulkanShaderContainer shaderContainer;
 };
 
 /// Vulkan implementation of CommandBufferContainer.

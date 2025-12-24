@@ -179,6 +179,8 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     a_unit = np.clip(a, -0.99, 0.99).astype(np.float32)
     b_small = (np.random.randn(N) * 2).astype(np.float32)
     a_div10 = (a / 10).astype(np.float32)
+    # For tan: avoid values near pi/2 where tan approaches infinity
+    a_tan_safe = np.clip(a, -1.0, 1.0).astype(np.float32)
 
     # Create GPU buffers for all test data
     buf_a = cut.Buffer(a)
@@ -188,6 +190,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     buf_a_unit = cut.Buffer(a_unit)
     buf_b_small = cut.Buffer(b_small)
     buf_a_div10 = cut.Buffer(a_div10)
+    buf_a_tan_safe = cut.Buffer(a_tan_safe)
 
     # Define all operations by category
     # Each entry: (name, cut_func, np_func, cut_args, np_args)
@@ -223,7 +226,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
             ("log10", cut.log10, np.log10, (buf_a_pos,), (a_pos,)),
             ("sin", cut.sin, np.sin, (buf_a,), (a,)),
             ("cos", cut.cos, np.cos, (buf_a,), (a,)),
-            ("tan", cut.tan, np.tan, (buf_a,), (a,)),
+            ("tan", cut.tan, np.tan, (buf_a_tan_safe,), (a_tan_safe,)),
             ("arcsin", cut.arcsin, np.arcsin, (buf_a_unit,), (a_unit,)),
             ("arccos", cut.arccos, np.arccos, (buf_a_unit,), (a_unit,)),
             ("arctan", cut.arctan, np.arctan, (buf_a,), (a,)),

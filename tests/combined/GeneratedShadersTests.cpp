@@ -859,3 +859,318 @@ TEST_F(GeneratedShadersTest, AllUnaryShadersCompile) {
        << static_cast<int>(shader);
   }
 }
+
+// ============================================================================
+// Chained Operations Tests (Binary followed by Unary and vice versa)
+// ============================================================================
+
+// Binary op followed by unary op on the same output buffer
+TEST_F(GeneratedShadersTest, ChainedBinaryThenUnary_AddThenSqrt) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i + 1);
+    dataB[i] = static_cast<float>(i + 1);
+    // Result: sqrt(a + b) = sqrt(2 * (i+1))
+    expected[i] = std::sqrt(dataA[i] + dataB[i]);
+  }
+
+  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
+  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
+  auto bufferIntermediate = interface->createBuffer(bufferSize, nullptr);
+  auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+
+  auto addShader =
+      interface->createShaderModule(cut::getShader(cut::BinaryVecVecAdd));
+  auto sqrtShader =
+      interface->createShaderModule(cut::getShader(cut::UnarySqrt));
+
+  const uint32_t threadGroups = (elements + 63) / 64;
+  cut::ThreadSize tgSize{threadGroups, 1, 1};
+
+  interface->beginCommandBuffer();
+
+  // First: add A + B -> intermediate
+  interface->encode(
+      {addShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
+        cut::ComputeBinding(2, bufferIntermediate),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Second: sqrt(intermediate) -> out
+  interface->encode(
+      {sqrtShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferIntermediate),
+        cut::ComputeBinding(1, bufferOut),
+        cut::ComputeBinding(2, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->endCommandBuffer();
+  interface->submit(cmdBuffer);
+  interface->wait(cmdBuffer);
+
+  std::vector<float> output(elements);
+  interface->copyDataFromBuffer(bufferOut, output.data(), bufferSize, 0, 0,
+                                false, false);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-5f)
+        << "Add then Sqrt failed at index " << i;
+  }
+}
+
+// Unary op followed by binary op on the same buffer
+TEST_F(GeneratedShadersTest, ChainedUnaryThenBinary_AbsThenMul) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) - 128.0f; // negative values
+    dataB[i] = 2.0f;
+    // Result: abs(a) * b
+    expected[i] = std::abs(dataA[i]) * dataB[i];
+  }
+
+  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
+  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
+  auto bufferIntermediate = interface->createBuffer(bufferSize, nullptr);
+  auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+
+  auto absShader =
+      interface->createShaderModule(cut::getShader(cut::UnaryAbs));
+  auto mulShader =
+      interface->createShaderModule(cut::getShader(cut::BinaryVecVecMul));
+
+  const uint32_t threadGroups = (elements + 63) / 64;
+  cut::ThreadSize tgSize{threadGroups, 1, 1};
+
+  interface->beginCommandBuffer();
+
+  // First: abs(A) -> intermediate
+  interface->encode(
+      {absShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferA),
+        cut::ComputeBinding(1, bufferIntermediate),
+        cut::ComputeBinding(2, cut::DataReference(elements))}});
+
+  // Second: intermediate * B -> out
+  interface->encode(
+      {mulShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferIntermediate),
+        cut::ComputeBinding(1, bufferB), cut::ComputeBinding(2, bufferOut),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->endCommandBuffer();
+  interface->submit(cmdBuffer);
+  interface->wait(cmdBuffer);
+
+  std::vector<float> output(elements);
+  interface->copyDataFromBuffer(bufferOut, output.data(), bufferSize, 0, 0,
+                                false, false);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "Abs then Mul failed at index " << i;
+  }
+}
+
+// Multiple chained operations: binary -> unary -> binary
+TEST_F(GeneratedShadersTest, ChainedBinaryUnaryBinary_SubNegAdd) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> dataC(elements);
+  std::vector<float> expected(elements);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 2.0f;
+    dataB[i] = static_cast<float>(i) * 3.0f;
+    dataC[i] = 100.0f;
+    // Result: -(a - b) + c = -(i*2 - i*3) + 100 = -(-i) + 100 = i + 100
+    expected[i] = -(dataA[i] - dataB[i]) + dataC[i];
+  }
+
+  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
+  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
+  auto bufferC = interface->createBuffer(bufferSize, dataC.data());
+  auto bufferTemp1 = interface->createBuffer(bufferSize, nullptr);
+  auto bufferTemp2 = interface->createBuffer(bufferSize, nullptr);
+  auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+
+  auto subShader =
+      interface->createShaderModule(cut::getShader(cut::BinaryVecVecSub));
+  auto negShader =
+      interface->createShaderModule(cut::getShader(cut::UnaryNeg));
+  auto addShader =
+      interface->createShaderModule(cut::getShader(cut::BinaryVecVecAdd));
+
+  const uint32_t threadGroups = (elements + 63) / 64;
+  cut::ThreadSize tgSize{threadGroups, 1, 1};
+
+  interface->beginCommandBuffer();
+
+  // Step 1: A - B -> temp1
+  interface->encode(
+      {subShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
+        cut::ComputeBinding(2, bufferTemp1),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Step 2: -temp1 -> temp2
+  interface->encode(
+      {negShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferTemp1),
+        cut::ComputeBinding(1, bufferTemp2),
+        cut::ComputeBinding(2, cut::DataReference(elements))}});
+
+  // Step 3: temp2 + C -> out
+  interface->encode(
+      {addShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferTemp2), cut::ComputeBinding(1, bufferC),
+        cut::ComputeBinding(2, bufferOut),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->endCommandBuffer();
+  interface->submit(cmdBuffer);
+  interface->wait(cmdBuffer);
+
+  std::vector<float> output(elements);
+  interface->copyDataFromBuffer(bufferOut, output.data(), bufferSize, 0, 0,
+                                false, false);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "Sub-Neg-Add chain failed at index " << i;
+  }
+}
+
+// Multiple chained operations: unary -> binary -> unary
+TEST_F(GeneratedShadersTest, ChainedUnaryBinaryUnary_ExpMulLog) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i % 5 + 1) * 0.5f;
+    dataB[i] = 2.0f;
+    // Result: log(exp(a) * b) = log(exp(a)) + log(b) = a + log(2)
+    expected[i] = std::log(std::exp(dataA[i]) * dataB[i]);
+  }
+
+  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
+  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
+  auto bufferTemp1 = interface->createBuffer(bufferSize, nullptr);
+  auto bufferTemp2 = interface->createBuffer(bufferSize, nullptr);
+  auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+
+  auto expShader =
+      interface->createShaderModule(cut::getShader(cut::UnaryExp));
+  auto mulShader =
+      interface->createShaderModule(cut::getShader(cut::BinaryVecVecMul));
+  auto logShader =
+      interface->createShaderModule(cut::getShader(cut::UnaryLog));
+
+  const uint32_t threadGroups = (elements + 63) / 64;
+  cut::ThreadSize tgSize{threadGroups, 1, 1};
+
+  interface->beginCommandBuffer();
+
+  // Step 1: exp(A) -> temp1
+  interface->encode(
+      {expShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferTemp1),
+        cut::ComputeBinding(2, cut::DataReference(elements))}});
+
+  // Step 2: temp1 * B -> temp2
+  interface->encode(
+      {mulShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferTemp1), cut::ComputeBinding(1, bufferB),
+        cut::ComputeBinding(2, bufferTemp2),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Step 3: log(temp2) -> out
+  interface->encode(
+      {logShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferTemp2), cut::ComputeBinding(1, bufferOut),
+        cut::ComputeBinding(2, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->endCommandBuffer();
+  interface->submit(cmdBuffer);
+  interface->wait(cmdBuffer);
+
+  std::vector<float> output(elements);
+  interface->copyDataFromBuffer(bufferOut, output.data(), bufferSize, 0, 0,
+                                false, false);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "Exp-Mul-Log chain failed at index " << i;
+  }
+}
+
+// Reusing the same buffer as both input and output for intermediate results
+TEST_F(GeneratedShadersTest, ChainedWithBufferReuse_AddThenNegInPlace) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i);
+    dataB[i] = static_cast<float>(i) * 2.0f;
+    // Result: -(a + b)
+    expected[i] = -(dataA[i] + dataB[i]);
+  }
+
+  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
+  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
+  auto bufferResult = interface->createBuffer(bufferSize, nullptr);
+
+  auto addShader =
+      interface->createShaderModule(cut::getShader(cut::BinaryVecVecAdd));
+  auto negShader =
+      interface->createShaderModule(cut::getShader(cut::UnaryNeg));
+
+  const uint32_t threadGroups = (elements + 63) / 64;
+  cut::ThreadSize tgSize{threadGroups, 1, 1};
+
+  interface->beginCommandBuffer();
+
+  // Step 1: A + B -> result
+  interface->encode(
+      {addShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
+        cut::ComputeBinding(2, bufferResult),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  // Step 2: -result -> A (reusing bufferA as output)
+  interface->encode(
+      {negShader,
+       tgSize,
+       {cut::ComputeBinding(0, bufferResult), cut::ComputeBinding(1, bufferA),
+        cut::ComputeBinding(2, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->endCommandBuffer();
+  interface->submit(cmdBuffer);
+  interface->wait(cmdBuffer);
+
+  std::vector<float> output(elements);
+  interface->copyDataFromBuffer(bufferA, output.data(), bufferSize, 0, 0, false,
+                                false);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "Add then Neg (buffer reuse) failed at index " << i;
+  }
+}

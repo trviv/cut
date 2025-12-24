@@ -117,10 +117,35 @@ void VulkanShaderContainer::destroyAPIObject(const ComputeHandle &handle) {
   vkDestroyShaderModule(getDevice(), shaderData.shader, nullptr);
 }
 
+ComputeHandle VulkanDescriptorContainer::findCachedDescriptor(
+    const std::vector<ComputeHandle> &descriptorSetLayoutHandles,
+    const std::vector<VkDescriptorPoolSize> &poolSizes) {
+  for (const auto &handle : descriptorCache_) {
+    if (handle && getRefCount(handle) == 1) {
+      const auto &cached = ComputeDataContainer::get(handle);
+      if (cached.descriptorSetLayoutHandles == descriptorSetLayoutHandles &&
+          cached.poolSizes.size() == poolSizes.size() &&
+          std::memcmp(cached.poolSizes.data(), poolSizes.data(),
+                      cached.poolSizes.size() * sizeof(VkDescriptorPoolSize)) ==
+              0) {
+        return handle;
+      }
+    }
+  }
+  return {};
+}
+
 ComputeHandle VulkanDescriptorContainer::createDescriptorSets(
     const std::vector<VkDescriptorPoolSize> &poolSizes,
     const std::vector<ComputeHandle> &descriptorSetLayoutHandles,
     const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts) {
+  // Check if descriptor sets with these layouts already exist
+  ComputeHandle cachedHandle =
+      findCachedDescriptor(descriptorSetLayoutHandles, poolSizes);
+  if (cachedHandle) {
+    return cachedHandle;
+  }
+
   const uint32_t maxSets =
       static_cast<uint32_t>(descriptorSetLayoutHandles.size());
 
@@ -134,7 +159,8 @@ ComputeHandle VulkanDescriptorContainer::createDescriptorSets(
   VK_CHECK(vkCreateDescriptorPool(getDevice(), &poolInfo, nullptr,
                                   &poolStruct.pool));
 
-  // Store layout handles for reference
+  // Store pool sizes and layout handles for cache lookup
+  poolStruct.poolSizes = poolSizes;
   poolStruct.descriptorSetLayoutHandles = descriptorSetLayoutHandles;
 
   // Allocate descriptor sets
@@ -150,7 +176,9 @@ ComputeHandle VulkanDescriptorContainer::createDescriptorSets(
   VK_CHECK(vkAllocateDescriptorSets(getDevice(), &allocInfo,
                                     poolStruct.descriptorSets.data()));
 
-  return ComputeDataContainer::create(std::move(poolStruct));
+  auto handle = ComputeDataContainer::create(std::move(poolStruct));
+  descriptorCache_.emplace_back(handle);
+  return handle;
 }
 
 void VulkanDescriptorContainer::destroyAPIObject(const ComputeHandle &handle) {

@@ -74,6 +74,15 @@ protected:
    */
   size_t freeSlotCount() const { return freeHandles_.size(); }
 
+  /**
+   * Returns the reference count for a handle.
+   * @param handle The handle to query.
+   * @return The current reference count.
+   */
+  size_t getRefCount(const ComputeHandle &handle) const {
+    return refCounts_[handle.id_];
+  }
+
 private:
   friend class ComputeHandle;
 
