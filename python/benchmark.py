@@ -10,7 +10,7 @@ from typing import Callable, Tuple, Dict, List
 import cut
 
 # Number of elements to test
-N = 1_000_000
+N = 100_000
 
 # Number of iterations for timing
 NUM_ITERATIONS = 10
