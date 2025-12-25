@@ -165,7 +165,7 @@ std::optional<std::vector<uint32_t>> getCompiledShader(const ShaderEnum shader) 
         OUTPUT ${SHADERS_SOURCE_FILE}
         COMMAND ${CMAKE_COMMAND} -E echo "
         default:
-            std::nullopt;
+            return std::nullopt;
     }
 }
 } // namespace cut" >> ${SHADERS_SOURCE_FILE}

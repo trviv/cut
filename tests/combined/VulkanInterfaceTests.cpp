@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <ComputeCommon.h>
 #include <Shaders.h>
 #include <Utils.h>
 #include <VulkanCompute.h>
@@ -27,11 +28,13 @@ TEST_F(VulkanTestEnvironment, Buffer) {
   const auto refData = generateRandomUint(elements);
 
   EXPECT_NO_THROW({ // create an empty buffer
-    buffer1 = interface->createBuffer(elements * dtypeSize, nullptr);
+    buffer1 =
+        interface->createBuffer({elements}, cut::DataType::UInt32, nullptr);
   });
 
   EXPECT_NO_THROW({ // create a reference buffer
-    buffer2 = interface->createBuffer(elements * dtypeSize, refData.data());
+    buffer2 = interface->createBuffer({elements}, cut::DataType::UInt32,
+                                      refData.data());
   });
 
   EXPECT_THROW(
@@ -99,12 +102,15 @@ TEST_F(VulkanTestEnvironment, BufferToBufferCopy) {
 
   // Create source buffer with reference data
   EXPECT_NO_THROW({
-    srcBuffer = interface->createBuffer(elements * dtypeSize, refData.data());
+    srcBuffer = interface->createBuffer({elements}, cut::DataType::UInt32,
+                                        refData.data());
   });
 
   // Create empty destination buffer
-  EXPECT_NO_THROW(
-      { dstBuffer = interface->createBuffer(elements * dtypeSize, nullptr); });
+  EXPECT_NO_THROW({
+    dstBuffer =
+        interface->createBuffer({elements}, cut::DataType::UInt32, nullptr);
+  });
 
   // Intermediate host memory for the copy
   std::vector<uint32_t> intermediateData(elements);
@@ -157,9 +163,12 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
   cut::ComputeHandle bufferOut;
 
   EXPECT_NO_THROW({
-    bufferA = interface->createBuffer(elements * dtypeSize, dataA.data());
-    bufferB = interface->createBuffer(elements * dtypeSize, dataB.data());
-    bufferOut = interface->createBuffer(elements * dtypeSize, nullptr);
+    bufferA = interface->createBuffer({elements}, cut::DataType::Float32,
+                                      dataA.data());
+    bufferB = interface->createBuffer({elements}, cut::DataType::Float32,
+                                      dataB.data());
+    bufferOut =
+        interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
   });
 
   // Load vector add shader
@@ -239,9 +248,12 @@ TEST_F(VulkanTestEnvironment, MultipleDispatches) {
     }
 
     // Create independent buffers for each dispatch
-    d.bufferA = interface->createBuffer(bufferSize, d.inputA.data());
-    d.bufferB = interface->createBuffer(bufferSize, d.inputB.data());
-    d.bufferOut = interface->createBuffer(bufferSize, nullptr);
+    d.bufferA = interface->createBuffer(
+        {elementsPerDispatch}, cut::DataType::Float32, d.inputA.data());
+    d.bufferB = interface->createBuffer(
+        {elementsPerDispatch}, cut::DataType::Float32, d.inputB.data());
+    d.bufferOut = interface->createBuffer({elementsPerDispatch},
+                                          cut::DataType::Float32, nullptr);
   }
 
   // Load vector add shader
@@ -318,16 +330,20 @@ TEST_F(VulkanTestEnvironment, DependentDispatches) {
   }
 
   // Create buffers
-  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
-  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
-  auto bufferC =
-      interface->createBuffer(bufferSize, nullptr); // Output of A + B
-  auto bufferD = interface->createBuffer(bufferSize, dataD.data());
-  auto bufferE = interface->createBuffer(bufferSize, dataE.data());
-  auto bufferF =
-      interface->createBuffer(bufferSize, nullptr); // Output of D + E
-  auto bufferG =
-      interface->createBuffer(bufferSize, nullptr); // Output of C + F
+  auto bufferA =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataA.data());
+  auto bufferB =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataB.data());
+  auto bufferC = interface->createBuffer({elements}, cut::DataType::Float32,
+                                         nullptr); // Output of A + B
+  auto bufferD =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataD.data());
+  auto bufferE =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataE.data());
+  auto bufferF = interface->createBuffer({elements}, cut::DataType::Float32,
+                                         nullptr); // Output of D + E
+  auto bufferG = interface->createBuffer({elements}, cut::DataType::Float32,
+                                         nullptr); // Output of C + F
 
   // Load vector add shader
   const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
@@ -436,14 +452,22 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
   }
 
   // Create buffers
-  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
-  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
-  auto bufferC = interface->createBuffer(bufferSize, nullptr);
-  auto bufferD = interface->createBuffer(bufferSize, dataD.data());
-  auto bufferE = interface->createBuffer(bufferSize, nullptr);
-  auto bufferF = interface->createBuffer(bufferSize, dataF.data());
-  auto bufferG = interface->createBuffer(bufferSize, nullptr);
-  auto bufferH = interface->createBuffer(bufferSize, nullptr);
+  auto bufferA =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataA.data());
+  auto bufferB =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataB.data());
+  auto bufferC =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+  auto bufferD =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataD.data());
+  auto bufferE =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+  auto bufferF =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataF.data());
+  auto bufferG =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+  auto bufferH =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
 
   // Load shader
   const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
@@ -538,13 +562,15 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesChain) {
   // Create input buffers
   std::vector<cut::ComputeHandle> inputBuffers(chainLength + 1);
   for (size_t i = 0; i < chainLength + 1; ++i) {
-    inputBuffers[i] = interface->createBuffer(bufferSize, inputs[i].data());
+    inputBuffers[i] = interface->createBuffer(
+        {elements}, cut::DataType::Float32, inputs[i].data());
   }
 
   // Create result buffers
   std::vector<cut::ComputeHandle> resultBuffers(chainLength);
   for (size_t i = 0; i < chainLength; ++i) {
-    resultBuffers[i] = interface->createBuffer(bufferSize, nullptr);
+    resultBuffers[i] =
+        interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
   }
 
   // Load shader

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <ComputeCommon.h>
 #include <Shaders.h>
 #include <Utils.h>
 #include <VulkanCompute.h>
@@ -27,9 +28,12 @@ protected:
                    const std::vector<float> &dataA,
                    const std::vector<float> &dataB,
                    std::vector<float> &output) {
-    auto bufferA = interface->createBuffer(bufferSize, dataA.data());
-    auto bufferB = interface->createBuffer(bufferSize, dataB.data());
-    auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+    auto bufferA = interface->createBuffer({elements}, cut::DataType::Float32,
+                                           dataA.data());
+    auto bufferB = interface->createBuffer({elements}, cut::DataType::Float32,
+                                           dataB.data());
+    auto bufferOut =
+        interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
 
     const auto shader = cut::getShader(shaderEnum);
     auto shaderModule = interface->createShaderModule(shader);
@@ -57,8 +61,10 @@ protected:
   void runUnaryOp(cut::ShaderEnum shaderEnum,
                   const std::vector<float> &dataIn,
                   std::vector<float> &output) {
-    auto bufferIn = interface->createBuffer(bufferSize, dataIn.data());
-    auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+    auto bufferIn = interface->createBuffer({elements}, cut::DataType::Float32,
+                                            dataIn.data());
+    auto bufferOut =
+        interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
 
     const auto shader = cut::getShader(shaderEnum);
     auto shaderModule = interface->createShaderModule(shader);
@@ -873,10 +879,14 @@ TEST_F(GeneratedShadersTest, ChainedBinaryThenUnary_AddThenSqrt) {
     expected[i] = std::sqrt(dataA[i] + dataB[i]);
   }
 
-  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
-  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
-  auto bufferIntermediate = interface->createBuffer(bufferSize, nullptr);
-  auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+  auto bufferA =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataA.data());
+  auto bufferB =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataB.data());
+  auto bufferIntermediate =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+  auto bufferOut =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
 
   auto addShader =
       interface->createShaderModule(cut::getShader(cut::BinaryVecVecAdd));
@@ -927,10 +937,14 @@ TEST_F(GeneratedShadersTest, ChainedUnaryThenBinary_AbsThenMul) {
     expected[i] = std::abs(dataA[i]) * dataB[i];
   }
 
-  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
-  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
-  auto bufferIntermediate = interface->createBuffer(bufferSize, nullptr);
-  auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+  auto bufferA =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataA.data());
+  auto bufferB =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataB.data());
+  auto bufferIntermediate =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+  auto bufferOut =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
 
   auto absShader = interface->createShaderModule(cut::getShader(cut::UnaryAbs));
   auto mulShader =
@@ -982,12 +996,18 @@ TEST_F(GeneratedShadersTest, ChainedBinaryUnaryBinary_SubNegAdd) {
     expected[i] = -(dataA[i] - dataB[i]) + dataC[i];
   }
 
-  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
-  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
-  auto bufferC = interface->createBuffer(bufferSize, dataC.data());
-  auto bufferTemp1 = interface->createBuffer(bufferSize, nullptr);
-  auto bufferTemp2 = interface->createBuffer(bufferSize, nullptr);
-  auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+  auto bufferA =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataA.data());
+  auto bufferB =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataB.data());
+  auto bufferC =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataC.data());
+  auto bufferTemp1 =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+  auto bufferTemp2 =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+  auto bufferOut =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
 
   auto subShader =
       interface->createShaderModule(cut::getShader(cut::BinaryVecVecSub));
@@ -1047,11 +1067,16 @@ TEST_F(GeneratedShadersTest, ChainedUnaryBinaryUnary_ExpMulLog) {
     expected[i] = std::log(std::exp(dataA[i]) * dataB[i]);
   }
 
-  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
-  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
-  auto bufferTemp1 = interface->createBuffer(bufferSize, nullptr);
-  auto bufferTemp2 = interface->createBuffer(bufferSize, nullptr);
-  auto bufferOut = interface->createBuffer(bufferSize, nullptr);
+  auto bufferA =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataA.data());
+  auto bufferB =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataB.data());
+  auto bufferTemp1 =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+  auto bufferTemp2 =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+  auto bufferOut =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
 
   auto expShader = interface->createShaderModule(cut::getShader(cut::UnaryExp));
   auto mulShader =
@@ -1109,9 +1134,12 @@ TEST_F(GeneratedShadersTest, ChainedWithBufferReuse_AddThenNegInPlace) {
     expected[i] = -(dataA[i] + dataB[i]);
   }
 
-  auto bufferA = interface->createBuffer(bufferSize, dataA.data());
-  auto bufferB = interface->createBuffer(bufferSize, dataB.data());
-  auto bufferResult = interface->createBuffer(bufferSize, nullptr);
+  auto bufferA =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataA.data());
+  auto bufferB =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataB.data());
+  auto bufferResult =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
 
   auto addShader =
       interface->createShaderModule(cut::getShader(cut::BinaryVecVecAdd));

@@ -23,32 +23,10 @@ CPUCompute::~CPUCompute() {
   threadPool_.reset();
 }
 
-ComputeHandle
-CPUCompute::createBuffer(size_t size, const void *srcPtr, bool /*immutable*/) {
-  constexpr size_t kAlignment = 16;
-  const size_t alignedSize = (size + kAlignment - 1) & ~(kAlignment - 1);
-
-  CPUBufferStruct bufferStruct;
-  bufferStruct.size = size;
-  bufferStruct.data = aligned_alloc(kAlignment, alignedSize);
-
-  if (bufferStruct.data == nullptr) {
-    throw std::runtime_error("Failed to allocate CPU buffer");
-  }
-
-  auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
-
-  if (srcPtr != nullptr) {
-    copyDataToBuffer(srcPtr, handle, size, 0, 0);
-  }
-
-  return handle;
-}
-
 ComputeHandle CPUCompute::createBuffer(const std::vector<size_t> &shape,
                                        DataType dtype,
                                        const void *srcPtr,
-                                       bool immutable) {
+                                       bool /*immutable*/) {
   if (shape.empty()) {
     throw std::runtime_error("Cannot create buffer with empty shape");
   }

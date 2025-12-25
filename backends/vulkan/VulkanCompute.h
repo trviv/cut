@@ -53,13 +53,6 @@ public:
   VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
                 VulkanContextConfig config = {});
 
-protected:
-  /// Creates a GPU buffer with optional initial data.
-  ComputeHandle
-  createBuffer(size_t size,                      // Buffer size
-               const void *srcPtr = nullptr,     // Host source ptr
-               bool isUniform = false) override; // Is uniform buffer
-
 private:
   /// Selects a physical device (GPU) that matches the preferred type and has a
   /// compute queue.

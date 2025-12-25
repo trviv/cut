@@ -128,18 +128,6 @@ public:
    */
   void setSIMDMode(SIMDMode mode) { simdMode_ = mode; }
 
-protected:
-  /**
-   * Creates a CPU buffer with optional initial data.
-   * @param size Buffer size in bytes.
-   * @param srcPtr Optional pointer to source data for initialization.
-   * @param immutable Ignored for CPU backend (all buffers are read/write).
-   * @return Handle to the created buffer.
-   */
-  ComputeHandle createBuffer(size_t size,
-                             const void *srcPtr = nullptr,
-                             bool immutable = false) override;
-
 private:
   std::unique_ptr<CPUContainers> containers_;
   std::unique_ptr<ThreadPool> threadPool_;

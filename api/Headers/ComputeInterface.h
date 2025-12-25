@@ -113,19 +113,6 @@ public:
 
 protected:
   /**
-   * Creates a GPU buffer with raw byte size.
-   * This is a protected method for internal use by derived classes.
-   * @param size Size of the buffer in bytes.
-   * @param hostSourcePtr Optional pointer to host data for initialization.
-   * @param immutable If true, buffer contents cannot be modified after
-   * creation.
-   * @return Handle to the created buffer.
-   */
-  virtual ComputeHandle createBuffer(size_t size,
-                                     const void *hostSourcePtr = nullptr,
-                                     bool immutable = false) = 0;
-
-  /**
    * Calculates the total buffer size in bytes from a shape vector.
    * Rounds the innermost dimension up to a multiple of 4 for alignment.
    * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).

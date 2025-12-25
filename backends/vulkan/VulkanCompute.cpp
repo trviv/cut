@@ -149,12 +149,6 @@ findMemoryType(uint32_t typeFilter,
   logErr("Failed to find suitable memory type");
 }
 
-ComputeHandle
-VulkanCompute::createBuffer(size_t size, const void *srcPtr, bool isUniform) {
-  // Default to device-only for optimal GPU performance
-  return createBuffer(size, true, srcPtr, isUniform);
-}
-
 ComputeHandle VulkanCompute::createBuffer(const std::vector<size_t> &shape,
                                           DataType dtype,
                                           const void *srcPtr,
@@ -166,6 +160,7 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<size_t> &shape,
   const size_t totalSize = calculateAlignedSize(shape, dtype);
 
   // Create buffer with calculated size, passing original shape
+  // Default to device-only for optimal GPU performance
   return createBuffer(totalSize, true, srcPtr, isUniform, shape);
 }
 

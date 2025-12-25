@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <ComputeCommon.h>
 #include <ComputeInterface.h>
+#include <vector>
 
 using namespace cut;
 
@@ -35,8 +37,10 @@ public:
     setCommandBufferContainer(std::make_unique<MockCommandBufferContainer>());
   }
 
-  ComputeHandle
-  createBuffer(size_t, const void * = nullptr, bool = false) override {
+  ComputeHandle createBuffer(const std::vector<size_t> &,
+                             DataType,
+                             const void * = nullptr,
+                             bool = false) override {
     return {};
   }
 
