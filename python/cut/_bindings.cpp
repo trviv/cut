@@ -9,6 +9,23 @@
 
 namespace py = pybind11;
 
+namespace {
+// Helper to convert numpy dtype format to DataType
+cut::DataType numpyFormatToDataType(const std::string &format,
+                                    size_t itemsize) {
+  if (format == "f" && itemsize == 4)
+    return cut::DataType::Float32;
+  if (format == "e" && itemsize == 2)
+    return cut::DataType::Float16;
+  if (format == "I" && itemsize == 4)
+    return cut::DataType::UInt32;
+  if (format == "i" && itemsize == 4)
+    return cut::DataType::Int32;
+  // Default to Float32 for unknown types
+  return cut::DataType::Float32;
+}
+} // namespace
+
 PYBIND11_MODULE(_cut_core, m) {
   m.doc() = "CUT (Compute Unified Toolkit) - GPU Compute Library Python Bindings";
 
@@ -18,6 +35,14 @@ PYBIND11_MODULE(_cut_core, m) {
       .value("Half", cut::ScalarDataType::Half)
       .value("UInt", cut::ScalarDataType::UInt)
       .value("Int", cut::ScalarDataType::Int)
+      .export_values();
+
+  // Expose DataType enum
+  py::enum_<cut::DataType>(m, "DataType")
+      .value("Float32", cut::DataType::Float32)
+      .value("Float16", cut::DataType::Float16)
+      .value("UInt32", cut::DataType::UInt32)
+      .value("Int32", cut::DataType::Int32)
       .export_values();
 
   // Expose ShaderEnum
@@ -127,16 +152,20 @@ PYBIND11_MODULE(_cut_core, m) {
           "create_buffer",
           [](cut::VulkanCompute &self, py::array arr, bool isUniform) {
             py::buffer_info info = arr.request();
-            size_t size = info.size * info.itemsize;
-            return self.createBuffer(size, info.ptr, isUniform);
+            // Convert numpy shape to std::vector<size_t>
+            std::vector<size_t> shape(info.shape.begin(), info.shape.end());
+            cut::DataType dtype =
+                numpyFormatToDataType(info.format, info.itemsize);
+            return self.createBuffer(shape, dtype, info.ptr, isUniform);
           },
           py::arg("data"), py::arg("is_uniform") = false)
       .def(
           "create_buffer_empty",
-          [](cut::VulkanCompute &self, size_t size, bool isUniform) {
-            return self.createBuffer(size, nullptr, isUniform);
+          [](cut::VulkanCompute &self, std::vector<size_t> shape,
+             cut::DataType dtype, bool isUniform) {
+            return self.createBuffer(shape, dtype, nullptr, isUniform);
           },
-          py::arg("size"), py::arg("is_uniform") = false)
+          py::arg("shape"), py::arg("dtype"), py::arg("is_uniform") = false)
       .def(
           "copy_to_buffer",
           [](cut::VulkanCompute &self, cut::ComputeHandle handle, py::array arr,

@@ -82,6 +82,35 @@ struct ThreadSize {
 };
 
 /**
+ * Data type for buffer elements.
+ */
+enum class DataType {
+  Float32, ///< 32-bit floating point (float).
+  Float16, ///< 16-bit floating point (half).
+  UInt32,  ///< 32-bit unsigned integer.
+  Int32,   ///< 32-bit signed integer.
+};
+
+/**
+ * Returns the size in bytes for a given DataType.
+ * @param dtype The data type.
+ * @return Size in bytes.
+ */
+inline constexpr size_t dataTypeSize(DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return 4;
+  case DataType::Float16:
+    return 2;
+  case DataType::UInt32:
+    return 4;
+  case DataType::Int32:
+    return 4;
+  }
+  return 0; // Unreachable, but silences compiler warning
+}
+
+/**
  * A lightweight wrapper for referencing raw data with size information.
  * Used to pass data to compute operations without copying.
  */

@@ -149,10 +149,25 @@ class Buffer:
             self._dtype = data.dtype
             self._shape = data.shape
         elif size is not None:
-            self._handle = _interface.create_buffer_empty(size, is_uniform)
+            # Convert size (bytes) to shape for the new API
+            # Default to float32 if dtype not specified
+            if dtype is None:
+                dtype = np.float32
+            element_size = np.dtype(dtype).itemsize
+            num_elements = size // element_size
+            buffer_shape = list(shape) if shape is not None else [num_elements]
+            # Map numpy dtype to cut DataType
+            dtype_map = {
+                np.float32: _cut_core.DataType.Float32,
+                np.float16: _cut_core.DataType.Float16,
+                np.uint32: _cut_core.DataType.UInt32,
+                np.int32: _cut_core.DataType.Int32,
+            }
+            cut_dtype = dtype_map.get(np.dtype(dtype).type, _cut_core.DataType.Float32)
+            self._handle = _interface.create_buffer_empty(buffer_shape, cut_dtype, is_uniform)
             self._size = size
             self._dtype = dtype
-            self._shape = shape
+            self._shape = tuple(buffer_shape)
         else:
             raise ValueError("Either data or size must be provided")
         _live_buffers.add(self)

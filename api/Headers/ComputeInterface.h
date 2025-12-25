@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ComputeCommon.h"
 #include "ComputeStructs.h"
 #include <ComputeContainers.h>
 #include <ComputeHandle.h>
@@ -32,14 +33,17 @@ public:
   ComputeInterface(ComputeInterface &&) = delete;
 
   /**
-   * Creates a GPU buffer.
-   * @param size Size of the buffer in bytes.
+   * Creates a GPU buffer with tensor-like shape.
+   * The innermost dimension is rounded up to a multiple of 4 for alignment.
+   * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
+   * @param dtype Data type of each element.
    * @param hostSourcePtr Optional pointer to host data for initialization.
    * @param immutable If true, buffer contents cannot be modified after
    * creation.
    * @return Handle to the created buffer.
    */
-  virtual ComputeHandle createBuffer(size_t size,
+  virtual ComputeHandle createBuffer(const std::vector<size_t> &shape,
+                                     DataType dtype,
                                      const void *hostSourcePtr = nullptr,
                                      bool immutable = false) = 0;
 
@@ -108,6 +112,42 @@ public:
   void wait(const ComputeHandle &commandBufferHandle);
 
 protected:
+  /**
+   * Creates a GPU buffer with raw byte size.
+   * This is a protected method for internal use by derived classes.
+   * @param size Size of the buffer in bytes.
+   * @param hostSourcePtr Optional pointer to host data for initialization.
+   * @param immutable If true, buffer contents cannot be modified after
+   * creation.
+   * @return Handle to the created buffer.
+   */
+  virtual ComputeHandle createBuffer(size_t size,
+                                     const void *hostSourcePtr = nullptr,
+                                     bool immutable = false) = 0;
+
+  /**
+   * Calculates the total buffer size in bytes from a shape vector.
+   * Rounds the innermost dimension up to a multiple of 4 for alignment.
+   * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
+   * @param dtype Data type of each element.
+   * @return Total size in bytes after aligning the innermost dimension.
+   */
+  static size_t calculateAlignedSize(const std::vector<size_t> &shape,
+                                     DataType dtype) {
+    if (shape.empty()) {
+      return 0;
+    }
+    // Round innermost dimension to multiple of 4
+    std::vector<size_t> alignedShape = shape;
+    alignedShape.back() = (alignedShape.back() + 3) & ~static_cast<size_t>(3);
+
+    size_t totalElements = 1;
+    for (size_t dim : alignedShape) {
+      totalElements *= dim;
+    }
+    return totalElements * dataTypeSize(dtype);
+  }
+
   /**
    * Sets the command buffer container for this interface.
    * Must be called by derived classes during construction.

@@ -45,6 +45,38 @@ CPUCompute::createBuffer(size_t size, const void *srcPtr, bool /*immutable*/) {
   return handle;
 }
 
+ComputeHandle CPUCompute::createBuffer(const std::vector<size_t> &shape,
+                                       DataType dtype,
+                                       const void *srcPtr,
+                                       bool immutable) {
+  if (shape.empty()) {
+    throw std::runtime_error("Cannot create buffer with empty shape");
+  }
+
+  const size_t totalSize = calculateAlignedSize(shape, dtype);
+
+  // Allocate buffer
+  constexpr size_t kAlignment = 16;
+  const size_t alignedSize = (totalSize + kAlignment - 1) & ~(kAlignment - 1);
+
+  CPUBufferStruct bufferStruct;
+  bufferStruct.size = totalSize;
+  bufferStruct.shape = shape; // Store original shape
+  bufferStruct.data = aligned_alloc(kAlignment, alignedSize);
+
+  if (bufferStruct.data == nullptr) {
+    throw std::runtime_error("Failed to allocate CPU buffer");
+  }
+
+  auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
+
+  if (srcPtr != nullptr) {
+    copyDataToBuffer(srcPtr, handle, totalSize, 0, 0);
+  }
+
+  return handle;
+}
+
 void CPUCompute::copyDataToBuffer(const void *srcPtr,
                                   const ComputeHandle &dstBuffer,
                                   size_t size,

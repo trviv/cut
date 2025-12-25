@@ -16,9 +16,11 @@ public:
   /// Destroys the VulkanCompute instance and releases all Vulkan resources.
   ~VulkanCompute();
 
-  /// Creates a GPU buffer with optional initial data.
+  /// Creates a GPU buffer with tensor-like shape.
+  /// The innermost dimension is rounded up to a multiple of 4 for alignment.
   ComputeHandle
-  createBuffer(size_t size,                      // Buffer size
+  createBuffer(const std::vector<size_t> &shape, // Dimension-wise sizes
+               DataType dtype,                   // Data type of each element
                const void *srcPtr = nullptr,     // Host source ptr
                bool isUniform = false) override; // Is uniform buffer
 
@@ -51,6 +53,13 @@ public:
   VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
                 VulkanContextConfig config = {});
 
+protected:
+  /// Creates a GPU buffer with optional initial data.
+  ComputeHandle
+  createBuffer(size_t size,                      // Buffer size
+               const void *srcPtr = nullptr,     // Host source ptr
+               bool isUniform = false) override; // Is uniform buffer
+
 private:
   /// Selects a physical device (GPU) that matches the preferred type and has a
   /// compute queue.
@@ -65,11 +74,13 @@ private:
   /// for CPU access).
   /// @param srcPtr Optional host data to initialize the buffer.
   /// @param isUniform If true, creates a uniform buffer; otherwise storage.
+  /// @param shape Optional tensor shape to store in the buffer.
   /// @return Handle to the created buffer.
   ComputeHandle createBuffer(size_t size,
                              bool deviceOnly,
                              const void *srcPtr,
-                             bool isUniform = false);
+                             bool isUniform = false,
+                             const std::vector<size_t> &shape = {});
 
   /// Creates a staging buffer for transfer operations.
   /// @param size Size of the staging buffer in bytes.

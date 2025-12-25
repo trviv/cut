@@ -5,6 +5,7 @@
 #include <ComputeInterface.h>
 #include <VulkanCommon.h>
 
+#include <cstddef>
 #include <string_view>
 #include <vector>
 
@@ -32,6 +33,7 @@ struct VulkanBufferStruct {
   VkDeviceSize offset = 0;
   void *mappedData = nullptr;
   bool isCoherent = false;
+  std::vector<size_t> shape; ///< Dimension-wise sizes (like tensor shape).
 
   /// Returns true if this buffer is device-only (not host-visible).
   bool isDeviceOnly() const { return mappedData == nullptr; }

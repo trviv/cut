@@ -66,26 +66,26 @@ protected:
 };
 
 TEST_F(VulkanComputeTest, CanCreateBuffer) {
-  auto buffer = compute_->createBuffer(1024);
+  auto buffer = compute_->createBuffer({256}, DataType::Float32);
   EXPECT_TRUE(buffer);
 }
 
 TEST_F(VulkanComputeTest, CanCreateBufferWithInitialData) {
   std::vector<uint32_t> data = {1, 2, 3, 4, 5};
-  auto buffer = compute_->createBuffer(data.size() * sizeof(uint32_t),
+  auto buffer = compute_->createBuffer({data.size()}, DataType::UInt32,
                                        data.data(), false);
   EXPECT_TRUE(buffer);
 }
 
 TEST_F(VulkanComputeTest, CanCreateUniformBuffer) {
-  auto buffer = compute_->createBuffer(256, nullptr, true);
+  auto buffer = compute_->createBuffer({64}, DataType::Float32, nullptr, true);
   EXPECT_TRUE(buffer);
 }
 
 TEST_F(VulkanComputeTest, CanCreateMultipleBuffers) {
-  auto buffer1 = compute_->createBuffer(1024);
-  auto buffer2 = compute_->createBuffer(2048);
-  auto buffer3 = compute_->createBuffer(512);
+  auto buffer1 = compute_->createBuffer({256}, DataType::Float32);
+  auto buffer2 = compute_->createBuffer({512}, DataType::Float32);
+  auto buffer3 = compute_->createBuffer({128}, DataType::Float32);
 
   EXPECT_TRUE(buffer1);
   EXPECT_TRUE(buffer2);
@@ -99,7 +99,7 @@ TEST_F(VulkanComputeTest, CanCreateMultipleBuffers) {
 
 TEST_F(VulkanComputeTest, CopyDataToBuffer) {
   std::vector<uint32_t> srcData = {10, 20, 30, 40, 50};
-  auto buffer = compute_->createBuffer(srcData.size() * sizeof(uint32_t));
+  auto buffer = compute_->createBuffer({srcData.size()}, DataType::UInt32);
 
   EXPECT_NO_THROW(compute_->copyDataToBuffer(
       srcData.data(), buffer, srcData.size() * sizeof(uint32_t), 0, 0));
@@ -107,8 +107,8 @@ TEST_F(VulkanComputeTest, CopyDataToBuffer) {
 
 TEST_F(VulkanComputeTest, CopyDataFromBuffer) {
   std::vector<uint32_t> srcData = {10, 20, 30, 40, 50};
-  auto buffer =
-      compute_->createBuffer(srcData.size() * sizeof(uint32_t), srcData.data());
+  auto buffer = compute_->createBuffer({srcData.size()}, DataType::UInt32,
+                                       srcData.data());
 
   std::vector<uint32_t> dstData(5);
   EXPECT_NO_THROW(compute_->copyDataFromBuffer(
@@ -116,7 +116,7 @@ TEST_F(VulkanComputeTest, CopyDataFromBuffer) {
 }
 
 TEST_F(VulkanComputeTest, BufferHandleBecomesInvalidAfterReset) {
-  auto buffer = compute_->createBuffer(1024);
+  auto buffer = compute_->createBuffer({256}, DataType::Float32);
   EXPECT_TRUE(buffer);
 
   buffer.reset();
@@ -132,7 +132,7 @@ TEST_F(VulkanComputeTest, CanRegisterDispatch) {
 }
 
 TEST_F(VulkanComputeTest, CanRegisterDispatchWithBindings) {
-  auto buffer = compute_->createBuffer(1024);
+  auto buffer = compute_->createBuffer({256}, DataType::Float32);
   ThreadSize tgs{8, 8, 1};
 
   compute_->encode({{}, tgs, {ComputeBinding(0, buffer)}});

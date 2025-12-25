@@ -75,18 +75,19 @@ TEST_F(CPUComputeTest, ThreadPoolCreation) {
 }
 
 TEST_F(CPUComputeTest, BufferCreation) {
-  const size_t bufferSize = 1024;
-  auto handle = interface_->createBuffer(bufferSize);
+  const size_t numElements = 256;
+  auto handle = interface_->createBuffer({numElements}, DataType::Float32);
   EXPECT_TRUE(handle);
 }
 
 TEST_F(CPUComputeTest, BufferCreationWithInitialData) {
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
   auto handle =
-      interface_->createBuffer(data.size() * sizeof(float), data.data());
+      interface_->createBuffer({data.size()}, DataType::Float32, data.data());
   EXPECT_TRUE(handle);
 
-  // Read back the data
+  // Read back the data (buffer is padded to multiple of 4, but we read original
+  // size)
   std::vector<float> readback(data.size());
   interface_->copyDataFromBuffer(handle, readback.data(),
                                  readback.size() * sizeof(float), 0, 0);
@@ -99,7 +100,7 @@ TEST_F(CPUComputeTest, BufferCopyRoundTrip) {
   std::vector<float> original(numElements);
   std::iota(original.begin(), original.end(), 0.0f);
 
-  auto handle = interface_->createBuffer(original.size() * sizeof(float));
+  auto handle = interface_->createBuffer({original.size()}, DataType::Float32);
 
   // Copy data to buffer
   interface_->copyDataToBuffer(original.data(), handle,
@@ -116,7 +117,7 @@ TEST_F(CPUComputeTest, BufferCopyRoundTrip) {
 TEST_F(CPUComputeTest, BufferPartialCopy) {
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
   auto handle =
-      interface_->createBuffer(data.size() * sizeof(float), data.data());
+      interface_->createBuffer({data.size()}, DataType::Float32, data.data());
 
   // Read only middle portion
   std::vector<float> partial(2);
@@ -162,7 +163,7 @@ TEST_F(CPUComputeTest, SimpleKernelExecution) {
   const uint32_t numElements = 1024;
   std::vector<float> data(numElements, 1.0f);
   auto buffer =
-      interface_->createBuffer(data.size() * sizeof(float), data.data());
+      interface_->createBuffer({data.size()}, DataType::Float32, data.data());
 
   // Push constants
   struct {
@@ -219,9 +220,10 @@ TEST_F(CPUComputeTest, MultiBufferKernel) {
   std::vector<float> inputData(numElements);
   std::iota(inputData.begin(), inputData.end(), 0.0f); // 0, 1, 2, ...
 
-  auto inputBuffer = interface_->createBuffer(inputData.size() * sizeof(float),
-                                              inputData.data());
-  auto outputBuffer = interface_->createBuffer(numElements * sizeof(float));
+  auto inputBuffer = interface_->createBuffer(
+      {inputData.size()}, DataType::Float32, inputData.data());
+  auto outputBuffer =
+      interface_->createBuffer({numElements}, DataType::Float32);
 
   // Push constants
   struct {
@@ -276,7 +278,7 @@ TEST_F(CPUComputeTest, LargeDispatch) {
   const uint32_t numElements = 100000;
   std::vector<float> data(numElements, 0.0f);
   auto buffer =
-      interface_->createBuffer(data.size() * sizeof(float), data.data());
+      interface_->createBuffer({data.size()}, DataType::Float32, data.data());
 
   struct {
     uint32_t numElements;
@@ -326,7 +328,7 @@ TEST_F(CPUComputeTest, MultipleDispatches) {
   const uint32_t numElements = 256;
   std::vector<float> data(numElements, 0.0f);
   auto buffer =
-      interface_->createBuffer(data.size() * sizeof(float), data.data());
+      interface_->createBuffer({data.size()}, DataType::Float32, data.data());
 
   struct {
     uint32_t numElements;

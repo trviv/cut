@@ -21,6 +21,7 @@ struct CPUBufferStruct {
 
   void *data = nullptr;
   size_t size = 0;
+  std::vector<size_t> shape; ///< Dimension-wise sizes (like tensor shape).
 };
 
 /**
@@ -50,13 +51,16 @@ public:
   ~CPUCompute() override;
 
   /**
-   * Creates a CPU buffer with optional initial data.
-   * @param size Buffer size in bytes.
+   * Creates a CPU buffer with tensor-like shape.
+   * The innermost dimension is rounded up to a multiple of 4 for alignment.
+   * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
+   * @param dtype Data type of each element.
    * @param srcPtr Optional pointer to source data for initialization.
    * @param immutable Ignored for CPU backend (all buffers are read/write).
    * @return Handle to the created buffer.
    */
-  ComputeHandle createBuffer(size_t size,
+  ComputeHandle createBuffer(const std::vector<size_t> &shape,
+                             DataType dtype,
                              const void *srcPtr = nullptr,
                              bool immutable = false) override;
 
@@ -123,6 +127,18 @@ public:
    * @param mode The SIMD mode to use.
    */
   void setSIMDMode(SIMDMode mode) { simdMode_ = mode; }
+
+protected:
+  /**
+   * Creates a CPU buffer with optional initial data.
+   * @param size Buffer size in bytes.
+   * @param srcPtr Optional pointer to source data for initialization.
+   * @param immutable Ignored for CPU backend (all buffers are read/write).
+   * @return Handle to the created buffer.
+   */
+  ComputeHandle createBuffer(size_t size,
+                             const void *srcPtr = nullptr,
+                             bool immutable = false) override;
 
 private:
   std::unique_ptr<CPUContainers> containers_;
