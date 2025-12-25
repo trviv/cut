@@ -22,8 +22,10 @@ public:
 TEST_F(VulkanTestEnvironment, Buffer) {
   cut::ComputeHandle buffer1;
   cut::ComputeHandle buffer2;
-  const uint32_t elements = 10;
+  // Use 12 elements (aligned to 4) to match buffer allocation
+  const uint32_t elements = 12;
   const uint32_t dtypeSize = sizeof(uint32_t);
+  const size_t bufferSize = elements * dtypeSize;
 
   const auto refData = generateRandomUint(elements);
 
@@ -39,29 +41,29 @@ TEST_F(VulkanTestEnvironment, Buffer) {
 
   EXPECT_THROW(
       {
-        // writing outside range
-        interface->copyDataToBuffer(refData.data(), buffer2,
-                                    elements * dtypeSize, 0, 1, false, true);
+        // writing outside range - write past the end of buffer
+        interface->copyDataToBuffer(refData.data(), buffer2, bufferSize, 0,
+                                    dtypeSize, false, true);
       },
       std::runtime_error);
 
   EXPECT_NO_THROW({
-    interface->copyDataToBuffer(refData.data(), buffer1, elements * dtypeSize,
-                                0, 0, false, true);
+    interface->copyDataToBuffer(refData.data(), buffer1, bufferSize, 0, 0,
+                                false, true);
   });
 
   std::vector<uint32_t> outData(elements);
 
   EXPECT_NO_THROW({
-    interface->copyDataFromBuffer(buffer1, outData.data(), elements * dtypeSize,
-                                  0, 0, false, false);
+    interface->copyDataFromBuffer(buffer1, outData.data(), bufferSize, 0, 0,
+                                  false, false);
   });
 
   EXPECT_THROW(
       {
-        // reading outside range
-        interface->copyDataFromBuffer(buffer1, outData.data(),
-                                      elements * dtypeSize, 1, 0, false, false);
+        // reading outside range - read past the end of buffer
+        interface->copyDataFromBuffer(buffer1, outData.data(), bufferSize,
+                                      dtypeSize, 0, false, false);
       },
       std::runtime_error);
 

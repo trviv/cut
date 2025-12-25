@@ -62,7 +62,8 @@ private:
   void cleanup();
 
   /// Creates a GPU buffer with specified memory type.
-  /// @param size Buffer size in bytes.
+  /// @param size Buffer size in bytes (aligned).
+  /// @param srcSize Size of source data in bytes (may be less than size).
   /// @param deviceOnly If true, allocates device-local memory (requires staging
   /// for CPU access).
   /// @param srcPtr Optional host data to initialize the buffer.
@@ -70,6 +71,7 @@ private:
   /// @param shape Optional tensor shape to store in the buffer.
   /// @return Handle to the created buffer.
   ComputeHandle createBuffer(size_t size,
+                             size_t srcSize,
                              bool deviceOnly,
                              const void *srcPtr,
                              bool isUniform = false,

@@ -157,14 +157,16 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<size_t> &shape,
     logErr("Cannot create buffer with empty shape");
   }
 
-  const size_t totalSize = calculateAlignedSize(shape, dtype);
+  const size_t alignedSize = calculateAlignedSize(shape, dtype);
+  const size_t actualSize = calculateActualSize(shape, dtype);
 
-  // Create buffer with calculated size, passing original shape
+  // Create buffer with aligned size, passing original shape
   // Default to device-only for optimal GPU performance
-  return createBuffer(totalSize, true, srcPtr, isUniform, shape);
+  return createBuffer(alignedSize, actualSize, true, srcPtr, isUniform, shape);
 }
 
 ComputeHandle VulkanCompute::createBuffer(size_t size,
+                                          size_t srcSize,
                                           bool deviceOnly,
                                           const void *srcPtr,
                                           bool isUniform,
@@ -249,7 +251,8 @@ ComputeHandle VulkanCompute::createBuffer(size_t size,
 
   if (srcPtr != nullptr) {
     // Use staging for device-only buffers
-    copyDataToBuffer(srcPtr, handle, size, 0, 0, deviceOnly);
+    // Copy only the actual source data size, not the aligned buffer size
+    copyDataToBuffer(srcPtr, handle, srcSize, 0, 0, deviceOnly);
   }
 
   return handle;

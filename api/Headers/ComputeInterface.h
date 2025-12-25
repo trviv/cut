@@ -113,6 +113,16 @@ public:
 
 protected:
   /**
+   * Calculates the actual buffer size in bytes from a shape vector (no
+   * padding).
+   * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
+   * @param dtype Data type of each element.
+   * @return Total size in bytes without alignment padding.
+   */
+  static size_t calculateActualSize(const std::vector<size_t> &shape,
+                                    DataType dtype);
+
+  /**
    * Calculates the total buffer size in bytes from a shape vector.
    * Rounds the innermost dimension up to a multiple of 4 for alignment.
    * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
@@ -120,20 +130,7 @@ protected:
    * @return Total size in bytes after aligning the innermost dimension.
    */
   static size_t calculateAlignedSize(const std::vector<size_t> &shape,
-                                     DataType dtype) {
-    if (shape.empty()) {
-      return 0;
-    }
-    // Round innermost dimension to multiple of 4
-    std::vector<size_t> alignedShape = shape;
-    alignedShape.back() = (alignedShape.back() + 3) & ~static_cast<size_t>(3);
-
-    size_t totalElements = 1;
-    for (size_t dim : alignedShape) {
-      totalElements *= dim;
-    }
-    return totalElements * dataTypeSize(dtype);
-  }
+                                     DataType dtype);
 
   /**
    * Sets the command buffer container for this interface.
