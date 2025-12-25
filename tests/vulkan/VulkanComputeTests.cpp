@@ -140,3 +140,147 @@ TEST_F(VulkanComputeTest, CanRegisterDispatchWithBindings) {
   auto cmdBufferHandle = compute_->submit();
   cmdBufferHandle.reset();
 }
+
+// Tests for aligned buffer copies (innermost dimension is multiple of 4)
+TEST_F(VulkanComputeTest, AlignedBufferCopyRoundTrip1D) {
+  // 8 elements - already aligned (multiple of 4)
+  std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f,
+                                 5.0f, 6.0f, 7.0f, 8.0f};
+  auto handle = compute_->createBuffer({original.size()}, DataType::Float32);
+
+  compute_->copyDataToBuffer(original.data(), handle,
+                             original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  compute_->copyDataFromBuffer(handle, readback.data(),
+                               readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(VulkanComputeTest, AlignedBufferCopyRoundTrip2D) {
+  // 3x4 - innermost dimension is 4 (aligned)
+  const size_t rows = 3;
+  const size_t cols = 4;
+  std::vector<float> original(rows * cols);
+  for (size_t i = 0; i < original.size(); ++i) {
+    original[i] = static_cast<float>(i + 1);
+  }
+
+  auto handle = compute_->createBuffer({rows, cols}, DataType::Float32);
+
+  compute_->copyDataToBuffer(original.data(), handle,
+                             original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  compute_->copyDataFromBuffer(handle, readback.data(),
+                               readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+// Tests for misaligned buffer copies (innermost dimension is NOT multiple of 4)
+TEST_F(VulkanComputeTest, MisalignedBufferCopyRoundTrip1D) {
+  // 5 elements - not aligned (not a multiple of 4)
+  std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+  auto handle = compute_->createBuffer({original.size()}, DataType::Float32);
+
+  compute_->copyDataToBuffer(original.data(), handle,
+                             original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  compute_->copyDataFromBuffer(handle, readback.data(),
+                               readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(VulkanComputeTest, MisalignedBufferCopyRoundTrip2D) {
+  // 3x5 - innermost dimension is 5 (not aligned, needs padding to 8)
+  const size_t rows = 3;
+  const size_t cols = 5;
+  std::vector<float> original(rows * cols);
+  for (size_t i = 0; i < original.size(); ++i) {
+    original[i] = static_cast<float>(i + 1);
+  }
+
+  auto handle = compute_->createBuffer({rows, cols}, DataType::Float32);
+
+  compute_->copyDataToBuffer(original.data(), handle,
+                             original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  compute_->copyDataFromBuffer(handle, readback.data(),
+                               readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(VulkanComputeTest, MisalignedBufferCopyRoundTrip3D) {
+  // 2x3x5 - innermost dimension is 5 (not aligned)
+  const size_t depth = 2;
+  const size_t rows = 3;
+  const size_t cols = 5;
+  std::vector<float> original(depth * rows * cols);
+  for (size_t i = 0; i < original.size(); ++i) {
+    original[i] = static_cast<float>(i + 1);
+  }
+
+  auto handle = compute_->createBuffer({depth, rows, cols}, DataType::Float32);
+
+  compute_->copyDataToBuffer(original.data(), handle,
+                             original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  compute_->copyDataFromBuffer(handle, readback.data(),
+                               readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(VulkanComputeTest, MisalignedBufferCreationWithData) {
+  // 7 elements - not aligned
+  std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f};
+  auto handle = compute_->createBuffer({original.size()}, DataType::Float32,
+                                       original.data());
+
+  std::vector<float> readback(original.size());
+  compute_->copyDataFromBuffer(handle, readback.data(),
+                               readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(VulkanComputeTest, MisalignedBufferWithUInt32) {
+  // 6 elements - not aligned (needs padding to 8)
+  std::vector<uint32_t> original = {10, 20, 30, 40, 50, 60};
+  auto handle = compute_->createBuffer({original.size()}, DataType::UInt32);
+
+  compute_->copyDataToBuffer(original.data(), handle,
+                             original.size() * sizeof(uint32_t), 0, 0);
+
+  std::vector<uint32_t> readback(original.size());
+  compute_->copyDataFromBuffer(handle, readback.data(),
+                               readback.size() * sizeof(uint32_t), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(VulkanComputeTest, MisalignedBuffer2DWithInitData) {
+  // 4x3 - innermost dimension is 3 (not aligned)
+  const size_t rows = 4;
+  const size_t cols = 3;
+  std::vector<float> original(rows * cols);
+  for (size_t i = 0; i < original.size(); ++i) {
+    original[i] = static_cast<float>(i + 1);
+  }
+
+  auto handle =
+      compute_->createBuffer({rows, cols}, DataType::Float32, original.data());
+
+  std::vector<float> readback(original.size());
+  compute_->copyDataFromBuffer(handle, readback.data(),
+                               readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}

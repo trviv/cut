@@ -250,8 +250,9 @@ ComputeHandle VulkanCompute::createBuffer(size_t size,
   auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
 
   if (srcPtr != nullptr && !shape.empty()) {
-    // copyDataToBuffer will use copyActualToAligned internally
-    copyDataToBuffer(srcPtr, handle, size, 0, 0, deviceOnly);
+    // Pass actualSize so copyDataToBuffer uses aligned copy
+    const size_t actualSize = calculateActualSize(shape, dtype);
+    copyDataToBuffer(srcPtr, handle, actualSize, 0, 0, deviceOnly);
   }
 
   return handle;
@@ -412,29 +413,38 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
     logErr("Trying to write data outside destination buffer range.");
   }
 
-  // Use aligned copy only for full buffer copies (offset 0, full size)
-  // Partial copies use regular memcpy since they don't need alignment handling
-  const bool useAlignedCopy = !buffer.shape.empty() && srcOffset == 0 &&
-                              dstOffset == 0 && size == buffer.size;
+  // Use aligned copy for full buffer copies, memcpy for partial copies
+  const size_t actualSize = calculateActualSize(buffer.shape, buffer.dtype);
+  const bool useAlignedCopy =
+      srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
-    // Create a staging buffer, copy host data to it, then copy to device
-    VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
-
-    // Copy host data to staging buffer
     if (useAlignedCopy) {
+      // For aligned copy, we need to copy the entire aligned buffer
+      const size_t alignedSize =
+          calculateAlignedSize(buffer.shape, buffer.dtype);
+      VulkanBufferStruct stagingBuffer = createStagingBuffer(alignedSize);
+
+      // Copy actual data from host to aligned staging buffer
       copyActualToAligned(srcPtr, stagingBuffer.mappedData, buffer.shape,
                           buffer.dtype);
+
+      // Copy full aligned data from staging to device
+      executeBufferCopy(stagingBuffer.buffer, buffer.buffer, alignedSize, 0, 0);
+
+      destroyStagingBuffer(stagingBuffer);
     } else {
+      // For partial copies, use direct memcpy
+      VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
+
       memcpy(stagingBuffer.mappedData,
              static_cast<const char *>(srcPtr) + srcOffset, size);
+
+      executeBufferCopy(stagingBuffer.buffer, buffer.buffer, size, 0,
+                        dstOffset);
+
+      destroyStagingBuffer(stagingBuffer);
     }
-
-    // Copy from staging buffer to device buffer
-    executeBufferCopy(stagingBuffer.buffer, buffer.buffer, size, 0, dstOffset);
-
-    // Clean up staging buffer
-    destroyStagingBuffer(stagingBuffer);
   } else {
     // Copy to host-visible buffer
     if (useAlignedCopy) {
@@ -447,14 +457,17 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
 
     // Flush memory to make writes visible to GPU
     if (!buffer.isCoherent) {
+      const size_t flushSize =
+          useAlignedCopy ? calculateAlignedSize(buffer.shape, buffer.dtype)
+                         : size;
 #if CUT_USE_VMA
-      vmaFlushAllocation(allocator_, buffer.allocation, dstOffset, size);
+      vmaFlushAllocation(allocator_, buffer.allocation, dstOffset, flushSize);
 #else
       VkMappedMemoryRange memoryRange = {};
       memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
       memoryRange.memory = buffer.memory;
       memoryRange.offset = dstOffset;
-      memoryRange.size = size;
+      memoryRange.size = flushSize;
 
       VK_CHECK(vkFlushMappedMemoryRanges(device_, 1, &memoryRange));
 #endif
@@ -476,40 +489,53 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     logErr("Trying to read data outside source buffer range.");
   }
 
-  // Use aligned copy only for full buffer copies (offset 0, full size)
-  // Partial copies use regular memcpy since they don't need alignment handling
-  const bool useAlignedCopy = !buffer.shape.empty() && srcOffset == 0 &&
-                              dstOffset == 0 && size == buffer.size;
+  // Use aligned copy for full buffer copies, memcpy for partial copies
+  const size_t actualSize = calculateActualSize(buffer.shape, buffer.dtype);
+  const bool useAlignedCopy =
+      srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
-    // Create a staging buffer, copy device data to it, then copy to host
-    VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
-
-    // Copy from device buffer to staging buffer
-    executeBufferCopy(buffer.buffer, stagingBuffer.buffer, size, srcOffset, 0);
-
-    // Copy staging buffer data to host
     if (useAlignedCopy) {
+      // For aligned copy, we need to copy the entire aligned buffer
+      const size_t alignedSize =
+          calculateAlignedSize(buffer.shape, buffer.dtype);
+      VulkanBufferStruct stagingBuffer = createStagingBuffer(alignedSize);
+
+      // Copy full aligned data from device to staging
+      executeBufferCopy(buffer.buffer, stagingBuffer.buffer, alignedSize, 0, 0);
+
+      // Extract actual data from aligned staging buffer to host
       copyAlignedToActual(stagingBuffer.mappedData, dstPtr, buffer.shape,
                           buffer.dtype);
+
+      destroyStagingBuffer(stagingBuffer);
     } else {
+      // For partial copies, use direct memcpy
+      VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
+
+      executeBufferCopy(buffer.buffer, stagingBuffer.buffer, size, srcOffset,
+                        0);
+
       memcpy(static_cast<char *>(dstPtr) + dstOffset, stagingBuffer.mappedData,
              size);
-    }
 
-    // Clean up staging buffer
-    destroyStagingBuffer(stagingBuffer);
+      destroyStagingBuffer(stagingBuffer);
+    }
   } else {
     // Invalidate memory to make GPU writes visible to CPU
     if (!buffer.isCoherent) {
+      const size_t invalidateSize =
+          useAlignedCopy ? calculateAlignedSize(buffer.shape, buffer.dtype)
+                         : size;
 #if CUT_USE_VMA
-      vmaInvalidateAllocation(allocator_, buffer.allocation, srcOffset, size);
+      vmaInvalidateAllocation(allocator_, buffer.allocation, srcOffset,
+                              invalidateSize);
 #else
       VkMappedMemoryRange memoryRange = {};
       memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
       memoryRange.memory = buffer.memory;
       memoryRange.offset = srcOffset;
-      memoryRange.size = size;
+      memoryRange.size = invalidateSize;
 
       VK_CHECK(vkInvalidateMappedMemoryRanges(device_, 1, &memoryRange));
 #endif

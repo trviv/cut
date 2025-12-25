@@ -137,5 +137,142 @@ TEST_F(CPUComputeTest, ShaderModuleCreation) {
   EXPECT_TRUE(shaderHandle);
 }
 
+// Tests for aligned buffer copies (innermost dimension is multiple of 4)
+TEST_F(CPUComputeTest, AlignedBufferCopyRoundTrip1D) {
+  // 8 elements - already aligned (multiple of 4)
+  std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f,
+                                 5.0f, 6.0f, 7.0f, 8.0f};
+  auto handle = interface_->createBuffer({original.size()}, DataType::Float32);
+
+  interface_->copyDataToBuffer(original.data(), handle,
+                               original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  interface_->copyDataFromBuffer(handle, readback.data(),
+                                 readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(CPUComputeTest, AlignedBufferCopyRoundTrip2D) {
+  // 3x4 - innermost dimension is 4 (aligned)
+  const size_t rows = 3;
+  const size_t cols = 4;
+  std::vector<float> original(rows * cols);
+  std::iota(original.begin(), original.end(), 1.0f);
+
+  auto handle = interface_->createBuffer({rows, cols}, DataType::Float32);
+
+  interface_->copyDataToBuffer(original.data(), handle,
+                               original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  interface_->copyDataFromBuffer(handle, readback.data(),
+                                 readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+// Tests for misaligned buffer copies (innermost dimension is NOT multiple of 4)
+TEST_F(CPUComputeTest, MisalignedBufferCopyRoundTrip1D) {
+  // 5 elements - not aligned (not a multiple of 4)
+  std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+  auto handle = interface_->createBuffer({original.size()}, DataType::Float32);
+
+  interface_->copyDataToBuffer(original.data(), handle,
+                               original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  interface_->copyDataFromBuffer(handle, readback.data(),
+                                 readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(CPUComputeTest, MisalignedBufferCopyRoundTrip2D) {
+  // 3x5 - innermost dimension is 5 (not aligned, needs padding to 8)
+  const size_t rows = 3;
+  const size_t cols = 5;
+  std::vector<float> original(rows * cols);
+  std::iota(original.begin(), original.end(), 1.0f);
+
+  auto handle = interface_->createBuffer({rows, cols}, DataType::Float32);
+
+  interface_->copyDataToBuffer(original.data(), handle,
+                               original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  interface_->copyDataFromBuffer(handle, readback.data(),
+                                 readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(CPUComputeTest, MisalignedBufferCopyRoundTrip3D) {
+  // 2x3x5 - innermost dimension is 5 (not aligned)
+  const size_t depth = 2;
+  const size_t rows = 3;
+  const size_t cols = 5;
+  std::vector<float> original(depth * rows * cols);
+  std::iota(original.begin(), original.end(), 1.0f);
+
+  auto handle =
+      interface_->createBuffer({depth, rows, cols}, DataType::Float32);
+
+  interface_->copyDataToBuffer(original.data(), handle,
+                               original.size() * sizeof(float), 0, 0);
+
+  std::vector<float> readback(original.size());
+  interface_->copyDataFromBuffer(handle, readback.data(),
+                                 readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(CPUComputeTest, MisalignedBufferCreationWithData) {
+  // 7 elements - not aligned
+  std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f};
+  auto handle = interface_->createBuffer({original.size()}, DataType::Float32,
+                                         original.data());
+
+  std::vector<float> readback(original.size());
+  interface_->copyDataFromBuffer(handle, readback.data(),
+                                 readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(CPUComputeTest, MisalignedBufferWithUInt32) {
+  // 6 elements - not aligned (needs padding to 8)
+  std::vector<uint32_t> original = {10, 20, 30, 40, 50, 60};
+  auto handle = interface_->createBuffer({original.size()}, DataType::UInt32);
+
+  interface_->copyDataToBuffer(original.data(), handle,
+                               original.size() * sizeof(uint32_t), 0, 0);
+
+  std::vector<uint32_t> readback(original.size());
+  interface_->copyDataFromBuffer(handle, readback.data(),
+                                 readback.size() * sizeof(uint32_t), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
+TEST_F(CPUComputeTest, MisalignedBuffer2DWithOffsets) {
+  // 4x3 - innermost dimension is 3 (not aligned)
+  const size_t rows = 4;
+  const size_t cols = 3;
+  std::vector<float> original(rows * cols);
+  std::iota(original.begin(), original.end(), 1.0f);
+
+  auto handle = interface_->createBuffer({rows, cols}, DataType::Float32,
+                                         original.data());
+
+  std::vector<float> readback(original.size());
+  interface_->copyDataFromBuffer(handle, readback.data(),
+                                 readback.size() * sizeof(float), 0, 0);
+
+  EXPECT_EQ(original, readback);
+}
+
 } // namespace
 } // namespace cut
