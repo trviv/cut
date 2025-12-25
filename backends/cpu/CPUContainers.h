@@ -61,7 +61,9 @@ struct CPUContainers {
  */
 class CPUCommandBufferContainer final : public CommandBufferContainer {
 public:
-  CPUCommandBufferContainer(CPUContainers &containers, ThreadPool &threadPool);
+  CPUCommandBufferContainer(CPUContainers &containers,
+                            ThreadPool &threadPool,
+                            CPUCompute *compute);
   ~CPUCommandBufferContainer() override = default;
 
   ComputeHandle createCommandBuffer() override;
@@ -69,6 +71,7 @@ public:
 private:
   CPUContainers &containers_;
   ThreadPool &threadPool_;
+  CPUCompute *compute_;
 };
 
 } // namespace cut

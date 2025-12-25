@@ -13,6 +13,16 @@ namespace py = pybind11;
 PYBIND11_MODULE(_cut_cpu, m) {
   m.doc() = "CUT (Compute Unified Toolkit) - CPU Compute Backend";
 
+  // Expose SIMDMode enum for runtime SIMD selection
+  py::enum_<cut::SIMDMode>(m, "SIMDMode")
+      .value("Scalar", cut::SIMDMode::Scalar,
+             "Plain scalar operations (no SIMD)")
+      .value("SSE", cut::SIMDMode::SSE, "SSE instructions (128-bit, 4 floats)")
+      .value("AVX", cut::SIMDMode::AVX, "AVX instructions (256-bit, 8 floats)")
+      .value("Auto", cut::SIMDMode::Auto,
+             "Auto-detect best available (default)")
+      .export_values();
+
   // Expose CPUKernelType enum (matches ShaderEnum values)
   py::enum_<cut::CPUKernelType>(m, "CPUKernelType")
       // Binary arithmetic
@@ -106,8 +116,13 @@ PYBIND11_MODULE(_cut_cpu, m) {
 
   // Expose CPUCompute (ComputeInterface implementation)
   py::class_<cut::CPUCompute>(m, "CPUCompute")
-      .def(py::init<size_t>(), py::arg("num_threads") = 0)
+      .def(py::init<size_t, cut::SIMDMode>(), py::arg("num_threads") = 0,
+           py::arg("simd_mode") = cut::SIMDMode::Auto)
       .def("num_threads", &cut::CPUCompute::numThreads)
+      .def("simd_mode", &cut::CPUCompute::simdMode,
+           "Get the current SIMD execution mode")
+      .def("set_simd_mode", &cut::CPUCompute::setSIMDMode, py::arg("mode"),
+           "Set the SIMD execution mode")
       .def(
           "create_buffer",
           [](cut::CPUCompute &self, py::array arr, bool isUniform) {

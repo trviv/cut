@@ -1,4 +1,5 @@
 #include "CPUCommandBuffer.h"
+#include "CPUCompute.h"
 #include "CPUKernels.h"
 
 #include <algorithm>
@@ -7,8 +8,9 @@
 namespace cut {
 
 CPUCommandBuffer::CPUCommandBuffer(CPUContainers &containers,
-                                   ThreadPool &threadPool)
-    : containers_(containers), threadPool_(threadPool) {}
+                                   ThreadPool &threadPool,
+                                   CPUCompute *compute)
+    : containers_(containers), threadPool_(threadPool), compute_(compute) {}
 
 CPUCommandBuffer::~CPUCommandBuffer() {
   // Wait for any pending operations
@@ -17,6 +19,9 @@ CPUCommandBuffer::~CPUCommandBuffer() {
 
 void CPUCommandBuffer::submit() {
   const auto &dispatchList = dispatches();
+
+  // Get the SIMD mode from the compute interface
+  const SIMDMode simdMode = compute_ ? compute_->simdMode() : SIMDMode::Auto;
 
   for (const auto &dispatch : dispatchList) {
     const auto &shader =
@@ -73,8 +78,9 @@ void CPUCommandBuffer::submit() {
         const size_t chunkEnd =
             std::min(chunkStart + chunkSize, static_cast<size_t>(numElements));
         threadPool_.submit(
-            [this, kernelType, a, b, out, chunkStart, chunkEnd]() {
-              executeBinaryKernel(kernelType, a, b, out, chunkStart, chunkEnd);
+            [this, kernelType, a, b, out, chunkStart, chunkEnd, simdMode]() {
+              executeBinaryKernel(kernelType, a, b, out, chunkStart, chunkEnd,
+                                  simdMode);
               if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                 std::lock_guard<std::mutex> lock(mutex_);
                 cv_.notify_all();
@@ -94,13 +100,15 @@ void CPUCommandBuffer::submit() {
            chunkStart += chunkSize) {
         const size_t chunkEnd =
             std::min(chunkStart + chunkSize, static_cast<size_t>(numElements));
-        threadPool_.submit([this, kernelType, in, out, chunkStart, chunkEnd]() {
-          executeUnaryKernel(kernelType, in, out, chunkStart, chunkEnd);
-          if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            cv_.notify_all();
-          }
-        });
+        threadPool_.submit(
+            [this, kernelType, in, out, chunkStart, chunkEnd, simdMode]() {
+              executeUnaryKernel(kernelType, in, out, chunkStart, chunkEnd,
+                                 simdMode);
+              if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                cv_.notify_all();
+              }
+            });
       }
     }
   }

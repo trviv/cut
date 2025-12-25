@@ -24,15 +24,21 @@ from pathlib import Path
 # Try to import backends
 VULKAN_AVAILABLE = False
 CPU_AVAILABLE = False
+cut = None
+cut_cpu = None
 
 try:
-    import cut
-    VULKAN_AVAILABLE = True
+    import cut as cut_module
+    cut = cut_module
+    VULKAN_AVAILABLE = cut.is_vulkan_available()
+    if not VULKAN_AVAILABLE:
+        print("Note: Vulkan backend not available (symbol loading failed)")
 except ImportError as e:
-    print(f"Warning: Vulkan backend not available: {e}")
+    print(f"Warning: cut module not available: {e}")
 
 try:
-    from cut import cpu as cut_cpu
+    from cut import cpu as cut_cpu_module
+    cut_cpu = cut_cpu_module
     CPU_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: CPU backend not available: {e}")
@@ -67,13 +73,17 @@ class BenchmarkResult:
     category: str
     vulkan_ms: float
     cpu_ms: float
+    cpu_simd_ms: float
     numpy_ms: float
     vulkan_speedup: float
     cpu_speedup: float
+    cpu_simd_speedup: float
     vulkan_valid: bool
     cpu_valid: bool
+    cpu_simd_valid: bool
     vulkan_std_ms: float = 0.0
     cpu_std_ms: float = 0.0
+    cpu_simd_std_ms: float = 0.0
     numpy_std_ms: float = 0.0
 
 
@@ -154,8 +164,8 @@ def print_subheader(text: str):
 
 def print_table_header():
     """Print the results table header."""
-    print(f"\n{'Operation':<14} │ {'Vulkan (ms)':<16} │ {'CPU (ms)':<16} │ {'NumPy (ms)':<16} │ {'Vulkan/NP':<10} │ {'CPU/NP':<10} │ {'Status':<12}")
-    print(f"{'─' * 14}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 10}─┼─{'─' * 10}─┼─{'─' * 12}")
+    print(f"\n{'Operation':<14} │ {'Vulkan (ms)':<16} │ {'CPU (ms)':<16} │ {'CPU+SIMD (ms)':<16} │ {'NumPy (ms)':<16} │ {'Vulkan/NP':<10} │ {'CPU/NP':<10} │ {'SIMD/NP':<10} │ {'Status':<12}")
+    print(f"{'─' * 14}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 10}─┼─{'─' * 10}─┼─{'─' * 10}─┼─{'─' * 12}")
 
 
 def print_result_row(result: BenchmarkResult, show_std: bool = True,
@@ -164,14 +174,17 @@ def print_result_row(result: BenchmarkResult, show_std: bool = True,
     if show_std:
         vk_str = format_time(result.vulkan_ms, result.vulkan_std_ms, vulkan_available)
         cpu_str = format_time(result.cpu_ms, result.cpu_std_ms, cpu_available)
+        cpu_simd_str = format_time(result.cpu_simd_ms, result.cpu_simd_std_ms, cpu_available)
         np_str = format_time(result.numpy_ms, result.numpy_std_ms)
     else:
         vk_str = format_time(result.vulkan_ms, available=vulkan_available)
         cpu_str = format_time(result.cpu_ms, available=cpu_available)
+        cpu_simd_str = format_time(result.cpu_simd_ms, available=cpu_available)
         np_str = format_time(result.numpy_ms)
 
     vk_speedup_str = format_speedup(result.vulkan_speedup, vulkan_available)
     cpu_speedup_str = format_speedup(result.cpu_speedup, cpu_available)
+    cpu_simd_speedup_str = format_speedup(result.cpu_simd_speedup, cpu_available)
 
     # Status string
     status_parts = []
@@ -179,15 +192,21 @@ def print_result_row(result: BenchmarkResult, show_std: bool = True,
         status_parts.append(f"{'V:OK' if result.vulkan_valid else 'V:FAIL'}")
     if cpu_available:
         status_parts.append(f"{'C:OK' if result.cpu_valid else 'C:FAIL'}")
+        status_parts.append(f"{'S:OK' if result.cpu_simd_valid else 'S:FAIL'}")
     status = " ".join(status_parts)
 
     # Color the status
-    if (vulkan_available and not result.vulkan_valid) or (cpu_available and not result.cpu_valid):
+    all_valid = True
+    if vulkan_available and not result.vulkan_valid:
+        all_valid = False
+    if cpu_available and (not result.cpu_valid or not result.cpu_simd_valid):
+        all_valid = False
+    if not all_valid:
         status = f"{Colors.RED}{status}{Colors.RESET}"
     else:
         status = f"{Colors.GREEN}{status}{Colors.RESET}"
 
-    print(f"{result.name:<14} │ {vk_str:<16} │ {cpu_str:<16} │ {np_str:<16} │ {vk_speedup_str:<19} │ {cpu_speedup_str:<19} │ {status}")
+    print(f"{result.name:<14} │ {vk_str:<16} │ {cpu_str:<16} │ {cpu_simd_str:<16} │ {np_str:<16} │ {vk_speedup_str:<19} │ {cpu_speedup_str:<19} │ {cpu_simd_speedup_str:<19} │ {status}")
 
 
 def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[BenchmarkResult]:
@@ -195,7 +214,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     results: List[BenchmarkResult] = []
 
     if verbose:
-        print_header(f"CUT Benchmark Suite: Vulkan vs CPU vs NumPy", "=")
+        print_header(f"CUT Benchmark Suite: Vulkan vs CPU vs CPU+SIMD vs NumPy", "=")
         print(f"\n{Colors.DIM}Configuration:{Colors.RESET}")
         print(f"  - Elements:   {config.num_elements:,}")
         print(f"  - Iterations: {config.num_iterations}")
@@ -206,6 +225,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
         print(f"  - Vulkan:     {'Available' if VULKAN_AVAILABLE else 'Not available'}")
         if CPU_AVAILABLE:
             print(f"  - CPU:        Available ({cut_cpu.num_threads()} threads)")
+            print(f"  - CPU+SIMD:   Available (Auto-detected SIMD)")
         else:
             print(f"  - CPU:        Not available")
         print(f"  - NumPy:      {np.__version__}")
@@ -554,10 +574,12 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
                     if verbose:
                         print(f"  Vulkan error for {name}: {e}")
 
-            # Run CPU benchmark
+            # Run CPU benchmark (scalar mode)
             cpu_time, cpu_std, cpu_valid = float('nan'), 0.0, False
             if CPU_AVAILABLE and cpu_func is not None:
                 try:
+                    # Set to scalar mode for plain CPU benchmark
+                    cut_cpu.set_simd_mode(cut_cpu.SIMDMode.Scalar)
                     cpu_time, cpu_std, cpu_result_buf = benchmark(cpu_func, *cpu_args, config=config)
                     cpu_result = cpu_result_buf.numpy()
                     cpu_valid = verify_results(np_result, cpu_result)
@@ -565,22 +587,40 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
                     if verbose:
                         print(f"  CPU error for {name}: {e}")
 
+            # Run CPU benchmark (SIMD mode - auto detect best)
+            cpu_simd_time, cpu_simd_std, cpu_simd_valid = float('nan'), 0.0, False
+            if CPU_AVAILABLE and cpu_func is not None:
+                try:
+                    # Set to auto mode for SIMD benchmark
+                    cut_cpu.set_simd_mode(cut_cpu.SIMDMode.Auto)
+                    cpu_simd_time, cpu_simd_std, cpu_simd_result_buf = benchmark(cpu_func, *cpu_args, config=config)
+                    cpu_simd_result = cpu_simd_result_buf.numpy()
+                    cpu_simd_valid = verify_results(np_result, cpu_simd_result)
+                except Exception as e:
+                    if verbose:
+                        print(f"  CPU SIMD error for {name}: {e}")
+
             # Calculate speedups
             vk_speedup = np_time / vk_time if vk_time > 0 and not np.isnan(vk_time) else float('nan')
             cpu_speedup = np_time / cpu_time if cpu_time > 0 and not np.isnan(cpu_time) else float('nan')
+            cpu_simd_speedup = np_time / cpu_simd_time if cpu_simd_time > 0 and not np.isnan(cpu_simd_time) else float('nan')
 
             result = BenchmarkResult(
                 name=name,
                 category=category,
                 vulkan_ms=vk_time,
                 cpu_ms=cpu_time,
+                cpu_simd_ms=cpu_simd_time,
                 numpy_ms=np_time,
                 vulkan_speedup=vk_speedup,
                 cpu_speedup=cpu_speedup,
+                cpu_simd_speedup=cpu_simd_speedup,
                 vulkan_valid=vk_valid,
                 cpu_valid=cpu_valid,
+                cpu_simd_valid=cpu_simd_valid,
                 vulkan_std_ms=vk_std,
                 cpu_std_ms=cpu_std,
+                cpu_simd_std_ms=cpu_simd_std,
                 numpy_std_ms=np_std
             )
             results.append(result)
@@ -602,10 +642,15 @@ def print_summary(results: List[BenchmarkResult]):
     vk_valid = sum(1 for r in vk_results if r.vulkan_valid)
     vk_speedups = [r.vulkan_speedup for r in vk_results if not np.isnan(r.vulkan_speedup)]
 
-    # CPU stats
+    # CPU stats (scalar)
     cpu_results = [r for r in results if not np.isnan(r.cpu_ms)]
     cpu_valid = sum(1 for r in cpu_results if r.cpu_valid)
     cpu_speedups = [r.cpu_speedup for r in cpu_results if not np.isnan(r.cpu_speedup)]
+
+    # CPU SIMD stats
+    cpu_simd_results = [r for r in results if not np.isnan(r.cpu_simd_ms)]
+    cpu_simd_valid = sum(1 for r in cpu_simd_results if r.cpu_simd_valid)
+    cpu_simd_speedups = [r.cpu_simd_speedup for r in cpu_simd_results if not np.isnan(r.cpu_simd_speedup)]
 
     # Overall Statistics
     print(f"\n{Colors.BOLD}Overall Statistics{Colors.RESET}")
@@ -619,72 +664,105 @@ def print_summary(results: List[BenchmarkResult]):
 
     if CPU_AVAILABLE and cpu_results:
         cpu_faster = sum(1 for s in cpu_speedups if s > 1.0)
-        print(f"  CPU validated:              {cpu_valid}/{len(cpu_results)}")
-        print(f"  CPU faster than NumPy:      {cpu_faster}/{len(cpu_speedups)} operations")
+        print(f"  CPU (scalar) validated:     {cpu_valid}/{len(cpu_results)}")
+        print(f"  CPU (scalar) faster:        {cpu_faster}/{len(cpu_speedups)} operations")
+
+    if CPU_AVAILABLE and cpu_simd_results:
+        cpu_simd_faster = sum(1 for s in cpu_simd_speedups if s > 1.0)
+        print(f"  CPU+SIMD validated:         {cpu_simd_valid}/{len(cpu_simd_results)}")
+        print(f"  CPU+SIMD faster than NumPy: {cpu_simd_faster}/{len(cpu_simd_speedups)} operations")
 
     # Speedup Statistics
     print(f"\n{Colors.BOLD}Speedup Statistics (vs NumPy){Colors.RESET}")
-    print(f"{'─' * 60}")
-    print(f"  {'Metric':<20} {'Vulkan':<15} {'CPU':<15}")
-    print(f"  {'─' * 20} {'─' * 15} {'─' * 15}")
+    print(f"{'─' * 75}")
+    print(f"  {'Metric':<20} {'Vulkan':<15} {'CPU (scalar)':<15} {'CPU+SIMD':<15}")
+    print(f"  {'─' * 20} {'─' * 15} {'─' * 15} {'─' * 15}")
 
-    def fmt_stat(vk_val, cpu_val):
+    def fmt_stat(vk_val, cpu_val, cpu_simd_val):
         vk_str = f"{vk_val:.3f}x" if VULKAN_AVAILABLE and vk_speedups else "N/A"
         cpu_str = f"{cpu_val:.3f}x" if CPU_AVAILABLE and cpu_speedups else "N/A"
-        return vk_str, cpu_str
+        cpu_simd_str = f"{cpu_simd_val:.3f}x" if CPU_AVAILABLE and cpu_simd_speedups else "N/A"
+        return vk_str, cpu_str, cpu_simd_str
 
-    if vk_speedups or cpu_speedups:
+    if vk_speedups or cpu_speedups or cpu_simd_speedups:
         vk_mean = np.mean(vk_speedups) if vk_speedups else 0
         cpu_mean = np.mean(cpu_speedups) if cpu_speedups else 0
-        vk_str, cpu_str = fmt_stat(vk_mean, cpu_mean)
-        print(f"  {'Mean speedup':<20} {vk_str:<15} {cpu_str:<15}")
+        cpu_simd_mean = np.mean(cpu_simd_speedups) if cpu_simd_speedups else 0
+        vk_str, cpu_str, cpu_simd_str = fmt_stat(vk_mean, cpu_mean, cpu_simd_mean)
+        print(f"  {'Mean speedup':<20} {vk_str:<15} {cpu_str:<15} {cpu_simd_str:<15}")
 
         vk_median = np.median(vk_speedups) if vk_speedups else 0
         cpu_median = np.median(cpu_speedups) if cpu_speedups else 0
-        vk_str, cpu_str = fmt_stat(vk_median, cpu_median)
-        print(f"  {'Median speedup':<20} {vk_str:<15} {cpu_str:<15}")
+        cpu_simd_median = np.median(cpu_simd_speedups) if cpu_simd_speedups else 0
+        vk_str, cpu_str, cpu_simd_str = fmt_stat(vk_median, cpu_median, cpu_simd_median)
+        print(f"  {'Median speedup':<20} {vk_str:<15} {cpu_str:<15} {cpu_simd_str:<15}")
 
         vk_min = np.min(vk_speedups) if vk_speedups else 0
         cpu_min = np.min(cpu_speedups) if cpu_speedups else 0
-        vk_str, cpu_str = fmt_stat(vk_min, cpu_min)
-        print(f"  {'Min speedup':<20} {vk_str:<15} {cpu_str:<15}")
+        cpu_simd_min = np.min(cpu_simd_speedups) if cpu_simd_speedups else 0
+        vk_str, cpu_str, cpu_simd_str = fmt_stat(vk_min, cpu_min, cpu_simd_min)
+        print(f"  {'Min speedup':<20} {vk_str:<15} {cpu_str:<15} {cpu_simd_str:<15}")
 
         vk_max = np.max(vk_speedups) if vk_speedups else 0
         cpu_max = np.max(cpu_speedups) if cpu_speedups else 0
-        vk_str, cpu_str = fmt_stat(vk_max, cpu_max)
-        print(f"  {'Max speedup':<20} {vk_str:<15} {cpu_str:<15}")
+        cpu_simd_max = np.max(cpu_simd_speedups) if cpu_simd_speedups else 0
+        vk_str, cpu_str, cpu_simd_str = fmt_stat(vk_max, cpu_max, cpu_simd_max)
+        print(f"  {'Max speedup':<20} {vk_str:<15} {cpu_str:<15} {cpu_simd_str:<15}")
 
     # Vulkan vs CPU comparison
     if VULKAN_AVAILABLE and CPU_AVAILABLE:
         vk_vs_cpu = []
+        vk_vs_cpu_simd = []
         for r in results:
             if not np.isnan(r.vulkan_ms) and not np.isnan(r.cpu_ms) and r.cpu_ms > 0:
                 vk_vs_cpu.append(r.cpu_ms / r.vulkan_ms)
-        if vk_vs_cpu:
-            print(f"\n{Colors.BOLD}Vulkan vs CPU Backend{Colors.RESET}")
+            if not np.isnan(r.vulkan_ms) and not np.isnan(r.cpu_simd_ms) and r.cpu_simd_ms > 0:
+                vk_vs_cpu_simd.append(r.cpu_simd_ms / r.vulkan_ms)
+        if vk_vs_cpu or vk_vs_cpu_simd:
+            print(f"\n{Colors.BOLD}Vulkan vs CPU Backends{Colors.RESET}")
             print(f"{'─' * 60}")
-            print(f"  Vulkan avg speedup over CPU: {np.mean(vk_vs_cpu):.2f}x")
+            if vk_vs_cpu:
+                print(f"  Vulkan avg speedup over CPU (scalar): {np.mean(vk_vs_cpu):.2f}x")
+            if vk_vs_cpu_simd:
+                print(f"  Vulkan avg speedup over CPU+SIMD:     {np.mean(vk_vs_cpu_simd):.2f}x")
+
+    # SIMD vs Scalar comparison
+    if CPU_AVAILABLE and cpu_simd_speedups:
+        simd_vs_scalar = []
+        for r in results:
+            if not np.isnan(r.cpu_ms) and not np.isnan(r.cpu_simd_ms) and r.cpu_ms > 0:
+                simd_vs_scalar.append(r.cpu_ms / r.cpu_simd_ms)
+        if simd_vs_scalar:
+            print(f"\n{Colors.BOLD}SIMD Acceleration{Colors.RESET}")
+            print(f"{'─' * 60}")
+            print(f"  SIMD avg speedup over scalar: {np.mean(simd_vs_scalar):.2f}x")
+            print(f"  SIMD max speedup over scalar: {np.max(simd_vs_scalar):.2f}x")
 
     # Category breakdown
     print(f"\n{Colors.BOLD}Performance by Category{Colors.RESET}")
-    print(f"{'─' * 60}")
+    print(f"{'─' * 75}")
     categories = {}
     for r in results:
         if r.category not in categories:
-            categories[r.category] = {'vulkan': [], 'cpu': []}
+            categories[r.category] = {'vulkan': [], 'cpu': [], 'cpu_simd': []}
         if not np.isnan(r.vulkan_speedup):
             categories[r.category]['vulkan'].append(r.vulkan_speedup)
         if not np.isnan(r.cpu_speedup):
             categories[r.category]['cpu'].append(r.cpu_speedup)
+        if not np.isnan(r.cpu_simd_speedup):
+            categories[r.category]['cpu_simd'].append(r.cpu_simd_speedup)
 
     for cat, speeds in categories.items():
         vk_avg = np.mean(speeds['vulkan']) if speeds['vulkan'] else 0
         cpu_avg = np.mean(speeds['cpu']) if speeds['cpu'] else 0
+        cpu_simd_avg = np.mean(speeds['cpu_simd']) if speeds['cpu_simd'] else 0
         vk_color = Colors.GREEN if vk_avg >= 1.0 else Colors.YELLOW
         cpu_color = Colors.GREEN if cpu_avg >= 1.0 else Colors.YELLOW
+        cpu_simd_color = Colors.GREEN if cpu_simd_avg >= 1.0 else Colors.YELLOW
         vk_str = f"{vk_color}{vk_avg:.2f}x{Colors.RESET}" if speeds['vulkan'] else "N/A"
         cpu_str = f"{cpu_color}{cpu_avg:.2f}x{Colors.RESET}" if speeds['cpu'] else "N/A"
-        print(f"  {cat:<25} Vulkan: {vk_str:<15} CPU: {cpu_str}")
+        cpu_simd_str = f"{cpu_simd_color}{cpu_simd_avg:.2f}x{Colors.RESET}" if speeds['cpu_simd'] else "N/A"
+        print(f"  {cat:<25} Vulkan: {vk_str:<15} CPU: {cpu_str:<15} SIMD: {cpu_simd_str}")
 
     # Top performers for each backend
     if VULKAN_AVAILABLE and vk_speedups:
@@ -695,48 +773,47 @@ def print_summary(results: List[BenchmarkResult]):
         for i, r in enumerate(sorted_by_vk[:5], 1):
             print(f"  {i}. {r.name:<15} {Colors.GREEN}{r.vulkan_speedup:.3f}x{Colors.RESET} faster than NumPy")
 
-    if CPU_AVAILABLE and cpu_speedups:
-        sorted_by_cpu = sorted([r for r in results if not np.isnan(r.cpu_speedup)],
-                               key=lambda r: r.cpu_speedup, reverse=True)
-        print(f"\n{Colors.BOLD}Top 5 CPU Performers{Colors.RESET}")
+    if CPU_AVAILABLE and cpu_simd_speedups:
+        sorted_by_cpu_simd = sorted([r for r in results if not np.isnan(r.cpu_simd_speedup)],
+                                    key=lambda r: r.cpu_simd_speedup, reverse=True)
+        print(f"\n{Colors.BOLD}Top 5 CPU+SIMD Performers{Colors.RESET}")
         print(f"{'─' * 60}")
-        for i, r in enumerate(sorted_by_cpu[:5], 1):
-            color = Colors.GREEN if r.cpu_speedup >= 1.0 else Colors.YELLOW
-            print(f"  {i}. {r.name:<15} {color}{r.cpu_speedup:.3f}x{Colors.RESET} vs NumPy")
+        for i, r in enumerate(sorted_by_cpu_simd[:5], 1):
+            color = Colors.GREEN if r.cpu_simd_speedup >= 1.0 else Colors.YELLOW
+            print(f"  {i}. {r.name:<15} {color}{r.cpu_simd_speedup:.3f}x{Colors.RESET} vs NumPy")
 
     # Performance verdict
     print(f"\n{Colors.BOLD}Performance Verdict{Colors.RESET}")
     print(f"{'─' * 60}")
 
+    def get_verdict(avg):
+        if avg >= 2.0:
+            return f"{Colors.GREEN}EXCELLENT{Colors.RESET}"
+        elif avg >= 1.0:
+            return f"{Colors.CYAN}GOOD{Colors.RESET}"
+        elif avg >= 0.5:
+            return f"{Colors.YELLOW}MIXED{Colors.RESET}"
+        else:
+            return f"{Colors.RED}POOR{Colors.RESET}"
+
     if VULKAN_AVAILABLE and vk_speedups:
         avg_vk = np.mean(vk_speedups)
-        if avg_vk >= 2.0:
-            verdict = f"{Colors.GREEN}EXCELLENT{Colors.RESET}"
-        elif avg_vk >= 1.0:
-            verdict = f"{Colors.CYAN}GOOD{Colors.RESET}"
-        elif avg_vk >= 0.5:
-            verdict = f"{Colors.YELLOW}MIXED{Colors.RESET}"
-        else:
-            verdict = f"{Colors.RED}POOR{Colors.RESET}"
-        print(f"  Vulkan: {verdict} ({avg_vk:.2f}x avg speedup)")
+        print(f"  Vulkan:    {get_verdict(avg_vk)} ({avg_vk:.2f}x avg speedup)")
 
     if CPU_AVAILABLE and cpu_speedups:
         avg_cpu = np.mean(cpu_speedups)
-        if avg_cpu >= 2.0:
-            verdict = f"{Colors.GREEN}EXCELLENT{Colors.RESET}"
-        elif avg_cpu >= 1.0:
-            verdict = f"{Colors.CYAN}GOOD{Colors.RESET}"
-        elif avg_cpu >= 0.5:
-            verdict = f"{Colors.YELLOW}MIXED{Colors.RESET}"
-        else:
-            verdict = f"{Colors.RED}POOR{Colors.RESET}"
-        print(f"  CPU:    {verdict} ({avg_cpu:.2f}x avg speedup)")
+        print(f"  CPU:       {get_verdict(avg_cpu)} ({avg_cpu:.2f}x avg speedup)")
+
+    if CPU_AVAILABLE and cpu_simd_speedups:
+        avg_cpu_simd = np.mean(cpu_simd_speedups)
+        print(f"  CPU+SIMD:  {get_verdict(avg_cpu_simd)} ({avg_cpu_simd:.2f}x avg speedup)")
 
 
 def export_json(results: List[BenchmarkResult], filepath: Path, config: BenchmarkConfig):
     """Export results to JSON file."""
     vk_speedups = [r.vulkan_speedup for r in results if not np.isnan(r.vulkan_speedup)]
     cpu_speedups = [r.cpu_speedup for r in results if not np.isnan(r.cpu_speedup)]
+    cpu_simd_speedups = [r.cpu_simd_speedup for r in results if not np.isnan(r.cpu_simd_speedup)]
 
     data = {
         "timestamp": datetime.now().isoformat(),
@@ -755,8 +832,10 @@ def export_json(results: List[BenchmarkResult], filepath: Path, config: Benchmar
             "total_operations": len(results),
             "vulkan_valid": sum(1 for r in results if r.vulkan_valid),
             "cpu_valid": sum(1 for r in results if r.cpu_valid),
+            "cpu_simd_valid": sum(1 for r in results if r.cpu_simd_valid),
             "vulkan_mean_speedup": float(np.mean(vk_speedups)) if vk_speedups else None,
             "cpu_mean_speedup": float(np.mean(cpu_speedups)) if cpu_speedups else None,
+            "cpu_simd_mean_speedup": float(np.mean(cpu_simd_speedups)) if cpu_simd_speedups else None,
         },
         "results": [asdict(r) for r in results]
     }
@@ -772,11 +851,13 @@ def export_csv(results: List[BenchmarkResult], filepath: Path):
         writer.writerow(['operation', 'category',
                         'vulkan_ms', 'vulkan_std_ms', 'vulkan_speedup', 'vulkan_valid',
                         'cpu_ms', 'cpu_std_ms', 'cpu_speedup', 'cpu_valid',
+                        'cpu_simd_ms', 'cpu_simd_std_ms', 'cpu_simd_speedup', 'cpu_simd_valid',
                         'numpy_ms', 'numpy_std_ms'])
         for r in results:
             writer.writerow([r.name, r.category,
                            r.vulkan_ms, r.vulkan_std_ms, r.vulkan_speedup, r.vulkan_valid,
                            r.cpu_ms, r.cpu_std_ms, r.cpu_speedup, r.cpu_valid,
+                           r.cpu_simd_ms, r.cpu_simd_std_ms, r.cpu_simd_speedup, r.cpu_simd_valid,
                            r.numpy_ms, r.numpy_std_ms])
     print(f"{Colors.GREEN}Results exported to {filepath}{Colors.RESET}")
 

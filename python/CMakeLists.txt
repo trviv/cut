@@ -89,6 +89,18 @@ pybind11_add_module(_cut_cpu
     ${CPU_SOURCES}
 )
 
+# SIMD configuration - use -march=native for best performance
+# The CPU backend now supports runtime SIMD mode selection (Scalar, SSE, AVX, Auto)
+# Compile with native CPU features so all SIMD paths are available
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    target_compile_options(_cut_cpu PRIVATE -march=native)
+    message(STATUS "CPU backend: Using native CPU features (-march=native) with runtime SIMD selection")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    # MSVC: Enable AVX2 for best coverage (SSE is always available on x64)
+    target_compile_options(_cut_cpu PRIVATE /arch:AVX2)
+    message(STATUS "CPU backend: Using AVX2 with runtime SIMD selection")
+endif()
+
 # CPU backend needs no external libraries but uses API base classes
 
 # Install both modules to the cut package directory

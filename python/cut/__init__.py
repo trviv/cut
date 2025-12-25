@@ -5,17 +5,29 @@ A Python library for GPU compute operations using Vulkan.
 Automatically initializes a Vulkan instance on import.
 """
 
+from __future__ import annotations
+
 import atexit
 import weakref
 import numpy as np
-from typing import Optional, Union, List
-from . import _cut_core
+from typing import Optional, Union, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import _cut_core as _cut_core_type
 
 __version__ = "0.1.0"
 
+# Try to import Vulkan backend - may fail if not built or on unsupported platform
+try:
+    from . import _cut_core
+    _VULKAN_AVAILABLE = True
+except ImportError:
+    _cut_core = None
+    _VULKAN_AVAILABLE = False
+
 # Module-level Vulkan instance and interface (lazy initialization)
-_instance: Optional[_cut_core.VulkanInstance] = None
-_interface: Optional[_cut_core.VulkanCompute] = None
+_instance = None
+_interface = None
 
 # Shader cache: maps ShaderEnum -> ComputeHandle (VkShaderModule)
 _shader_cache: dict = {}
@@ -41,6 +53,8 @@ atexit.register(_cleanup)
 def _ensure_initialized():
     """Ensure Vulkan instance and interface are initialized."""
     global _instance, _interface
+    if not _VULKAN_AVAILABLE:
+        raise RuntimeError("Vulkan backend not available. Build with Vulkan support or use the CPU backend.")
     if _instance is None:
         _instance = _cut_core.VulkanInstance()
         _interface = _instance.create_interface()
@@ -105,7 +119,7 @@ def precompile_shaders():
             _shader_cache[shader_enum] = handle
 
 
-def get_interface() -> _cut_core.VulkanCompute:
+def get_interface() -> "_cut_core_type.VulkanCompute":
     """Get the global Vulkan compute interface."""
     _ensure_initialized()
     return _interface
@@ -144,7 +158,7 @@ class Buffer:
         _live_buffers.add(self)
 
     @property
-    def handle(self) -> _cut_core.ComputeHandle:
+    def handle(self) -> "_cut_core_type.ComputeHandle":
         """Get the underlying compute handle."""
         return self._handle
 
@@ -185,7 +199,7 @@ class Buffer:
 class Shader:
     """GPU compute shader wrapper."""
 
-    def __init__(self, spirv: Union[List[int], _cut_core.ShaderEnum]):
+    def __init__(self, spirv: Union[List[int], "_cut_core_type.ShaderEnum"]):
         """
         Create a shader module.
 
@@ -206,7 +220,7 @@ class Shader:
             self._handle = _interface.create_shader_module(spirv)
 
     @property
-    def handle(self) -> _cut_core.ComputeHandle:
+    def handle(self) -> "_cut_core_type.ComputeHandle":
         """Get the underlying compute handle."""
         return self._handle
 
@@ -252,7 +266,7 @@ class Dispatch:
         return self
 
     @property
-    def inner(self) -> _cut_core.ComputeDispatch:
+    def inner(self) -> "_cut_core_type.ComputeDispatch":
         """Get the underlying dispatch object."""
         return self._dispatch
 
@@ -614,5 +628,13 @@ __all__ = [
     "ShaderEnum",
 ]
 
-# Re-export ShaderEnum
-ShaderEnum = _cut_core.ShaderEnum
+# Re-export ShaderEnum if available
+if _VULKAN_AVAILABLE:
+    ShaderEnum = _cut_core.ShaderEnum
+else:
+    ShaderEnum = None
+
+# Expose availability flag for benchmarks
+def is_vulkan_available() -> bool:
+    """Check if Vulkan backend is available."""
+    return _VULKAN_AVAILABLE

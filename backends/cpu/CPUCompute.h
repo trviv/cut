@@ -42,8 +42,10 @@ public:
   /**
    * Constructs a CPUCompute instance.
    * @param numThreads Number of worker threads (0 = hardware_concurrency).
+   * @param simdMode SIMD execution mode (default: Auto).
    */
-  explicit CPUCompute(size_t numThreads = 0);
+  explicit CPUCompute(size_t numThreads = 0,
+                      SIMDMode simdMode = SIMDMode::Auto);
 
   ~CPUCompute() override;
 
@@ -111,9 +113,21 @@ public:
    */
   CPUContainers &containers() { return *containers_; }
 
+  /**
+   * Get the current SIMD mode.
+   */
+  SIMDMode simdMode() const { return simdMode_; }
+
+  /**
+   * Set the SIMD mode for kernel execution.
+   * @param mode The SIMD mode to use.
+   */
+  void setSIMDMode(SIMDMode mode) { simdMode_ = mode; }
+
 private:
   std::unique_ptr<CPUContainers> containers_;
   std::unique_ptr<ThreadPool> threadPool_;
+  SIMDMode simdMode_;
 };
 
 } // namespace cut

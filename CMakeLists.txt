@@ -19,6 +19,20 @@ endif()
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
+# SIMD configuration - use -march=native for best performance
+# The CPU backend supports runtime SIMD mode selection (Scalar, SSE, AVX, Auto)
+# Compile with native CPU features so all SIMD paths are available at runtime
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    set(CUT_SIMD_FLAGS "-march=native")
+    message(STATUS "CPU backend: Using native CPU features (-march=native) with runtime SIMD selection")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    # MSVC: Enable AVX2 for best coverage (SSE is always available on x64)
+    set(CUT_SIMD_FLAGS "/arch:AVX2")
+    message(STATUS "CPU backend: Using AVX2 with runtime SIMD selection")
+else()
+    set(CUT_SIMD_FLAGS "")
+endif()
+
 # macOS specific settings
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15")
@@ -82,11 +96,13 @@ set(LIB_HEADERS
     backends/vulkan/VulkanContainers.h
     backends/vulkan/VulkanCompute.h
     backends/vulkan/VulkanCommandBuffer.h
-    backends/cpu/CPUStructs.h
     backends/cpu/ThreadPool.h
+    backends/cpu/CPUKernels.h
     backends/cpu/CPUContainers.h
     backends/cpu/CPUCommandBuffer.h
     backends/cpu/CPUCompute.h
+    backends/cpu/CPUSIMDConfig.h
+    backends/cpu/CPUSIMDKernels.h
     shaders/Shaders.h
 )
 
@@ -105,6 +121,7 @@ set(LIB_SOURCES
     backends/vulkan/VulkanCompute.cpp
     backends/vulkan/VulkanCommandBuffer.cpp
     backends/cpu/ThreadPool.cpp
+    backends/cpu/CPUKernels.cpp
     backends/cpu/CPUContainers.cpp
     backends/cpu/CPUCommandBuffer.cpp
     backends/cpu/CPUCompute.cpp
@@ -161,6 +178,11 @@ endif()
 # Compiler-specific options
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra)
+endif()
+
+# Apply SIMD flags to CUTLib for CPU backend vectorization
+if(CUT_SIMD_FLAGS)
+    target_compile_options(CUTLib PRIVATE ${CUT_SIMD_FLAGS})
 endif()
 
 # Include the generated header directory

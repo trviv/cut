@@ -8,12 +8,13 @@
 
 namespace cut {
 
-CPUCompute::CPUCompute(size_t numThreads) {
+CPUCompute::CPUCompute(size_t numThreads, SIMDMode simdMode)
+    : simdMode_(simdMode) {
   threadPool_ = std::make_unique<ThreadPool>(numThreads);
   containers_ = std::make_unique<CPUContainers>();
 
-  setCommandBufferContainer(
-      std::make_unique<CPUCommandBufferContainer>(*containers_, *threadPool_));
+  setCommandBufferContainer(std::make_unique<CPUCommandBufferContainer>(
+      *containers_, *threadPool_, this));
 }
 
 CPUCompute::~CPUCompute() {

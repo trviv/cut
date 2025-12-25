@@ -13,8 +13,14 @@ from . import _cut_cpu
 
 __version__ = "0.1.0"
 
+# Re-export SIMDMode enum
+SIMDMode = _cut_cpu.SIMDMode
+
 # Module-level CPU interface (lazy initialization)
 _interface: Optional[_cut_cpu.CPUCompute] = None
+
+# Current SIMD mode for initialization
+_simd_mode: _cut_cpu.SIMDMode = _cut_cpu.SIMDMode.Auto
 
 # Kernel cache: maps CPUKernelType -> ComputeHandle
 _kernel_cache: dict = {}
@@ -35,16 +41,18 @@ def _cleanup():
 atexit.register(_cleanup)
 
 
-def _ensure_initialized(num_threads: int = 0):
+def _ensure_initialized(num_threads: int = 0, simd_mode: Optional[_cut_cpu.SIMDMode] = None):
     """Ensure CPU interface is initialized."""
-    global _interface
+    global _interface, _simd_mode
+    if simd_mode is not None:
+        _simd_mode = simd_mode
     if _interface is None:
-        _interface = _cut_cpu.CPUCompute(num_threads)
+        _interface = _cut_cpu.CPUCompute(num_threads, _simd_mode)
 
 
-def get_interface(num_threads: int = 0) -> _cut_cpu.CPUCompute:
+def get_interface(num_threads: int = 0, simd_mode: Optional[_cut_cpu.SIMDMode] = None) -> _cut_cpu.CPUCompute:
     """Get the global CPU compute interface."""
-    _ensure_initialized(num_threads)
+    _ensure_initialized(num_threads, simd_mode)
     return _interface
 
 
@@ -52,6 +60,25 @@ def num_threads() -> int:
     """Get the number of worker threads."""
     _ensure_initialized()
     return _interface.num_threads()
+
+
+def simd_mode() -> _cut_cpu.SIMDMode:
+    """Get the current SIMD execution mode."""
+    _ensure_initialized()
+    return _interface.simd_mode()
+
+
+def set_simd_mode(mode: _cut_cpu.SIMDMode):
+    """
+    Set the SIMD execution mode.
+
+    Args:
+        mode: SIMDMode.Scalar, SIMDMode.SSE, SIMDMode.AVX, or SIMDMode.Auto
+    """
+    global _simd_mode
+    _simd_mode = mode
+    if _interface is not None:
+        _interface.set_simd_mode(mode)
 
 
 class Buffer:
@@ -461,6 +488,8 @@ __all__ = [
     "run",
     "get_interface",
     "num_threads",
+    "simd_mode",
+    "set_simd_mode",
     # Binary arithmetic operations
     "add",
     "subtract",
@@ -504,6 +533,7 @@ __all__ = [
     "square",
     # Re-exports from core
     "CPUKernelType",
+    "SIMDMode",
 ]
 
 # Re-export CPUKernelType

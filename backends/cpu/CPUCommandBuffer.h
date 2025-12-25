@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CPUContainers.h"
+#include "CPUKernels.h"
 #include "ThreadPool.h"
 
 #include <ComputeStructs.h>
@@ -11,6 +12,9 @@
 
 namespace cut {
 
+// Forward declaration
+class CPUCompute;
+
 /**
  * CPU implementation of CommandBuffer.
  * Executes compute dispatches on the CPU using a thread pool.
@@ -19,7 +23,9 @@ class CPUCommandBuffer final : public CommandBuffer {
 public:
   static constexpr std::string_view Name = "CPUCommandBuffer";
 
-  CPUCommandBuffer(CPUContainers &containers, ThreadPool &threadPool);
+  CPUCommandBuffer(CPUContainers &containers,
+                   ThreadPool &threadPool,
+                   CPUCompute *compute);
   ~CPUCommandBuffer() override;
 
   void submit() override;
@@ -28,6 +34,7 @@ public:
 private:
   CPUContainers &containers_;
   ThreadPool &threadPool_;
+  CPUCompute *compute_;
   std::atomic<size_t> pendingTasks_{0};
   std::mutex mutex_;
   std::condition_variable cv_;
