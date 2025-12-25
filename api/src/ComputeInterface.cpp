@@ -1,5 +1,7 @@
 #include <ComputeInterface.h>
 
+#include <cstring>
+
 namespace cut {
 
 void ComputeInterface::encode(ComputeDispatch &&dispatch) {
@@ -66,6 +68,78 @@ size_t ComputeInterface::calculateAlignedSize(const std::vector<size_t> &shape,
     totalElements *= dim;
   }
   return totalElements * dataTypeSize(dtype);
+}
+
+void ComputeInterface::copyActualToAligned(const void *src,
+                                           void *dst,
+                                           const std::vector<size_t> &shape,
+                                           DataType dtype) {
+  if (shape.empty() || src == nullptr || dst == nullptr) {
+    return;
+  }
+
+  const size_t elementSize = dataTypeSize(dtype);
+  const size_t innerDim = shape.back();
+  const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
+
+  // If no padding needed, do a single memcpy
+  if (innerDim == alignedInnerDim) {
+    std::memcpy(dst, src, calculateActualSize(shape, dtype));
+    return;
+  }
+
+  // Calculate number of rows (product of all dimensions except innermost)
+  size_t numRows = 1;
+  for (size_t i = 0; i < shape.size() - 1; ++i) {
+    numRows *= shape[i];
+  }
+
+  const size_t srcRowBytes = innerDim * elementSize;
+  const size_t dstRowBytes = alignedInnerDim * elementSize;
+
+  const auto *srcBytes = static_cast<const char *>(src);
+  auto *dstBytes = static_cast<char *>(dst);
+
+  for (size_t row = 0; row < numRows; ++row) {
+    std::memcpy(dstBytes + row * dstRowBytes, srcBytes + row * srcRowBytes,
+                srcRowBytes);
+  }
+}
+
+void ComputeInterface::copyAlignedToActual(const void *src,
+                                           void *dst,
+                                           const std::vector<size_t> &shape,
+                                           DataType dtype) {
+  if (shape.empty() || src == nullptr || dst == nullptr) {
+    return;
+  }
+
+  const size_t elementSize = dataTypeSize(dtype);
+  const size_t innerDim = shape.back();
+  const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
+
+  // If no padding needed, do a single memcpy
+  if (innerDim == alignedInnerDim) {
+    std::memcpy(dst, src, calculateActualSize(shape, dtype));
+    return;
+  }
+
+  // Calculate number of rows (product of all dimensions except innermost)
+  size_t numRows = 1;
+  for (size_t i = 0; i < shape.size() - 1; ++i) {
+    numRows *= shape[i];
+  }
+
+  const size_t srcRowBytes = alignedInnerDim * elementSize;
+  const size_t dstRowBytes = innerDim * elementSize;
+
+  const auto *srcBytes = static_cast<const char *>(src);
+  auto *dstBytes = static_cast<char *>(dst);
+
+  for (size_t row = 0; row < numRows; ++row) {
+    std::memcpy(dstBytes + row * dstRowBytes, srcBytes + row * srcRowBytes,
+                dstRowBytes);
+  }
 }
 
 } // namespace cut

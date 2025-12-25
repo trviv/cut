@@ -158,19 +158,18 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<size_t> &shape,
   }
 
   const size_t alignedSize = calculateAlignedSize(shape, dtype);
-  const size_t actualSize = calculateActualSize(shape, dtype);
 
   // Create buffer with aligned size, passing original shape
   // Default to device-only for optimal GPU performance
-  return createBuffer(alignedSize, actualSize, true, srcPtr, isUniform, shape);
+  return createBuffer(alignedSize, true, srcPtr, isUniform, shape, dtype);
 }
 
 ComputeHandle VulkanCompute::createBuffer(size_t size,
-                                          size_t srcSize,
                                           bool deviceOnly,
                                           const void *srcPtr,
                                           bool isUniform,
-                                          const std::vector<size_t> &shape) {
+                                          const std::vector<size_t> &shape,
+                                          DataType dtype) {
   // Align buffer size to 16 bytes (vec4 alignment) for optimal GPU access
   constexpr size_t kAlignment = 16;
   const size_t alignedSize = (size + kAlignment - 1) & ~(kAlignment - 1);
@@ -249,10 +248,12 @@ ComputeHandle VulkanCompute::createBuffer(size_t size,
 
   auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
 
-  if (srcPtr != nullptr) {
+  if (srcPtr != nullptr && !shape.empty()) {
     // Use staging for device-only buffers
-    // Copy only the actual source data size, not the aligned buffer size
-    copyDataToBuffer(srcPtr, handle, srcSize, 0, 0, deviceOnly);
+    // Copy actual data to aligned buffer using the helper function
+    std::vector<char> alignedData(size, 0);
+    copyActualToAligned(srcPtr, alignedData.data(), shape, dtype);
+    copyDataToBuffer(alignedData.data(), handle, size, 0, 0, deviceOnly);
   }
 
   return handle;

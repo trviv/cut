@@ -32,7 +32,6 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<size_t> &shape,
   }
 
   const size_t totalSize = calculateAlignedSize(shape, dtype);
-  const size_t actualSize = calculateActualSize(shape, dtype);
 
   // Allocate buffer
   constexpr size_t kAlignment = 16;
@@ -47,14 +46,12 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<size_t> &shape,
     throw std::runtime_error("Failed to allocate CPU buffer");
   }
 
-  auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
-
   if (srcPtr != nullptr) {
-    // Copy only the actual source data size, not the aligned buffer size
-    copyDataToBuffer(srcPtr, handle, actualSize, 0, 0);
+    // Copy actual data to aligned buffer using the helper function
+    copyActualToAligned(srcPtr, bufferStruct.data, shape, dtype);
   }
 
-  return handle;
+  return containers_->bufferContainer.create(std::move(bufferStruct));
 }
 
 void CPUCompute::copyDataToBuffer(const void *srcPtr,
