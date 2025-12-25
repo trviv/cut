@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Enhanced Benchmark Runner for CUT GPU/CPU Operations vs NumPy.
+Benchmark Runner for CUT GPU/CPU Operations vs NumPy and other backends.
 
-Features:
-- Compares Vulkan (GPU), CPU backend, and NumPy performance
-- Formatted tabular output with color support
-- Performance evaluation summary with statistical analysis
-- Export results to JSON/CSV
-- Command-line arguments for customization
+This script benchmarks element-wise operations across multiple backends:
+- Vulkan (GPU via MoltenVK/Vulkan)
+- CPU (scalar and SIMD)
+- CuPy (NVIDIA CUDA)
+- JAX (CPU/GPU/TPU)
+- NumPy (reference)
 """
 
 import numpy as np
@@ -16,68 +16,136 @@ import json
 import csv
 import argparse
 import sys
+from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Callable, Tuple, Dict, List, Optional
+from typing import Callable, Tuple, Dict, List, Optional, Any
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
-# Try to import backends
-VULKAN_AVAILABLE = False
-CPU_AVAILABLE = False
-CUPY_AVAILABLE = False
-JAX_AVAILABLE = False
-cut = None
-cut_cpu = None
-cp = None
-jnp = None
 
-try:
-    import cut as cut_module
-    cut = cut_module
-    VULKAN_AVAILABLE = cut.is_vulkan_available()
-    if not VULKAN_AVAILABLE:
-        print("Note: Vulkan backend not available (symbol loading failed)")
-except ImportError as e:
-    print(f"Warning: cut module not available: {e}")
+# =============================================================================
+# Backend Loading
+# =============================================================================
 
-try:
-    from cut import cpu as cut_cpu_module
-    cut_cpu = cut_cpu_module
-    CPU_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: CPU backend not available: {e}")
+class BackendRegistry:
+    """Registry of available compute backends."""
 
-try:
-    import cupy as cp_module
-    cp = cp_module
-    # Test if CUDA is actually available
-    cp.cuda.runtime.getDeviceCount()
-    CUPY_AVAILABLE = True
-except ImportError as e:
-    print(f"Note: CuPy not available: {e}")
-except Exception as e:
-    print(f"Note: CuPy CUDA not available: {e}")
+    def __init__(self):
+        self.vulkan = None
+        self.cpu = None
+        self.cupy = None
+        self.jax = None
+        self.jnp = None
+        self._load_backends()
 
-try:
-    import jax
-    import jax.numpy as jnp_module
-    jnp = jnp_module
-    # Check what backend JAX is using
-    jax_backend = jax.default_backend()
-    JAX_AVAILABLE = True
-except ImportError as e:
-    print(f"Note: JAX not available: {e}")
-except Exception as e:
-    print(f"Note: JAX initialization failed: {e}")
+    def _load_backends(self):
+        """Load all available backends."""
+        # Vulkan backend
+        try:
+            import cut as cut_module
+            if cut_module.is_vulkan_available():
+                self.vulkan = cut_module
+            else:
+                print("Note: Vulkan backend not available (symbol loading failed)")
+        except ImportError as e:
+            print(f"Warning: cut module not available: {e}")
 
-if not VULKAN_AVAILABLE and not CPU_AVAILABLE:
-    print("Error: No CUT backends available. Please build and install first.")
-    print("  cd python && pip install -e .")
-    sys.exit(1)
+        # CPU backend
+        try:
+            from cut import cpu as cut_cpu_module
+            self.cpu = cut_cpu_module
+        except ImportError as e:
+            print(f"Warning: CPU backend not available: {e}")
+
+        # CuPy backend
+        try:
+            import cupy as cp_module
+            cp_module.cuda.runtime.getDeviceCount()
+            self.cupy = cp_module
+        except ImportError as e:
+            print(f"Note: CuPy not available: {e}")
+        except Exception as e:
+            print(f"Note: CuPy CUDA not available: {e}")
+
+        # JAX backend
+        try:
+            import jax
+            import jax.numpy as jnp_module
+            self.jax = jax
+            self.jnp = jnp_module
+        except ImportError as e:
+            print(f"Note: JAX not available: {e}")
+        except Exception as e:
+            print(f"Note: JAX initialization failed: {e}")
+
+        # Require at least one CUT backend
+        if not self.vulkan and not self.cpu:
+            print("Error: No CUT backends available. Please build and install first.")
+            print("  cd python && pip install -e .")
+            sys.exit(1)
+
+    @property
+    def vulkan_available(self) -> bool:
+        return self.vulkan is not None
+
+    @property
+    def cpu_available(self) -> bool:
+        return self.cpu is not None
+
+    @property
+    def cupy_available(self) -> bool:
+        return self.cupy is not None
+
+    @property
+    def jax_available(self) -> bool:
+        return self.jax is not None
 
 
-# ANSI color codes for terminal output
+# Global backend registry
+backends = BackendRegistry()
+
+
+# =============================================================================
+# Configuration and Results
+# =============================================================================
+
+@dataclass
+class BenchmarkConfig:
+    """Configuration for benchmark runs."""
+    num_elements: int = 1_000_000
+    num_iterations: int = 10
+    warmup_iterations: int = 3
+    seed: int = 42
+
+
+@dataclass
+class BackendResult:
+    """Result from a single backend benchmark."""
+    time_ms: float = float('nan')
+    std_ms: float = 0.0
+    valid: bool = False
+    speedup: float = float('nan')
+
+
+@dataclass
+class BenchmarkResult:
+    """Complete result for one operation across all backends."""
+    name: str
+    category: str
+    numpy: BackendResult
+    vulkan: BackendResult = field(default_factory=BackendResult)
+    cpu: BackendResult = field(default_factory=BackendResult)
+    cpu_simd: BackendResult = field(default_factory=BackendResult)
+    cupy: BackendResult = field(default_factory=BackendResult)
+    jax: BackendResult = field(default_factory=BackendResult)
+
+
+# =============================================================================
+# Terminal Output Formatting
+# =============================================================================
+
 class Colors:
+    """ANSI color codes for terminal output."""
     HEADER = '\033[95m'
     BLUE = '\033[94m'
     CYAN = '\033[96m'
@@ -90,858 +158,794 @@ class Colors:
 
     @classmethod
     def disable(cls):
-        cls.HEADER = cls.BLUE = cls.CYAN = cls.GREEN = ''
-        cls.YELLOW = cls.RED = cls.BOLD = cls.DIM = cls.RESET = ''
+        """Disable all colors."""
+        for attr in ['HEADER', 'BLUE', 'CYAN', 'GREEN', 'YELLOW', 'RED', 'BOLD', 'DIM', 'RESET']:
+            setattr(cls, attr, '')
 
+
+class OutputFormatter:
+    """Handles all terminal output formatting."""
+
+    @staticmethod
+    def header(text: str, char: str = "=", width: int = 120):
+        """Print a centered header."""
+        print(f"\n{Colors.BOLD}{char * width}{Colors.RESET}")
+        print(f"{Colors.BOLD}{text.center(width)}{Colors.RESET}")
+        print(f"{Colors.BOLD}{char * width}{Colors.RESET}")
+
+    @staticmethod
+    def subheader(text: str):
+        """Print a category subheader."""
+        print(f"\n{Colors.CYAN}{Colors.BOLD}>>> {text}{Colors.RESET}")
+        print(f"{Colors.DIM}{'─' * 116}{Colors.RESET}")
+
+    @staticmethod
+    def format_time(ms: float, std: float = 0.0, available: bool = True) -> str:
+        """Format time with optional standard deviation."""
+        if not available or np.isnan(ms):
+            return "    N/A     "
+        if std > 0:
+            return f"{ms:8.3f} ± {std:5.3f}"
+        return f"{ms:8.3f}"
+
+    @staticmethod
+    def format_speedup(speedup: float, available: bool = True) -> str:
+        """Format speedup with color based on value."""
+        if not available or np.isnan(speedup):
+            return f"{Colors.DIM}  N/A {Colors.RESET}"
+        if speedup >= 2.0:
+            color = Colors.GREEN
+        elif speedup >= 1.0:
+            color = Colors.CYAN
+        elif speedup >= 0.5:
+            color = Colors.YELLOW
+        else:
+            color = Colors.RED
+        return f"{color}{speedup:6.2f}x{Colors.RESET}"
+
+    @staticmethod
+    def table_header():
+        """Print the results table header."""
+        cols = ['Operation', 'Vulkan (ms)', 'CPU (ms)', 'CPU+SIMD (ms)',
+                'CuPy (ms)', 'JAX (ms)', 'NumPy (ms)',
+                'Vulkan/NP', 'CPU/NP', 'SIMD/NP', 'CuPy/NP', 'JAX/NP', 'Status']
+        widths = [14, 16, 16, 16, 16, 16, 16, 10, 10, 10, 10, 10, 12]
+
+        header = " │ ".join(f"{c:<{w}}" for c, w in zip(cols, widths))
+        separator = "─┼─".join("─" * w for w in widths)
+        print(f"\n{header}")
+        print(separator)
+
+    @staticmethod
+    def result_row(result: BenchmarkResult):
+        """Print a single result row."""
+        fmt = OutputFormatter
+
+        # Format times
+        vk_time = fmt.format_time(result.vulkan.time_ms, result.vulkan.std_ms, backends.vulkan_available)
+        cpu_time = fmt.format_time(result.cpu.time_ms, result.cpu.std_ms, backends.cpu_available)
+        simd_time = fmt.format_time(result.cpu_simd.time_ms, result.cpu_simd.std_ms, backends.cpu_available)
+        cupy_time = fmt.format_time(result.cupy.time_ms, result.cupy.std_ms, backends.cupy_available)
+        jax_time = fmt.format_time(result.jax.time_ms, result.jax.std_ms, backends.jax_available)
+        np_time = fmt.format_time(result.numpy.time_ms, result.numpy.std_ms)
+
+        # Format speedups
+        vk_spd = fmt.format_speedup(result.vulkan.speedup, backends.vulkan_available)
+        cpu_spd = fmt.format_speedup(result.cpu.speedup, backends.cpu_available)
+        simd_spd = fmt.format_speedup(result.cpu_simd.speedup, backends.cpu_available)
+        cupy_spd = fmt.format_speedup(result.cupy.speedup, backends.cupy_available)
+        jax_spd = fmt.format_speedup(result.jax.speedup, backends.jax_available)
+
+        # Build status string
+        status_parts = []
+        if backends.vulkan_available:
+            status_parts.append('V:OK' if result.vulkan.valid else 'V:FAIL')
+        if backends.cpu_available:
+            status_parts.append('C:OK' if result.cpu.valid else 'C:FAIL')
+            status_parts.append('S:OK' if result.cpu_simd.valid else 'S:FAIL')
+        if backends.cupy_available:
+            status_parts.append('G:OK' if result.cupy.valid else 'G:FAIL')
+        if backends.jax_available:
+            status_parts.append('J:OK' if result.jax.valid else 'J:FAIL')
+
+        all_valid = all([
+            not backends.vulkan_available or result.vulkan.valid,
+            not backends.cpu_available or (result.cpu.valid and result.cpu_simd.valid),
+            not backends.cupy_available or result.cupy.valid,
+            not backends.jax_available or result.jax.valid,
+        ])
+        status_color = Colors.GREEN if all_valid else Colors.RED
+        status = f"{status_color}{' '.join(status_parts)}{Colors.RESET}"
+
+        print(f"{result.name:<14} │ {vk_time:<16} │ {cpu_time:<16} │ {simd_time:<16} │ "
+              f"{cupy_time:<16} │ {jax_time:<16} │ {np_time:<16} │ "
+              f"{vk_spd:<19} │ {cpu_spd:<19} │ {simd_spd:<19} │ {cupy_spd:<19} │ {jax_spd:<19} │ {status}")
+
+
+# =============================================================================
+# Backend Runners
+# =============================================================================
+
+class BackendRunner(ABC):
+    """Abstract base class for running benchmarks on a specific backend."""
+
+    @abstractmethod
+    def is_available(self) -> bool:
+        """Check if this backend is available."""
+        pass
+
+    @abstractmethod
+    def run(self, op_name: str, np_func: Callable, np_args: tuple,
+            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+        """Run benchmark for a single operation."""
+        pass
+
+
+class VulkanRunner(BackendRunner):
+    """Runs benchmarks on Vulkan GPU backend."""
+
+    def __init__(self, test_data: 'TestData'):
+        self.data = test_data
+        self._buffers = {}
+        if backends.vulkan_available:
+            self._create_buffers()
+
+    def _create_buffers(self):
+        """Create Vulkan buffers for test data."""
+        cut = backends.vulkan
+        self._buffers = {
+            'a': cut.Buffer(self.data.a),
+            'b': cut.Buffer(self.data.b),
+            'a_pos': cut.Buffer(self.data.a_pos),
+            'b_pos': cut.Buffer(self.data.b_pos),
+            'a_unit': cut.Buffer(self.data.a_unit),
+            'b_small': cut.Buffer(self.data.b_small),
+            'a_div10': cut.Buffer(self.data.a_div10),
+            'a_tan_safe': cut.Buffer(self.data.a_tan_safe),
+        }
+
+    def is_available(self) -> bool:
+        return backends.vulkan_available
+
+    def _get_args(self, np_args: tuple) -> tuple:
+        """Map numpy arrays to Vulkan buffers."""
+        mapping = {
+            id(self.data.a): self._buffers['a'],
+            id(self.data.b): self._buffers['b'],
+            id(self.data.a_pos): self._buffers['a_pos'],
+            id(self.data.b_pos): self._buffers['b_pos'],
+            id(self.data.a_unit): self._buffers['a_unit'],
+            id(self.data.b_small): self._buffers['b_small'],
+            id(self.data.a_div10): self._buffers['a_div10'],
+            id(self.data.a_tan_safe): self._buffers['a_tan_safe'],
+        }
+        return tuple(mapping.get(id(arg), backends.vulkan.Buffer(arg)) for arg in np_args)
+
+    def run(self, op_name: str, np_func: Callable, np_args: tuple,
+            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+        if not self.is_available():
+            return BackendResult()
+
+        try:
+            vk_func = getattr(backends.vulkan, op_name, None)
+            if vk_func is None:
+                return BackendResult()
+
+            vk_args = self._get_args(np_args)
+
+            # Warmup
+            for _ in range(config.warmup_iterations):
+                vk_func(*vk_args)
+
+            # Timed runs
+            times = []
+            for _ in range(config.num_iterations):
+                start = time.perf_counter()
+                result_buf = vk_func(*vk_args)
+                end = time.perf_counter()
+                times.append(end - start)
+
+            result = result_buf.numpy()
+            valid = self._verify(np_result, result)
+
+            return BackendResult(
+                time_ms=np.mean(times) * 1000,
+                std_ms=np.std(times) * 1000,
+                valid=valid
+            )
+        except Exception:
+            return BackendResult()
+
+    def _verify(self, reference: np.ndarray, result: np.ndarray) -> bool:
+        """Verify results match within tolerance."""
+        try:
+            np.testing.assert_allclose(result, reference, rtol=1e-4, atol=1e-5)
+            return True
+        except AssertionError:
+            return False
+
+
+class CPURunner(BackendRunner):
+    """Runs benchmarks on CPU backend (scalar and SIMD modes)."""
+
+    def __init__(self, test_data: 'TestData', simd: bool = False):
+        self.data = test_data
+        self.simd = simd
+        self._buffers = {}
+        if backends.cpu_available:
+            self._create_buffers()
+
+    def _create_buffers(self):
+        """Create CPU buffers for test data."""
+        cpu = backends.cpu
+        self._buffers = {
+            'a': cpu.Buffer(self.data.a),
+            'b': cpu.Buffer(self.data.b),
+            'a_pos': cpu.Buffer(self.data.a_pos),
+            'b_pos': cpu.Buffer(self.data.b_pos),
+            'a_unit': cpu.Buffer(self.data.a_unit),
+            'b_small': cpu.Buffer(self.data.b_small),
+            'a_div10': cpu.Buffer(self.data.a_div10),
+            'a_tan_safe': cpu.Buffer(self.data.a_tan_safe),
+        }
+
+    def is_available(self) -> bool:
+        return backends.cpu_available
+
+    def _get_args(self, np_args: tuple) -> tuple:
+        """Map numpy arrays to CPU buffers."""
+        mapping = {
+            id(self.data.a): self._buffers['a'],
+            id(self.data.b): self._buffers['b'],
+            id(self.data.a_pos): self._buffers['a_pos'],
+            id(self.data.b_pos): self._buffers['b_pos'],
+            id(self.data.a_unit): self._buffers['a_unit'],
+            id(self.data.b_small): self._buffers['b_small'],
+            id(self.data.a_div10): self._buffers['a_div10'],
+            id(self.data.a_tan_safe): self._buffers['a_tan_safe'],
+        }
+        return tuple(mapping.get(id(arg), backends.cpu.Buffer(arg)) for arg in np_args)
+
+    def run(self, op_name: str, np_func: Callable, np_args: tuple,
+            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+        if not self.is_available():
+            return BackendResult()
+
+        try:
+            cpu_func = getattr(backends.cpu, op_name, None)
+            if cpu_func is None:
+                return BackendResult()
+
+            cpu_args = self._get_args(np_args)
+
+            # Set SIMD mode
+            mode = backends.cpu.SIMDMode.Auto if self.simd else backends.cpu.SIMDMode.Scalar
+            backends.cpu.set_simd_mode(mode)
+
+            # Warmup
+            for _ in range(config.warmup_iterations):
+                cpu_func(*cpu_args)
+
+            # Timed runs
+            times = []
+            for _ in range(config.num_iterations):
+                start = time.perf_counter()
+                result_buf = cpu_func(*cpu_args)
+                end = time.perf_counter()
+                times.append(end - start)
+
+            result = result_buf.numpy()
+            valid = self._verify(np_result, result)
+
+            return BackendResult(
+                time_ms=np.mean(times) * 1000,
+                std_ms=np.std(times) * 1000,
+                valid=valid
+            )
+        except Exception:
+            return BackendResult()
+
+    def _verify(self, reference: np.ndarray, result: np.ndarray) -> bool:
+        try:
+            np.testing.assert_allclose(result, reference, rtol=1e-4, atol=1e-5)
+            return True
+        except AssertionError:
+            return False
+
+
+class CuPyRunner(BackendRunner):
+    """Runs benchmarks on CuPy (CUDA) backend."""
+
+    def __init__(self, test_data: 'TestData'):
+        self.data = test_data
+        self._arrays = {}
+        if backends.cupy_available:
+            self._create_arrays()
+
+    def _create_arrays(self):
+        """Create CuPy arrays for test data."""
+        cp = backends.cupy
+        self._arrays = {
+            'a': cp.asarray(self.data.a),
+            'b': cp.asarray(self.data.b),
+            'a_pos': cp.asarray(self.data.a_pos),
+            'b_pos': cp.asarray(self.data.b_pos),
+            'a_unit': cp.asarray(self.data.a_unit),
+            'b_small': cp.asarray(self.data.b_small),
+            'a_div10': cp.asarray(self.data.a_div10),
+            'a_tan_safe': cp.asarray(self.data.a_tan_safe),
+        }
+
+    def is_available(self) -> bool:
+        return backends.cupy_available
+
+    def _get_args(self, np_args: tuple) -> tuple:
+        """Map numpy arrays to CuPy arrays."""
+        cp = backends.cupy
+        mapping = {
+            id(self.data.a): self._arrays['a'],
+            id(self.data.b): self._arrays['b'],
+            id(self.data.a_pos): self._arrays['a_pos'],
+            id(self.data.b_pos): self._arrays['b_pos'],
+            id(self.data.a_unit): self._arrays['a_unit'],
+            id(self.data.b_small): self._arrays['b_small'],
+            id(self.data.a_div10): self._arrays['a_div10'],
+            id(self.data.a_tan_safe): self._arrays['a_tan_safe'],
+        }
+        return tuple(mapping.get(id(arg), cp.asarray(arg)) for arg in np_args)
+
+    def run(self, op_name: str, np_func: Callable, np_args: tuple,
+            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+        if not self.is_available():
+            return BackendResult()
+
+        try:
+            cp = backends.cupy
+            cp_args = self._get_args(np_args)
+
+            # Get equivalent CuPy function
+            cp_func = getattr(cp, np_func.__name__, None)
+            if cp_func is None:
+                # Handle comparison ops that return bool
+                if op_name in ('equal', 'not_equal', 'less', 'less_equal', 'greater', 'greater_equal'):
+                    base_func = getattr(cp, op_name)
+                    cp_func = lambda *args: base_func(*args).astype(cp.float32)
+                else:
+                    return BackendResult()
+
+            # Warmup with sync
+            for _ in range(config.warmup_iterations):
+                cp_func(*cp_args)
+                cp.cuda.Stream.null.synchronize()
+
+            # Timed runs
+            times = []
+            for _ in range(config.num_iterations):
+                cp.cuda.Stream.null.synchronize()
+                start = time.perf_counter()
+                cp_result = cp_func(*cp_args)
+                cp.cuda.Stream.null.synchronize()
+                end = time.perf_counter()
+                times.append(end - start)
+
+            result = cp.asnumpy(cp_result).astype(np.float32)
+            valid = self._verify(np_result, result)
+
+            return BackendResult(
+                time_ms=np.mean(times) * 1000,
+                std_ms=np.std(times) * 1000,
+                valid=valid
+            )
+        except Exception:
+            return BackendResult()
+
+    def _verify(self, reference: np.ndarray, result: np.ndarray) -> bool:
+        try:
+            np.testing.assert_allclose(result, reference, rtol=1e-4, atol=1e-5)
+            return True
+        except AssertionError:
+            return False
+
+
+class JAXRunner(BackendRunner):
+    """Runs benchmarks on JAX backend with JIT compilation."""
+
+    def __init__(self, test_data: 'TestData'):
+        self.data = test_data
+        self._arrays = {}
+        if backends.jax_available:
+            self._create_arrays()
+
+    def _create_arrays(self):
+        """Create JAX arrays for test data."""
+        jnp = backends.jnp
+        self._arrays = {
+            'a': jnp.asarray(self.data.a),
+            'b': jnp.asarray(self.data.b),
+            'a_pos': jnp.asarray(self.data.a_pos),
+            'b_pos': jnp.asarray(self.data.b_pos),
+            'a_unit': jnp.asarray(self.data.a_unit),
+            'b_small': jnp.asarray(self.data.b_small),
+            'a_div10': jnp.asarray(self.data.a_div10),
+            'a_tan_safe': jnp.asarray(self.data.a_tan_safe),
+        }
+
+    def is_available(self) -> bool:
+        return backends.jax_available
+
+    def _get_args(self, np_args: tuple) -> tuple:
+        """Map numpy arrays to JAX arrays."""
+        jnp = backends.jnp
+        mapping = {
+            id(self.data.a): self._arrays['a'],
+            id(self.data.b): self._arrays['b'],
+            id(self.data.a_pos): self._arrays['a_pos'],
+            id(self.data.b_pos): self._arrays['b_pos'],
+            id(self.data.a_unit): self._arrays['a_unit'],
+            id(self.data.b_small): self._arrays['b_small'],
+            id(self.data.a_div10): self._arrays['a_div10'],
+            id(self.data.a_tan_safe): self._arrays['a_tan_safe'],
+        }
+        return tuple(mapping.get(id(arg), jnp.asarray(arg)) for arg in np_args)
+
+    def run(self, op_name: str, np_func: Callable, np_args: tuple,
+            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+        if not self.is_available():
+            return BackendResult()
+
+        try:
+            jax = backends.jax
+            jnp = backends.jnp
+            jax_args = self._get_args(np_args)
+
+            # Get equivalent JAX function
+            jax_func = getattr(jnp, np_func.__name__, None)
+            if jax_func is None:
+                # Handle comparison ops
+                if op_name in ('equal', 'not_equal', 'less', 'less_equal', 'greater', 'greater_equal'):
+                    base_func = getattr(jnp, op_name)
+                    jax_func = lambda *args: base_func(*args).astype(jnp.float32)
+                else:
+                    return BackendResult()
+
+            # JIT compile
+            jax_func_jit = jax.jit(jax_func)
+
+            # Warmup (includes JIT compilation)
+            for _ in range(config.warmup_iterations):
+                result = jax_func_jit(*jax_args)
+                result.block_until_ready()
+
+            # Timed runs
+            times = []
+            for _ in range(config.num_iterations):
+                start = time.perf_counter()
+                result = jax_func_jit(*jax_args)
+                result.block_until_ready()
+                end = time.perf_counter()
+                times.append(end - start)
+
+            result_np = np.asarray(result).astype(np.float32)
+            valid = self._verify(np_result, result_np)
+
+            return BackendResult(
+                time_ms=np.mean(times) * 1000,
+                std_ms=np.std(times) * 1000,
+                valid=valid
+            )
+        except Exception:
+            return BackendResult()
+
+    def _verify(self, reference: np.ndarray, result: np.ndarray) -> bool:
+        try:
+            np.testing.assert_allclose(result, reference, rtol=1e-4, atol=1e-5)
+            return True
+        except AssertionError:
+            return False
+
+
+# =============================================================================
+# Test Data and Operations
+# =============================================================================
 
 @dataclass
-class BenchmarkResult:
-    name: str
-    category: str
-    vulkan_ms: float
-    cpu_ms: float
-    cpu_simd_ms: float
-    cupy_ms: float
-    jax_ms: float
-    numpy_ms: float
-    vulkan_speedup: float
-    cpu_speedup: float
-    cpu_simd_speedup: float
-    cupy_speedup: float
-    jax_speedup: float
-    vulkan_valid: bool
-    cpu_valid: bool
-    cpu_simd_valid: bool
-    cupy_valid: bool
-    jax_valid: bool
-    vulkan_std_ms: float = 0.0
-    cpu_std_ms: float = 0.0
-    cpu_simd_std_ms: float = 0.0
-    cupy_std_ms: float = 0.0
-    jax_std_ms: float = 0.0
-    numpy_std_ms: float = 0.0
+class TestData:
+    """Container for test arrays used in benchmarks."""
+    a: np.ndarray
+    b: np.ndarray
+    a_pos: np.ndarray
+    b_pos: np.ndarray
+    a_unit: np.ndarray
+    b_small: np.ndarray
+    a_div10: np.ndarray
+    a_tan_safe: np.ndarray
+
+    @classmethod
+    def generate(cls, num_elements: int, seed: int) -> 'TestData':
+        """Generate random test data."""
+        np.random.seed(seed)
+        N = num_elements
+        a = np.random.randn(N).astype(np.float32)
+        b = np.random.randn(N).astype(np.float32)
+
+        return cls(
+            a=a,
+            b=b,
+            a_pos=np.abs(a) + 0.1,
+            b_pos=np.abs(b) + 0.1,
+            a_unit=np.clip(a, -0.99, 0.99).astype(np.float32),
+            b_small=(np.random.randn(N) * 2).astype(np.float32),
+            a_div10=(a / 10).astype(np.float32),
+            a_tan_safe=np.clip(a, -1.0, 1.0).astype(np.float32),
+        )
 
 
-@dataclass
-class BenchmarkConfig:
-    num_elements: int = 1_000_000
-    num_iterations: int = 10
-    warmup_iterations: int = 3
-    seed: int = 42
-    backends: List[str] = field(default_factory=lambda: ['vulkan', 'cpu', 'numpy'])
+def get_operations(data: TestData) -> Dict[str, List[tuple]]:
+    """
+    Define all benchmark operations organized by category.
+
+    Each operation is: (name, numpy_function, numpy_args)
+    """
+    return {
+        "Binary Arithmetic": [
+            ("add", np.add, (data.a, data.b)),
+            ("subtract", np.subtract, (data.a, data.b)),
+            ("multiply", np.multiply, (data.a, data.b)),
+            ("divide", np.divide, (data.a, data.b_pos)),
+            ("mod", np.mod, (data.a_pos, data.b_pos)),
+            ("power", np.power, (data.a_pos, data.b_small)),
+            ("floor_divide", np.floor_divide, (data.a, data.b_pos)),
+        ],
+        "Binary Comparison": [
+            ("equal", lambda x, y: np.equal(x, y).astype(np.float32), (data.a, data.b)),
+            ("not_equal", lambda x, y: np.not_equal(x, y).astype(np.float32), (data.a, data.b)),
+            ("less", lambda x, y: np.less(x, y).astype(np.float32), (data.a, data.b)),
+            ("less_equal", lambda x, y: np.less_equal(x, y).astype(np.float32), (data.a, data.b)),
+            ("greater", lambda x, y: np.greater(x, y).astype(np.float32), (data.a, data.b)),
+            ("greater_equal", lambda x, y: np.greater_equal(x, y).astype(np.float32), (data.a, data.b)),
+        ],
+        "Binary Min/Max": [
+            ("minimum", np.minimum, (data.a, data.b)),
+            ("maximum", np.maximum, (data.a, data.b)),
+        ],
+        "Unary Operations": [
+            ("negative", np.negative, (data.a,)),
+            ("abs", np.abs, (data.a,)),
+            ("sqrt", np.sqrt, (data.a_pos,)),
+            ("exp", np.exp, (data.a_div10,)),
+            ("log", np.log, (data.a_pos,)),
+            ("log2", np.log2, (data.a_pos,)),
+            ("log10", np.log10, (data.a_pos,)),
+            ("sin", np.sin, (data.a,)),
+            ("cos", np.cos, (data.a,)),
+            ("tan", np.tan, (data.a_tan_safe,)),
+            ("arcsin", np.arcsin, (data.a_unit,)),
+            ("arccos", np.arccos, (data.a_unit,)),
+            ("arctan", np.arctan, (data.a,)),
+            ("sinh", np.sinh, (data.a_div10,)),
+            ("cosh", np.cosh, (data.a_div10,)),
+            ("tanh", np.tanh, (data.a,)),
+            ("floor", np.floor, (data.a,)),
+            ("ceil", np.ceil, (data.a,)),
+            ("round", np.round, (data.a,)),
+            ("sign", np.sign, (data.a,)),
+            ("reciprocal", np.reciprocal, (data.a_pos,)),
+            ("square", np.square, (data.a,)),
+        ],
+    }
 
 
-def benchmark(func: Callable, *args, config: BenchmarkConfig) -> Tuple[float, float, np.ndarray]:
-    """Run a function multiple times and return average time, std dev, and result."""
-    # Warmup
-    for _ in range(config.warmup_iterations):
-        result = func(*args)
-
-    # Timed runs
-    times = []
-    for _ in range(config.num_iterations):
-        start = time.perf_counter()
-        result = func(*args)
-        end = time.perf_counter()
-        times.append(end - start)
-
-    avg_time = np.mean(times) * 1000  # Convert to ms
-    std_time = np.std(times) * 1000
-    return avg_time, std_time, result
-
-
-def verify_results(reference: np.ndarray, result: np.ndarray,
-                   rtol: float = 1e-4, atol: float = 1e-5) -> bool:
-    """Verify that result matches reference within tolerance."""
-    try:
-        np.testing.assert_allclose(result, reference, rtol=rtol, atol=atol)
-        return True
-    except AssertionError:
-        return False
-
-
-def format_time(ms: float, std: float = 0.0, available: bool = True) -> str:
-    """Format time with optional standard deviation."""
-    if not available:
-        return "    N/A     "
-    if std > 0:
-        return f"{ms:8.3f} ± {std:5.3f}"
-    return f"{ms:8.3f}"
-
-
-def format_speedup(speedup: float, available: bool = True) -> str:
-    """Format speedup with color based on value."""
-    if not available:
-        return f"{Colors.DIM}  N/A {Colors.RESET}"
-    if speedup >= 2.0:
-        color = Colors.GREEN
-    elif speedup >= 1.0:
-        color = Colors.CYAN
-    elif speedup >= 0.5:
-        color = Colors.YELLOW
-    else:
-        color = Colors.RED
-    return f"{color}{speedup:6.2f}x{Colors.RESET}"
-
-
-def print_header(text: str, char: str = "=", width: int = 120):
-    """Print a formatted header."""
-    print(f"\n{Colors.BOLD}{char * width}{Colors.RESET}")
-    print(f"{Colors.BOLD}{text.center(width)}{Colors.RESET}")
-    print(f"{Colors.BOLD}{char * width}{Colors.RESET}")
-
-
-def print_subheader(text: str):
-    """Print a formatted subheader."""
-    print(f"\n{Colors.CYAN}{Colors.BOLD}>>> {text}{Colors.RESET}")
-    print(f"{Colors.DIM}{'─' * 116}{Colors.RESET}")
-
-
-def print_table_header():
-    """Print the results table header."""
-    print(f"\n{'Operation':<14} │ {'Vulkan (ms)':<16} │ {'CPU (ms)':<16} │ {'CPU+SIMD (ms)':<16} │ {'CuPy (ms)':<16} │ {'JAX (ms)':<16} │ {'NumPy (ms)':<16} │ {'Vulkan/NP':<10} │ {'CPU/NP':<10} │ {'SIMD/NP':<10} │ {'CuPy/NP':<10} │ {'JAX/NP':<10} │ {'Status':<12}")
-    print(f"{'─' * 14}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 16}─┼─{'─' * 10}─┼─{'─' * 10}─┼─{'─' * 10}─┼─{'─' * 10}─┼─{'─' * 10}─┼─{'─' * 12}")
-
-
-def print_result_row(result: BenchmarkResult, show_std: bool = True,
-                     vulkan_available: bool = True, cpu_available: bool = True,
-                     cupy_available: bool = True, jax_available: bool = True):
-    """Print a single result row."""
-    if show_std:
-        vk_str = format_time(result.vulkan_ms, result.vulkan_std_ms, vulkan_available)
-        cpu_str = format_time(result.cpu_ms, result.cpu_std_ms, cpu_available)
-        cpu_simd_str = format_time(result.cpu_simd_ms, result.cpu_simd_std_ms, cpu_available)
-        cupy_str = format_time(result.cupy_ms, result.cupy_std_ms, cupy_available)
-        jax_str = format_time(result.jax_ms, result.jax_std_ms, jax_available)
-        np_str = format_time(result.numpy_ms, result.numpy_std_ms)
-    else:
-        vk_str = format_time(result.vulkan_ms, available=vulkan_available)
-        cpu_str = format_time(result.cpu_ms, available=cpu_available)
-        cpu_simd_str = format_time(result.cpu_simd_ms, available=cpu_available)
-        cupy_str = format_time(result.cupy_ms, available=cupy_available)
-        jax_str = format_time(result.jax_ms, available=jax_available)
-        np_str = format_time(result.numpy_ms)
-
-    vk_speedup_str = format_speedup(result.vulkan_speedup, vulkan_available)
-    cpu_speedup_str = format_speedup(result.cpu_speedup, cpu_available)
-    cpu_simd_speedup_str = format_speedup(result.cpu_simd_speedup, cpu_available)
-    cupy_speedup_str = format_speedup(result.cupy_speedup, cupy_available)
-    jax_speedup_str = format_speedup(result.jax_speedup, jax_available)
-
-    # Status string
-    status_parts = []
-    if vulkan_available:
-        status_parts.append(f"{'V:OK' if result.vulkan_valid else 'V:FAIL'}")
-    if cpu_available:
-        status_parts.append(f"{'C:OK' if result.cpu_valid else 'C:FAIL'}")
-        status_parts.append(f"{'S:OK' if result.cpu_simd_valid else 'S:FAIL'}")
-    if cupy_available:
-        status_parts.append(f"{'G:OK' if result.cupy_valid else 'G:FAIL'}")
-    if jax_available:
-        status_parts.append(f"{'J:OK' if result.jax_valid else 'J:FAIL'}")
-    status = " ".join(status_parts)
-
-    # Color the status
-    all_valid = True
-    if vulkan_available and not result.vulkan_valid:
-        all_valid = False
-    if cpu_available and (not result.cpu_valid or not result.cpu_simd_valid):
-        all_valid = False
-    if cupy_available and not result.cupy_valid:
-        all_valid = False
-    if jax_available and not result.jax_valid:
-        all_valid = False
-    if not all_valid:
-        status = f"{Colors.RED}{status}{Colors.RESET}"
-    else:
-        status = f"{Colors.GREEN}{status}{Colors.RESET}"
-
-    print(f"{result.name:<14} │ {vk_str:<16} │ {cpu_str:<16} │ {cpu_simd_str:<16} │ {cupy_str:<16} │ {jax_str:<16} │ {np_str:<16} │ {vk_speedup_str:<19} │ {cpu_speedup_str:<19} │ {cpu_simd_speedup_str:<19} │ {cupy_speedup_str:<19} │ {jax_speedup_str:<19} │ {status}")
-
+# =============================================================================
+# Benchmark Runner
+# =============================================================================
 
 def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[BenchmarkResult]:
     """Run all benchmarks and return results."""
     results: List[BenchmarkResult] = []
 
+    # Print configuration
     if verbose:
-        print_header(f"CUT Benchmark Suite: Vulkan vs CPU vs CPU+SIMD vs NumPy", "=")
+        OutputFormatter.header("CUT Benchmark Suite: Vulkan vs CPU vs CPU+SIMD vs NumPy")
         print(f"\n{Colors.DIM}Configuration:{Colors.RESET}")
         print(f"  - Elements:   {config.num_elements:,}")
         print(f"  - Iterations: {config.num_iterations}")
         print(f"  - Warmup:     {config.warmup_iterations}")
         print(f"  - Seed:       {config.seed}")
         print(f"  - Timestamp:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
         print(f"\n{Colors.DIM}Backends:{Colors.RESET}")
-        print(f"  - Vulkan:     {'Available' if VULKAN_AVAILABLE else 'Not available'}")
-        if CPU_AVAILABLE:
-            print(f"  - CPU:        Available ({cut_cpu.num_threads()} threads)")
+        print(f"  - Vulkan:     {'Available' if backends.vulkan_available else 'Not available'}")
+        if backends.cpu_available:
+            print(f"  - CPU:        Available ({backends.cpu.num_threads()} threads)")
             print(f"  - CPU+SIMD:   Available (Auto-detected SIMD)")
         else:
             print(f"  - CPU:        Not available")
-        if CUPY_AVAILABLE:
-            print(f"  - CuPy:       Available (CUDA {cp.cuda.runtime.runtimeGetVersion()})")
+        if backends.cupy_available:
+            print(f"  - CuPy:       Available (CUDA {backends.cupy.cuda.runtime.runtimeGetVersion()})")
         else:
             print(f"  - CuPy:       Not available")
-        if JAX_AVAILABLE:
-            print(f"  - JAX:        Available (backend: {jax.default_backend()})")
+        if backends.jax_available:
+            print(f"  - JAX:        Available (backend: {backends.jax.default_backend()})")
         else:
             print(f"  - JAX:        Not available")
         print(f"  - NumPy:      {np.__version__}")
 
-    # Precompile Vulkan shaders if available
-    if VULKAN_AVAILABLE:
+    # Precompile Vulkan shaders
+    if backends.vulkan_available:
         if verbose:
             print(f"\n{Colors.YELLOW}Precompiling Vulkan shaders...{Colors.RESET}", end=" ", flush=True)
-        cut.precompile_shaders()
+        backends.vulkan.precompile_shaders()
         if verbose:
             print(f"{Colors.GREEN}Done{Colors.RESET}")
 
-    # Generate test data
-    np.random.seed(config.seed)
-    N = config.num_elements
-    a = np.random.randn(N).astype(np.float32)
-    b = np.random.randn(N).astype(np.float32)
-    a_pos = np.abs(a) + 0.1
-    b_pos = np.abs(b) + 0.1
-    a_unit = np.clip(a, -0.99, 0.99).astype(np.float32)
-    b_small = (np.random.randn(N) * 2).astype(np.float32)
-    a_div10 = (a / 10).astype(np.float32)
-    a_tan_safe = np.clip(a, -1.0, 1.0).astype(np.float32)
+    # Generate test data and create runners
+    data = TestData.generate(config.num_elements, config.seed)
 
-    # Create Vulkan buffers
-    if VULKAN_AVAILABLE:
-        vk_buf_a = cut.Buffer(a)
-        vk_buf_b = cut.Buffer(b)
-        vk_buf_a_pos = cut.Buffer(a_pos)
-        vk_buf_b_pos = cut.Buffer(b_pos)
-        vk_buf_a_unit = cut.Buffer(a_unit)
-        vk_buf_b_small = cut.Buffer(b_small)
-        vk_buf_a_div10 = cut.Buffer(a_div10)
-        vk_buf_a_tan_safe = cut.Buffer(a_tan_safe)
+    vulkan_runner = VulkanRunner(data)
+    cpu_runner = CPURunner(data, simd=False)
+    cpu_simd_runner = CPURunner(data, simd=True)
+    cupy_runner = CuPyRunner(data)
+    jax_runner = JAXRunner(data)
 
-    # Create CPU buffers
-    if CPU_AVAILABLE:
-        cpu_buf_a = cut_cpu.Buffer(a)
-        cpu_buf_b = cut_cpu.Buffer(b)
-        cpu_buf_a_pos = cut_cpu.Buffer(a_pos)
-        cpu_buf_b_pos = cut_cpu.Buffer(b_pos)
-        cpu_buf_a_unit = cut_cpu.Buffer(a_unit)
-        cpu_buf_b_small = cut_cpu.Buffer(b_small)
-        cpu_buf_a_div10 = cut_cpu.Buffer(a_div10)
-        cpu_buf_a_tan_safe = cut_cpu.Buffer(a_tan_safe)
+    operations = get_operations(data)
 
-    # Create CuPy arrays
-    if CUPY_AVAILABLE:
-        cp_a = cp.asarray(a)
-        cp_b = cp.asarray(b)
-        cp_a_pos = cp.asarray(a_pos)
-        cp_b_pos = cp.asarray(b_pos)
-        cp_a_unit = cp.asarray(a_unit)
-        cp_b_small = cp.asarray(b_small)
-        cp_a_div10 = cp.asarray(a_div10)
-        cp_a_tan_safe = cp.asarray(a_tan_safe)
-
-    # Create JAX arrays
-    if JAX_AVAILABLE:
-        jax_a = jnp.asarray(a)
-        jax_b = jnp.asarray(b)
-        jax_a_pos = jnp.asarray(a_pos)
-        jax_b_pos = jnp.asarray(b_pos)
-        jax_a_unit = jnp.asarray(a_unit)
-        jax_b_small = jnp.asarray(b_small)
-        jax_a_div10 = jnp.asarray(a_div10)
-        jax_a_tan_safe = jnp.asarray(a_tan_safe)
-
-    # Define all operations by category
-    # Each entry: (name, vk_func, cpu_func, np_func, vk_args, cpu_args, np_args)
-    operations = {
-        "Binary Arithmetic": [
-            ("add",
-             cut.add if VULKAN_AVAILABLE else None,
-             cut_cpu.add if CPU_AVAILABLE else None,
-             np.add,
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-            ("subtract",
-             cut.subtract if VULKAN_AVAILABLE else None,
-             cut_cpu.subtract if CPU_AVAILABLE else None,
-             np.subtract,
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-            ("multiply",
-             cut.multiply if VULKAN_AVAILABLE else None,
-             cut_cpu.multiply if CPU_AVAILABLE else None,
-             np.multiply,
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-            ("divide",
-             cut.divide if VULKAN_AVAILABLE else None,
-             cut_cpu.divide if CPU_AVAILABLE else None,
-             np.divide,
-             (vk_buf_a, vk_buf_b_pos) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b_pos) if CPU_AVAILABLE else None,
-             (a, b_pos)),
-            ("mod",
-             cut.mod if VULKAN_AVAILABLE else None,
-             cut_cpu.mod if CPU_AVAILABLE else None,
-             np.mod,
-             (vk_buf_a_pos, vk_buf_b_pos) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_pos, cpu_buf_b_pos) if CPU_AVAILABLE else None,
-             (a_pos, b_pos)),
-            ("power",
-             cut.power if VULKAN_AVAILABLE else None,
-             cut_cpu.power if CPU_AVAILABLE else None,
-             np.power,
-             (vk_buf_a_pos, vk_buf_b_small) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_pos, cpu_buf_b_small) if CPU_AVAILABLE else None,
-             (a_pos, b_small)),
-            ("floor_divide",
-             cut.floor_divide if VULKAN_AVAILABLE else None,
-             cut_cpu.floor_divide if CPU_AVAILABLE else None,
-             np.floor_divide,
-             (vk_buf_a, vk_buf_b_pos) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b_pos) if CPU_AVAILABLE else None,
-             (a, b_pos)),
-        ],
-        "Binary Comparison": [
-            ("equal",
-             cut.equal if VULKAN_AVAILABLE else None,
-             cut_cpu.equal if CPU_AVAILABLE else None,
-             lambda x, y: np.equal(x, y).astype(np.float32),
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-            ("not_equal",
-             cut.not_equal if VULKAN_AVAILABLE else None,
-             cut_cpu.not_equal if CPU_AVAILABLE else None,
-             lambda x, y: np.not_equal(x, y).astype(np.float32),
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-            ("less",
-             cut.less if VULKAN_AVAILABLE else None,
-             cut_cpu.less if CPU_AVAILABLE else None,
-             lambda x, y: np.less(x, y).astype(np.float32),
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-            ("less_equal",
-             cut.less_equal if VULKAN_AVAILABLE else None,
-             cut_cpu.less_equal if CPU_AVAILABLE else None,
-             lambda x, y: np.less_equal(x, y).astype(np.float32),
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-            ("greater",
-             cut.greater if VULKAN_AVAILABLE else None,
-             cut_cpu.greater if CPU_AVAILABLE else None,
-             lambda x, y: np.greater(x, y).astype(np.float32),
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-            ("greater_equal",
-             cut.greater_equal if VULKAN_AVAILABLE else None,
-             cut_cpu.greater_equal if CPU_AVAILABLE else None,
-             lambda x, y: np.greater_equal(x, y).astype(np.float32),
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-        ],
-        "Binary Min/Max": [
-            ("minimum",
-             cut.minimum if VULKAN_AVAILABLE else None,
-             cut_cpu.minimum if CPU_AVAILABLE else None,
-             np.minimum,
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-            ("maximum",
-             cut.maximum if VULKAN_AVAILABLE else None,
-             cut_cpu.maximum if CPU_AVAILABLE else None,
-             np.maximum,
-             (vk_buf_a, vk_buf_b) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a, cpu_buf_b) if CPU_AVAILABLE else None,
-             (a, b)),
-        ],
-        "Unary Operations": [
-            ("negative",
-             cut.negative if VULKAN_AVAILABLE else None,
-             cut_cpu.negative if CPU_AVAILABLE else None,
-             np.negative,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("abs",
-             cut.abs if VULKAN_AVAILABLE else None,
-             cut_cpu.abs if CPU_AVAILABLE else None,
-             np.abs,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("sqrt",
-             cut.sqrt if VULKAN_AVAILABLE else None,
-             cut_cpu.sqrt if CPU_AVAILABLE else None,
-             np.sqrt,
-             (vk_buf_a_pos,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_pos,) if CPU_AVAILABLE else None,
-             (a_pos,)),
-            ("exp",
-             cut.exp if VULKAN_AVAILABLE else None,
-             cut_cpu.exp if CPU_AVAILABLE else None,
-             np.exp,
-             (vk_buf_a_div10,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_div10,) if CPU_AVAILABLE else None,
-             (a_div10,)),
-            ("log",
-             cut.log if VULKAN_AVAILABLE else None,
-             cut_cpu.log if CPU_AVAILABLE else None,
-             np.log,
-             (vk_buf_a_pos,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_pos,) if CPU_AVAILABLE else None,
-             (a_pos,)),
-            ("log2",
-             cut.log2 if VULKAN_AVAILABLE else None,
-             cut_cpu.log2 if CPU_AVAILABLE else None,
-             np.log2,
-             (vk_buf_a_pos,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_pos,) if CPU_AVAILABLE else None,
-             (a_pos,)),
-            ("log10",
-             cut.log10 if VULKAN_AVAILABLE else None,
-             cut_cpu.log10 if CPU_AVAILABLE else None,
-             np.log10,
-             (vk_buf_a_pos,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_pos,) if CPU_AVAILABLE else None,
-             (a_pos,)),
-            ("sin",
-             cut.sin if VULKAN_AVAILABLE else None,
-             cut_cpu.sin if CPU_AVAILABLE else None,
-             np.sin,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("cos",
-             cut.cos if VULKAN_AVAILABLE else None,
-             cut_cpu.cos if CPU_AVAILABLE else None,
-             np.cos,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("tan",
-             cut.tan if VULKAN_AVAILABLE else None,
-             cut_cpu.tan if CPU_AVAILABLE else None,
-             np.tan,
-             (vk_buf_a_tan_safe,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_tan_safe,) if CPU_AVAILABLE else None,
-             (a_tan_safe,)),
-            ("arcsin",
-             cut.arcsin if VULKAN_AVAILABLE else None,
-             cut_cpu.arcsin if CPU_AVAILABLE else None,
-             np.arcsin,
-             (vk_buf_a_unit,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_unit,) if CPU_AVAILABLE else None,
-             (a_unit,)),
-            ("arccos",
-             cut.arccos if VULKAN_AVAILABLE else None,
-             cut_cpu.arccos if CPU_AVAILABLE else None,
-             np.arccos,
-             (vk_buf_a_unit,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_unit,) if CPU_AVAILABLE else None,
-             (a_unit,)),
-            ("arctan",
-             cut.arctan if VULKAN_AVAILABLE else None,
-             cut_cpu.arctan if CPU_AVAILABLE else None,
-             np.arctan,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("sinh",
-             cut.sinh if VULKAN_AVAILABLE else None,
-             cut_cpu.sinh if CPU_AVAILABLE else None,
-             np.sinh,
-             (vk_buf_a_div10,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_div10,) if CPU_AVAILABLE else None,
-             (a_div10,)),
-            ("cosh",
-             cut.cosh if VULKAN_AVAILABLE else None,
-             cut_cpu.cosh if CPU_AVAILABLE else None,
-             np.cosh,
-             (vk_buf_a_div10,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_div10,) if CPU_AVAILABLE else None,
-             (a_div10,)),
-            ("tanh",
-             cut.tanh if VULKAN_AVAILABLE else None,
-             cut_cpu.tanh if CPU_AVAILABLE else None,
-             np.tanh,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("floor",
-             cut.floor if VULKAN_AVAILABLE else None,
-             cut_cpu.floor if CPU_AVAILABLE else None,
-             np.floor,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("ceil",
-             cut.ceil if VULKAN_AVAILABLE else None,
-             cut_cpu.ceil if CPU_AVAILABLE else None,
-             np.ceil,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("round",
-             cut.round if VULKAN_AVAILABLE else None,
-             cut_cpu.round if CPU_AVAILABLE else None,
-             np.round,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("sign",
-             cut.sign if VULKAN_AVAILABLE else None,
-             cut_cpu.sign if CPU_AVAILABLE else None,
-             np.sign,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-            ("reciprocal",
-             cut.reciprocal if VULKAN_AVAILABLE else None,
-             cut_cpu.reciprocal if CPU_AVAILABLE else None,
-             np.reciprocal,
-             (vk_buf_a_pos,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a_pos,) if CPU_AVAILABLE else None,
-             (a_pos,)),
-            ("square",
-             cut.square if VULKAN_AVAILABLE else None,
-             cut_cpu.square if CPU_AVAILABLE else None,
-             np.square,
-             (vk_buf_a,) if VULKAN_AVAILABLE else None,
-             (cpu_buf_a,) if CPU_AVAILABLE else None,
-             (a,)),
-        ],
-    }
-
-    # Run benchmarks for each category
+    # Run benchmarks
     for category, ops in operations.items():
         if verbose:
-            print_subheader(category)
-            print_table_header()
+            OutputFormatter.subheader(category)
+            OutputFormatter.table_header()
 
-        for op_def in ops:
-            name = op_def[0]
-            vk_func = op_def[1]
-            cpu_func = op_def[2]
-            np_func = op_def[3]
-            vk_args = op_def[4]
-            cpu_args = op_def[5]
-            np_args = op_def[6]
+        for op_name, np_func, np_args in ops:
+            # Run NumPy (reference)
+            times = []
+            for _ in range(config.warmup_iterations):
+                np_func(*np_args)
+            for _ in range(config.num_iterations):
+                start = time.perf_counter()
+                np_result = np_func(*np_args)
+                end = time.perf_counter()
+                times.append(end - start)
 
-            # Run NumPy benchmark first (reference)
-            np_time, np_std, np_result = benchmark(np_func, *np_args, config=config)
             np_result = np_result.astype(np.float32)
+            numpy_result = BackendResult(
+                time_ms=np.mean(times) * 1000,
+                std_ms=np.std(times) * 1000,
+                valid=True,
+                speedup=1.0
+            )
 
-            # Run Vulkan benchmark
-            vk_time, vk_std, vk_valid = float('nan'), 0.0, False
-            if VULKAN_AVAILABLE and vk_func is not None:
-                try:
-                    vk_time, vk_std, vk_result_buf = benchmark(vk_func, *vk_args, config=config)
-                    vk_result = vk_result_buf.numpy()
-                    vk_valid = verify_results(np_result, vk_result)
-                except Exception as e:
-                    if verbose:
-                        print(f"  Vulkan error for {name}: {e}")
-
-            # Run CPU benchmark (scalar mode)
-            cpu_time, cpu_std, cpu_valid = float('nan'), 0.0, False
-            if CPU_AVAILABLE and cpu_func is not None:
-                try:
-                    # Set to scalar mode for plain CPU benchmark
-                    cut_cpu.set_simd_mode(cut_cpu.SIMDMode.Scalar)
-                    cpu_time, cpu_std, cpu_result_buf = benchmark(cpu_func, *cpu_args, config=config)
-                    cpu_result = cpu_result_buf.numpy()
-                    cpu_valid = verify_results(np_result, cpu_result)
-                except Exception as e:
-                    if verbose:
-                        print(f"  CPU error for {name}: {e}")
-
-            # Run CPU benchmark (SIMD mode - auto detect best)
-            cpu_simd_time, cpu_simd_std, cpu_simd_valid = float('nan'), 0.0, False
-            if CPU_AVAILABLE and cpu_func is not None:
-                try:
-                    # Set to auto mode for SIMD benchmark
-                    cut_cpu.set_simd_mode(cut_cpu.SIMDMode.Auto)
-                    cpu_simd_time, cpu_simd_std, cpu_simd_result_buf = benchmark(cpu_func, *cpu_args, config=config)
-                    cpu_simd_result = cpu_simd_result_buf.numpy()
-                    cpu_simd_valid = verify_results(np_result, cpu_simd_result)
-                except Exception as e:
-                    if verbose:
-                        print(f"  CPU SIMD error for {name}: {e}")
-
-            # Run CuPy benchmark
-            cupy_time, cupy_std, cupy_valid = float('nan'), 0.0, False
-            if CUPY_AVAILABLE:
-                try:
-                    # Map numpy arrays to cupy arrays
-                    np_to_cp = {
-                        id(a): cp_a, id(b): cp_b,
-                        id(a_pos): cp_a_pos, id(b_pos): cp_b_pos,
-                        id(a_unit): cp_a_unit, id(b_small): cp_b_small,
-                        id(a_div10): cp_a_div10, id(a_tan_safe): cp_a_tan_safe
-                    }
-                    cp_args = tuple(np_to_cp.get(id(arg), cp.asarray(arg)) for arg in np_args)
-
-                    # Get the equivalent cupy function
-                    cp_func = getattr(cp, np_func.__name__, None)
-                    if cp_func is None and hasattr(np_func, '__name__'):
-                        # Handle lambda functions for comparison ops
-                        if 'equal' in name or 'less' in name or 'greater' in name:
-                            cp_func = lambda *args, fn=getattr(cp, name): fn(*args).astype(cp.float32)
-
-                    if cp_func is not None:
-                        # Warmup and sync
-                        for _ in range(config.warmup_iterations):
-                            _ = cp_func(*cp_args)
-                            cp.cuda.Stream.null.synchronize()
-
-                        # Timed runs
-                        times = []
-                        for _ in range(config.num_iterations):
-                            cp.cuda.Stream.null.synchronize()
-                            start = time.perf_counter()
-                            cp_result = cp_func(*cp_args)
-                            cp.cuda.Stream.null.synchronize()
-                            end = time.perf_counter()
-                            times.append(end - start)
-
-                        cupy_time = np.mean(times) * 1000
-                        cupy_std = np.std(times) * 1000
-                        cupy_result_np = cp.asnumpy(cp_result).astype(np.float32)
-                        cupy_valid = verify_results(np_result, cupy_result_np)
-                except Exception as e:
-                    if verbose:
-                        print(f"  CuPy error for {name}: {e}")
-
-            # Run JAX benchmark
-            jax_time, jax_std, jax_valid = float('nan'), 0.0, False
-            if JAX_AVAILABLE:
-                try:
-                    # Map numpy arrays to jax arrays
-                    np_to_jax = {
-                        id(a): jax_a, id(b): jax_b,
-                        id(a_pos): jax_a_pos, id(b_pos): jax_b_pos,
-                        id(a_unit): jax_a_unit, id(b_small): jax_b_small,
-                        id(a_div10): jax_a_div10, id(a_tan_safe): jax_a_tan_safe
-                    }
-                    jax_args = tuple(np_to_jax.get(id(arg), jnp.asarray(arg)) for arg in np_args)
-
-                    # Get the equivalent jax.numpy function
-                    jax_func = getattr(jnp, np_func.__name__, None)
-                    if jax_func is None and hasattr(np_func, '__name__'):
-                        # Handle lambda functions for comparison ops
-                        if 'equal' in name or 'less' in name or 'greater' in name:
-                            jax_func = lambda *args, fn=getattr(jnp, name): fn(*args).astype(jnp.float32)
-
-                    if jax_func is not None:
-                        # JIT compile the function for fair comparison
-                        jax_func_jit = jax.jit(jax_func)
-
-                        # Warmup (includes JIT compilation)
-                        for _ in range(config.warmup_iterations):
-                            jax_result = jax_func_jit(*jax_args)
-                            jax_result.block_until_ready()
-
-                        # Timed runs
-                        times = []
-                        for _ in range(config.num_iterations):
-                            start = time.perf_counter()
-                            jax_result = jax_func_jit(*jax_args)
-                            jax_result.block_until_ready()
-                            end = time.perf_counter()
-                            times.append(end - start)
-
-                        jax_time = np.mean(times) * 1000
-                        jax_std = np.std(times) * 1000
-                        jax_result_np = np.asarray(jax_result).astype(np.float32)
-                        jax_valid = verify_results(np_result, jax_result_np)
-                except Exception as e:
-                    if verbose:
-                        print(f"  JAX error for {name}: {e}")
+            # Run other backends
+            vulkan_result = vulkan_runner.run(op_name, np_func, np_args, np_result, config)
+            cpu_result = cpu_runner.run(op_name, np_func, np_args, np_result, config)
+            cpu_simd_result = cpu_simd_runner.run(op_name, np_func, np_args, np_result, config)
+            cupy_result = cupy_runner.run(op_name, np_func, np_args, np_result, config)
+            jax_result = jax_runner.run(op_name, np_func, np_args, np_result, config)
 
             # Calculate speedups
-            vk_speedup = np_time / vk_time if vk_time > 0 and not np.isnan(vk_time) else float('nan')
-            cpu_speedup = np_time / cpu_time if cpu_time > 0 and not np.isnan(cpu_time) else float('nan')
-            cpu_simd_speedup = np_time / cpu_simd_time if cpu_simd_time > 0 and not np.isnan(cpu_simd_time) else float('nan')
-            cupy_speedup = np_time / cupy_time if cupy_time > 0 and not np.isnan(cupy_time) else float('nan')
-            jax_speedup = np_time / jax_time if jax_time > 0 and not np.isnan(jax_time) else float('nan')
+            np_time = numpy_result.time_ms
+            vulkan_result.speedup = np_time / vulkan_result.time_ms if vulkan_result.time_ms > 0 else float('nan')
+            cpu_result.speedup = np_time / cpu_result.time_ms if cpu_result.time_ms > 0 else float('nan')
+            cpu_simd_result.speedup = np_time / cpu_simd_result.time_ms if cpu_simd_result.time_ms > 0 else float('nan')
+            cupy_result.speedup = np_time / cupy_result.time_ms if cupy_result.time_ms > 0 else float('nan')
+            jax_result.speedup = np_time / jax_result.time_ms if jax_result.time_ms > 0 else float('nan')
 
             result = BenchmarkResult(
-                name=name,
+                name=op_name,
                 category=category,
-                vulkan_ms=vk_time,
-                cpu_ms=cpu_time,
-                cpu_simd_ms=cpu_simd_time,
-                cupy_ms=cupy_time,
-                jax_ms=jax_time,
-                numpy_ms=np_time,
-                vulkan_speedup=vk_speedup,
-                cpu_speedup=cpu_speedup,
-                cpu_simd_speedup=cpu_simd_speedup,
-                cupy_speedup=cupy_speedup,
-                jax_speedup=jax_speedup,
-                vulkan_valid=vk_valid,
-                cpu_valid=cpu_valid,
-                cpu_simd_valid=cpu_simd_valid,
-                cupy_valid=cupy_valid,
-                jax_valid=jax_valid,
-                vulkan_std_ms=vk_std,
-                cpu_std_ms=cpu_std,
-                cpu_simd_std_ms=cpu_simd_std,
-                cupy_std_ms=cupy_std,
-                jax_std_ms=jax_std,
-                numpy_std_ms=np_std
+                numpy=numpy_result,
+                vulkan=vulkan_result,
+                cpu=cpu_result,
+                cpu_simd=cpu_simd_result,
+                cupy=cupy_result,
+                jax=jax_result,
             )
             results.append(result)
 
             if verbose:
-                print_result_row(result, vulkan_available=VULKAN_AVAILABLE, cpu_available=CPU_AVAILABLE, cupy_available=CUPY_AVAILABLE, jax_available=JAX_AVAILABLE)
+                OutputFormatter.result_row(result)
 
     return results
 
 
+# =============================================================================
+# Summary and Export
+# =============================================================================
+
+def compute_stats(results: List[BenchmarkResult], backend: str) -> Dict[str, Any]:
+    """Compute statistics for a backend."""
+    speedups = []
+    valid_count = 0
+    total_count = 0
+
+    for r in results:
+        br = getattr(r, backend)
+        if not np.isnan(br.time_ms):
+            total_count += 1
+            if br.valid:
+                valid_count += 1
+            if not np.isnan(br.speedup):
+                speedups.append(br.speedup)
+
+    if not speedups:
+        return {'available': False}
+
+    return {
+        'available': True,
+        'valid': valid_count,
+        'total': total_count,
+        'faster': sum(1 for s in speedups if s > 1.0),
+        'mean': np.mean(speedups),
+        'median': np.median(speedups),
+        'min': np.min(speedups),
+        'max': np.max(speedups),
+        'speedups': speedups,
+    }
+
+
 def print_summary(results: List[BenchmarkResult]):
     """Print comprehensive performance summary."""
-    print_header("Performance Evaluation Summary", "=")
+    OutputFormatter.header("Performance Evaluation Summary")
 
-    total_ops = len(results)
-
-    # Vulkan stats
-    vk_results = [r for r in results if not np.isnan(r.vulkan_ms)]
-    vk_valid = sum(1 for r in vk_results if r.vulkan_valid)
-    vk_speedups = [r.vulkan_speedup for r in vk_results if not np.isnan(r.vulkan_speedup)]
-
-    # CPU stats (scalar)
-    cpu_results = [r for r in results if not np.isnan(r.cpu_ms)]
-    cpu_valid = sum(1 for r in cpu_results if r.cpu_valid)
-    cpu_speedups = [r.cpu_speedup for r in cpu_results if not np.isnan(r.cpu_speedup)]
-
-    # CPU SIMD stats
-    cpu_simd_results = [r for r in results if not np.isnan(r.cpu_simd_ms)]
-    cpu_simd_valid = sum(1 for r in cpu_simd_results if r.cpu_simd_valid)
-    cpu_simd_speedups = [r.cpu_simd_speedup for r in cpu_simd_results if not np.isnan(r.cpu_simd_speedup)]
-
-    # CuPy stats
-    cupy_results = [r for r in results if not np.isnan(r.cupy_ms)]
-    cupy_valid = sum(1 for r in cupy_results if r.cupy_valid)
-    cupy_speedups = [r.cupy_speedup for r in cupy_results if not np.isnan(r.cupy_speedup)]
-
-    # JAX stats
-    jax_results = [r for r in results if not np.isnan(r.jax_ms)]
-    jax_valid = sum(1 for r in jax_results if r.jax_valid)
-    jax_speedups = [r.jax_speedup for r in jax_results if not np.isnan(r.jax_speedup)]
+    # Compute stats for all backends
+    stats = {
+        'vulkan': compute_stats(results, 'vulkan') if backends.vulkan_available else {'available': False},
+        'cpu': compute_stats(results, 'cpu') if backends.cpu_available else {'available': False},
+        'cpu_simd': compute_stats(results, 'cpu_simd') if backends.cpu_available else {'available': False},
+        'cupy': compute_stats(results, 'cupy') if backends.cupy_available else {'available': False},
+        'jax': compute_stats(results, 'jax') if backends.jax_available else {'available': False},
+    }
 
     # Overall Statistics
     print(f"\n{Colors.BOLD}Overall Statistics{Colors.RESET}")
     print(f"{'─' * 60}")
-    print(f"  Total operations tested:    {total_ops}")
+    print(f"  Total operations tested:    {len(results)}")
 
-    if VULKAN_AVAILABLE and vk_results:
-        vk_faster = sum(1 for s in vk_speedups if s > 1.0)
-        print(f"  Vulkan validated:           {vk_valid}/{len(vk_results)}")
-        print(f"  Vulkan faster than NumPy:   {vk_faster}/{len(vk_speedups)} operations")
+    for name, label in [('vulkan', 'Vulkan'), ('cpu', 'CPU (scalar)'),
+                        ('cpu_simd', 'CPU+SIMD'), ('cupy', 'CuPy'), ('jax', 'JAX')]:
+        s = stats[name]
+        if s['available']:
+            print(f"  {label} validated:".ljust(30) + f"{s['valid']}/{s['total']}")
+            print(f"  {label} faster than NumPy:".ljust(30) + f"{s['faster']}/{len(s['speedups'])} operations")
 
-    if CPU_AVAILABLE and cpu_results:
-        cpu_faster = sum(1 for s in cpu_speedups if s > 1.0)
-        print(f"  CPU (scalar) validated:     {cpu_valid}/{len(cpu_results)}")
-        print(f"  CPU (scalar) faster:        {cpu_faster}/{len(cpu_speedups)} operations")
-
-    if CPU_AVAILABLE and cpu_simd_results:
-        cpu_simd_faster = sum(1 for s in cpu_simd_speedups if s > 1.0)
-        print(f"  CPU+SIMD validated:         {cpu_simd_valid}/{len(cpu_simd_results)}")
-        print(f"  CPU+SIMD faster than NumPy: {cpu_simd_faster}/{len(cpu_simd_speedups)} operations")
-
-    if CUPY_AVAILABLE and cupy_results:
-        cupy_faster = sum(1 for s in cupy_speedups if s > 1.0)
-        print(f"  CuPy validated:             {cupy_valid}/{len(cupy_results)}")
-        print(f"  CuPy faster than NumPy:     {cupy_faster}/{len(cupy_speedups)} operations")
-
-    if JAX_AVAILABLE and jax_results:
-        jax_faster = sum(1 for s in jax_speedups if s > 1.0)
-        print(f"  JAX validated:              {jax_valid}/{len(jax_results)}")
-        print(f"  JAX faster than NumPy:      {jax_faster}/{len(jax_speedups)} operations")
-
-    # Speedup Statistics
+    # Speedup Statistics Table
     print(f"\n{Colors.BOLD}Speedup Statistics (vs NumPy){Colors.RESET}")
     print(f"{'─' * 105}")
     print(f"  {'Metric':<20} {'Vulkan':<15} {'CPU (scalar)':<15} {'CPU+SIMD':<15} {'CuPy':<15} {'JAX':<15}")
     print(f"  {'─' * 20} {'─' * 15} {'─' * 15} {'─' * 15} {'─' * 15} {'─' * 15}")
 
-    def fmt_stat(vk_val, cpu_val, cpu_simd_val, cupy_val, jax_val):
-        vk_str = f"{vk_val:.3f}x" if VULKAN_AVAILABLE and vk_speedups else "N/A"
-        cpu_str = f"{cpu_val:.3f}x" if CPU_AVAILABLE and cpu_speedups else "N/A"
-        cpu_simd_str = f"{cpu_simd_val:.3f}x" if CPU_AVAILABLE and cpu_simd_speedups else "N/A"
-        cupy_str = f"{cupy_val:.3f}x" if CUPY_AVAILABLE and cupy_speedups else "N/A"
-        jax_str = f"{jax_val:.3f}x" if JAX_AVAILABLE and jax_speedups else "N/A"
-        return vk_str, cpu_str, cpu_simd_str, cupy_str, jax_str
+    def fmt(s, key):
+        return f"{s[key]:.3f}x" if s['available'] else "N/A"
 
-    if vk_speedups or cpu_speedups or cpu_simd_speedups or cupy_speedups or jax_speedups:
-        vk_mean = np.mean(vk_speedups) if vk_speedups else 0
-        cpu_mean = np.mean(cpu_speedups) if cpu_speedups else 0
-        cpu_simd_mean = np.mean(cpu_simd_speedups) if cpu_simd_speedups else 0
-        cupy_mean = np.mean(cupy_speedups) if cupy_speedups else 0
-        jax_mean = np.mean(jax_speedups) if jax_speedups else 0
-        vk_str, cpu_str, cpu_simd_str, cupy_str, jax_str = fmt_stat(vk_mean, cpu_mean, cpu_simd_mean, cupy_mean, jax_mean)
-        print(f"  {'Mean speedup':<20} {vk_str:<15} {cpu_str:<15} {cpu_simd_str:<15} {cupy_str:<15} {jax_str:<15}")
-
-        vk_median = np.median(vk_speedups) if vk_speedups else 0
-        cpu_median = np.median(cpu_speedups) if cpu_speedups else 0
-        cpu_simd_median = np.median(cpu_simd_speedups) if cpu_simd_speedups else 0
-        cupy_median = np.median(cupy_speedups) if cupy_speedups else 0
-        jax_median = np.median(jax_speedups) if jax_speedups else 0
-        vk_str, cpu_str, cpu_simd_str, cupy_str, jax_str = fmt_stat(vk_median, cpu_median, cpu_simd_median, cupy_median, jax_median)
-        print(f"  {'Median speedup':<20} {vk_str:<15} {cpu_str:<15} {cpu_simd_str:<15} {cupy_str:<15} {jax_str:<15}")
-
-        vk_min = np.min(vk_speedups) if vk_speedups else 0
-        cpu_min = np.min(cpu_speedups) if cpu_speedups else 0
-        cpu_simd_min = np.min(cpu_simd_speedups) if cpu_simd_speedups else 0
-        cupy_min = np.min(cupy_speedups) if cupy_speedups else 0
-        jax_min = np.min(jax_speedups) if jax_speedups else 0
-        vk_str, cpu_str, cpu_simd_str, cupy_str, jax_str = fmt_stat(vk_min, cpu_min, cpu_simd_min, cupy_min, jax_min)
-        print(f"  {'Min speedup':<20} {vk_str:<15} {cpu_str:<15} {cpu_simd_str:<15} {cupy_str:<15} {jax_str:<15}")
-
-        vk_max = np.max(vk_speedups) if vk_speedups else 0
-        cpu_max = np.max(cpu_speedups) if cpu_speedups else 0
-        cpu_simd_max = np.max(cpu_simd_speedups) if cpu_simd_speedups else 0
-        cupy_max = np.max(cupy_speedups) if cupy_speedups else 0
-        jax_max = np.max(jax_speedups) if jax_speedups else 0
-        vk_str, cpu_str, cpu_simd_str, cupy_str, jax_str = fmt_stat(vk_max, cpu_max, cpu_simd_max, cupy_max, jax_max)
-        print(f"  {'Max speedup':<20} {vk_str:<15} {cpu_str:<15} {cpu_simd_str:<15} {cupy_str:<15} {jax_str:<15}")
+    for metric in ['mean', 'median', 'min', 'max']:
+        row = f"  {metric.capitalize() + ' speedup':<20}"
+        for name in ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax']:
+            row += f" {fmt(stats[name], metric):<14}"
+        print(row)
 
     # Vulkan vs CPU comparison
-    if VULKAN_AVAILABLE and CPU_AVAILABLE:
+    if stats['vulkan']['available'] and stats['cpu']['available']:
         vk_vs_cpu = []
-        vk_vs_cpu_simd = []
+        vk_vs_simd = []
         for r in results:
-            if not np.isnan(r.vulkan_ms) and not np.isnan(r.cpu_ms) and r.cpu_ms > 0:
-                vk_vs_cpu.append(r.cpu_ms / r.vulkan_ms)
-            if not np.isnan(r.vulkan_ms) and not np.isnan(r.cpu_simd_ms) and r.cpu_simd_ms > 0:
-                vk_vs_cpu_simd.append(r.cpu_simd_ms / r.vulkan_ms)
-        if vk_vs_cpu or vk_vs_cpu_simd:
+            if not np.isnan(r.vulkan.time_ms) and not np.isnan(r.cpu.time_ms) and r.cpu.time_ms > 0:
+                vk_vs_cpu.append(r.cpu.time_ms / r.vulkan.time_ms)
+            if not np.isnan(r.vulkan.time_ms) and not np.isnan(r.cpu_simd.time_ms) and r.cpu_simd.time_ms > 0:
+                vk_vs_simd.append(r.cpu_simd.time_ms / r.vulkan.time_ms)
+
+        if vk_vs_cpu or vk_vs_simd:
             print(f"\n{Colors.BOLD}Vulkan vs CPU Backends{Colors.RESET}")
             print(f"{'─' * 60}")
             if vk_vs_cpu:
                 print(f"  Vulkan avg speedup over CPU (scalar): {np.mean(vk_vs_cpu):.2f}x")
-            if vk_vs_cpu_simd:
-                print(f"  Vulkan avg speedup over CPU+SIMD:     {np.mean(vk_vs_cpu_simd):.2f}x")
+            if vk_vs_simd:
+                print(f"  Vulkan avg speedup over CPU+SIMD:     {np.mean(vk_vs_simd):.2f}x")
 
-    # SIMD vs Scalar comparison
-    if CPU_AVAILABLE and cpu_simd_speedups:
+    # SIMD vs Scalar
+    if stats['cpu']['available'] and stats['cpu_simd']['available']:
         simd_vs_scalar = []
         for r in results:
-            if not np.isnan(r.cpu_ms) and not np.isnan(r.cpu_simd_ms) and r.cpu_ms > 0:
-                simd_vs_scalar.append(r.cpu_ms / r.cpu_simd_ms)
+            if not np.isnan(r.cpu.time_ms) and not np.isnan(r.cpu_simd.time_ms) and r.cpu.time_ms > 0:
+                simd_vs_scalar.append(r.cpu.time_ms / r.cpu_simd.time_ms)
         if simd_vs_scalar:
             print(f"\n{Colors.BOLD}SIMD Acceleration{Colors.RESET}")
             print(f"{'─' * 60}")
@@ -951,149 +955,110 @@ def print_summary(results: List[BenchmarkResult]):
     # Category breakdown
     print(f"\n{Colors.BOLD}Performance by Category{Colors.RESET}")
     print(f"{'─' * 120}")
+
     categories = {}
     for r in results:
         if r.category not in categories:
-            categories[r.category] = {'vulkan': [], 'cpu': [], 'cpu_simd': [], 'cupy': [], 'jax': []}
-        if not np.isnan(r.vulkan_speedup):
-            categories[r.category]['vulkan'].append(r.vulkan_speedup)
-        if not np.isnan(r.cpu_speedup):
-            categories[r.category]['cpu'].append(r.cpu_speedup)
-        if not np.isnan(r.cpu_simd_speedup):
-            categories[r.category]['cpu_simd'].append(r.cpu_simd_speedup)
-        if not np.isnan(r.cupy_speedup):
-            categories[r.category]['cupy'].append(r.cupy_speedup)
-        if not np.isnan(r.jax_speedup):
-            categories[r.category]['jax'].append(r.jax_speedup)
+            categories[r.category] = {b: [] for b in ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax']}
+        for backend in ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax']:
+            br = getattr(r, backend)
+            if not np.isnan(br.speedup):
+                categories[r.category][backend].append(br.speedup)
 
     for cat, speeds in categories.items():
-        vk_avg = np.mean(speeds['vulkan']) if speeds['vulkan'] else 0
-        cpu_avg = np.mean(speeds['cpu']) if speeds['cpu'] else 0
-        cpu_simd_avg = np.mean(speeds['cpu_simd']) if speeds['cpu_simd'] else 0
-        cupy_avg = np.mean(speeds['cupy']) if speeds['cupy'] else 0
-        jax_avg = np.mean(speeds['jax']) if speeds['jax'] else 0
-        vk_color = Colors.GREEN if vk_avg >= 1.0 else Colors.YELLOW
-        cpu_color = Colors.GREEN if cpu_avg >= 1.0 else Colors.YELLOW
-        cpu_simd_color = Colors.GREEN if cpu_simd_avg >= 1.0 else Colors.YELLOW
-        cupy_color = Colors.GREEN if cupy_avg >= 1.0 else Colors.YELLOW
-        jax_color = Colors.GREEN if jax_avg >= 1.0 else Colors.YELLOW
-        vk_str = f"{vk_color}{vk_avg:.2f}x{Colors.RESET}" if speeds['vulkan'] else "N/A"
-        cpu_str = f"{cpu_color}{cpu_avg:.2f}x{Colors.RESET}" if speeds['cpu'] else "N/A"
-        cpu_simd_str = f"{cpu_simd_color}{cpu_simd_avg:.2f}x{Colors.RESET}" if speeds['cpu_simd'] else "N/A"
-        cupy_str = f"{cupy_color}{cupy_avg:.2f}x{Colors.RESET}" if speeds['cupy'] else "N/A"
-        jax_str = f"{jax_color}{jax_avg:.2f}x{Colors.RESET}" if speeds['jax'] else "N/A"
-        print(f"  {cat:<25} Vulkan: {vk_str:<15} CPU: {cpu_str:<15} SIMD: {cpu_simd_str:<15} CuPy: {cupy_str:<15} JAX: {jax_str}")
+        parts = [f"  {cat:<25}"]
+        for name, label in [('vulkan', 'Vulkan'), ('cpu', 'CPU'), ('cpu_simd', 'SIMD'),
+                            ('cupy', 'CuPy'), ('jax', 'JAX')]:
+            if speeds[name]:
+                avg = np.mean(speeds[name])
+                color = Colors.GREEN if avg >= 1.0 else Colors.YELLOW
+                parts.append(f"{label}: {color}{avg:.2f}x{Colors.RESET}")
+            else:
+                parts.append(f"{label}: N/A")
+        print(" ".ljust(5).join(parts))
 
-    # Top performers for each backend
-    if VULKAN_AVAILABLE and vk_speedups:
-        sorted_by_vk = sorted([r for r in results if not np.isnan(r.vulkan_speedup)],
-                              key=lambda r: r.vulkan_speedup, reverse=True)
-        print(f"\n{Colors.BOLD}Top 5 Vulkan Performers{Colors.RESET}")
-        print(f"{'─' * 60}")
-        for i, r in enumerate(sorted_by_vk[:5], 1):
-            print(f"  {i}. {r.name:<15} {Colors.GREEN}{r.vulkan_speedup:.3f}x{Colors.RESET} faster than NumPy")
-
-    if CPU_AVAILABLE and cpu_simd_speedups:
-        sorted_by_cpu_simd = sorted([r for r in results if not np.isnan(r.cpu_simd_speedup)],
-                                    key=lambda r: r.cpu_simd_speedup, reverse=True)
-        print(f"\n{Colors.BOLD}Top 5 CPU+SIMD Performers{Colors.RESET}")
-        print(f"{'─' * 60}")
-        for i, r in enumerate(sorted_by_cpu_simd[:5], 1):
-            color = Colors.GREEN if r.cpu_simd_speedup >= 1.0 else Colors.YELLOW
-            print(f"  {i}. {r.name:<15} {color}{r.cpu_simd_speedup:.3f}x{Colors.RESET} vs NumPy")
-
-    if CUPY_AVAILABLE and cupy_speedups:
-        sorted_by_cupy = sorted([r for r in results if not np.isnan(r.cupy_speedup)],
-                                key=lambda r: r.cupy_speedup, reverse=True)
-        print(f"\n{Colors.BOLD}Top 5 CuPy Performers{Colors.RESET}")
-        print(f"{'─' * 60}")
-        for i, r in enumerate(sorted_by_cupy[:5], 1):
-            color = Colors.GREEN if r.cupy_speedup >= 1.0 else Colors.YELLOW
-            print(f"  {i}. {r.name:<15} {color}{r.cupy_speedup:.3f}x{Colors.RESET} vs NumPy")
-
-    if JAX_AVAILABLE and jax_speedups:
-        sorted_by_jax = sorted([r for r in results if not np.isnan(r.jax_speedup)],
-                               key=lambda r: r.jax_speedup, reverse=True)
-        print(f"\n{Colors.BOLD}Top 5 JAX Performers{Colors.RESET}")
-        print(f"{'─' * 60}")
-        for i, r in enumerate(sorted_by_jax[:5], 1):
-            color = Colors.GREEN if r.jax_speedup >= 1.0 else Colors.YELLOW
-            print(f"  {i}. {r.name:<15} {color}{r.jax_speedup:.3f}x{Colors.RESET} vs NumPy")
+    # Top performers
+    for backend, label in [('vulkan', 'Vulkan'), ('cpu_simd', 'CPU+SIMD'), ('cupy', 'CuPy'), ('jax', 'JAX')]:
+        s = stats[backend]
+        if s['available'] and s['speedups']:
+            sorted_results = sorted(results, key=lambda r: getattr(r, backend).speedup, reverse=True)
+            print(f"\n{Colors.BOLD}Top 5 {label} Performers{Colors.RESET}")
+            print(f"{'─' * 60}")
+            for i, r in enumerate(sorted_results[:5], 1):
+                spd = getattr(r, backend).speedup
+                if not np.isnan(spd):
+                    color = Colors.GREEN if spd >= 1.0 else Colors.YELLOW
+                    print(f"  {i}. {r.name:<15} {color}{spd:.3f}x{Colors.RESET} vs NumPy")
 
     # Performance verdict
     print(f"\n{Colors.BOLD}Performance Verdict{Colors.RESET}")
     print(f"{'─' * 60}")
 
-    def get_verdict(avg):
+    def verdict(avg):
         if avg >= 2.0:
             return f"{Colors.GREEN}EXCELLENT{Colors.RESET}"
         elif avg >= 1.0:
             return f"{Colors.CYAN}GOOD{Colors.RESET}"
         elif avg >= 0.5:
             return f"{Colors.YELLOW}MIXED{Colors.RESET}"
-        else:
-            return f"{Colors.RED}POOR{Colors.RESET}"
+        return f"{Colors.RED}POOR{Colors.RESET}"
 
-    if VULKAN_AVAILABLE and vk_speedups:
-        avg_vk = np.mean(vk_speedups)
-        print(f"  Vulkan:    {get_verdict(avg_vk)} ({avg_vk:.2f}x avg speedup)")
-
-    if CPU_AVAILABLE and cpu_speedups:
-        avg_cpu = np.mean(cpu_speedups)
-        print(f"  CPU:       {get_verdict(avg_cpu)} ({avg_cpu:.2f}x avg speedup)")
-
-    if CPU_AVAILABLE and cpu_simd_speedups:
-        avg_cpu_simd = np.mean(cpu_simd_speedups)
-        print(f"  CPU+SIMD:  {get_verdict(avg_cpu_simd)} ({avg_cpu_simd:.2f}x avg speedup)")
-
-    if CUPY_AVAILABLE and cupy_speedups:
-        avg_cupy = np.mean(cupy_speedups)
-        print(f"  CuPy:      {get_verdict(avg_cupy)} ({avg_cupy:.2f}x avg speedup)")
-
-    if JAX_AVAILABLE and jax_speedups:
-        avg_jax = np.mean(jax_speedups)
-        print(f"  JAX:       {get_verdict(avg_jax)} ({avg_jax:.2f}x avg speedup)")
+    for name, label in [('vulkan', 'Vulkan'), ('cpu', 'CPU'), ('cpu_simd', 'CPU+SIMD'),
+                        ('cupy', 'CuPy'), ('jax', 'JAX')]:
+        s = stats[name]
+        if s['available']:
+            print(f"  {label}:".ljust(13) + f"{verdict(s['mean'])} ({s['mean']:.2f}x avg speedup)")
 
 
 def export_json(results: List[BenchmarkResult], filepath: Path, config: BenchmarkConfig):
     """Export results to JSON file."""
-    vk_speedups = [r.vulkan_speedup for r in results if not np.isnan(r.vulkan_speedup)]
-    cpu_speedups = [r.cpu_speedup for r in results if not np.isnan(r.cpu_speedup)]
-    cpu_simd_speedups = [r.cpu_simd_speedup for r in results if not np.isnan(r.cpu_simd_speedup)]
-    cupy_speedups = [r.cupy_speedup for r in results if not np.isnan(r.cupy_speedup)]
-    jax_speedups = [r.jax_speedup for r in results if not np.isnan(r.jax_speedup)]
+    def backend_to_dict(br: BackendResult) -> dict:
+        return {
+            'time_ms': br.time_ms if not np.isnan(br.time_ms) else None,
+            'std_ms': br.std_ms,
+            'valid': br.valid,
+            'speedup': br.speedup if not np.isnan(br.speedup) else None,
+        }
+
+    stats = {
+        name: compute_stats(results, name)
+        for name in ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax']
+    }
 
     data = {
         "timestamp": datetime.now().isoformat(),
-        "config": {
-            "num_elements": config.num_elements,
-            "num_iterations": config.num_iterations,
-            "warmup_iterations": config.warmup_iterations,
-            "seed": config.seed,
-        },
+        "config": asdict(config),
         "backends": {
-            "vulkan_available": VULKAN_AVAILABLE,
-            "cpu_available": CPU_AVAILABLE,
-            "cpu_threads": cut_cpu.num_threads() if CPU_AVAILABLE else 0,
-            "cupy_available": CUPY_AVAILABLE,
-            "jax_available": JAX_AVAILABLE,
-            "jax_backend": jax.default_backend() if JAX_AVAILABLE else None,
+            "vulkan_available": backends.vulkan_available,
+            "cpu_available": backends.cpu_available,
+            "cpu_threads": backends.cpu.num_threads() if backends.cpu_available else 0,
+            "cupy_available": backends.cupy_available,
+            "jax_available": backends.jax_available,
+            "jax_backend": backends.jax.default_backend() if backends.jax_available else None,
         },
         "summary": {
-            "total_operations": len(results),
-            "vulkan_valid": sum(1 for r in results if r.vulkan_valid),
-            "cpu_valid": sum(1 for r in results if r.cpu_valid),
-            "cpu_simd_valid": sum(1 for r in results if r.cpu_simd_valid),
-            "cupy_valid": sum(1 for r in results if r.cupy_valid),
-            "jax_valid": sum(1 for r in results if r.jax_valid),
-            "vulkan_mean_speedup": float(np.mean(vk_speedups)) if vk_speedups else None,
-            "cpu_mean_speedup": float(np.mean(cpu_speedups)) if cpu_speedups else None,
-            "cpu_simd_mean_speedup": float(np.mean(cpu_simd_speedups)) if cpu_simd_speedups else None,
-            "cupy_mean_speedup": float(np.mean(cupy_speedups)) if cupy_speedups else None,
-            "jax_mean_speedup": float(np.mean(jax_speedups)) if jax_speedups else None,
+            name: {
+                'valid': s['valid'],
+                'total': s['total'],
+                'mean_speedup': s['mean'],
+            } if s['available'] else None
+            for name, s in stats.items()
         },
-        "results": [asdict(r) for r in results]
+        "results": [
+            {
+                'name': r.name,
+                'category': r.category,
+                'numpy': backend_to_dict(r.numpy),
+                'vulkan': backend_to_dict(r.vulkan),
+                'cpu': backend_to_dict(r.cpu),
+                'cpu_simd': backend_to_dict(r.cpu_simd),
+                'cupy': backend_to_dict(r.cupy),
+                'jax': backend_to_dict(r.jax),
+            }
+            for r in results
+        ]
     }
+
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=2)
     print(f"\n{Colors.GREEN}Results exported to {filepath}{Colors.RESET}")
@@ -1103,27 +1068,32 @@ def export_csv(results: List[BenchmarkResult], filepath: Path):
     """Export results to CSV file."""
     with open(filepath, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['operation', 'category',
-                        'vulkan_ms', 'vulkan_std_ms', 'vulkan_speedup', 'vulkan_valid',
-                        'cpu_ms', 'cpu_std_ms', 'cpu_speedup', 'cpu_valid',
-                        'cpu_simd_ms', 'cpu_simd_std_ms', 'cpu_simd_speedup', 'cpu_simd_valid',
-                        'cupy_ms', 'cupy_std_ms', 'cupy_speedup', 'cupy_valid',
-                        'jax_ms', 'jax_std_ms', 'jax_speedup', 'jax_valid',
-                        'numpy_ms', 'numpy_std_ms'])
+
+        # Header
+        backends_list = ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax', 'numpy']
+        header = ['operation', 'category']
+        for b in backends_list:
+            header.extend([f'{b}_ms', f'{b}_std_ms', f'{b}_speedup', f'{b}_valid'])
+        writer.writerow(header)
+
+        # Data rows
         for r in results:
-            writer.writerow([r.name, r.category,
-                           r.vulkan_ms, r.vulkan_std_ms, r.vulkan_speedup, r.vulkan_valid,
-                           r.cpu_ms, r.cpu_std_ms, r.cpu_speedup, r.cpu_valid,
-                           r.cpu_simd_ms, r.cpu_simd_std_ms, r.cpu_simd_speedup, r.cpu_simd_valid,
-                           r.cupy_ms, r.cupy_std_ms, r.cupy_speedup, r.cupy_valid,
-                           r.jax_ms, r.jax_std_ms, r.jax_speedup, r.jax_valid,
-                           r.numpy_ms, r.numpy_std_ms])
+            row = [r.name, r.category]
+            for b in backends_list:
+                br = getattr(r, b)
+                row.extend([br.time_ms, br.std_ms, br.speedup, br.valid])
+            writer.writerow(row)
+
     print(f"{Colors.GREEN}Results exported to {filepath}{Colors.RESET}")
 
 
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(
-        description="CUT Benchmark Suite: Vulkan vs CPU vs NumPy",
+        description="CUT Benchmark Suite: Compare Vulkan, CPU, CuPy, JAX vs NumPy",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -1177,13 +1147,18 @@ Examples:
     print(f"\n{Colors.DIM}Benchmark complete.{Colors.RESET}\n")
 
     # Return non-zero if any validations failed
-    all_valid = all(r.vulkan_valid for r in results if not np.isnan(r.vulkan_ms))
-    all_valid = all_valid and all(r.cpu_valid for r in results if not np.isnan(r.cpu_ms))
-    all_valid = all_valid and all(r.cupy_valid for r in results if not np.isnan(r.cupy_ms))
-    all_valid = all_valid and all(r.jax_valid for r in results if not np.isnan(r.jax_ms))
-    if not all_valid:
-        return 1
-    return 0
+    all_valid = True
+    for r in results:
+        if backends.vulkan_available and not np.isnan(r.vulkan.time_ms) and not r.vulkan.valid:
+            all_valid = False
+        if backends.cpu_available and not np.isnan(r.cpu.time_ms) and not r.cpu.valid:
+            all_valid = False
+        if backends.cupy_available and not np.isnan(r.cupy.time_ms) and not r.cupy.valid:
+            all_valid = False
+        if backends.jax_available and not np.isnan(r.jax.time_ms) and not r.jax.valid:
+            all_valid = False
+
+    return 0 if all_valid else 1
 
 
 if __name__ == "__main__":
