@@ -139,11 +139,15 @@ protected:
    * @param dst Pointer to the destination buffer (aligned size).
    * @param shape Dimension-wise sizes of the tensor.
    * @param dtype Data type of each element.
+   * @param srcOffset Byte offset in the source data.
+   * @param dstOffset Byte offset in the destination buffer.
    */
   static void copyActualToAligned(const void *src,
                                   void *dst,
                                   const std::vector<size_t> &shape,
-                                  DataType dtype);
+                                  DataType dtype,
+                                  size_t srcOffset = 0,
+                                  size_t dstOffset = 0);
 
   /**
    * Copies data from aligned buffer memory to actual-sized host memory.
@@ -152,11 +156,15 @@ protected:
    * @param dst Pointer to the destination data (actual size).
    * @param shape Dimension-wise sizes of the tensor.
    * @param dtype Data type of each element.
+   * @param srcOffset Byte offset in the source buffer.
+   * @param dstOffset Byte offset in the destination data.
    */
   static void copyAlignedToActual(const void *src,
                                   void *dst,
                                   const std::vector<size_t> &shape,
-                                  DataType dtype);
+                                  DataType dtype,
+                                  size_t srcOffset = 0,
+                                  size_t dstOffset = 0);
 
   /**
    * Sets the command buffer container for this interface.

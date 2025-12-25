@@ -191,6 +191,7 @@ ComputeHandle VulkanCompute::createBuffer(size_t size,
   VulkanBufferStruct bufferStruct;
   bufferStruct.size = size;   // Store original size for user queries
   bufferStruct.shape = shape; // Store tensor shape
+  bufferStruct.dtype = dtype; // Store element data type
 
 #if CUT_USE_VMA
   const auto &allocator = allocator_;
@@ -249,11 +250,8 @@ ComputeHandle VulkanCompute::createBuffer(size_t size,
   auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
 
   if (srcPtr != nullptr && !shape.empty()) {
-    // Use staging for device-only buffers
-    // Copy actual data to aligned buffer using the helper function
-    std::vector<char> alignedData(size, 0);
-    copyActualToAligned(srcPtr, alignedData.data(), shape, dtype);
-    copyDataToBuffer(alignedData.data(), handle, size, 0, 0, deviceOnly);
+    // copyDataToBuffer will use copyActualToAligned internally
+    copyDataToBuffer(srcPtr, handle, size, 0, 0, deviceOnly);
   }
 
   return handle;
@@ -414,13 +412,23 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
     logErr("Trying to write data outside destination buffer range.");
   }
 
+  // Use aligned copy only for full buffer copies (offset 0, full size)
+  // Partial copies use regular memcpy since they don't need alignment handling
+  const bool useAlignedCopy = !buffer.shape.empty() && srcOffset == 0 &&
+                              dstOffset == 0 && size == buffer.size;
+
   if (localUseStaging) {
     // Create a staging buffer, copy host data to it, then copy to device
     VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
 
     // Copy host data to staging buffer
-    memcpy(stagingBuffer.mappedData,
-           static_cast<const char *>(srcPtr) + srcOffset, size);
+    if (useAlignedCopy) {
+      copyActualToAligned(srcPtr, stagingBuffer.mappedData, buffer.shape,
+                          buffer.dtype);
+    } else {
+      memcpy(stagingBuffer.mappedData,
+             static_cast<const char *>(srcPtr) + srcOffset, size);
+    }
 
     // Copy from staging buffer to device buffer
     executeBufferCopy(stagingBuffer.buffer, buffer.buffer, size, 0, dstOffset);
@@ -428,8 +436,14 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
     // Clean up staging buffer
     destroyStagingBuffer(stagingBuffer);
   } else {
-    memcpy(static_cast<char *>(buffer.mappedData) + dstOffset,
-           static_cast<const char *>(srcPtr) + srcOffset, size);
+    // Copy to host-visible buffer
+    if (useAlignedCopy) {
+      copyActualToAligned(srcPtr, buffer.mappedData, buffer.shape,
+                          buffer.dtype);
+    } else {
+      memcpy(static_cast<char *>(buffer.mappedData) + dstOffset,
+             static_cast<const char *>(srcPtr) + srcOffset, size);
+    }
 
     // Flush memory to make writes visible to GPU
     if (!buffer.isCoherent) {
@@ -462,6 +476,11 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     logErr("Trying to read data outside source buffer range.");
   }
 
+  // Use aligned copy only for full buffer copies (offset 0, full size)
+  // Partial copies use regular memcpy since they don't need alignment handling
+  const bool useAlignedCopy = !buffer.shape.empty() && srcOffset == 0 &&
+                              dstOffset == 0 && size == buffer.size;
+
   if (localUseStaging) {
     // Create a staging buffer, copy device data to it, then copy to host
     VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
@@ -470,8 +489,13 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     executeBufferCopy(buffer.buffer, stagingBuffer.buffer, size, srcOffset, 0);
 
     // Copy staging buffer data to host
-    memcpy(static_cast<char *>(dstPtr) + dstOffset, stagingBuffer.mappedData,
-           size);
+    if (useAlignedCopy) {
+      copyAlignedToActual(stagingBuffer.mappedData, dstPtr, buffer.shape,
+                          buffer.dtype);
+    } else {
+      memcpy(static_cast<char *>(dstPtr) + dstOffset, stagingBuffer.mappedData,
+             size);
+    }
 
     // Clean up staging buffer
     destroyStagingBuffer(stagingBuffer);
@@ -490,8 +514,15 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
       VK_CHECK(vkInvalidateMappedMemoryRanges(device_, 1, &memoryRange));
 #endif
     }
-    memcpy(static_cast<char *>(dstPtr) + dstOffset,
-           static_cast<const char *>(buffer.mappedData) + srcOffset, size);
+
+    // Copy from host-visible buffer
+    if (useAlignedCopy) {
+      copyAlignedToActual(buffer.mappedData, dstPtr, buffer.shape,
+                          buffer.dtype);
+    } else {
+      memcpy(static_cast<char *>(dstPtr) + dstOffset,
+             static_cast<const char *>(buffer.mappedData) + srcOffset, size);
+    }
   }
 }
 

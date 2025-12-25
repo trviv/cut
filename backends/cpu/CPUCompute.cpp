@@ -40,6 +40,7 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<size_t> &shape,
   CPUBufferStruct bufferStruct;
   bufferStruct.size = totalSize;
   bufferStruct.shape = shape; // Store original shape
+  bufferStruct.dtype = dtype; // Store element data type
   bufferStruct.data = aligned_alloc(kAlignment, alignedSize);
 
   if (bufferStruct.data == nullptr) {
@@ -68,8 +69,17 @@ void CPUCompute::copyDataToBuffer(const void *srcPtr,
         "Trying to write data outside destination buffer range");
   }
 
-  std::memcpy(static_cast<char *>(buffer.data) + dstOffset,
-              static_cast<const char *>(srcPtr) + srcOffset, size);
+  // Use aligned copy only for full buffer copies (offset 0, full size)
+  // Partial copies use regular memcpy since they don't need alignment handling
+  const bool useAlignedCopy = !buffer.shape.empty() && srcOffset == 0 &&
+                              dstOffset == 0 && size == buffer.size;
+
+  if (useAlignedCopy) {
+    copyActualToAligned(srcPtr, buffer.data, buffer.shape, buffer.dtype);
+  } else {
+    std::memcpy(static_cast<char *>(buffer.data) + dstOffset,
+                static_cast<const char *>(srcPtr) + srcOffset, size);
+  }
 }
 
 void CPUCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
@@ -85,8 +95,17 @@ void CPUCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     throw std::runtime_error("Trying to read data outside source buffer range");
   }
 
-  std::memcpy(static_cast<char *>(dstPtr) + dstOffset,
-              static_cast<const char *>(buffer.data) + srcOffset, size);
+  // Use aligned copy only for full buffer copies (offset 0, full size)
+  // Partial copies use regular memcpy since they don't need alignment handling
+  const bool useAlignedCopy = !buffer.shape.empty() && srcOffset == 0 &&
+                              dstOffset == 0 && size == buffer.size;
+
+  if (useAlignedCopy) {
+    copyAlignedToActual(buffer.data, dstPtr, buffer.shape, buffer.dtype);
+  } else {
+    std::memcpy(static_cast<char *>(dstPtr) + dstOffset,
+                static_cast<const char *>(buffer.data) + srcOffset, size);
+  }
 }
 
 ComputeHandle

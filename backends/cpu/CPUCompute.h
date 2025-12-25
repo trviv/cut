@@ -22,6 +22,7 @@ struct CPUBufferStruct {
   void *data = nullptr;
   size_t size = 0;
   std::vector<size_t> shape; ///< Dimension-wise sizes (like tensor shape).
+  DataType dtype = DataType::Float32; ///< Element data type.
 };
 
 /**

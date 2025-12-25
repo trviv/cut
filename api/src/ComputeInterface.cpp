@@ -73,7 +73,9 @@ size_t ComputeInterface::calculateAlignedSize(const std::vector<size_t> &shape,
 void ComputeInterface::copyActualToAligned(const void *src,
                                            void *dst,
                                            const std::vector<size_t> &shape,
-                                           DataType dtype) {
+                                           DataType dtype,
+                                           size_t srcOffset,
+                                           size_t dstOffset) {
   if (shape.empty() || src == nullptr || dst == nullptr) {
     return;
   }
@@ -82,9 +84,12 @@ void ComputeInterface::copyActualToAligned(const void *src,
   const size_t innerDim = shape.back();
   const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
 
+  const auto *srcBytes = static_cast<const char *>(src) + srcOffset;
+  auto *dstBytes = static_cast<char *>(dst) + dstOffset;
+
   // If no padding needed, do a single memcpy
   if (innerDim == alignedInnerDim) {
-    std::memcpy(dst, src, calculateActualSize(shape, dtype));
+    std::memcpy(dstBytes, srcBytes, calculateActualSize(shape, dtype));
     return;
   }
 
@@ -97,9 +102,6 @@ void ComputeInterface::copyActualToAligned(const void *src,
   const size_t srcRowBytes = innerDim * elementSize;
   const size_t dstRowBytes = alignedInnerDim * elementSize;
 
-  const auto *srcBytes = static_cast<const char *>(src);
-  auto *dstBytes = static_cast<char *>(dst);
-
   for (size_t row = 0; row < numRows; ++row) {
     std::memcpy(dstBytes + row * dstRowBytes, srcBytes + row * srcRowBytes,
                 srcRowBytes);
@@ -109,7 +111,9 @@ void ComputeInterface::copyActualToAligned(const void *src,
 void ComputeInterface::copyAlignedToActual(const void *src,
                                            void *dst,
                                            const std::vector<size_t> &shape,
-                                           DataType dtype) {
+                                           DataType dtype,
+                                           size_t srcOffset,
+                                           size_t dstOffset) {
   if (shape.empty() || src == nullptr || dst == nullptr) {
     return;
   }
@@ -118,9 +122,12 @@ void ComputeInterface::copyAlignedToActual(const void *src,
   const size_t innerDim = shape.back();
   const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
 
+  const auto *srcBytes = static_cast<const char *>(src) + srcOffset;
+  auto *dstBytes = static_cast<char *>(dst) + dstOffset;
+
   // If no padding needed, do a single memcpy
   if (innerDim == alignedInnerDim) {
-    std::memcpy(dst, src, calculateActualSize(shape, dtype));
+    std::memcpy(dstBytes, srcBytes, calculateActualSize(shape, dtype));
     return;
   }
 
@@ -132,9 +139,6 @@ void ComputeInterface::copyAlignedToActual(const void *src,
 
   const size_t srcRowBytes = alignedInnerDim * elementSize;
   const size_t dstRowBytes = innerDim * elementSize;
-
-  const auto *srcBytes = static_cast<const char *>(src);
-  auto *dstBytes = static_cast<char *>(dst);
 
   for (size_t row = 0; row < numRows; ++row) {
     std::memcpy(dstBytes + row * dstRowBytes, srcBytes + row * srcRowBytes,

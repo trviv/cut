@@ -34,6 +34,7 @@ struct VulkanBufferStruct {
   void *mappedData = nullptr;
   bool isCoherent = false;
   std::vector<size_t> shape; ///< Dimension-wise sizes (like tensor shape).
+  DataType dtype = DataType::Float32; ///< Element data type.
 
   /// Returns true if this buffer is device-only (not host-visible).
   bool isDeviceOnly() const { return mappedData == nullptr; }
