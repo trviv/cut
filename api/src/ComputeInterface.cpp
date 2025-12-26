@@ -75,7 +75,8 @@ void ComputeInterface::copyActualToAligned(const void *src,
                                            const std::vector<size_t> &shape,
                                            DataType dtype,
                                            size_t srcOffset,
-                                           size_t dstOffset) {
+                                           size_t dstOffset,
+                                           size_t size) {
   if (shape.empty() || src == nullptr || dst == nullptr) {
     return;
   }
@@ -83,17 +84,24 @@ void ComputeInterface::copyActualToAligned(const void *src,
   const size_t elementSize = dataTypeSize(dtype);
   const size_t innerDim = shape.back();
   const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
+  const size_t actualSize = calculateActualSize(shape, dtype);
+
+  // If size is 0, copy the full buffer
+  if (size == 0) {
+    size = actualSize;
+  }
 
   const auto *srcBytes = static_cast<const char *>(src) + srcOffset;
   auto *dstBytes = static_cast<char *>(dst) + dstOffset;
 
-  // If no padding needed, do a single memcpy
-  if (innerDim == alignedInnerDim) {
-    std::memcpy(dstBytes, srcBytes, calculateActualSize(shape, dtype));
+  // If no padding needed or this is a partial copy, do a simple memcpy
+  if (innerDim == alignedInnerDim ||
+      (srcOffset != 0 || dstOffset != 0 || size != actualSize)) {
+    std::memcpy(dstBytes, srcBytes, size);
     return;
   }
 
-  // Calculate number of rows (product of all dimensions except innermost)
+  // Full copy with padding - copy row by row
   size_t numRows = 1;
   for (size_t i = 0; i < shape.size() - 1; ++i) {
     numRows *= shape[i];
@@ -113,7 +121,8 @@ void ComputeInterface::copyAlignedToActual(const void *src,
                                            const std::vector<size_t> &shape,
                                            DataType dtype,
                                            size_t srcOffset,
-                                           size_t dstOffset) {
+                                           size_t dstOffset,
+                                           size_t size) {
   if (shape.empty() || src == nullptr || dst == nullptr) {
     return;
   }
@@ -121,17 +130,24 @@ void ComputeInterface::copyAlignedToActual(const void *src,
   const size_t elementSize = dataTypeSize(dtype);
   const size_t innerDim = shape.back();
   const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
+  const size_t actualSize = calculateActualSize(shape, dtype);
+
+  // If size is 0, copy the full buffer
+  if (size == 0) {
+    size = actualSize;
+  }
 
   const auto *srcBytes = static_cast<const char *>(src) + srcOffset;
   auto *dstBytes = static_cast<char *>(dst) + dstOffset;
 
-  // If no padding needed, do a single memcpy
-  if (innerDim == alignedInnerDim) {
-    std::memcpy(dstBytes, srcBytes, calculateActualSize(shape, dtype));
+  // If no padding needed or this is a partial copy, do a simple memcpy
+  if (innerDim == alignedInnerDim ||
+      (srcOffset != 0 || dstOffset != 0 || size != actualSize)) {
+    std::memcpy(dstBytes, srcBytes, size);
     return;
   }
 
-  // Calculate number of rows (product of all dimensions except innermost)
+  // Full copy with padding - copy row by row
   size_t numRows = 1;
   for (size_t i = 0; i < shape.size() - 1; ++i) {
     numRows *= shape[i];

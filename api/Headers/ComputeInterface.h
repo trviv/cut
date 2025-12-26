@@ -135,36 +135,42 @@ protected:
   /**
    * Copies data from actual-sized host memory to aligned buffer memory.
    * Handles row-by-row copying when the innermost dimension needs padding.
+   * For partial copies (non-zero offsets or size != actualSize), uses memcpy.
    * @param src Pointer to the source data (actual size).
    * @param dst Pointer to the destination buffer (aligned size).
    * @param shape Dimension-wise sizes of the tensor.
    * @param dtype Data type of each element.
    * @param srcOffset Byte offset in the source data.
    * @param dstOffset Byte offset in the destination buffer.
+   * @param size Number of bytes to copy (0 = full buffer).
    */
   static void copyActualToAligned(const void *src,
                                   void *dst,
                                   const std::vector<size_t> &shape,
                                   DataType dtype,
                                   size_t srcOffset = 0,
-                                  size_t dstOffset = 0);
+                                  size_t dstOffset = 0,
+                                  size_t size = 0);
 
   /**
    * Copies data from aligned buffer memory to actual-sized host memory.
    * Handles row-by-row copying when the innermost dimension has padding.
+   * For partial copies (non-zero offsets or size != actualSize), uses memcpy.
    * @param src Pointer to the source buffer (aligned size).
    * @param dst Pointer to the destination data (actual size).
    * @param shape Dimension-wise sizes of the tensor.
    * @param dtype Data type of each element.
    * @param srcOffset Byte offset in the source buffer.
    * @param dstOffset Byte offset in the destination data.
+   * @param size Number of bytes to copy (0 = full buffer).
    */
   static void copyAlignedToActual(const void *src,
                                   void *dst,
                                   const std::vector<size_t> &shape,
                                   DataType dtype,
                                   size_t srcOffset = 0,
-                                  size_t dstOffset = 0);
+                                  size_t dstOffset = 0,
+                                  size_t size = 0);
 
   /**
    * Sets the command buffer container for this interface.

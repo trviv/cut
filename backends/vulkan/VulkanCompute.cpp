@@ -413,53 +413,41 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
     logErr("Trying to write data outside destination buffer range.");
   }
 
-  // Use aligned copy for full buffer copies, memcpy for partial copies
   const size_t actualSize = calculateActualSize(buffer.shape, buffer.dtype);
-  const bool useAlignedCopy =
+  const bool isFullCopy =
       srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
-    if (useAlignedCopy) {
-      // For aligned copy, we need to copy the entire aligned buffer
+    // For staging, we need special handling for full aligned copies
+    if (isFullCopy) {
       const size_t alignedSize =
           calculateAlignedSize(buffer.shape, buffer.dtype);
       VulkanBufferStruct stagingBuffer = createStagingBuffer(alignedSize);
 
-      // Copy actual data from host to aligned staging buffer
+      // Copy with alignment handling (will do row-by-row if needed)
       copyActualToAligned(srcPtr, stagingBuffer.mappedData, buffer.shape,
-                          buffer.dtype);
+                          buffer.dtype, 0, 0, size);
 
-      // Copy full aligned data from staging to device
       executeBufferCopy(stagingBuffer.buffer, buffer.buffer, alignedSize, 0, 0);
-
       destroyStagingBuffer(stagingBuffer);
     } else {
-      // For partial copies, use direct memcpy
+      // Partial copy - direct memcpy to staging
       VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
-
-      memcpy(stagingBuffer.mappedData,
-             static_cast<const char *>(srcPtr) + srcOffset, size);
-
+      copyActualToAligned(srcPtr, stagingBuffer.mappedData, buffer.shape,
+                          buffer.dtype, srcOffset, 0, size);
       executeBufferCopy(stagingBuffer.buffer, buffer.buffer, size, 0,
                         dstOffset);
-
       destroyStagingBuffer(stagingBuffer);
     }
   } else {
-    // Copy to host-visible buffer
-    if (useAlignedCopy) {
-      copyActualToAligned(srcPtr, buffer.mappedData, buffer.shape,
-                          buffer.dtype);
-    } else {
-      memcpy(static_cast<char *>(buffer.mappedData) + dstOffset,
-             static_cast<const char *>(srcPtr) + srcOffset, size);
-    }
+    // Host-visible buffer - use unified copy function
+    copyActualToAligned(srcPtr, buffer.mappedData, buffer.shape, buffer.dtype,
+                        srcOffset, dstOffset, size);
 
     // Flush memory to make writes visible to GPU
     if (!buffer.isCoherent) {
       const size_t flushSize =
-          useAlignedCopy ? calculateAlignedSize(buffer.shape, buffer.dtype)
-                         : size;
+          isFullCopy ? calculateAlignedSize(buffer.shape, buffer.dtype) : size;
 #if CUT_USE_VMA
       vmaFlushAllocation(allocator_, buffer.allocation, dstOffset, flushSize);
 #else
@@ -489,44 +477,38 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     logErr("Trying to read data outside source buffer range.");
   }
 
-  // Use aligned copy for full buffer copies, memcpy for partial copies
   const size_t actualSize = calculateActualSize(buffer.shape, buffer.dtype);
-  const bool useAlignedCopy =
+  const bool isFullCopy =
       srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
-    if (useAlignedCopy) {
-      // For aligned copy, we need to copy the entire aligned buffer
+    // For staging, we need special handling for full aligned copies
+    if (isFullCopy) {
       const size_t alignedSize =
           calculateAlignedSize(buffer.shape, buffer.dtype);
       VulkanBufferStruct stagingBuffer = createStagingBuffer(alignedSize);
 
-      // Copy full aligned data from device to staging
       executeBufferCopy(buffer.buffer, stagingBuffer.buffer, alignedSize, 0, 0);
 
-      // Extract actual data from aligned staging buffer to host
+      // Copy with alignment handling (will do row-by-row if needed)
       copyAlignedToActual(stagingBuffer.mappedData, dstPtr, buffer.shape,
-                          buffer.dtype);
+                          buffer.dtype, 0, 0, size);
 
       destroyStagingBuffer(stagingBuffer);
     } else {
-      // For partial copies, use direct memcpy
+      // Partial copy - direct memcpy from staging
       VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
-
       executeBufferCopy(buffer.buffer, stagingBuffer.buffer, size, srcOffset,
                         0);
-
-      memcpy(static_cast<char *>(dstPtr) + dstOffset, stagingBuffer.mappedData,
-             size);
-
+      copyAlignedToActual(stagingBuffer.mappedData, dstPtr, buffer.shape,
+                          buffer.dtype, 0, dstOffset, size);
       destroyStagingBuffer(stagingBuffer);
     }
   } else {
     // Invalidate memory to make GPU writes visible to CPU
     if (!buffer.isCoherent) {
       const size_t invalidateSize =
-          useAlignedCopy ? calculateAlignedSize(buffer.shape, buffer.dtype)
-                         : size;
+          isFullCopy ? calculateAlignedSize(buffer.shape, buffer.dtype) : size;
 #if CUT_USE_VMA
       vmaInvalidateAllocation(allocator_, buffer.allocation, srcOffset,
                               invalidateSize);
@@ -541,14 +523,9 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
 #endif
     }
 
-    // Copy from host-visible buffer
-    if (useAlignedCopy) {
-      copyAlignedToActual(buffer.mappedData, dstPtr, buffer.shape,
-                          buffer.dtype);
-    } else {
-      memcpy(static_cast<char *>(dstPtr) + dstOffset,
-             static_cast<const char *>(buffer.mappedData) + srcOffset, size);
-    }
+    // Host-visible buffer - use unified copy function
+    copyAlignedToActual(buffer.mappedData, dstPtr, buffer.shape, buffer.dtype,
+                        srcOffset, dstOffset, size);
   }
 }
 

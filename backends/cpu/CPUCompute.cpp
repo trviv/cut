@@ -69,14 +69,8 @@ void CPUCompute::copyDataToBuffer(const void *srcPtr,
         "Trying to write data outside destination buffer range");
   }
 
-  // Use aligned copy for full buffer copies, memcpy for partial copies
-  const size_t actualSize = calculateActualSize(buffer.shape, buffer.dtype);
-  if (srcOffset == 0 && dstOffset == 0 && size == actualSize) {
-    copyActualToAligned(srcPtr, buffer.data, buffer.shape, buffer.dtype);
-  } else {
-    std::memcpy(static_cast<char *>(buffer.data) + dstOffset,
-                static_cast<const char *>(srcPtr) + srcOffset, size);
-  }
+  copyActualToAligned(srcPtr, buffer.data, buffer.shape, buffer.dtype,
+                      srcOffset, dstOffset, size);
 }
 
 void CPUCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
@@ -92,14 +86,8 @@ void CPUCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     throw std::runtime_error("Trying to read data outside source buffer range");
   }
 
-  // Use aligned copy for full buffer copies, memcpy for partial copies
-  const size_t actualSize = calculateActualSize(buffer.shape, buffer.dtype);
-  if (srcOffset == 0 && dstOffset == 0 && size == actualSize) {
-    copyAlignedToActual(buffer.data, dstPtr, buffer.shape, buffer.dtype);
-  } else {
-    std::memcpy(static_cast<char *>(dstPtr) + dstOffset,
-                static_cast<const char *>(buffer.data) + srcOffset, size);
-  }
+  copyAlignedToActual(buffer.data, dstPtr, buffer.shape, buffer.dtype,
+                      srcOffset, dstOffset, size);
 }
 
 ComputeHandle
