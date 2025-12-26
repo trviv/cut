@@ -31,15 +31,15 @@ layout(push_constant) uniform PushConstants {
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    %DTYPE% dataA[];
+    %VEC_DTYPE% dataA[];
 };
 
 layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
-    %DTYPE% dataB[];
+    %VEC_DTYPE% dataB[];
 };
 
 layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
-    %DTYPE% dataOut[];
+    %VEC_DTYPE% dataOut[];
 };
 
 void main() {
@@ -66,15 +66,15 @@ layout(push_constant) uniform PushConstants {
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    %DTYPE% dataA[];
+    %VEC_DTYPE% dataA[];
 };
 
 layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
-    %DTYPE% dataB[];
+    %VEC_DTYPE% dataB[];
 };
 
 layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
-    %DTYPE% dataOut[];
+    %VEC_DTYPE% dataOut[];
 };
 
 void main() {
@@ -101,15 +101,15 @@ layout(push_constant) uniform PushConstants {
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    %DTYPE% dataA[];
+    %VEC_DTYPE% dataA[];
 };
 
 layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
-    %DTYPE% dataB[];
+    %VEC_DTYPE% dataB[];
 };
 
 layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
-    %DTYPE% dataOut[];
+    %VEC_DTYPE% dataOut[];
 };
 
 void main() {
@@ -119,7 +119,7 @@ void main() {
         return;
     }
 
-    dataOut[index] = %DTYPE%(%EXPR%);
+    dataOut[index] = %VEC_DTYPE%(%EXPR%);
 }
 )";
 
@@ -136,11 +136,11 @@ layout(push_constant) uniform PushConstants {
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    %DTYPE% dataIn[];
+    %VEC_DTYPE% dataIn[];
 };
 
 layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOutput {
-    %DTYPE% dataOut[];
+    %VEC_DTYPE% dataOut[];
 };
 
 void main() {
@@ -184,7 +184,7 @@ static const char *getGLSLType(ScalarDataType datatype) {
 static std::string generateBinaryVecVecShader(const char *op,
                                               ScalarDataType datatype) {
   std::string shader = binaryVecVecShaderTemplate;
-  shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
+  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%OP%", op);
   shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
   return shader;
@@ -193,7 +193,7 @@ static std::string generateBinaryVecVecShader(const char *op,
 static std::string generateBinaryVecVecFuncShader(const char *func,
                                                   ScalarDataType datatype) {
   std::string shader = binaryVecVecFuncShaderTemplate;
-  shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
+  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%FUNC%", func);
   shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
   return shader;
@@ -202,7 +202,7 @@ static std::string generateBinaryVecVecFuncShader(const char *func,
 static std::string generateBinaryVecVecCompareShader(const char *expr,
                                                      ScalarDataType datatype) {
   std::string shader = binaryVecVecCompareShaderTemplate;
-  shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
+  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%EXPR%", expr);
   shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
   return shader;
@@ -211,7 +211,7 @@ static std::string generateBinaryVecVecCompareShader(const char *expr,
 static std::string generateUnaryShader(const char *expr,
                                        ScalarDataType datatype) {
   std::string shader = unaryShaderTemplate;
-  shader = replaceAll(shader, "%DTYPE%", getGLSLType(datatype));
+  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%EXPR%", expr);
   shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
   return shader;
