@@ -15,7 +15,7 @@ class TestImport:
     def test_shader_enum(self):
         """Test ShaderEnum is accessible."""
         assert hasattr(cut, "ShaderEnum")
-        assert hasattr(cut.ShaderEnum, "VECTOR_ADD")
+        assert hasattr(cut.ShaderEnum, "BinaryVecVecAdd")
 
     def test_get_interface(self):
         """Test get_interface returns a valid interface."""
@@ -99,13 +99,13 @@ class TestShader:
 
     def test_create_from_enum(self):
         """Test creating shader from ShaderEnum."""
-        shader = cut.Shader(cut.ShaderEnum.VECTOR_ADD)
+        shader = cut.Shader(cut.ShaderEnum.BinaryVecVecAdd)
         assert shader.handle.valid()
 
     def test_create_from_spirv(self):
         """Test creating shader from SPIR-V bytecode."""
         from cut import _cut_core
-        spirv = _cut_core.get_shader(cut.ShaderEnum.VECTOR_ADD)
+        spirv = _cut_core.get_shader(cut.ShaderEnum.BinaryVecVecAdd)
         shader = cut.Shader(spirv)
         assert shader.handle.valid()
 
@@ -115,13 +115,13 @@ class TestDispatch:
 
     def test_create_dispatch(self):
         """Test creating a dispatch."""
-        shader = cut.Shader(cut.ShaderEnum.VECTOR_ADD)
+        shader = cut.Shader(cut.ShaderEnum.BinaryVecVecAdd)
         dispatch = cut.Dispatch(shader, thread_groups=(1, 1, 1))
         assert dispatch.inner is not None
 
     def test_bind_buffer(self):
         """Test binding a buffer."""
-        shader = cut.Shader(cut.ShaderEnum.VECTOR_ADD)
+        shader = cut.Shader(cut.ShaderEnum.BinaryVecVecAdd)
         dispatch = cut.Dispatch(shader, thread_groups=(1, 1, 1))
 
         data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
@@ -132,7 +132,7 @@ class TestDispatch:
 
     def test_bind_push_constant(self):
         """Test binding push constant data."""
-        shader = cut.Shader(cut.ShaderEnum.VECTOR_ADD)
+        shader = cut.Shader(cut.ShaderEnum.BinaryVecVecAdd)
         dispatch = cut.Dispatch(shader, thread_groups=(1, 1, 1))
 
         push_data = np.array([4], dtype=np.uint32)
@@ -141,7 +141,7 @@ class TestDispatch:
 
     def test_chained_bindings(self):
         """Test chaining multiple binds."""
-        shader = cut.Shader(cut.ShaderEnum.VECTOR_ADD)
+        shader = cut.Shader(cut.ShaderEnum.BinaryVecVecAdd)
         data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
         buf_a = cut.Buffer(data)
         buf_b = cut.Buffer(data)
@@ -155,114 +155,21 @@ class TestDispatch:
         assert dispatch is not None
 
 
-class TestVectorAdd:
-    """Test the vector_add high-level function."""
-
-    def test_basic_add(self):
-        """Test basic vector addition."""
-        a = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-        b = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32)
-
-        result = cut.vector_add(a, b)
-
-        expected = a + b
-        np.testing.assert_allclose(result, expected)
-
-    def test_zeros(self):
-        """Test adding zeros."""
-        a = np.zeros(100, dtype=np.float32)
-        b = np.zeros(100, dtype=np.float32)
-
-        result = cut.vector_add(a, b)
-
-        np.testing.assert_array_equal(result, np.zeros(100, dtype=np.float32))
-
-    def test_negative_numbers(self):
-        """Test with negative numbers."""
-        a = np.array([-1.0, -2.0, 3.0, 4.0], dtype=np.float32)
-        b = np.array([1.0, 2.0, -3.0, -4.0], dtype=np.float32)
-
-        result = cut.vector_add(a, b)
-
-        expected = a + b
-        np.testing.assert_allclose(result, expected)
-
-    def test_large_array(self):
-        """Test with larger arrays."""
-        n = 10000
-        a = np.random.rand(n).astype(np.float32)
-        b = np.random.rand(n).astype(np.float32)
-
-        result = cut.vector_add(a, b)
-
-        expected = a + b
-        np.testing.assert_allclose(result, expected, rtol=1e-5)
-
-    def test_non_multiple_of_workgroup(self):
-        """Test array size not multiple of workgroup size (64)."""
-        a = np.array([1.0, 2.0, 3.0], dtype=np.float32)  # 3 elements, not multiple of 64
-        b = np.array([4.0, 5.0, 6.0], dtype=np.float32)
-
-        result = cut.vector_add(a, b)
-
-        expected = a + b
-        np.testing.assert_allclose(result, expected)
-
-    def test_single_element(self):
-        """Test single element arrays."""
-        a = np.array([42.0], dtype=np.float32)
-        b = np.array([58.0], dtype=np.float32)
-
-        result = cut.vector_add(a, b)
-
-        np.testing.assert_allclose(result, [100.0])
-
-    def test_shape_mismatch_raises(self):
-        """Test that mismatched shapes raise an error."""
-        a = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        b = np.array([1.0, 2.0], dtype=np.float32)
-
-        with pytest.raises(ValueError, match="Shape mismatch"):
-            cut.vector_add(a, b)
-
-    def test_auto_dtype_conversion(self):
-        """Test automatic conversion to float32."""
-        a = np.array([1, 2, 3, 4], dtype=np.int32)
-        b = np.array([5, 6, 7, 8], dtype=np.int64)
-
-        result = cut.vector_add(a, b)
-
-        expected = np.array([6.0, 8.0, 10.0, 12.0], dtype=np.float32)
-        np.testing.assert_allclose(result, expected)
-
-    def test_with_output_array(self):
-        """Test providing output array."""
-        a = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-        b = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32)
-        out = np.zeros(4, dtype=np.float32)
-
-        result = cut.vector_add(a, b, out=out)
-
-        expected = a + b
-        np.testing.assert_allclose(result, expected)
-        np.testing.assert_allclose(out, expected)
-
-
 class TestRun:
     """Test the run function for executing dispatches."""
 
     def test_run_single_dispatch(self):
-        """Test running a single dispatch."""
+        """Test running a single dispatch using the add shader."""
         a = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
         b = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32)
         buf_a = cut.Buffer(a)
         buf_b = cut.Buffer(b)
         buf_out = cut.Buffer(size=a.nbytes)
 
-        shader = cut.Shader(cut.ShaderEnum.VECTOR_ADD)
-        num_elements = np.array([a.size], dtype=np.uint32)
+        shader = cut.Shader(cut.ShaderEnum.BinaryVecVecAdd)
+        num_elements = a.size
 
-        dispatch = (cut.Dispatch(shader, thread_groups=(1, 1, 1))
+        dispatch = (cut.Dispatch(shader, thread_groups=(num_elements, 1, 1))
                     .bind(buf_a, 0)
                     .bind(buf_b, 1)
                     .bind(buf_out, 2)

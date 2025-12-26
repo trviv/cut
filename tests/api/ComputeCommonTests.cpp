@@ -87,45 +87,6 @@ void main() {
   EXPECT_EQ(spirv[0], 0x07230203u);
 }
 
-TEST(CompileShaderToSpirv, CompilesVectorAddShader) {
-  const std::string source = R"(
-#version 450
-
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
-    uint numElements;
-};
-
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    float dataA[];
-};
-
-layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
-    float dataB[];
-};
-
-layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
-    float dataOut[];
-};
-
-void main() {
-    uint index = gl_GlobalInvocationID.x;
-    if (index >= numElements) {
-        return;
-    }
-    dataOut[index] = dataA[index] + dataB[index];
-}
-)";
-
-  std::vector<uint32_t> spirv = compileShaderToSpirv(source, "vector_add.comp");
-
-  ASSERT_FALSE(spirv.empty());
-  EXPECT_EQ(spirv[0], 0x07230203u);
-  // Should have reasonable size for this shader
-  EXPECT_GT(spirv.size(), 50u);
-}
-
 TEST(CompileShaderToSpirv, ThrowsOnInvalidShader) {
   const std::string invalidSource = R"(
 #version 450
@@ -209,17 +170,6 @@ void main() {
 }
 
 // compileShaderFileToSpirv tests
-
-TEST(CompileShaderFileToSpirv, CompilesVectorAddShaderFile) {
-  // This test requires the Vector_Add.shader file to exist
-  const std::string shaderPath = SHADER_DIR "/Vector_Add.shader";
-
-  std::vector<uint32_t> spirv = compileShaderFileToSpirv(shaderPath);
-
-  ASSERT_FALSE(spirv.empty());
-  EXPECT_EQ(spirv[0], 0x07230203u);
-  EXPECT_GT(spirv.size(), 50u);
-}
 
 TEST(CompileShaderFileToSpirv, ThrowsOnNonexistentFile) {
   EXPECT_THROW(compileShaderFileToSpirv("/nonexistent/path/shader.comp"),

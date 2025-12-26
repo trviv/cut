@@ -47,7 +47,6 @@ PYBIND11_MODULE(_cut_core, m) {
 
   // Expose ShaderEnum
   py::enum_<cut::ShaderEnum>(m, "ShaderEnum")
-      .value("VECTOR_ADD", cut::ShaderEnum::VECTOR_ADD)
       // Binary arithmetic operations (vec-vec)
       .value("BinaryVecVecAdd", cut::ShaderEnum::BinaryVecVecAdd)
       .value("BinaryVecVecSub", cut::ShaderEnum::BinaryVecVecSub)

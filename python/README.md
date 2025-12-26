@@ -28,11 +28,11 @@ import numpy as np
 import cut
 
 # Vector addition on GPU
-a = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-b = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+a = cut.Buffer(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+b = cut.Buffer(np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32))
 
-result = cut.vector_add(a, b)
-print(result)  # [6.0, 8.0, 10.0, 12.0]
+result = cut.add(a, b)
+print(result.numpy())  # [6.0, 8.0, 10.0, 12.0]
 ```
 
 ### Low-Level API
@@ -49,13 +49,12 @@ buf_b = cut.Buffer(b)
 buf_out = cut.Buffer(size=a.nbytes)
 
 # Load shader
-shader = cut.Shader(cut.ShaderEnum.VECTOR_ADD)
+shader = cut.Shader(cut.ShaderEnum.BinaryVecVecAdd)
 
 # Create and configure dispatch
-num_elements = np.array([a.size], dtype=np.uint32)
-workgroups = (a.size + 63) // 64
+num_elements = a.size
 
-dispatch = cut.Dispatch(shader, thread_groups=(workgroups, 1, 1))
+dispatch = cut.Dispatch(shader, thread_groups=(num_elements, 1, 1))
 dispatch.bind(buf_a, 0)      # binding 0: input A
 dispatch.bind(buf_b, 1)      # binding 1: input B
 dispatch.bind(buf_out, 2)    # binding 2: output
@@ -99,9 +98,15 @@ shader = cut.Shader(spirv)
 ### Functions
 
 - `cut.run(*dispatches)` - Execute compute dispatches
-- `cut.vector_add(a, b)` - Element-wise vector addition
+- `cut.add(a, b)` - Element-wise vector addition
+- `cut.subtract(a, b)` - Element-wise subtraction
+- `cut.multiply(a, b)` - Element-wise multiplication
+- `cut.divide(a, b)` - Element-wise division
 - `cut.get_interface()` - Get the global VulkanCompute interface
 
 ### Built-in Shaders
 
-- `cut.ShaderEnum.VECTOR_ADD` - Vector addition shader (64 threads/workgroup)
+- `cut.ShaderEnum.BinaryVecVecAdd` - Vector addition shader
+- `cut.ShaderEnum.BinaryVecVecSub` - Vector subtraction shader
+- `cut.ShaderEnum.BinaryVecVecMul` - Vector multiplication shader
+- `cut.ShaderEnum.BinaryVecVecDiv` - Vector division shader

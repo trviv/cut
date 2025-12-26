@@ -551,42 +551,6 @@ def square(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     return _unary_op(a, _cut_core.ShaderEnum.UnarySquare, out)
 
 
-def vector_add(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
-    """
-    Add two buffers element-wise on the GPU.
-
-    Args:
-        a: First input buffer (float32)
-        b: Second input buffer (float32)
-        out: Output buffer (created if not provided)
-
-    Returns:
-        Result buffer (a + b)
-    """
-    _ensure_initialized()
-
-    if a.size != b.size:
-        raise ValueError(f"Size mismatch: {a.size} vs {b.size}")
-
-    if out is None:
-        out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
-
-    num_elements = a.size // 4  # float32 is 4 bytes
-
-    shader = Shader(_cut_core.ShaderEnum.VECTOR_ADD)
-    workgroups = (num_elements + 63) // 64  # 64 threads per workgroup
-
-    dispatch = Dispatch(shader, (workgroups, 1, 1))
-    dispatch.bind(a, 0)
-    dispatch.bind(b, 1)
-    dispatch.bind(out, 2)
-    dispatch.bind(num_elements, 3)  # Push constant
-
-    run(dispatch)
-
-    return out
-
-
 # Export public API
 __all__ = [
     # Classes
@@ -597,7 +561,6 @@ __all__ = [
     "run",
     "get_interface",
     "precompile_shaders",
-    "vector_add",
     # Binary arithmetic operations
     "add",
     "subtract",

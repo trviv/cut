@@ -209,7 +209,9 @@ foreach(SHADER_SOURCE ${SHADER_SOURCES})
 endforeach()
 
 file(WRITE ${SHADERS_SOURCE_FILE} "")
-generate_shader_source(${SHADER_SOURCES})
+if(SHADER_SOURCES)
+    generate_shader_source(${SHADER_SOURCES})
+endif()
 
 # Add custom target for shader compilation
 if(COMPILED_SHADERS)

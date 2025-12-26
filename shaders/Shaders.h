@@ -18,8 +18,6 @@ enum ScalarDataType {
 };
 
 enum ShaderEnum {
-  VECTOR_ADD,
-
   // Binary arithmetic operations (vec-vec)
   BinaryVecVecAdd,
   BinaryVecVecSub,
