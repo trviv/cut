@@ -49,29 +49,27 @@ file(GLOB CPU_SOURCES ${CUT_ROOT}/backends/cpu/*.cpp)
 file(GLOB SHADER_SOURCES ${CUT_ROOT}/shaders/*.cpp)
 
 # =============================================================================
-# Vulkan backend module (_cut_core)
+# Unified compute module (_cut_compute) - single binding for all backends
 # =============================================================================
-pybind11_add_module(_cut_core
-    cut/_bindings.cpp
+pybind11_add_module(_cut_compute
+    cut/_compute_bindings.cpp
     ${API_SOURCES}
     ${VULKAN_SOURCES}
+    ${CPU_SOURCES}
     ${SHADER_SOURCES}
 )
 
-target_link_libraries(_cut_core PRIVATE Vulkan::Vulkan ${SHADERC_LIB})
+target_link_libraries(_cut_compute PRIVATE Vulkan::Vulkan ${SHADERC_LIB})
 
-# Set RPATH to find Vulkan at runtime
+# Set RPATH and compile options
 if(APPLE)
-    # Get Vulkan library directory
     get_filename_component(VULKAN_LIB_DIR "${Vulkan_LIBRARY}" DIRECTORY)
-    set_target_properties(_cut_core PROPERTIES
+    set_target_properties(_cut_compute PROPERTIES
         BUILD_RPATH "${VULKAN_LIB_DIR}"
         INSTALL_RPATH "${VULKAN_LIB_DIR}"
         INSTALL_RPATH_USE_LINK_PATH TRUE
     )
-
-    # macOS specific frameworks for MoltenVK
-    target_link_libraries(_cut_core PRIVATE
+    target_link_libraries(_cut_compute PRIVATE
         "-framework Metal"
         "-framework IOKit"
         "-framework CoreGraphics"
@@ -80,28 +78,14 @@ if(APPLE)
     )
 endif()
 
-# =============================================================================
-# CPU backend module (_cut_cpu)
-# =============================================================================
-pybind11_add_module(_cut_cpu
-    cut/_cpu_bindings.cpp
-    ${API_SOURCES}
-    ${CPU_SOURCES}
-)
-
 # SIMD configuration - use -march=native for best performance
-# The CPU backend now supports runtime SIMD mode selection (Scalar, SSE, AVX, Auto)
-# Compile with native CPU features so all SIMD paths are available
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(_cut_cpu PRIVATE -march=native)
-    message(STATUS "CPU backend: Using native CPU features (-march=native) with runtime SIMD selection")
+    target_compile_options(_cut_compute PRIVATE -march=native)
+    message(STATUS "Using native CPU features (-march=native) with runtime SIMD selection")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    # MSVC: Enable AVX2 for best coverage (SSE is always available on x64)
-    target_compile_options(_cut_cpu PRIVATE /arch:AVX2)
-    message(STATUS "CPU backend: Using AVX2 with runtime SIMD selection")
+    target_compile_options(_cut_compute PRIVATE /arch:AVX2)
+    message(STATUS "Using AVX2 with runtime SIMD selection")
 endif()
 
-# CPU backend needs no external libraries but uses API base classes
-
-# Install both modules to the cut package directory
-install(TARGETS _cut_core _cut_cpu DESTINATION cut)
+# Install module to the cut package directory
+install(TARGETS _cut_compute DESTINATION cut)
