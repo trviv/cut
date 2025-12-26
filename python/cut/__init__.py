@@ -11,8 +11,10 @@ import atexit
 import weakref
 import numpy as np
 from typing import Optional, Union, List, TYPE_CHECKING
+import sys
 
 from ._ops import ALL_OPERATION_NAMES, register_operations
+from ._base import BaseBuffer, BaseDispatch
 
 if TYPE_CHECKING:
     from . import _cut_core as _cut_core_type
@@ -146,7 +148,7 @@ def get_interface() -> "_cut_core_type.VulkanCompute":
     return _interface
 
 
-class Buffer:
+class Buffer(BaseBuffer):
     """GPU buffer wrapper with automatic memory management."""
 
     def __init__(self, data: Optional[np.ndarray] = None, size: Optional[int] = None,
@@ -164,72 +166,20 @@ class Buffer:
         """
         _ensure_initialized()
         if data is not None:
-            data = np.ascontiguousarray(data)
-            self._handle = _interface.create_buffer(data, is_uniform)
-            self._size = data.nbytes
-            self._dtype = data.dtype
-            self._shape = data.shape
+            self._init_from_data(_interface, data, is_uniform)
         elif size is not None:
-            # Convert size (bytes) to shape for the new API
-            # Default to float32 if dtype not specified
-            if dtype is None:
-                dtype = np.float32
-            element_size = np.dtype(dtype).itemsize
-            num_elements = size // element_size
-            buffer_shape = list(shape) if shape is not None else [num_elements]
-            # Map numpy dtype to cut DataType
-            dtype_map = {
-                np.float32: _cut_core.DataType.Float32,
-                np.float16: _cut_core.DataType.Float16,
-                np.uint32: _cut_core.DataType.UInt32,
-                np.int32: _cut_core.DataType.Int32,
-            }
-            cut_dtype = dtype_map.get(np.dtype(dtype).type, _cut_core.DataType.Float32)
-            self._handle = _interface.create_buffer_empty(buffer_shape, cut_dtype, is_uniform)
-            self._size = size
-            self._dtype = dtype
-            self._shape = tuple(buffer_shape)
+            self._init_empty(_interface, _cut_core, size, dtype, shape, is_uniform)
         else:
             raise ValueError("Either data or size must be provided")
         _live_buffers.add(self)
 
-    @property
-    def handle(self) -> "_cut_core_type.ComputeHandle":
-        """Get the underlying compute handle."""
-        return self._handle
+    def _get_module(self):
+        """Get the module containing operation functions."""
+        return sys.modules[__name__]
 
-    @property
-    def size(self) -> int:
-        """Get buffer size in bytes."""
-        return self._size
-
-    def copy_from(self, data: np.ndarray):
-        """Copy data from numpy array to GPU buffer."""
-        data = np.ascontiguousarray(data)
-        _interface.copy_to_buffer(self._handle, data)
-
-    def copy_to(self, out: Optional[np.ndarray] = None) -> np.ndarray:
-        """
-        Copy data from GPU buffer to numpy array.
-
-        Args:
-            out: Output array (created if not provided)
-
-        Returns:
-            NumPy array with buffer contents
-        """
-        if out is None:
-            if self._dtype is not None and self._shape is not None:
-                out = np.empty(self._shape, dtype=self._dtype)
-            else:
-                out = np.empty(self._size, dtype=np.uint8)
-        out = np.ascontiguousarray(out)
-        _interface.copy_from_buffer(self._handle, out)
-        return out
-
-    def numpy(self) -> np.ndarray:
-        """Get buffer contents as numpy array."""
-        return self.copy_to()
+    def _get_interface(self):
+        """Get the compute interface."""
+        return _interface
 
 
 class Shader:
@@ -275,7 +225,7 @@ class Shader:
         return self._handle
 
 
-class Dispatch:
+class Dispatch(BaseDispatch):
     """Compute dispatch configuration."""
 
     def __init__(self, shader: Shader, thread_groups: tuple = (1, 1, 1)):
@@ -286,11 +236,9 @@ class Dispatch:
             shader: Shader to execute
             thread_groups: Number of thread groups (x, y, z)
         """
-        self._dispatch = _cut_core.ComputeDispatch(shader.handle)
-        self._dispatch.set_workgroup_size(
-            _cut_core.ThreadSize(thread_groups[0], thread_groups[1], thread_groups[2])
-        )
-        self._bindings = []
+        dispatch_obj = _cut_core.ComputeDispatch(shader.handle)
+        super().__init__(dispatch_obj, _cut_core.ThreadSize)
+        self.set_workgroup_size(thread_groups)
 
     def bind(self, resource: Union[Buffer, np.ndarray, int, float], binding: int) -> "Dispatch":
         """
@@ -303,22 +251,7 @@ class Dispatch:
         Returns:
             self for chaining
         """
-        if isinstance(resource, Buffer):
-            self._dispatch.bind_resource(resource.handle, binding)
-        elif isinstance(resource, np.ndarray):
-            data = np.ascontiguousarray(resource)
-            self._dispatch.bind_data(data, binding)
-            self._bindings.append(data)  # Keep reference alive
-        elif isinstance(resource, int):
-            self._dispatch.bind_uint(resource, binding)
-        elif isinstance(resource, float):
-            self._dispatch.bind_float(resource, binding)
-        return self
-
-    @property
-    def inner(self) -> "_cut_core_type.ComputeDispatch":
-        """Get the underlying dispatch object."""
-        return self._dispatch
+        return super().bind(resource, binding, Buffer)
 
 
 def run(*dispatches: Dispatch):

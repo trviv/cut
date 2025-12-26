@@ -26,10 +26,11 @@ from __future__ import annotations
 import atexit
 import weakref
 import numpy as np
-from typing import Optional, Union, List, Callable, Any
+from typing import Optional, Union, List
 from enum import Enum, auto
 
 from ._ops import ALL_OPERATION_NAMES, register_operations
+from ._base import OperatorMixin
 
 
 class Backend(Enum):
@@ -302,7 +303,7 @@ def simd_mode() -> Optional[str]:
     return None
 
 
-class Buffer:
+class Buffer(OperatorMixin):
     """
     Unified buffer class that wraps the backend-specific buffer.
 
@@ -332,6 +333,11 @@ class Buffer:
         )
         _live_buffers.add(self)
 
+    def _get_module(self):
+        """Get the module containing operation functions."""
+        import sys
+        return sys.modules[__name__]
+
     @property
     def handle(self):
         """Get the underlying compute handle."""
@@ -343,13 +349,24 @@ class Buffer:
         return self._backend_buffer.size
 
     @property
-    def _dtype(self):
+    def dtype(self):
         """Get the buffer's dtype."""
+        return self._backend_buffer.dtype
+
+    @property
+    def shape(self):
+        """Get the buffer's shape."""
+        return self._backend_buffer.shape
+
+    # Compatibility properties (prefixed with underscore)
+    @property
+    def _dtype(self):
+        """Get the buffer's dtype (compatibility)."""
         return self._backend_buffer._dtype
 
     @property
     def _shape(self):
-        """Get the buffer's shape."""
+        """Get the buffer's shape (compatibility)."""
         return self._backend_buffer._shape
 
     @property
