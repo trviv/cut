@@ -87,6 +87,24 @@ def precompile_shaders():
         # Binary min/max operations
         _cut_core.ShaderEnum.BinaryVecVecMin,
         _cut_core.ShaderEnum.BinaryVecVecMax,
+        # Binary arithmetic operations (vec-scalar)
+        _cut_core.ShaderEnum.BinaryVecScalarAdd,
+        _cut_core.ShaderEnum.BinaryVecScalarSub,
+        _cut_core.ShaderEnum.BinaryVecScalarMul,
+        _cut_core.ShaderEnum.BinaryVecScalarDiv,
+        _cut_core.ShaderEnum.BinaryVecScalarMod,
+        _cut_core.ShaderEnum.BinaryVecScalarPow,
+        _cut_core.ShaderEnum.BinaryVecScalarFloorDiv,
+        # Binary comparison operations (vec-scalar)
+        _cut_core.ShaderEnum.BinaryVecScalarEqual,
+        _cut_core.ShaderEnum.BinaryVecScalarNotEqual,
+        _cut_core.ShaderEnum.BinaryVecScalarLess,
+        _cut_core.ShaderEnum.BinaryVecScalarLessEqual,
+        _cut_core.ShaderEnum.BinaryVecScalarGreater,
+        _cut_core.ShaderEnum.BinaryVecScalarGreaterEqual,
+        # Binary min/max operations (vec-scalar)
+        _cut_core.ShaderEnum.BinaryVecScalarMin,
+        _cut_core.ShaderEnum.BinaryVecScalarMax,
         # Unary operations
         _cut_core.ShaderEnum.UnaryNeg,
         _cut_core.ShaderEnum.UnaryAbs,
@@ -350,8 +368,33 @@ def _unary_op(a: Buffer, shader_enum, out: Optional[Buffer] = None) -> Buffer:
     return out
 
 
+def _binary_vec_scalar_op(a: Buffer, scalar: float, shader_enum, out: Optional[Buffer] = None) -> Buffer:
+    """Generic binary vec-scalar operation on GPU."""
+    _ensure_initialized()
+
+    if out is None:
+        out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
+
+    num_elements = a.size // 4  # float32 is 4 bytes
+
+    shader = Shader(shader_enum)
+    # Vec-scalar shaders have: binding 0 = input, binding 1 = output
+    # Push constants at binding 2: packed struct {uint32 numElements, float32 scalar}
+    dispatch = Dispatch(shader, (num_elements, 1, 1))
+    dispatch.bind(a, 0)
+    dispatch.bind(out, 1)
+    # Pack push constants as numpy array: uint32 + float32
+    push_constants = np.array([num_elements, 0], dtype=np.uint32)
+    push_constants.view(np.float32)[1] = scalar
+    dispatch.bind(push_constants, 2)
+
+    run(dispatch)
+
+    return out
+
+
 # =============================================================================
-# Binary arithmetic operations
+# Binary arithmetic operations (vec-vec)
 # =============================================================================
 
 def add(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
@@ -435,6 +478,93 @@ def minimum(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
 def maximum(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise maximum of two buffers on GPU."""
     return _binary_op(a, b, _cut_core.ShaderEnum.BinaryVecVecMax, out)
+
+
+# =============================================================================
+# Binary arithmetic operations (vec-scalar)
+# =============================================================================
+
+def add_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Add a scalar to each element of a buffer on GPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarAdd, out)
+
+
+def subtract_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Subtract a scalar from each element of a buffer on GPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarSub, out)
+
+
+def multiply_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Multiply each element of a buffer by a scalar on GPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarMul, out)
+
+
+def divide_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Divide each element of a buffer by a scalar on GPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarDiv, out)
+
+
+def mod_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Modulo of each element of a buffer by a scalar on GPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarMod, out)
+
+
+def power_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Raise each element of a buffer to a scalar power on GPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarPow, out)
+
+
+def floor_divide_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Floor division of each element of a buffer by a scalar on GPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarFloorDiv, out)
+
+
+# =============================================================================
+# Binary comparison operations (vec-scalar)
+# =============================================================================
+
+def equal_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise equality comparison with a scalar on GPU. Returns 1.0 for True, 0.0 for False."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarEqual, out)
+
+
+def not_equal_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise inequality comparison with a scalar on GPU. Returns 1.0 for True, 0.0 for False."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarNotEqual, out)
+
+
+def less_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise less-than comparison with a scalar on GPU. Returns 1.0 for True, 0.0 for False."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarLess, out)
+
+
+def less_equal_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise less-than-or-equal comparison with a scalar on GPU. Returns 1.0 for True, 0.0 for False."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarLessEqual, out)
+
+
+def greater_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise greater-than comparison with a scalar on GPU. Returns 1.0 for True, 0.0 for False."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarGreater, out)
+
+
+def greater_equal_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise greater-than-or-equal comparison with a scalar on GPU. Returns 1.0 for True, 0.0 for False."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarGreaterEqual, out)
+
+
+# =============================================================================
+# Binary min/max operations (vec-scalar)
+# =============================================================================
+
+def minimum_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise minimum of buffer elements and a scalar on GPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarMin, out)
+
+
+def maximum_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise maximum of buffer elements and a scalar on GPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_core.ShaderEnum.BinaryVecScalarMax, out)
 
 
 # =============================================================================
@@ -579,6 +709,24 @@ __all__ = [
     # Binary min/max operations
     "minimum",
     "maximum",
+    # Binary arithmetic operations (vec-scalar)
+    "add_scalar",
+    "subtract_scalar",
+    "multiply_scalar",
+    "divide_scalar",
+    "mod_scalar",
+    "power_scalar",
+    "floor_divide_scalar",
+    # Binary comparison operations (vec-scalar)
+    "equal_scalar",
+    "not_equal_scalar",
+    "less_scalar",
+    "less_equal_scalar",
+    "greater_scalar",
+    "greater_equal_scalar",
+    # Binary min/max operations (vec-scalar)
+    "minimum_scalar",
+    "maximum_scalar",
     # Unary operations
     "negative",
     "abs",

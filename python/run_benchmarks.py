@@ -308,7 +308,7 @@ class VulkanRunner(BackendRunner):
         return backends.vulkan_available
 
     def _get_args(self, np_args: tuple) -> tuple:
-        """Map numpy arrays to Vulkan buffers."""
+        """Map numpy arrays to Vulkan buffers, pass scalars through."""
         mapping = {
             id(self.data.a): self._buffers['a'],
             id(self.data.b): self._buffers['b'],
@@ -319,7 +319,14 @@ class VulkanRunner(BackendRunner):
             id(self.data.a_div10): self._buffers['a_div10'],
             id(self.data.a_tan_safe): self._buffers['a_tan_safe'],
         }
-        return tuple(mapping.get(id(arg), backends.vulkan.Buffer(arg)) for arg in np_args)
+        result = []
+        for arg in np_args:
+            if isinstance(arg, np.ndarray):
+                result.append(mapping.get(id(arg), backends.vulkan.Buffer(arg)))
+            else:
+                # Pass scalar values directly
+                result.append(float(arg))
+        return tuple(result)
 
     def run(self, op_name: str, np_func: Callable, np_args: tuple,
             np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
@@ -393,7 +400,7 @@ class CPURunner(BackendRunner):
         return backends.cpu_available
 
     def _get_args(self, np_args: tuple) -> tuple:
-        """Map numpy arrays to CPU buffers."""
+        """Map numpy arrays to CPU buffers, pass scalars through."""
         mapping = {
             id(self.data.a): self._buffers['a'],
             id(self.data.b): self._buffers['b'],
@@ -404,7 +411,14 @@ class CPURunner(BackendRunner):
             id(self.data.a_div10): self._buffers['a_div10'],
             id(self.data.a_tan_safe): self._buffers['a_tan_safe'],
         }
-        return tuple(mapping.get(id(arg), backends.cpu.Buffer(arg)) for arg in np_args)
+        result = []
+        for arg in np_args:
+            if isinstance(arg, np.ndarray):
+                result.append(mapping.get(id(arg), backends.cpu.Buffer(arg)))
+            else:
+                # Pass scalar values directly
+                result.append(float(arg))
+        return tuple(result)
 
     def run(self, op_name: str, np_func: Callable, np_args: tuple,
             np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
@@ -731,6 +745,27 @@ def get_operations(data: TestData) -> Dict[str, List[tuple]]:
             ("sign", np.sign, (data.a,)),
             ("reciprocal", np.reciprocal, (data.a_pos,)),
             ("square", np.square, (data.a,)),
+        ],
+        "Vec-Scalar Arithmetic": [
+            ("add_scalar", lambda x, s: np.add(x, s), (data.a, 2.5)),
+            ("subtract_scalar", lambda x, s: np.subtract(x, s), (data.a, 2.5)),
+            ("multiply_scalar", lambda x, s: np.multiply(x, s), (data.a, 2.5)),
+            ("divide_scalar", lambda x, s: np.divide(x, s), (data.a, 2.5)),
+            ("mod_scalar", lambda x, s: np.mod(x, s), (data.a_pos, 2.5)),
+            ("power_scalar", lambda x, s: np.power(x, s), (data.a_pos, 2.0)),
+            ("floor_divide_scalar", lambda x, s: np.floor_divide(x, s), (data.a, 2.5)),
+        ],
+        "Vec-Scalar Comparison": [
+            ("equal_scalar", lambda x, s: np.equal(x, s).astype(np.float32), (data.a, 0.0)),
+            ("not_equal_scalar", lambda x, s: np.not_equal(x, s).astype(np.float32), (data.a, 0.0)),
+            ("less_scalar", lambda x, s: np.less(x, s).astype(np.float32), (data.a, 0.0)),
+            ("less_equal_scalar", lambda x, s: np.less_equal(x, s).astype(np.float32), (data.a, 0.0)),
+            ("greater_scalar", lambda x, s: np.greater(x, s).astype(np.float32), (data.a, 0.0)),
+            ("greater_equal_scalar", lambda x, s: np.greater_equal(x, s).astype(np.float32), (data.a, 0.0)),
+        ],
+        "Vec-Scalar Min/Max": [
+            ("minimum_scalar", lambda x, s: np.minimum(x, s), (data.a, 0.5)),
+            ("maximum_scalar", lambda x, s: np.maximum(x, s), (data.a, -0.5)),
         ],
     }
 

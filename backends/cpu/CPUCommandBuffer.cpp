@@ -34,6 +34,7 @@ void CPUCommandBuffer::submit() {
     // Extract buffer pointers from bindings
     std::vector<void *> bufferPtrs;
     uint32_t numElements = 0;
+    float scalar = 0.0f;
 
     for (const auto &binding : bindings) {
       if (binding.isHandle()) {
@@ -41,10 +42,15 @@ void CPUCommandBuffer::submit() {
             containers_.bufferContainer.getBuffer(binding.getHandle());
         bufferPtrs.push_back(buffer.data);
       } else if (binding.isData()) {
-        // Push constant data (e.g., numElements)
+        // Push constant data
         const auto &data = binding.getData();
         if (data.size() >= sizeof(uint32_t)) {
           numElements = *reinterpret_cast<const uint32_t *>(data.data());
+        }
+        // For vec-scalar ops, scalar is after numElements (offset 4 bytes)
+        if (data.size() >= sizeof(uint32_t) + sizeof(float)) {
+          scalar =
+              *reinterpret_cast<const float *>(data.data() + sizeof(uint32_t));
         }
       }
     }
@@ -63,8 +69,8 @@ void CPUCommandBuffer::submit() {
     pendingTasks_.fetch_add(numChunks, std::memory_order_relaxed);
 
     // Submit chunks to thread pool
-    if (isBinaryOperator(opType)) {
-      // Binary operation: need 3 buffers (a, b, out)
+    if (isBinaryVecVecOperator(opType)) {
+      // Binary vec-vec operation: need 3 buffers (a, b, out)
       if (bufferPtrs.size() < 3) {
         pendingTasks_.fetch_sub(numChunks, std::memory_order_relaxed);
         continue;
@@ -81,6 +87,29 @@ void CPUCommandBuffer::submit() {
             [this, opType, a, b, out, chunkStart, chunkEnd, simdMode]() {
               executeBinaryKernel(opType, a, b, out, chunkStart, chunkEnd,
                                   simdMode);
+              if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                cv_.notify_all();
+              }
+            });
+      }
+    } else if (isBinaryVecScalarOperator(opType)) {
+      // Binary vec-scalar operation: need 2 buffers (a, out) + scalar
+      if (bufferPtrs.size() < 2) {
+        pendingTasks_.fetch_sub(numChunks, std::memory_order_relaxed);
+        continue;
+      }
+      const float *a = static_cast<const float *>(bufferPtrs[0]);
+      float *out = static_cast<float *>(bufferPtrs[1]);
+
+      for (size_t chunkStart = 0; chunkStart < numElements;
+           chunkStart += chunkSize) {
+        const size_t chunkEnd =
+            std::min(chunkStart + chunkSize, static_cast<size_t>(numElements));
+        threadPool_.submit(
+            [this, opType, a, scalar, out, chunkStart, chunkEnd, simdMode]() {
+              executeBinaryVecScalarKernel(opType, a, scalar, out, chunkStart,
+                                           chunkEnd, simdMode);
               if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                 std::lock_guard<std::mutex> lock(mutex_);
                 cv_.notify_all();

@@ -22,7 +22,7 @@ _interface: Optional[_cut_cpu.CPUCompute] = None
 # Current SIMD mode for initialization
 _simd_mode: _cut_cpu.SIMDMode = _cut_cpu.SIMDMode.Auto
 
-# Kernel cache: maps CPUKernelType -> ComputeHandle
+# Kernel cache: maps OperatorEnum -> ComputeHandle
 _kernel_cache: dict = {}
 
 # Track all live buffers using weak references
@@ -162,12 +162,12 @@ class Buffer:
 class Kernel:
     """CPU compute kernel wrapper."""
 
-    def __init__(self, kernel_type: _cut_cpu.CPUKernelType):
+    def __init__(self, kernel_type: _cut_cpu.OperatorEnum):
         """
-        Create a kernel from a CPUKernelType.
+        Create a kernel from an OperatorEnum.
 
         Args:
-            kernel_type: The CPU kernel type
+            kernel_type: The operator enum type
         """
         _ensure_initialized()
         # Check cache first
@@ -292,43 +292,66 @@ def _unary_op(a: Buffer, kernel_type, out: Optional[Buffer] = None) -> Buffer:
     return out
 
 
+def _binary_vec_scalar_op(a: Buffer, scalar: float, kernel_type, out: Optional[Buffer] = None) -> Buffer:
+    """Generic binary vec-scalar operation on CPU."""
+    _ensure_initialized()
+
+    if out is None:
+        out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
+
+    num_elements = a.size // 4  # float32 is 4 bytes
+
+    kernel = Kernel(kernel_type)
+    dispatch = Dispatch(kernel, (num_elements, 1, 1))
+    dispatch.bind(a, 0)
+    dispatch.bind(out, 1)
+    # Pack push constants as numpy array: uint32 + float32
+    push_constants = np.array([num_elements, 0], dtype=np.uint32)
+    push_constants.view(np.float32)[1] = scalar
+    dispatch.bind(push_constants, 2)
+
+    run(dispatch)
+
+    return out
+
+
 # =============================================================================
-# Binary arithmetic operations
+# Binary arithmetic operations (vec-vec)
 # =============================================================================
 
 def add(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Add two buffers element-wise on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecAdd, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecAdd, out)
 
 
 def subtract(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Subtract two buffers element-wise on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecSub, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecSub, out)
 
 
 def multiply(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Multiply two buffers element-wise on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecMul, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecMul, out)
 
 
 def divide(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Divide two buffers element-wise on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecDiv, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecDiv, out)
 
 
 def mod(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Modulo of two buffers element-wise on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecMod, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecMod, out)
 
 
 def power(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Power of two buffers element-wise on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecPow, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecPow, out)
 
 
 def floor_divide(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Floor division of two buffers element-wise on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecFloorDiv, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecFloorDiv, out)
 
 
 # =============================================================================
@@ -337,32 +360,32 @@ def floor_divide(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
 
 def equal(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise equality comparison on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecEqual, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecEqual, out)
 
 
 def not_equal(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise inequality comparison on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecNotEqual, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecNotEqual, out)
 
 
 def less(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise less-than comparison on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecLess, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecLess, out)
 
 
 def less_equal(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise less-than-or-equal comparison on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecLessEqual, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecLessEqual, out)
 
 
 def greater(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise greater-than comparison on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecGreater, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecGreater, out)
 
 
 def greater_equal(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise greater-than-or-equal comparison on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecGreaterEqual, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecGreaterEqual, out)
 
 
 # =============================================================================
@@ -371,12 +394,99 @@ def greater_equal(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
 
 def minimum(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise minimum of two buffers on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecMin, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecMin, out)
 
 
 def maximum(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Element-wise maximum of two buffers on CPU."""
-    return _binary_op(a, b, _cut_cpu.CPUKernelType.BinaryVecVecMax, out)
+    return _binary_op(a, b, _cut_cpu.OperatorEnum.BinaryVecVecMax, out)
+
+
+# =============================================================================
+# Binary arithmetic operations (vec-scalar)
+# =============================================================================
+
+def add_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Add a scalar to each element of a buffer on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarAdd, out)
+
+
+def subtract_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Subtract a scalar from each element of a buffer on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarSub, out)
+
+
+def multiply_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Multiply each element of a buffer by a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarMul, out)
+
+
+def divide_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Divide each element of a buffer by a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarDiv, out)
+
+
+def mod_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Modulo of each element of a buffer by a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarMod, out)
+
+
+def power_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Raise each element of a buffer to a scalar power on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarPow, out)
+
+
+def floor_divide_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Floor division of each element of a buffer by a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarFloorDiv, out)
+
+
+# =============================================================================
+# Binary comparison operations (vec-scalar)
+# =============================================================================
+
+def equal_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise equality comparison with a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarEqual, out)
+
+
+def not_equal_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise inequality comparison with a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarNotEqual, out)
+
+
+def less_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise less-than comparison with a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarLess, out)
+
+
+def less_equal_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise less-than-or-equal comparison with a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarLessEqual, out)
+
+
+def greater_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise greater-than comparison with a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarGreater, out)
+
+
+def greater_equal_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise greater-than-or-equal comparison with a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarGreaterEqual, out)
+
+
+# =============================================================================
+# Binary min/max operations (vec-scalar)
+# =============================================================================
+
+def minimum_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise minimum of buffer elements and a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarMin, out)
+
+
+def maximum_scalar(a: Buffer, scalar: float, out: Optional[Buffer] = None) -> Buffer:
+    """Element-wise maximum of buffer elements and a scalar on CPU."""
+    return _binary_vec_scalar_op(a, scalar, _cut_cpu.OperatorEnum.BinaryVecScalarMax, out)
 
 
 # =============================================================================
@@ -385,112 +495,112 @@ def maximum(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
 
 def negative(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Negate buffer element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryNeg, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryNeg, out)
 
 
 def abs(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Absolute value element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryAbs, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryAbs, out)
 
 
 def sqrt(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Square root element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnarySqrt, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnarySqrt, out)
 
 
 def exp(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Exponential element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryExp, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryExp, out)
 
 
 def log(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Natural logarithm element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryLog, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryLog, out)
 
 
 def log2(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Base-2 logarithm element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryLog2, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryLog2, out)
 
 
 def log10(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Base-10 logarithm element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryLog10, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryLog10, out)
 
 
 def sin(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Sine element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnarySin, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnarySin, out)
 
 
 def cos(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Cosine element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryCos, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryCos, out)
 
 
 def tan(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Tangent element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryTan, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryTan, out)
 
 
 def arcsin(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Inverse sine element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryAsin, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryAsin, out)
 
 
 def arccos(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Inverse cosine element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryAcos, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryAcos, out)
 
 
 def arctan(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Inverse tangent element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryAtan, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryAtan, out)
 
 
 def sinh(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Hyperbolic sine element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnarySinh, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnarySinh, out)
 
 
 def cosh(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Hyperbolic cosine element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryCosh, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryCosh, out)
 
 
 def tanh(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Hyperbolic tangent element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryTanh, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryTanh, out)
 
 
 def floor(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Floor element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryFloor, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryFloor, out)
 
 
 def ceil(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Ceiling element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryCeil, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryCeil, out)
 
 
 def round(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Round element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryRound, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryRound, out)
 
 
 def sign(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Sign element-wise on CPU (-1, 0, or 1)."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnarySign, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnarySign, out)
 
 
 def reciprocal(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Reciprocal (1/x) element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnaryReciprocal, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnaryReciprocal, out)
 
 
 def square(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     """Square (x*x) element-wise on CPU."""
-    return _unary_op(a, _cut_cpu.CPUKernelType.UnarySquare, out)
+    return _unary_op(a, _cut_cpu.OperatorEnum.UnarySquare, out)
 
 
 # Export public API
@@ -523,6 +633,24 @@ __all__ = [
     # Binary min/max operations
     "minimum",
     "maximum",
+    # Binary arithmetic operations (vec-scalar)
+    "add_scalar",
+    "subtract_scalar",
+    "multiply_scalar",
+    "divide_scalar",
+    "mod_scalar",
+    "power_scalar",
+    "floor_divide_scalar",
+    # Binary comparison operations (vec-scalar)
+    "equal_scalar",
+    "not_equal_scalar",
+    "less_scalar",
+    "less_equal_scalar",
+    "greater_scalar",
+    "greater_equal_scalar",
+    # Binary min/max operations (vec-scalar)
+    "minimum_scalar",
+    "maximum_scalar",
     # Unary operations
     "negative",
     "abs",
@@ -547,9 +675,9 @@ __all__ = [
     "reciprocal",
     "square",
     # Re-exports from core
-    "CPUKernelType",
+    "OperatorEnum",
     "SIMDMode",
 ]
 
-# Re-export CPUKernelType
-CPUKernelType = _cut_cpu.CPUKernelType
+# Re-export OperatorEnum
+OperatorEnum = _cut_cpu.OperatorEnum

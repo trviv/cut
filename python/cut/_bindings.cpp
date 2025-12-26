@@ -67,6 +67,29 @@ PYBIND11_MODULE(_cut_core, m) {
       // Binary min/max operations (vec-vec)
       .value("BinaryVecVecMin", cut::OperatorEnum::BinaryVecVecMin)
       .value("BinaryVecVecMax", cut::OperatorEnum::BinaryVecVecMax)
+      // Binary arithmetic operations (vec-scalar)
+      .value("BinaryVecScalarAdd", cut::OperatorEnum::BinaryVecScalarAdd)
+      .value("BinaryVecScalarSub", cut::OperatorEnum::BinaryVecScalarSub)
+      .value("BinaryVecScalarMul", cut::OperatorEnum::BinaryVecScalarMul)
+      .value("BinaryVecScalarDiv", cut::OperatorEnum::BinaryVecScalarDiv)
+      .value("BinaryVecScalarMod", cut::OperatorEnum::BinaryVecScalarMod)
+      .value("BinaryVecScalarPow", cut::OperatorEnum::BinaryVecScalarPow)
+      .value("BinaryVecScalarFloorDiv",
+             cut::OperatorEnum::BinaryVecScalarFloorDiv)
+      // Binary comparison operations (vec-scalar)
+      .value("BinaryVecScalarEqual", cut::OperatorEnum::BinaryVecScalarEqual)
+      .value("BinaryVecScalarNotEqual",
+             cut::OperatorEnum::BinaryVecScalarNotEqual)
+      .value("BinaryVecScalarLess", cut::OperatorEnum::BinaryVecScalarLess)
+      .value("BinaryVecScalarLessEqual",
+             cut::OperatorEnum::BinaryVecScalarLessEqual)
+      .value("BinaryVecScalarGreater",
+             cut::OperatorEnum::BinaryVecScalarGreater)
+      .value("BinaryVecScalarGreaterEqual",
+             cut::OperatorEnum::BinaryVecScalarGreaterEqual)
+      // Binary min/max operations (vec-scalar)
+      .value("BinaryVecScalarMin", cut::OperatorEnum::BinaryVecScalarMin)
+      .value("BinaryVecScalarMax", cut::OperatorEnum::BinaryVecScalarMax)
       // Unary operations
       .value("UnaryNeg", cut::OperatorEnum::UnaryNeg)
       .value("UnaryAbs", cut::OperatorEnum::UnaryAbs)
