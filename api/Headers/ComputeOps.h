@@ -40,6 +40,27 @@ enum OperatorEnum {
   BinaryVecVecMin,
   BinaryVecVecMax,
 
+  // Binary arithmetic operations (vec-scalar)
+  BinaryVecScalarAdd,
+  BinaryVecScalarSub,
+  BinaryVecScalarMul,
+  BinaryVecScalarDiv,
+  BinaryVecScalarMod,
+  BinaryVecScalarPow,
+  BinaryVecScalarFloorDiv,
+
+  // Binary comparison operations (vec-scalar)
+  BinaryVecScalarEqual,
+  BinaryVecScalarNotEqual,
+  BinaryVecScalarLess,
+  BinaryVecScalarLessEqual,
+  BinaryVecScalarGreater,
+  BinaryVecScalarGreaterEqual,
+
+  // Binary min/max operations (vec-scalar)
+  BinaryVecScalarMin,
+  BinaryVecScalarMax,
+
   // Unary operations
   UnaryNeg,
   UnaryAbs,

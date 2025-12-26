@@ -38,6 +38,21 @@ static bool isGeneratedShader(const OperatorEnum shader) {
   case BinaryVecVecGreaterEqual:
   case BinaryVecVecMin:
   case BinaryVecVecMax:
+  case BinaryVecScalarAdd:
+  case BinaryVecScalarSub:
+  case BinaryVecScalarMul:
+  case BinaryVecScalarDiv:
+  case BinaryVecScalarMod:
+  case BinaryVecScalarPow:
+  case BinaryVecScalarFloorDiv:
+  case BinaryVecScalarEqual:
+  case BinaryVecScalarNotEqual:
+  case BinaryVecScalarLess:
+  case BinaryVecScalarLessEqual:
+  case BinaryVecScalarGreater:
+  case BinaryVecScalarGreaterEqual:
+  case BinaryVecScalarMin:
+  case BinaryVecScalarMax:
   case UnaryNeg:
   case UnaryAbs:
   case UnarySqrt:

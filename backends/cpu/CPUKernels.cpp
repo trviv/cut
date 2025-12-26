@@ -178,6 +178,18 @@ void unaryLoop(
   }
 }
 
+template <typename BinaryOp>
+void binaryVecScalarLoop(const float *a,
+                         float scalar,
+                         float *out,
+                         size_t start,
+                         size_t end,
+                         BinaryOp op) {
+  for (size_t i = start; i < end; ++i) {
+    out[i] = op(a[i], scalar);
+  }
+}
+
 } // namespace
 
 void executeBinaryKernel(OperatorEnum op,
@@ -387,6 +399,66 @@ void executeBinaryKernel(OperatorEnum op,
     }
 #endif
     binaryLoop(a, b, out, start, end, opMax);
+    break;
+  default:
+    break;
+  }
+}
+
+void executeBinaryVecScalarKernel(OperatorEnum op,
+                                  const float *a,
+                                  float scalar,
+                                  float *out,
+                                  size_t start,
+                                  size_t end,
+                                  SIMDMode simdMode) {
+  (void)simdMode; // Currently using scalar implementations only
+
+  switch (op) {
+  case BinaryVecScalarAdd:
+    binaryVecScalarLoop(a, scalar, out, start, end, opAdd);
+    break;
+  case BinaryVecScalarSub:
+    binaryVecScalarLoop(a, scalar, out, start, end, opSub);
+    break;
+  case BinaryVecScalarMul:
+    binaryVecScalarLoop(a, scalar, out, start, end, opMul);
+    break;
+  case BinaryVecScalarDiv:
+    binaryVecScalarLoop(a, scalar, out, start, end, opDiv);
+    break;
+  case BinaryVecScalarMod:
+    binaryVecScalarLoop(a, scalar, out, start, end, opMod);
+    break;
+  case BinaryVecScalarPow:
+    binaryVecScalarLoop(a, scalar, out, start, end, opPow);
+    break;
+  case BinaryVecScalarFloorDiv:
+    binaryVecScalarLoop(a, scalar, out, start, end, opFloorDiv);
+    break;
+  case BinaryVecScalarEqual:
+    binaryVecScalarLoop(a, scalar, out, start, end, opEqual);
+    break;
+  case BinaryVecScalarNotEqual:
+    binaryVecScalarLoop(a, scalar, out, start, end, opNotEqual);
+    break;
+  case BinaryVecScalarLess:
+    binaryVecScalarLoop(a, scalar, out, start, end, opLess);
+    break;
+  case BinaryVecScalarLessEqual:
+    binaryVecScalarLoop(a, scalar, out, start, end, opLessEqual);
+    break;
+  case BinaryVecScalarGreater:
+    binaryVecScalarLoop(a, scalar, out, start, end, opGreater);
+    break;
+  case BinaryVecScalarGreaterEqual:
+    binaryVecScalarLoop(a, scalar, out, start, end, opGreaterEqual);
+    break;
+  case BinaryVecScalarMin:
+    binaryVecScalarLoop(a, scalar, out, start, end, opMin);
+    break;
+  case BinaryVecScalarMax:
+    binaryVecScalarLoop(a, scalar, out, start, end, opMax);
     break;
   default:
     break;

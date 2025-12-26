@@ -276,3 +276,172 @@ TEST_F(CPUComputeTest, MisalignedBuffer2DWithOffsets) {
 
 } // namespace
 } // namespace cut
+
+// ============================================================================
+// CPU Kernel Tests for Vec-Scalar Operations
+// ============================================================================
+
+#include <CPUKernels.h>
+
+class CPUKernelVecScalarTest : public ::testing::Test {
+protected:
+  static constexpr size_t kElements = 256;
+};
+
+TEST_F(CPUKernelVecScalarTest, BinaryVecScalarAdd) {
+  std::vector<float> a(kElements);
+  std::vector<float> out(kElements);
+  float scalar = 3.5f;
+
+  for (size_t i = 0; i < kElements; ++i) {
+    a[i] = static_cast<float>(i) * 1.5f;
+  }
+
+  cut::executeBinaryVecScalarKernel(cut::BinaryVecScalarAdd, a.data(), scalar,
+                                    out.data(), 0, kElements);
+
+  for (size_t i = 0; i < kElements; ++i) {
+    EXPECT_FLOAT_EQ(a[i] + scalar, out[i]) << "Add failed at index " << i;
+  }
+}
+
+TEST_F(CPUKernelVecScalarTest, BinaryVecScalarSub) {
+  std::vector<float> a(kElements);
+  std::vector<float> out(kElements);
+  float scalar = 2.0f;
+
+  for (size_t i = 0; i < kElements; ++i) {
+    a[i] = static_cast<float>(i) * 2.0f;
+  }
+
+  cut::executeBinaryVecScalarKernel(cut::BinaryVecScalarSub, a.data(), scalar,
+                                    out.data(), 0, kElements);
+
+  for (size_t i = 0; i < kElements; ++i) {
+    EXPECT_FLOAT_EQ(a[i] - scalar, out[i]) << "Sub failed at index " << i;
+  }
+}
+
+TEST_F(CPUKernelVecScalarTest, BinaryVecScalarMul) {
+  std::vector<float> a(kElements);
+  std::vector<float> out(kElements);
+  float scalar = 2.5f;
+
+  for (size_t i = 0; i < kElements; ++i) {
+    a[i] = static_cast<float>(i) * 0.1f;
+  }
+
+  cut::executeBinaryVecScalarKernel(cut::BinaryVecScalarMul, a.data(), scalar,
+                                    out.data(), 0, kElements);
+
+  for (size_t i = 0; i < kElements; ++i) {
+    EXPECT_FLOAT_EQ(a[i] * scalar, out[i]) << "Mul failed at index " << i;
+  }
+}
+
+TEST_F(CPUKernelVecScalarTest, BinaryVecScalarDiv) {
+  std::vector<float> a(kElements);
+  std::vector<float> out(kElements);
+  float scalar = 4.0f;
+
+  for (size_t i = 0; i < kElements; ++i) {
+    a[i] = static_cast<float>(i + 1) * 10.0f;
+  }
+
+  cut::executeBinaryVecScalarKernel(cut::BinaryVecScalarDiv, a.data(), scalar,
+                                    out.data(), 0, kElements);
+
+  for (size_t i = 0; i < kElements; ++i) {
+    EXPECT_FLOAT_EQ(a[i] / scalar, out[i]) << "Div failed at index " << i;
+  }
+}
+
+TEST_F(CPUKernelVecScalarTest, BinaryVecScalarMin) {
+  std::vector<float> a(kElements);
+  std::vector<float> out(kElements);
+  float scalar = 100.0f;
+
+  for (size_t i = 0; i < kElements; ++i) {
+    a[i] = static_cast<float>(i) * 1.5f;
+  }
+
+  cut::executeBinaryVecScalarKernel(cut::BinaryVecScalarMin, a.data(), scalar,
+                                    out.data(), 0, kElements);
+
+  for (size_t i = 0; i < kElements; ++i) {
+    EXPECT_FLOAT_EQ(std::min(a[i], scalar), out[i])
+        << "Min failed at index " << i;
+  }
+}
+
+TEST_F(CPUKernelVecScalarTest, BinaryVecScalarMax) {
+  std::vector<float> a(kElements);
+  std::vector<float> out(kElements);
+  float scalar = 100.0f;
+
+  for (size_t i = 0; i < kElements; ++i) {
+    a[i] = static_cast<float>(i) * 1.5f;
+  }
+
+  cut::executeBinaryVecScalarKernel(cut::BinaryVecScalarMax, a.data(), scalar,
+                                    out.data(), 0, kElements);
+
+  for (size_t i = 0; i < kElements; ++i) {
+    EXPECT_FLOAT_EQ(std::max(a[i], scalar), out[i])
+        << "Max failed at index " << i;
+  }
+}
+
+TEST_F(CPUKernelVecScalarTest, BinaryVecScalarLess) {
+  std::vector<float> a(kElements);
+  std::vector<float> out(kElements);
+  float scalar = 128.0f;
+
+  for (size_t i = 0; i < kElements; ++i) {
+    a[i] = static_cast<float>(i);
+  }
+
+  cut::executeBinaryVecScalarKernel(cut::BinaryVecScalarLess, a.data(), scalar,
+                                    out.data(), 0, kElements);
+
+  for (size_t i = 0; i < kElements; ++i) {
+    float expected = (a[i] < scalar) ? 1.0f : 0.0f;
+    EXPECT_FLOAT_EQ(expected, out[i]) << "Less failed at index " << i;
+  }
+}
+
+TEST_F(CPUKernelVecScalarTest, BinaryVecScalarEqual) {
+  std::vector<float> a(kElements);
+  std::vector<float> out(kElements);
+  float scalar = 5.0f;
+
+  for (size_t i = 0; i < kElements; ++i) {
+    a[i] = static_cast<float>(i % 10);
+  }
+
+  cut::executeBinaryVecScalarKernel(cut::BinaryVecScalarEqual, a.data(), scalar,
+                                    out.data(), 0, kElements);
+
+  for (size_t i = 0; i < kElements; ++i) {
+    float expected = (a[i] == scalar) ? 1.0f : 0.0f;
+    EXPECT_FLOAT_EQ(expected, out[i]) << "Equal failed at index " << i;
+  }
+}
+
+TEST_F(CPUKernelVecScalarTest, BinaryVecScalarPow) {
+  std::vector<float> a(kElements);
+  std::vector<float> out(kElements);
+  float scalar = 2.0f;
+
+  for (size_t i = 0; i < kElements; ++i) {
+    a[i] = static_cast<float>((i % 10) + 1) * 0.5f;
+  }
+
+  cut::executeBinaryVecScalarKernel(cut::BinaryVecScalarPow, a.data(), scalar,
+                                    out.data(), 0, kElements);
+
+  for (size_t i = 0; i < kElements; ++i) {
+    EXPECT_NEAR(std::pow(a[i], scalar), out[i], 1e-5f)
+        << "Pow failed at index " << i;
+  }
+}

@@ -37,6 +37,24 @@ void executeBinaryKernel(OperatorEnum op,
                          SIMDMode simdMode = SIMDMode::Auto);
 
 /**
+ * Execute a binary vec-scalar operation kernel on a range of elements.
+ * @param op The operator type for the binary operation.
+ * @param a Input buffer A (vector).
+ * @param scalar Scalar value to apply to each element.
+ * @param out Output buffer.
+ * @param start Start index (inclusive).
+ * @param end End index (exclusive).
+ * @param simdMode SIMD execution mode (default: Auto).
+ */
+void executeBinaryVecScalarKernel(OperatorEnum op,
+                                  const float *a,
+                                  float scalar,
+                                  float *out,
+                                  size_t start,
+                                  size_t end,
+                                  SIMDMode simdMode = SIMDMode::Auto);
+
+/**
  * Execute a unary operation kernel on a range of elements.
  * @param op The operator type for the unary operation.
  * @param in Input buffer.
@@ -60,10 +78,24 @@ void executeUnaryKernel(OperatorEnum op,
 SIMDMode getEffectiveSIMDMode(SIMDMode requested);
 
 /**
- * Check if an operator is a binary operation.
+ * Check if an operator is a binary vec-vec operation.
+ */
+inline bool isBinaryVecVecOperator(OperatorEnum op) {
+  return op >= BinaryVecVecAdd && op <= BinaryVecVecMax;
+}
+
+/**
+ * Check if an operator is a binary vec-scalar operation.
+ */
+inline bool isBinaryVecScalarOperator(OperatorEnum op) {
+  return op >= BinaryVecScalarAdd && op <= BinaryVecScalarMax;
+}
+
+/**
+ * Check if an operator is a binary operation (vec-vec or vec-scalar).
  */
 inline bool isBinaryOperator(OperatorEnum op) {
-  return op >= BinaryVecVecAdd && op <= BinaryVecVecMax;
+  return isBinaryVecVecOperator(op) || isBinaryVecScalarOperator(op);
 }
 
 /**

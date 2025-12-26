@@ -86,6 +86,45 @@ protected:
                                   false, false);
     cmdBuffer.reset();
   }
+
+  // Helper to run a binary vec-scalar shader operation
+  // Push constants layout: { uint numElements, float scalar }
+  void runBinaryVecScalarOp(cut::ShaderEnum shaderEnum,
+                            const std::vector<float> &dataA,
+                            float scalar,
+                            std::vector<float> &output) {
+    auto bufferA = interface->createBuffer({elements}, cut::DataType::Float32,
+                                           dataA.data());
+    auto bufferOut =
+        interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+
+    const auto shader = cut::getShader(shaderEnum);
+    auto shaderModule = interface->createShaderModule(shader);
+
+    const uint32_t threadGroups = (elements + 255) / 256;
+    cut::ThreadSize tgSize{threadGroups, 1, 1};
+
+    // Pack push constants: numElements (uint32) + scalar (float)
+    struct PushConstants {
+      uint32_t numElements;
+      float scalar;
+    } pushConstants{elements, scalar};
+
+    interface->encode(
+        {shaderModule,
+         tgSize,
+         {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferOut),
+          cut::ComputeBinding(
+              2, cut::DataReference(&pushConstants, sizeof(pushConstants)))}});
+
+    auto cmdBuffer = interface->submit();
+    interface->wait(cmdBuffer);
+
+    output.resize(elements);
+    interface->copyDataFromBuffer(bufferOut, output.data(), bufferSize, 0, 0,
+                                  false, false);
+    cmdBuffer.reset();
+  }
 };
 
 // ============================================================================
@@ -395,6 +434,303 @@ TEST_F(GeneratedShadersTest, BinaryVecVecMax) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     EXPECT_FLOAT_EQ(expected[i], output[i]) << "Max failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Scalar Arithmetic Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarAdd) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 3.5f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 1.5f;
+    expected[i] = dataA[i] + scalar;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarAdd, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Add failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarSub) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 2.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 2.0f;
+    expected[i] = dataA[i] - scalar;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarSub, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Sub failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarMul) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 2.5f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.1f;
+    expected[i] = dataA[i] * scalar;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarMul, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Mul failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarDiv) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 4.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i + 1) * 10.0f;
+    expected[i] = dataA[i] / scalar;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarDiv, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Div failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarMod) {
+  std::vector<float> dataA(elements);
+  float scalar = 3.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i * 7 + 3);
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarMod, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_GE(output[i], 0.0f)
+        << "VecScalar Mod result negative at index " << i;
+    EXPECT_LT(output[i], scalar + 1e-5f)
+        << "VecScalar Mod result >= scalar at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarPow) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 2.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>((i % 10) + 1) * 0.5f;
+    expected[i] = std::pow(dataA[i], scalar);
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarPow, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "VecScalar Pow failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarFloorDiv) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 3.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i * 7 + 5);
+    expected[i] = std::floor(dataA[i] / scalar);
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarFloorDiv, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1.0f)
+        << "VecScalar FloorDiv failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Scalar Comparison Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarEqual) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 5.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i % 10);
+    expected[i] = (dataA[i] == scalar) ? 1.0f : 0.0f;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarEqual, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Equal failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarNotEqual) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 5.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i % 10);
+    expected[i] = (dataA[i] != scalar) ? 1.0f : 0.0f;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarNotEqual, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar NotEqual failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarLess) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 128.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i);
+    expected[i] = (dataA[i] < scalar) ? 1.0f : 0.0f;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarLess, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Less failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarLessEqual) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 128.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i);
+    expected[i] = (dataA[i] <= scalar) ? 1.0f : 0.0f;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarLessEqual, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar LessEqual failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarGreater) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 128.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i);
+    expected[i] = (dataA[i] > scalar) ? 1.0f : 0.0f;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarGreater, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Greater failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarGreaterEqual) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 128.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i);
+    expected[i] = (dataA[i] >= scalar) ? 1.0f : 0.0f;
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarGreaterEqual, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar GreaterEqual failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Scalar Min/Max Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarMin) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 100.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 1.5f;
+    expected[i] = std::min(dataA[i], scalar);
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarMin, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Min failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarMax) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 100.0f;
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 1.5f;
+    expected[i] = std::max(dataA[i], scalar);
+  }
+
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarMax, dataA, scalar, output);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Max failed at index " << i;
   }
 }
 
