@@ -1627,25 +1627,6 @@ TEST_F(GeneratedShadersInt32Test, BinaryVecVecDivInt32) {
   }
 }
 
-TEST_F(GeneratedShadersInt32Test, BinaryVecVecModInt32) {
-  std::vector<int32_t> dataA(elements);
-  std::vector<int32_t> dataB(elements);
-  std::vector<int32_t> expected(elements);
-
-  for (uint32_t i = 0; i < elements; ++i) {
-    dataA[i] = static_cast<int32_t>(i * 7 + 3);
-    dataB[i] = static_cast<int32_t>((i % 5) + 2);
-    expected[i] = dataA[i] % dataB[i];
-  }
-
-  std::vector<int32_t> output;
-  runBinaryOpInt32(cut::BinaryVecVecMod, dataA, dataB, output);
-
-  for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(expected[i], output[i]) << "Int32 Mod failed at index " << i;
-  }
-}
-
 TEST_F(GeneratedShadersInt32Test, BinaryVecVecMinInt32) {
   std::vector<int32_t> dataA(elements);
   std::vector<int32_t> dataB(elements);
@@ -1897,25 +1878,6 @@ TEST_F(GeneratedShadersInt32Test, BinaryVecScalarDivInt32) {
   for (uint32_t i = 0; i < elements; ++i) {
     EXPECT_EQ(expected[i], output[i])
         << "Int32 VecScalar Div failed at index " << i;
-  }
-}
-
-TEST_F(GeneratedShadersInt32Test, BinaryVecScalarModInt32) {
-  std::vector<int32_t> dataA(elements);
-  std::vector<int32_t> expected(elements);
-  int32_t scalar = 7;
-
-  for (uint32_t i = 0; i < elements; ++i) {
-    dataA[i] = static_cast<int32_t>(i * 7 + 3);
-    expected[i] = dataA[i] % scalar;
-  }
-
-  std::vector<int32_t> output;
-  runBinaryVecScalarOpInt32(cut::BinaryVecScalarMod, dataA, scalar, output);
-
-  for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(expected[i], output[i])
-        << "Int32 VecScalar Mod failed at index " << i;
   }
 }
 

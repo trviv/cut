@@ -164,12 +164,13 @@ class Buffer:
 class Kernel:
     """CPU compute kernel wrapper."""
 
-    def __init__(self, kernel_type: _cut_cpu.OperatorEnum):
+    def __init__(self, kernel_type: _cut_cpu.OperatorEnum, dtype=None):
         """
         Create a kernel from an OperatorEnum.
 
         Args:
             kernel_type: The operator enum type
+            dtype: Optional dtype (ignored for CPU backend, for API compatibility)
         """
         _ensure_initialized()
         # Check cache first

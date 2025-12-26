@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """
-Benchmark comparing CUT GPU operations against NumPy CPU operations.
-Tests all operations in ShaderEnum with 100K elements.
+Benchmark comparing CUT operations against NumPy CPU operations.
+Tests all operations with 100K elements using the unified backend interface.
+
+Usage:
+    python benchmark.py                    # Auto-select best backend
+    python benchmark.py --backend vulkan   # Use Vulkan GPU
+    python benchmark.py --backend cpu      # Use CPU (scalar)
+    python benchmark.py --backend cpu_simd # Use CPU with SIMD
 """
 
 import numpy as np
 import time
+import argparse
 from typing import Callable, Tuple, Dict, List
-import cut
+
+import cut.backend as cut
 
 # Number of elements to test
 N = 100_000
@@ -32,6 +40,11 @@ def benchmark(func: Callable, *args, name: str = "") -> Tuple[float, np.ndarray]
         times.append(end - start)
 
     avg_time = np.mean(times) * 1000  # Convert to ms
+
+    # Extract numpy array from result if it's a Buffer
+    if hasattr(result, 'numpy'):
+        result = result.numpy()
+
     return avg_time, result
 
 
@@ -45,16 +58,23 @@ def verify_results(cut_result: np.ndarray, np_result: np.ndarray, op_name: str, 
         return False
 
 
-def run_benchmarks():
+def run_benchmarks(backend_name: str):
     """Run all benchmarks and display results."""
+    # Initialize the backend
+    initialized_backend = cut.init(backend_name)
+
     print("=" * 80)
     print(f"CUT vs NumPy Benchmark - {N:,} elements ({NUM_ITERATIONS} iterations)")
+    print(f"Backend: {initialized_backend.upper()}")
     print("=" * 80)
 
-    # Precompile and cache all shaders before benchmarking
-    print("\nPrecompiling shaders...")
-    cut.precompile_shaders()
-    print("Shader precompilation complete.\n")
+    # Precompile shaders if using Vulkan
+    if initialized_backend == "vulkan":
+        print("\nPrecompiling shaders...")
+        cut.precompile_shaders()
+        print("Shader precompilation complete.\n")
+    else:
+        print(f"\nUsing {cut.num_threads()} threads, SIMD mode: {cut.simd_mode()}\n")
 
     # Generate test data
     np.random.seed(42)
@@ -233,6 +253,7 @@ def run_benchmarks():
     avg_speedup = np.mean([r["speedup"] for r in results])
     median_speedup = np.median([r["speedup"] for r in results])
 
+    print(f"Backend: {initialized_backend}")
     print(f"Total operations tested: {total_ops}")
     print(f"Results matching: {valid_ops}/{total_ops}")
     print(f"CUT faster: {cut_faster}, NumPy faster: {np_faster}")
@@ -249,5 +270,30 @@ def run_benchmarks():
     return results
 
 
+def main():
+    parser = argparse.ArgumentParser(
+        description="CUT Benchmark - Compare CUT operations against NumPy"
+    )
+    parser.add_argument(
+        '--backend', '-b',
+        choices=['auto', 'vulkan', 'cpu', 'cpu_simd'],
+        default='auto',
+        help='Backend to use (default: auto)'
+    )
+    parser.add_argument(
+        '--list-backends',
+        action='store_true',
+        help='List available backends and exit'
+    )
+
+    args = parser.parse_args()
+
+    if args.list_backends:
+        print("Available backends:", cut.available_backends())
+        return
+
+    run_benchmarks(args.backend)
+
+
 if __name__ == "__main__":
-    results = run_benchmarks()
+    main()

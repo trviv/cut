@@ -8,6 +8,8 @@ This script benchmarks element-wise operations across multiple backends:
 - CuPy (NVIDIA CUDA)
 - JAX (CPU/GPU/TPU)
 - NumPy (reference)
+
+Uses the unified cut.backend interface for CUT backends.
 """
 
 import numpy as np
@@ -31,31 +33,30 @@ class BackendRegistry:
     """Registry of available compute backends."""
 
     def __init__(self):
-        self.vulkan = None
-        self.cpu = None
+        self.cut_backend = None  # Unified backend module
         self.cupy = None
         self.jax = None
         self.jnp = None
+        self._vulkan_available = False
+        self._cpu_available = False
         self._load_backends()
 
     def _load_backends(self):
         """Load all available backends."""
-        # Vulkan backend
+        # CUT unified backend
         try:
-            import cut as cut_module
-            if cut_module.is_vulkan_available():
-                self.vulkan = cut_module
-            else:
-                print("Note: Vulkan backend not available (symbol loading failed)")
-        except ImportError as e:
-            print(f"Warning: cut module not available: {e}")
+            import cut.backend as cut_backend_module
+            self.cut_backend = cut_backend_module
+            available = cut_backend_module.available_backends()
+            self._vulkan_available = "vulkan" in available
+            self._cpu_available = "cpu" in available
 
-        # CPU backend
-        try:
-            from cut import cpu as cut_cpu_module
-            self.cpu = cut_cpu_module
+            if not self._vulkan_available:
+                print("Note: Vulkan backend not available")
+            if not self._cpu_available:
+                print("Note: CPU backend not available")
         except ImportError as e:
-            print(f"Warning: CPU backend not available: {e}")
+            print(f"Warning: cut.backend module not available: {e}")
 
         # CuPy backend
         try:
@@ -79,18 +80,18 @@ class BackendRegistry:
             print(f"Note: JAX initialization failed: {e}")
 
         # Require at least one CUT backend
-        if not self.vulkan and not self.cpu:
+        if not self._vulkan_available and not self._cpu_available:
             print("Error: No CUT backends available. Please build and install first.")
             print("  cd python && pip install -e .")
             sys.exit(1)
 
     @property
     def vulkan_available(self) -> bool:
-        return self.vulkan is not None
+        return self._vulkan_available
 
     @property
     def cpu_available(self) -> bool:
-        return self.cpu is not None
+        return self._cpu_available
 
     @property
     def cupy_available(self) -> bool:
@@ -281,34 +282,62 @@ class BackendRunner(ABC):
         pass
 
 
-class VulkanRunner(BackendRunner):
-    """Runs benchmarks on Vulkan GPU backend."""
+class CUTRunner(BackendRunner):
+    """Runs benchmarks on CUT backend using unified interface."""
 
-    def __init__(self, test_data: 'TestData'):
+    def __init__(self, test_data: 'TestData', backend_name: str):
+        """
+        Initialize CUT runner.
+
+        Args:
+            test_data: Test data arrays
+            backend_name: One of 'vulkan', 'cpu', or 'cpu_simd'
+        """
         self.data = test_data
+        self.backend_name = backend_name
         self._buffers = {}
-        if backends.vulkan_available:
-            self._create_buffers()
 
-    def _create_buffers(self):
-        """Create Vulkan buffers for test data."""
-        cut = backends.vulkan
-        self._buffers = {
-            'a': cut.Buffer(self.data.a),
-            'b': cut.Buffer(self.data.b),
-            'a_pos': cut.Buffer(self.data.a_pos),
-            'b_pos': cut.Buffer(self.data.b_pos),
-            'a_unit': cut.Buffer(self.data.a_unit),
-            'b_small': cut.Buffer(self.data.b_small),
-            'a_div10': cut.Buffer(self.data.a_div10),
-            'a_tan_safe': cut.Buffer(self.data.a_tan_safe),
-        }
+        # Check if backend is available
+        if backend_name == 'vulkan' and backends.vulkan_available:
+            self._available = True
+        elif backend_name in ('cpu', 'cpu_simd') and backends.cpu_available:
+            self._available = True
+        else:
+            self._available = False
+
+    def _ensure_backend_active(self):
+        """Ensure this runner's backend is active and buffers are ready."""
+        if not self._available:
+            return False
+
+        cut = backends.cut_backend
+
+        # Check if we need to switch backends
+        if cut.current_backend() != self.backend_name:
+            cut.init(self.backend_name)
+            self._buffers = {}  # Clear old buffers
+
+        # Create buffers if needed
+        if not self._buffers:
+            self._buffers = {
+                'a': cut.Buffer(self.data.a),
+                'b': cut.Buffer(self.data.b),
+                'a_pos': cut.Buffer(self.data.a_pos),
+                'b_pos': cut.Buffer(self.data.b_pos),
+                'a_unit': cut.Buffer(self.data.a_unit),
+                'b_small': cut.Buffer(self.data.b_small),
+                'a_div10': cut.Buffer(self.data.a_div10),
+                'a_tan_safe': cut.Buffer(self.data.a_tan_safe),
+            }
+
+        return True
 
     def is_available(self) -> bool:
-        return backends.vulkan_available
+        return self._available
 
     def _get_args(self, np_args: tuple) -> tuple:
-        """Map numpy arrays to Vulkan buffers, pass scalars through."""
+        """Map numpy arrays to CUT buffers, pass scalars through."""
+        cut = backends.cut_backend
         mapping = {
             id(self.data.a): self._buffers['a'],
             id(self.data.b): self._buffers['b'],
@@ -322,7 +351,7 @@ class VulkanRunner(BackendRunner):
         result = []
         for arg in np_args:
             if isinstance(arg, np.ndarray):
-                result.append(mapping.get(id(arg), backends.vulkan.Buffer(arg)))
+                result.append(mapping.get(id(arg), cut.Buffer(arg)))
             else:
                 # Pass scalar values directly
                 result.append(float(arg))
@@ -334,21 +363,26 @@ class VulkanRunner(BackendRunner):
             return BackendResult()
 
         try:
-            vk_func = getattr(backends.vulkan, op_name, None)
-            if vk_func is None:
+            if not self._ensure_backend_active():
                 return BackendResult()
 
-            vk_args = self._get_args(np_args)
+            cut = backends.cut_backend
+
+            cut_func = getattr(cut, op_name, None)
+            if cut_func is None:
+                return BackendResult()
+
+            cut_args = self._get_args(np_args)
 
             # Warmup
             for _ in range(config.warmup_iterations):
-                vk_func(*vk_args)
+                cut_func(*cut_args)
 
             # Timed runs
             times = []
             for _ in range(config.num_iterations):
                 start = time.perf_counter()
-                result_buf = vk_func(*vk_args)
+                result_buf = cut_func(*cut_args)
                 end = time.perf_counter()
                 times.append(end - start)
 
@@ -372,99 +406,18 @@ class VulkanRunner(BackendRunner):
             return False
 
 
-class CPURunner(BackendRunner):
-    """Runs benchmarks on CPU backend (scalar and SIMD modes)."""
+# Aliases for backward compatibility
+class VulkanRunner(CUTRunner):
+    """Runs benchmarks on Vulkan GPU backend."""
+    def __init__(self, test_data: 'TestData'):
+        super().__init__(test_data, 'vulkan')
 
+
+class CPURunner(CUTRunner):
+    """Runs benchmarks on CPU backend (scalar or SIMD mode)."""
     def __init__(self, test_data: 'TestData', simd: bool = False):
-        self.data = test_data
-        self.simd = simd
-        self._buffers = {}
-        if backends.cpu_available:
-            self._create_buffers()
-
-    def _create_buffers(self):
-        """Create CPU buffers for test data."""
-        cpu = backends.cpu
-        self._buffers = {
-            'a': cpu.Buffer(self.data.a),
-            'b': cpu.Buffer(self.data.b),
-            'a_pos': cpu.Buffer(self.data.a_pos),
-            'b_pos': cpu.Buffer(self.data.b_pos),
-            'a_unit': cpu.Buffer(self.data.a_unit),
-            'b_small': cpu.Buffer(self.data.b_small),
-            'a_div10': cpu.Buffer(self.data.a_div10),
-            'a_tan_safe': cpu.Buffer(self.data.a_tan_safe),
-        }
-
-    def is_available(self) -> bool:
-        return backends.cpu_available
-
-    def _get_args(self, np_args: tuple) -> tuple:
-        """Map numpy arrays to CPU buffers, pass scalars through."""
-        mapping = {
-            id(self.data.a): self._buffers['a'],
-            id(self.data.b): self._buffers['b'],
-            id(self.data.a_pos): self._buffers['a_pos'],
-            id(self.data.b_pos): self._buffers['b_pos'],
-            id(self.data.a_unit): self._buffers['a_unit'],
-            id(self.data.b_small): self._buffers['b_small'],
-            id(self.data.a_div10): self._buffers['a_div10'],
-            id(self.data.a_tan_safe): self._buffers['a_tan_safe'],
-        }
-        result = []
-        for arg in np_args:
-            if isinstance(arg, np.ndarray):
-                result.append(mapping.get(id(arg), backends.cpu.Buffer(arg)))
-            else:
-                # Pass scalar values directly
-                result.append(float(arg))
-        return tuple(result)
-
-    def run(self, op_name: str, np_func: Callable, np_args: tuple,
-            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
-        if not self.is_available():
-            return BackendResult()
-
-        try:
-            cpu_func = getattr(backends.cpu, op_name, None)
-            if cpu_func is None:
-                return BackendResult()
-
-            cpu_args = self._get_args(np_args)
-
-            # Set SIMD mode
-            mode = backends.cpu.SIMDMode.Auto if self.simd else backends.cpu.SIMDMode.Scalar
-            backends.cpu.set_simd_mode(mode)
-
-            # Warmup
-            for _ in range(config.warmup_iterations):
-                cpu_func(*cpu_args)
-
-            # Timed runs
-            times = []
-            for _ in range(config.num_iterations):
-                start = time.perf_counter()
-                result_buf = cpu_func(*cpu_args)
-                end = time.perf_counter()
-                times.append(end - start)
-
-            result = result_buf.numpy()
-            valid = self._verify(np_result, result)
-
-            return BackendResult(
-                time_ms=np.mean(times) * 1000,
-                std_ms=np.std(times) * 1000,
-                valid=valid
-            )
-        except Exception:
-            return BackendResult()
-
-    def _verify(self, reference: np.ndarray, result: np.ndarray) -> bool:
-        try:
-            np.testing.assert_allclose(result, reference, rtol=1e-4, atol=1e-5)
-            return True
-        except AssertionError:
-            return False
+        backend_name = 'cpu_simd' if simd else 'cpu'
+        super().__init__(test_data, backend_name)
 
 
 class CuPyRunner(BackendRunner):
@@ -791,7 +744,9 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
         print(f"\n{Colors.DIM}Backends:{Colors.RESET}")
         print(f"  - Vulkan:     {'Available' if backends.vulkan_available else 'Not available'}")
         if backends.cpu_available:
-            print(f"  - CPU:        Available ({backends.cpu.num_threads()} threads)")
+            # Initialize CPU to get thread count
+            backends.cut_backend.init("cpu")
+            print(f"  - CPU:        Available ({backends.cut_backend.num_threads()} threads)")
             print(f"  - CPU+SIMD:   Available (Auto-detected SIMD)")
         else:
             print(f"  - CPU:        Not available")
@@ -809,7 +764,9 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     if backends.vulkan_available:
         if verbose:
             print(f"\n{Colors.YELLOW}Precompiling Vulkan shaders...{Colors.RESET}", end=" ", flush=True)
-        backends.vulkan.precompile_shaders()
+        # Initialize vulkan backend and precompile
+        backends.cut_backend.init("vulkan")
+        backends.cut_backend.precompile_shaders()
         if verbose:
             print(f"{Colors.GREEN}Done{Colors.RESET}")
 
@@ -1066,7 +1023,7 @@ def export_json(results: List[BenchmarkResult], filepath: Path, config: Benchmar
         "backends": {
             "vulkan_available": backends.vulkan_available,
             "cpu_available": backends.cpu_available,
-            "cpu_threads": backends.cpu.num_threads() if backends.cpu_available else 0,
+            "cpu_threads": backends.cut_backend.num_threads() if backends.cpu_available else 0,
             "cupy_available": backends.cupy_available,
             "jax_available": backends.jax_available,
             "jax_backend": backends.jax.default_backend() if backends.jax_available else None,
