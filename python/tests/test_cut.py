@@ -12,10 +12,17 @@ class TestImport:
         """Test that the module can be imported."""
         assert cut.__version__ == "0.1.0"
 
-    def test_shader_enum(self):
-        """Test ShaderEnum is accessible."""
+    def test_operator_enum(self):
+        """Test OperatorEnum is accessible."""
+        assert hasattr(cut, "OperatorEnum")
+        assert hasattr(cut.OperatorEnum, "BinaryVecVecAdd")
+
+    def test_shader_enum_alias(self):
+        """Test ShaderEnum is an alias for OperatorEnum (backward compatibility)."""
         assert hasattr(cut, "ShaderEnum")
         assert hasattr(cut.ShaderEnum, "BinaryVecVecAdd")
+        # ShaderEnum should be the same as OperatorEnum
+        assert cut.ShaderEnum is cut.OperatorEnum
 
     def test_get_interface(self):
         """Test get_interface returns a valid interface."""

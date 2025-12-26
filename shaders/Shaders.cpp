@@ -3,7 +3,7 @@
 
 namespace cut {
 
-std::vector<uint32_t> getShader(const ShaderEnum shader,
+std::vector<uint32_t> getShader(const OperatorEnum shader,
                                 const ScalarDataType datatype) {
   // First try to get a runtime-generated shader
   auto generated = getGeneratedShader(shader, datatype);
@@ -21,7 +21,7 @@ std::vector<uint32_t> getShader(const ShaderEnum shader,
                            " does not exist.");
 }
 
-static bool isGeneratedShader(const ShaderEnum shader) {
+static bool isGeneratedShader(const OperatorEnum shader) {
   switch (shader) {
   case BinaryVecVecAdd:
   case BinaryVecVecSub:
@@ -67,7 +67,7 @@ static bool isGeneratedShader(const ShaderEnum shader) {
 }
 
 uint32_t getScaledDispatchSize(uint32_t dispatchSize,
-                               const ShaderEnum shader,
+                               const OperatorEnum shader,
                                const ScalarDataType datatype) {
   // Generated shaders use vec4 types, so they process 4 elements per invocation
   if (isGeneratedShader(shader)) {

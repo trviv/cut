@@ -9,11 +9,11 @@ namespace cut {
 /// Enable/disable caching for generated SPIR-V shaders
 constexpr bool kEnableShaderCache = false;
 
-/// Cache for generated SPIR-V shaders, keyed by (ShaderEnum, ScalarDataType)
+/// Cache for generated SPIR-V shaders, keyed by (OperatorEnum, ScalarDataType)
 static std::unordered_map<uint64_t, std::vector<uint32_t>> shaderCache;
 
-/// Creates a cache key from shader enum and datatype
-static uint64_t makeCacheKey(ShaderEnum shader, ScalarDataType datatype) {
+/// Creates a cache key from operator enum and datatype
+static uint64_t makeCacheKey(OperatorEnum shader, ScalarDataType datatype) {
   return (static_cast<uint64_t>(shader) << 32) |
          static_cast<uint64_t>(datatype);
 }
@@ -218,7 +218,7 @@ static std::string generateUnaryShader(const char *expr,
 }
 
 std::optional<std::vector<uint32_t>>
-getGeneratedShader(const ShaderEnum shader, const ScalarDataType datatype) {
+getGeneratedShader(const OperatorEnum shader, const ScalarDataType datatype) {
   // Check cache first
   if constexpr (kEnableShaderCache) {
     uint64_t cacheKey = makeCacheKey(shader, datatype);

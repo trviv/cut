@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include <ComputeOps.h>
 #include <cstdint>
 #include <fstream>
 #include <optional>
@@ -10,64 +11,13 @@
 
 namespace cut {
 
-enum ScalarDataType {
-  Float,
-  Half,
-  UInt,
-  Int,
-};
-
-enum ShaderEnum {
-  // Binary arithmetic operations (vec-vec)
-  BinaryVecVecAdd,
-  BinaryVecVecSub,
-  BinaryVecVecMul,
-  BinaryVecVecDiv,
-  BinaryVecVecMod,
-  BinaryVecVecPow,
-  BinaryVecVecFloorDiv,
-
-  // Binary comparison operations (vec-vec)
-  BinaryVecVecEqual,
-  BinaryVecVecNotEqual,
-  BinaryVecVecLess,
-  BinaryVecVecLessEqual,
-  BinaryVecVecGreater,
-  BinaryVecVecGreaterEqual,
-
-  // Binary min/max operations (vec-vec)
-  BinaryVecVecMin,
-  BinaryVecVecMax,
-
-  // Unary operations
-  UnaryNeg,
-  UnaryAbs,
-  UnarySqrt,
-  UnaryExp,
-  UnaryLog,
-  UnaryLog2,
-  UnaryLog10,
-  UnarySin,
-  UnaryCos,
-  UnaryTan,
-  UnaryAsin,
-  UnaryAcos,
-  UnaryAtan,
-  UnarySinh,
-  UnaryCosh,
-  UnaryTanh,
-  UnaryFloor,
-  UnaryCeil,
-  UnaryRound,
-  UnarySign,
-  UnaryReciprocal,
-  UnarySquare,
-};
+// Backward compatibility alias
+using ShaderEnum = OperatorEnum;
 
 /*
  * Function returns spirv encoding for an in-build shader.
  */
-std::vector<uint32_t> getShader(const ShaderEnum shader,
+std::vector<uint32_t> getShader(const OperatorEnum shader,
                                 const ScalarDataType datatype = Float);
 
 /*
@@ -75,14 +25,15 @@ std::vector<uint32_t> getShader(const ShaderEnum shader,
  * Returns std::nullopt if the shader enum is not handled by ShadersGenerated.
  */
 std::optional<std::vector<uint32_t>>
-getGeneratedShader(const ShaderEnum shader,
+getGeneratedShader(const OperatorEnum shader,
                    const ScalarDataType datatype = Float);
 
 /*
  * Function returns spirv encoding for a pre-compiled shader.
  * Returns std::nullopt if the shader enum is not handled by CompiledShaders.
  */
-std::optional<std::vector<uint32_t>> getCompiledShader(const ShaderEnum shader);
+std::optional<std::vector<uint32_t>>
+getCompiledShader(const OperatorEnum shader);
 
 /*
  * Returns the scaled dispatch size for a shader.
@@ -90,7 +41,7 @@ std::optional<std::vector<uint32_t>> getCompiledShader(const ShaderEnum shader);
  * by 4 since each invocation processes 4 elements.
  */
 uint32_t getScaledDispatchSize(uint32_t dispatchSize,
-                               const ShaderEnum shader,
+                               const OperatorEnum shader,
                                const ScalarDataType datatype = Float);
 
 } // namespace cut

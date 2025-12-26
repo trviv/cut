@@ -71,12 +71,12 @@ TEST_F(VulkanTestEnvironment, Buffer) {
 }
 
 TEST_F(VulkanTestEnvironment, ShaderModule) {
-  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  const auto shader = getShader(cut::OperatorEnum::BinaryVecVecAdd);
   interface->createShaderModule(shader);
 }
 
 TEST_F(VulkanTestEnvironment, ShaderReflection) {
-  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  const auto shader = getShader(cut::OperatorEnum::BinaryVecVecAdd);
   auto reflection = cut::reflectSpirvBindings(shader);
 
   std::cout << "Push constant size: " << reflection.pushConstantSize << "\n";
@@ -176,7 +176,7 @@ TEST_F(VulkanTestEnvironment, VectorAddDispatch) {
   // Load vector add shader
   cut::ComputeHandle shaderModule;
   EXPECT_NO_THROW({
-    const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+    const auto shader = getShader(cut::OperatorEnum::BinaryVecVecAdd);
     shaderModule = interface->createShaderModule(shader);
   });
 
@@ -260,7 +260,7 @@ TEST_F(VulkanTestEnvironment, MultipleDispatches) {
 
   // Load vector add shader
   cut::ComputeHandle shaderModule;
-  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  const auto shader = getShader(cut::OperatorEnum::BinaryVecVecAdd);
   shaderModule = interface->createShaderModule(shader);
 
   // Record all 5 dispatches in a single command buffer
@@ -348,7 +348,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatches) {
                                          nullptr); // Output of C + F
 
   // Load vector add shader
-  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  const auto shader = getShader(cut::OperatorEnum::BinaryVecVecAdd);
   auto shaderModule = interface->createShaderModule(shader);
 
   // Pass the number of elements; the runtime will divide by tgSize and
@@ -472,7 +472,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesDiamondPattern) {
       interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
 
   // Load shader
-  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  const auto shader = getShader(cut::OperatorEnum::BinaryVecVecAdd);
   auto shaderModule = interface->createShaderModule(shader);
 
   // Pass the number of elements; the runtime will divide by tgSize and
@@ -576,7 +576,7 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesChain) {
   }
 
   // Load shader
-  const auto shader = getShader(cut::ShaderEnum::VECTOR_ADD);
+  const auto shader = getShader(cut::OperatorEnum::BinaryVecVecAdd);
   auto shaderModule = interface->createShaderModule(shader);
 
   // Pass the number of elements; the runtime will divide by tgSize and

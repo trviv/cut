@@ -26,7 +26,7 @@ void CPUCommandBuffer::submit() {
   for (const auto &dispatch : dispatchList) {
     const auto &shader =
         containers_.shaderContainer.getShader(dispatch.shader());
-    const CPUKernelType kernelType = shader.kernelType;
+    const OperatorEnum opType = shader.operatorType;
 
     // Get bindings - sort by index
     const auto &bindings = dispatch.bindings();
@@ -63,7 +63,7 @@ void CPUCommandBuffer::submit() {
     pendingTasks_.fetch_add(numChunks, std::memory_order_relaxed);
 
     // Submit chunks to thread pool
-    if (isBinaryKernel(kernelType)) {
+    if (isBinaryOperator(opType)) {
       // Binary operation: need 3 buffers (a, b, out)
       if (bufferPtrs.size() < 3) {
         pendingTasks_.fetch_sub(numChunks, std::memory_order_relaxed);
@@ -78,8 +78,8 @@ void CPUCommandBuffer::submit() {
         const size_t chunkEnd =
             std::min(chunkStart + chunkSize, static_cast<size_t>(numElements));
         threadPool_.submit(
-            [this, kernelType, a, b, out, chunkStart, chunkEnd, simdMode]() {
-              executeBinaryKernel(kernelType, a, b, out, chunkStart, chunkEnd,
+            [this, opType, a, b, out, chunkStart, chunkEnd, simdMode]() {
+              executeBinaryKernel(opType, a, b, out, chunkStart, chunkEnd,
                                   simdMode);
               if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -87,7 +87,7 @@ void CPUCommandBuffer::submit() {
               }
             });
       }
-    } else if (isUnaryKernel(kernelType)) {
+    } else if (isUnaryOperator(opType)) {
       // Unary operation: need 2 buffers (in, out)
       if (bufferPtrs.size() < 2) {
         pendingTasks_.fetch_sub(numChunks, std::memory_order_relaxed);
@@ -100,15 +100,14 @@ void CPUCommandBuffer::submit() {
            chunkStart += chunkSize) {
         const size_t chunkEnd =
             std::min(chunkStart + chunkSize, static_cast<size_t>(numElements));
-        threadPool_.submit(
-            [this, kernelType, in, out, chunkStart, chunkEnd, simdMode]() {
-              executeUnaryKernel(kernelType, in, out, chunkStart, chunkEnd,
-                                 simdMode);
-              if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-                std::lock_guard<std::mutex> lock(mutex_);
-                cv_.notify_all();
-              }
-            });
+        threadPool_.submit([this, opType, in, out, chunkStart, chunkEnd,
+                            simdMode]() {
+          executeUnaryKernel(opType, in, out, chunkStart, chunkEnd, simdMode);
+          if (pendingTasks_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            cv_.notify_all();
+          }
+        });
       }
     }
   }

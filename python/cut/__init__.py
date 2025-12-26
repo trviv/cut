@@ -29,7 +29,7 @@ except ImportError:
 _instance = None
 _interface = None
 
-# Shader cache: maps ShaderEnum -> ComputeHandle (VkShaderModule)
+# Shader cache: maps OperatorEnum -> ComputeHandle (VkShaderModule)
 _shader_cache: dict = {}
 
 # Track all live buffers using weak references
@@ -603,13 +603,16 @@ __all__ = [
     "reciprocal",
     "square",
     # Re-exports from core
-    "ShaderEnum",
+    "OperatorEnum",
+    "ShaderEnum",  # Backward compatibility alias
 ]
 
-# Re-export ShaderEnum if available
+# Re-export OperatorEnum and ShaderEnum (alias) if available
 if _VULKAN_AVAILABLE:
-    ShaderEnum = _cut_core.ShaderEnum
+    OperatorEnum = _cut_core.OperatorEnum
+    ShaderEnum = _cut_core.ShaderEnum  # Backward compatibility alias
 else:
+    OperatorEnum = None
     ShaderEnum = None
 
 # Expose availability flag for benchmarks

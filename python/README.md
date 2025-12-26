@@ -48,8 +48,8 @@ buf_a = cut.Buffer(a)
 buf_b = cut.Buffer(b)
 buf_out = cut.Buffer(size=a.nbytes)
 
-# Load shader
-shader = cut.Shader(cut.ShaderEnum.BinaryVecVecAdd)
+# Load shader (OperatorEnum or ShaderEnum alias)
+shader = cut.Shader(cut.OperatorEnum.BinaryVecVecAdd)
 
 # Create and configure dispatch
 num_elements = a.size
@@ -91,7 +91,7 @@ shader = cut.Shader(spirv)
   - `size`: Buffer size in bytes (if data not provided)
   - `is_uniform`: Create uniform buffer instead of storage buffer
 - `cut.Shader(spirv)` - Compute shader module
-  - `spirv`: SPIR-V bytecode or `ShaderEnum` for built-in shaders
+  - `spirv`: SPIR-V bytecode or `OperatorEnum` for built-in shaders
 - `cut.Dispatch(shader, thread_groups)` - Dispatch configuration
   - `bind(resource, binding)`: Bind buffer or push constant data
 
@@ -104,9 +104,11 @@ shader = cut.Shader(spirv)
 - `cut.divide(a, b)` - Element-wise division
 - `cut.get_interface()` - Get the global VulkanCompute interface
 
-### Built-in Shaders
+### Built-in Operators
 
-- `cut.ShaderEnum.BinaryVecVecAdd` - Vector addition shader
-- `cut.ShaderEnum.BinaryVecVecSub` - Vector subtraction shader
-- `cut.ShaderEnum.BinaryVecVecMul` - Vector multiplication shader
-- `cut.ShaderEnum.BinaryVecVecDiv` - Vector division shader
+- `cut.OperatorEnum.BinaryVecVecAdd` - Vector addition
+- `cut.OperatorEnum.BinaryVecVecSub` - Vector subtraction
+- `cut.OperatorEnum.BinaryVecVecMul` - Vector multiplication
+- `cut.OperatorEnum.BinaryVecVecDiv` - Vector division
+
+Note: `cut.ShaderEnum` is available as a backward-compatible alias for `cut.OperatorEnum`.

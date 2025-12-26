@@ -180,7 +180,7 @@ void unaryLoop(
 
 } // namespace
 
-void executeBinaryKernel(CPUKernelType kernelType,
+void executeBinaryKernel(OperatorEnum op,
                          const float *a,
                          const float *b,
                          float *out,
@@ -195,8 +195,8 @@ void executeBinaryKernel(CPUKernelType kernelType,
   // Get effective SIMD mode based on what's compiled in
   SIMDMode effectiveMode = getEffectiveSIMDMode(simdMode);
 
-  switch (kernelType) {
-  case CPUKernelType::BinaryVecVecAdd:
+  switch (op) {
+  case BinaryVecVecAdd:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxAdd(aStart, bStart, outStart, count);
@@ -211,7 +211,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opAdd);
     break;
-  case CPUKernelType::BinaryVecVecSub:
+  case BinaryVecVecSub:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxSub(aStart, bStart, outStart, count);
@@ -226,7 +226,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opSub);
     break;
-  case CPUKernelType::BinaryVecVecMul:
+  case BinaryVecVecMul:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxMul(aStart, bStart, outStart, count);
@@ -241,7 +241,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opMul);
     break;
-  case CPUKernelType::BinaryVecVecDiv:
+  case BinaryVecVecDiv:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxDiv(aStart, bStart, outStart, count);
@@ -256,19 +256,19 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opDiv);
     break;
-  case CPUKernelType::BinaryVecVecMod:
+  case BinaryVecVecMod:
     // Modulo doesn't have a direct SIMD instruction, use scalar
     binaryLoop(a, b, out, start, end, opMod);
     break;
-  case CPUKernelType::BinaryVecVecPow:
+  case BinaryVecVecPow:
     // Power doesn't have a direct SIMD instruction, use scalar
     binaryLoop(a, b, out, start, end, opPow);
     break;
-  case CPUKernelType::BinaryVecVecFloorDiv:
+  case BinaryVecVecFloorDiv:
     // FloorDiv doesn't have a direct SIMD instruction, use scalar
     binaryLoop(a, b, out, start, end, opFloorDiv);
     break;
-  case CPUKernelType::BinaryVecVecEqual:
+  case BinaryVecVecEqual:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxEqual(aStart, bStart, outStart, count);
@@ -283,7 +283,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opEqual);
     break;
-  case CPUKernelType::BinaryVecVecNotEqual:
+  case BinaryVecVecNotEqual:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxNotEqual(aStart, bStart, outStart, count);
@@ -298,7 +298,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opNotEqual);
     break;
-  case CPUKernelType::BinaryVecVecLess:
+  case BinaryVecVecLess:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxLess(aStart, bStart, outStart, count);
@@ -313,7 +313,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opLess);
     break;
-  case CPUKernelType::BinaryVecVecLessEqual:
+  case BinaryVecVecLessEqual:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxLessEqual(aStart, bStart, outStart, count);
@@ -328,7 +328,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opLessEqual);
     break;
-  case CPUKernelType::BinaryVecVecGreater:
+  case BinaryVecVecGreater:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxGreater(aStart, bStart, outStart, count);
@@ -343,7 +343,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opGreater);
     break;
-  case CPUKernelType::BinaryVecVecGreaterEqual:
+  case BinaryVecVecGreaterEqual:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxGreaterEqual(aStart, bStart, outStart, count);
@@ -358,7 +358,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opGreaterEqual);
     break;
-  case CPUKernelType::BinaryVecVecMin:
+  case BinaryVecVecMin:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxMin(aStart, bStart, outStart, count);
@@ -373,7 +373,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
 #endif
     binaryLoop(a, b, out, start, end, opMin);
     break;
-  case CPUKernelType::BinaryVecVecMax:
+  case BinaryVecVecMax:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxMax(aStart, bStart, outStart, count);
@@ -393,7 +393,7 @@ void executeBinaryKernel(CPUKernelType kernelType,
   }
 }
 
-void executeUnaryKernel(CPUKernelType kernelType,
+void executeUnaryKernel(OperatorEnum op,
                         const float *in,
                         float *out,
                         size_t start,
@@ -406,8 +406,8 @@ void executeUnaryKernel(CPUKernelType kernelType,
   // Get effective SIMD mode based on what's compiled in
   SIMDMode effectiveMode = getEffectiveSIMDMode(simdMode);
 
-  switch (kernelType) {
-  case CPUKernelType::UnaryNeg:
+  switch (op) {
+  case UnaryNeg:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxNeg(inStart, outStart, count);
@@ -422,7 +422,7 @@ void executeUnaryKernel(CPUKernelType kernelType,
 #endif
     unaryLoop(in, out, start, end, opNeg);
     break;
-  case CPUKernelType::UnaryAbs:
+  case UnaryAbs:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxAbs(inStart, outStart, count);
@@ -437,7 +437,7 @@ void executeUnaryKernel(CPUKernelType kernelType,
 #endif
     unaryLoop(in, out, start, end, opAbs);
     break;
-  case CPUKernelType::UnarySqrt:
+  case UnarySqrt:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxSqrt(inStart, outStart, count);
@@ -452,59 +452,59 @@ void executeUnaryKernel(CPUKernelType kernelType,
 #endif
     unaryLoop(in, out, start, end, opSqrt);
     break;
-  case CPUKernelType::UnaryExp:
+  case UnaryExp:
     // Exp doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opExp);
     break;
-  case CPUKernelType::UnaryLog:
+  case UnaryLog:
     // Log doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opLog);
     break;
-  case CPUKernelType::UnaryLog2:
+  case UnaryLog2:
     // Log2 doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opLog2);
     break;
-  case CPUKernelType::UnaryLog10:
+  case UnaryLog10:
     // Log10 doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opLog10);
     break;
-  case CPUKernelType::UnarySin:
+  case UnarySin:
     // Sin doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opSin);
     break;
-  case CPUKernelType::UnaryCos:
+  case UnaryCos:
     // Cos doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opCos);
     break;
-  case CPUKernelType::UnaryTan:
+  case UnaryTan:
     // Tan doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opTan);
     break;
-  case CPUKernelType::UnaryAsin:
+  case UnaryAsin:
     // Asin doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opAsin);
     break;
-  case CPUKernelType::UnaryAcos:
+  case UnaryAcos:
     // Acos doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opAcos);
     break;
-  case CPUKernelType::UnaryAtan:
+  case UnaryAtan:
     // Atan doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opAtan);
     break;
-  case CPUKernelType::UnarySinh:
+  case UnarySinh:
     // Sinh doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opSinh);
     break;
-  case CPUKernelType::UnaryCosh:
+  case UnaryCosh:
     // Cosh doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opCosh);
     break;
-  case CPUKernelType::UnaryTanh:
+  case UnaryTanh:
     // Tanh doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opTanh);
     break;
-  case CPUKernelType::UnaryFloor:
+  case UnaryFloor:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxFloor(inStart, outStart, count);
@@ -519,7 +519,7 @@ void executeUnaryKernel(CPUKernelType kernelType,
 #endif
     unaryLoop(in, out, start, end, opFloor);
     break;
-  case CPUKernelType::UnaryCeil:
+  case UnaryCeil:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxCeil(inStart, outStart, count);
@@ -534,7 +534,7 @@ void executeUnaryKernel(CPUKernelType kernelType,
 #endif
     unaryLoop(in, out, start, end, opCeil);
     break;
-  case CPUKernelType::UnaryRound:
+  case UnaryRound:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxRound(inStart, outStart, count);
@@ -549,11 +549,11 @@ void executeUnaryKernel(CPUKernelType kernelType,
 #endif
     unaryLoop(in, out, start, end, opRound);
     break;
-  case CPUKernelType::UnarySign:
+  case UnarySign:
     // Sign doesn't have a direct SIMD instruction, use scalar
     unaryLoop(in, out, start, end, opSign);
     break;
-  case CPUKernelType::UnaryReciprocal:
+  case UnaryReciprocal:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxReciprocal(inStart, outStart, count);
@@ -568,7 +568,7 @@ void executeUnaryKernel(CPUKernelType kernelType,
 #endif
     unaryLoop(in, out, start, end, opReciprocal);
     break;
-  case CPUKernelType::UnarySquare:
+  case UnarySquare:
 #if CUT_SIMD_AVX
     if (effectiveMode == SIMDMode::AVX) {
       simd::avxSquare(inStart, outStart, count);

@@ -93,16 +93,16 @@ void CPUCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
 ComputeHandle
 CPUCompute::createShaderModule(const std::vector<uint32_t> & /*spirvCode*/) {
   // For CPU backend, we don't parse SPIR-V.
-  // The kernel type must be set via createKernel().
+  // The operator type must be set via createKernel().
   // Create a default shader that will need to be configured.
   CPUShaderStruct shaderStruct;
-  shaderStruct.kernelType = CPUKernelType::BinaryVecVecAdd;
+  shaderStruct.operatorType = BinaryVecVecAdd;
   return containers_->shaderContainer.create(std::move(shaderStruct));
 }
 
-ComputeHandle CPUCompute::createKernel(CPUKernelType kernelType) {
+ComputeHandle CPUCompute::createKernel(OperatorEnum operatorType) {
   CPUShaderStruct shaderStruct;
-  shaderStruct.kernelType = kernelType;
+  shaderStruct.operatorType = operatorType;
   return containers_->shaderContainer.create(std::move(shaderStruct));
 }
 

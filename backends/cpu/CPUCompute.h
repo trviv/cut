@@ -27,12 +27,12 @@ struct CPUBufferStruct {
 
 /**
  * CPU shader/kernel data structure.
- * Maps a kernel type to execute instead of SPIR-V.
+ * Maps an operator type to execute instead of SPIR-V.
  */
 struct CPUShaderStruct {
   static constexpr std::string_view Name = "CPUShader";
 
-  CPUKernelType kernelType;
+  OperatorEnum operatorType;
 };
 
 /**
@@ -97,11 +97,11 @@ public:
   createShaderModule(const std::vector<uint32_t> &spirvCode) override;
 
   /**
-   * Creates a shader module from a kernel type directly.
-   * @param kernelType The CPU kernel type to use.
+   * Creates a shader module from an operator type directly.
+   * @param operatorType The operator type to use.
    * @return Handle to the created shader module.
    */
-  ComputeHandle createKernel(CPUKernelType kernelType);
+  ComputeHandle createKernel(OperatorEnum operatorType);
 
   /**
    * Returns the number of worker threads in the thread pool.
