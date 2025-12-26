@@ -418,27 +418,15 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
       srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
-    // For staging, we need special handling for full aligned copies
-    if (isFullCopy) {
-      const size_t alignedSize =
-          calculateAlignedSize(buffer.shape, buffer.dtype);
-      VulkanBufferStruct stagingBuffer = createStagingBuffer(alignedSize);
+    const size_t copySize =
+        isFullCopy ? calculateAlignedSize(buffer.shape, buffer.dtype) : size;
+    VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
-      // Copy with alignment handling (will do row-by-row if needed)
-      copyActualToAligned(srcPtr, stagingBuffer.mappedData, buffer.shape,
-                          buffer.dtype, 0, 0, size);
-
-      executeBufferCopy(stagingBuffer.buffer, buffer.buffer, alignedSize, 0, 0);
-      destroyStagingBuffer(stagingBuffer);
-    } else {
-      // Partial copy - direct memcpy to staging
-      VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
-      copyActualToAligned(srcPtr, stagingBuffer.mappedData, buffer.shape,
-                          buffer.dtype, srcOffset, 0, size);
-      executeBufferCopy(stagingBuffer.buffer, buffer.buffer, size, 0,
-                        dstOffset);
-      destroyStagingBuffer(stagingBuffer);
-    }
+    copyActualToAligned(srcPtr, stagingBuffer.mappedData, buffer.shape,
+                        buffer.dtype, isFullCopy ? 0 : srcOffset, 0, size);
+    executeBufferCopy(stagingBuffer.buffer, buffer.buffer, copySize, 0,
+                      isFullCopy ? 0 : dstOffset);
+    destroyStagingBuffer(stagingBuffer);
   } else {
     // Host-visible buffer - use unified copy function
     copyActualToAligned(srcPtr, buffer.mappedData, buffer.shape, buffer.dtype,
@@ -482,28 +470,15 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
       srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
-    // For staging, we need special handling for full aligned copies
-    if (isFullCopy) {
-      const size_t alignedSize =
-          calculateAlignedSize(buffer.shape, buffer.dtype);
-      VulkanBufferStruct stagingBuffer = createStagingBuffer(alignedSize);
+    const size_t copySize =
+        isFullCopy ? calculateAlignedSize(buffer.shape, buffer.dtype) : size;
+    VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
-      executeBufferCopy(buffer.buffer, stagingBuffer.buffer, alignedSize, 0, 0);
-
-      // Copy with alignment handling (will do row-by-row if needed)
-      copyAlignedToActual(stagingBuffer.mappedData, dstPtr, buffer.shape,
-                          buffer.dtype, 0, 0, size);
-
-      destroyStagingBuffer(stagingBuffer);
-    } else {
-      // Partial copy - direct memcpy from staging
-      VulkanBufferStruct stagingBuffer = createStagingBuffer(size);
-      executeBufferCopy(buffer.buffer, stagingBuffer.buffer, size, srcOffset,
-                        0);
-      copyAlignedToActual(stagingBuffer.mappedData, dstPtr, buffer.shape,
-                          buffer.dtype, 0, dstOffset, size);
-      destroyStagingBuffer(stagingBuffer);
-    }
+    executeBufferCopy(buffer.buffer, stagingBuffer.buffer, copySize,
+                      isFullCopy ? 0 : srcOffset, 0);
+    copyAlignedToActual(stagingBuffer.mappedData, dstPtr, buffer.shape,
+                        buffer.dtype, 0, isFullCopy ? 0 : dstOffset, size);
+    destroyStagingBuffer(stagingBuffer);
   } else {
     // Invalidate memory to make GPU writes visible to CPU
     if (!buffer.isCoherent) {
