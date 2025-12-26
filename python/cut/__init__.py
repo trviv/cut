@@ -31,7 +31,7 @@ except ImportError:
 _instance = None
 _interface = None
 
-# Shader cache: maps OperatorEnum -> ComputeHandle (VkShaderModule)
+# Shader cache: maps (OperatorEnum, ScalarDataType) -> ComputeHandle (VkShaderModule)
 _shader_cache: dict = {}
 
 # Track all live buffers using weak references
@@ -133,10 +133,11 @@ def precompile_shaders():
     ]
 
     for shader_enum in shader_enums:
-        if shader_enum not in _shader_cache:
+        cache_key = (shader_enum, _cut_core.ScalarDataType.Float)
+        if cache_key not in _shader_cache:
             spirv_code = _cut_core.get_shader(shader_enum, _cut_core.ScalarDataType.Float)
             handle = _interface.create_shader_module(spirv_code)
-            _shader_cache[shader_enum] = handle
+            _shader_cache[cache_key] = handle
 
 
 def get_interface() -> "_cut_core_type.VulkanCompute":
@@ -234,23 +235,37 @@ class Buffer:
 class Shader:
     """GPU compute shader wrapper."""
 
-    def __init__(self, spirv: Union[List[int], "_cut_core_type.ShaderEnum"]):
+    def __init__(self, spirv: Union[List[int], "_cut_core_type.ShaderEnum"],
+                 dtype: Optional[np.dtype] = None):
         """
         Create a shader module.
 
         Args:
             spirv: SPIR-V bytecode as list of uint32 or a ShaderEnum for built-in shaders
+            dtype: NumPy dtype to select the appropriate shader variant (default: float32)
         """
         _ensure_initialized()
         if isinstance(spirv, _cut_core.ShaderEnum):
-            # Check cache first
-            if spirv in _shader_cache:
-                self._handle = _shader_cache[spirv]
+            # Map numpy dtype to ScalarDataType
+            scalar_dtype = _cut_core.ScalarDataType.Float
+            if dtype is not None:
+                dtype = np.dtype(dtype)
+                if dtype == np.int32:
+                    scalar_dtype = _cut_core.ScalarDataType.Int
+                elif dtype == np.uint32:
+                    scalar_dtype = _cut_core.ScalarDataType.UInt
+                elif dtype == np.float16:
+                    scalar_dtype = _cut_core.ScalarDataType.Half
+
+            # Check cache first with (op_enum, scalar_dtype) key
+            cache_key = (spirv, scalar_dtype)
+            if cache_key in _shader_cache:
+                self._handle = _shader_cache[cache_key]
                 return
             # Compile and cache
-            spirv_code = _cut_core.get_shader(spirv, _cut_core.ScalarDataType.Float)
+            spirv_code = _cut_core.get_shader(spirv, scalar_dtype)
             self._handle = _interface.create_shader_module(spirv_code)
-            _shader_cache[spirv] = self._handle
+            _shader_cache[cache_key] = self._handle
         else:
             self._handle = _interface.create_shader_module(spirv)
 

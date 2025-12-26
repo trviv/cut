@@ -112,7 +112,7 @@ class TestShader:
     def test_create_from_spirv(self):
         """Test creating shader from SPIR-V bytecode."""
         from cut import _cut_core
-        spirv = _cut_core.get_shader(cut.ShaderEnum.BinaryVecVecAdd)
+        spirv = _cut_core.get_shader(cut.ShaderEnum.BinaryVecVecAdd, _cut_core.ScalarDataType.Float)
         shader = cut.Shader(spirv)
         assert shader.handle.valid()
 
@@ -229,3 +229,319 @@ class TestComputeHandle:
         buf = cut.Buffer(data)
         assert buf.handle  # Should be truthy
         assert buf.handle.valid()
+
+
+class TestBinaryVecOpsInt32:
+    """Test binary vector-vector operations with int32 datatype."""
+
+    def test_add_int32(self):
+        """Test add operation with int32."""
+        a_data = np.array([1, 2, 3, 4], dtype=np.int32)
+        b_data = np.array([5, 6, 7, 8], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.add(a, b)
+        expected = a_data + b_data
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_subtract_int32(self):
+        """Test subtract operation with int32."""
+        a_data = np.array([10, 20, 30, 40], dtype=np.int32)
+        b_data = np.array([1, 2, 3, 4], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.subtract(a, b)
+        expected = a_data - b_data
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_multiply_int32(self):
+        """Test multiply operation with int32."""
+        a_data = np.array([2, 3, 4, 5], dtype=np.int32)
+        b_data = np.array([3, 4, 5, 6], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.multiply(a, b)
+        expected = a_data * b_data
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_divide_int32(self):
+        """Test divide operation with int32."""
+        a_data = np.array([10, 20, 30, 40], dtype=np.int32)
+        b_data = np.array([2, 4, 5, 8], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.divide(a, b)
+        expected = (a_data // b_data).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    @pytest.mark.xfail(reason="Int32 mod shader not yet implemented")
+    def test_mod_int32(self):
+        """Test mod operation with int32."""
+        a_data = np.array([10, 21, 35, 47], dtype=np.int32)
+        b_data = np.array([3, 4, 6, 9], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.mod(a, b)
+        expected = a_data % b_data
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    @pytest.mark.xfail(reason="Int32 floor_divide shader not yet implemented")
+    def test_floor_divide_int32(self):
+        """Test floor_divide operation with int32."""
+        a_data = np.array([10, 21, 35, 47], dtype=np.int32)
+        b_data = np.array([3, 4, 6, 9], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.floor_divide(a, b)
+        expected = a_data // b_data
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_minimum_int32(self):
+        """Test minimum operation with int32."""
+        a_data = np.array([1, 5, 3, 8], dtype=np.int32)
+        b_data = np.array([2, 4, 6, 7], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.minimum(a, b)
+        expected = np.minimum(a_data, b_data)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_maximum_int32(self):
+        """Test maximum operation with int32."""
+        a_data = np.array([1, 5, 3, 8], dtype=np.int32)
+        b_data = np.array([2, 4, 6, 7], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.maximum(a, b)
+        expected = np.maximum(a_data, b_data)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_equal_int32(self):
+        """Test equal comparison with int32."""
+        a_data = np.array([1, 2, 3, 4], dtype=np.int32)
+        b_data = np.array([1, 3, 3, 5], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.equal(a, b)
+        expected = np.equal(a_data, b_data).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_not_equal_int32(self):
+        """Test not_equal comparison with int32."""
+        a_data = np.array([1, 2, 3, 4], dtype=np.int32)
+        b_data = np.array([1, 3, 3, 5], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.not_equal(a, b)
+        expected = np.not_equal(a_data, b_data).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_less_int32(self):
+        """Test less comparison with int32."""
+        a_data = np.array([1, 5, 3, 4], dtype=np.int32)
+        b_data = np.array([2, 4, 3, 5], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.less(a, b)
+        expected = np.less(a_data, b_data).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_less_equal_int32(self):
+        """Test less_equal comparison with int32."""
+        a_data = np.array([1, 5, 3, 4], dtype=np.int32)
+        b_data = np.array([2, 4, 3, 5], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.less_equal(a, b)
+        expected = np.less_equal(a_data, b_data).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_greater_int32(self):
+        """Test greater comparison with int32."""
+        a_data = np.array([1, 5, 3, 4], dtype=np.int32)
+        b_data = np.array([2, 4, 3, 5], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.greater(a, b)
+        expected = np.greater(a_data, b_data).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_greater_equal_int32(self):
+        """Test greater_equal comparison with int32."""
+        a_data = np.array([1, 5, 3, 4], dtype=np.int32)
+        b_data = np.array([2, 4, 3, 5], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.greater_equal(a, b)
+        expected = np.greater_equal(a_data, b_data).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_add_int32_negative(self):
+        """Test add operation with negative int32 values."""
+        a_data = np.array([-10, -5, 3, 8], dtype=np.int32)
+        b_data = np.array([5, -3, -7, 2], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.add(a, b)
+        expected = a_data + b_data
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_multiply_int32_large(self):
+        """Test multiply operation with larger int32 arrays."""
+        a_data = np.arange(100, dtype=np.int32)
+        b_data = np.arange(100, 200, dtype=np.int32)
+        a = cut.Buffer(a_data)
+        b = cut.Buffer(b_data)
+        result = cut.multiply(a, b)
+        expected = a_data * b_data
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+
+class TestBinaryScalarOpsInt32:
+    """Test binary vector-scalar operations with int32 datatype."""
+
+    def test_add_scalar_int32(self):
+        """Test add_scalar operation with int32."""
+        a_data = np.array([1, 2, 3, 4], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 10
+        result = cut.add_scalar(a, scalar)
+        expected = a_data + scalar
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_subtract_scalar_int32(self):
+        """Test subtract_scalar operation with int32."""
+        a_data = np.array([10, 20, 30, 40], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 5
+        result = cut.subtract_scalar(a, scalar)
+        expected = a_data - scalar
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_multiply_scalar_int32(self):
+        """Test multiply_scalar operation with int32."""
+        a_data = np.array([2, 3, 4, 5], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 3
+        result = cut.multiply_scalar(a, scalar)
+        expected = a_data * scalar
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_divide_scalar_int32(self):
+        """Test divide_scalar operation with int32."""
+        a_data = np.array([10, 20, 30, 40], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 5
+        result = cut.divide_scalar(a, scalar)
+        expected = (a_data // scalar).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    @pytest.mark.xfail(reason="Int32 mod_scalar shader not yet implemented")
+    def test_mod_scalar_int32(self):
+        """Test mod_scalar operation with int32."""
+        a_data = np.array([10, 21, 35, 47], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 7
+        result = cut.mod_scalar(a, scalar)
+        expected = a_data % scalar
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    @pytest.mark.xfail(reason="Int32 floor_divide_scalar shader not yet implemented")
+    def test_floor_divide_scalar_int32(self):
+        """Test floor_divide_scalar operation with int32."""
+        a_data = np.array([10, 21, 35, 47], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 7
+        result = cut.floor_divide_scalar(a, scalar)
+        expected = a_data // scalar
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_minimum_scalar_int32(self):
+        """Test minimum_scalar operation with int32."""
+        a_data = np.array([1, 5, 3, 8], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 4
+        result = cut.minimum_scalar(a, scalar)
+        expected = np.minimum(a_data, scalar)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_maximum_scalar_int32(self):
+        """Test maximum_scalar operation with int32."""
+        a_data = np.array([1, 5, 3, 8], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 4
+        result = cut.maximum_scalar(a, scalar)
+        expected = np.maximum(a_data, scalar)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_equal_scalar_int32(self):
+        """Test equal_scalar comparison with int32."""
+        a_data = np.array([1, 2, 3, 4], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 3
+        result = cut.equal_scalar(a, scalar)
+        expected = np.equal(a_data, scalar).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_not_equal_scalar_int32(self):
+        """Test not_equal_scalar comparison with int32."""
+        a_data = np.array([1, 2, 3, 4], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 3
+        result = cut.not_equal_scalar(a, scalar)
+        expected = np.not_equal(a_data, scalar).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_less_scalar_int32(self):
+        """Test less_scalar comparison with int32."""
+        a_data = np.array([1, 5, 3, 4], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 4
+        result = cut.less_scalar(a, scalar)
+        expected = np.less(a_data, scalar).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_less_equal_scalar_int32(self):
+        """Test less_equal_scalar comparison with int32."""
+        a_data = np.array([1, 5, 3, 4], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 4
+        result = cut.less_equal_scalar(a, scalar)
+        expected = np.less_equal(a_data, scalar).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_greater_scalar_int32(self):
+        """Test greater_scalar comparison with int32."""
+        a_data = np.array([1, 5, 3, 4], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 3
+        result = cut.greater_scalar(a, scalar)
+        expected = np.greater(a_data, scalar).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_greater_equal_scalar_int32(self):
+        """Test greater_equal_scalar comparison with int32."""
+        a_data = np.array([1, 5, 3, 4], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 3
+        result = cut.greater_equal_scalar(a, scalar)
+        expected = np.greater_equal(a_data, scalar).astype(np.int32)
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_add_scalar_int32_negative(self):
+        """Test add_scalar with negative scalar and int32."""
+        a_data = np.array([10, 20, 30, 40], dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = -15
+        result = cut.add_scalar(a, scalar)
+        expected = a_data + scalar
+        np.testing.assert_array_equal(result.numpy(), expected)
+
+    def test_multiply_scalar_int32_large(self):
+        """Test multiply_scalar with larger int32 arrays."""
+        a_data = np.arange(100, dtype=np.int32)
+        a = cut.Buffer(a_data)
+        scalar = 7
+        result = cut.multiply_scalar(a, scalar)
+        expected = a_data * scalar
+        np.testing.assert_array_equal(result.numpy(), expected)

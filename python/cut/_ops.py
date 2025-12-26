@@ -168,9 +168,11 @@ def create_binary_op(
         if out is None:
             out = buffer_class(size=a.size, dtype=a._dtype, shape=a._shape)
 
-        num_elements = a.size // 4  # float32 is 4 bytes
+        # Calculate num_elements based on dtype itemsize
+        itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
+        num_elements = a.size // itemsize
 
-        shader_or_kernel = shader_or_kernel_class(op_enum)
+        shader_or_kernel = shader_or_kernel_class(op_enum, dtype=a._dtype)
         dispatch = dispatch_class(shader_or_kernel, (num_elements, 1, 1))
         dispatch.bind(a, 0)
         dispatch.bind(b, 1)
@@ -209,9 +211,11 @@ def create_unary_op(
         if out is None:
             out = buffer_class(size=a.size, dtype=a._dtype, shape=a._shape)
 
-        num_elements = a.size // 4  # float32 is 4 bytes
+        # Calculate num_elements based on dtype itemsize
+        itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
+        num_elements = a.size // itemsize
 
-        shader_or_kernel = shader_or_kernel_class(op_enum)
+        shader_or_kernel = shader_or_kernel_class(op_enum, dtype=a._dtype)
         dispatch = dispatch_class(shader_or_kernel, (num_elements, 1, 1))
         dispatch.bind(a, 0)
         dispatch.bind(out, 1)
@@ -243,21 +247,29 @@ def create_binary_vec_scalar_op(
         run_func: The run function for this backend
         ensure_init: The initialization function for this backend
     """
-    def vec_scalar_op(a, scalar: float, out=None):
+    def vec_scalar_op(a, scalar, out=None):
         ensure_init()
 
         if out is None:
             out = buffer_class(size=a.size, dtype=a._dtype, shape=a._shape)
 
-        num_elements = a.size // 4  # float32 is 4 bytes
+        # Calculate num_elements based on dtype itemsize
+        itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
+        num_elements = a.size // itemsize
 
-        shader_or_kernel = shader_or_kernel_class(op_enum)
+        shader_or_kernel = shader_or_kernel_class(op_enum, dtype=a._dtype)
         dispatch = dispatch_class(shader_or_kernel, (num_elements, 1, 1))
         dispatch.bind(a, 0)
         dispatch.bind(out, 1)
-        # Pack push constants as numpy array: uint32 + float32
-        push_constants = np.array([num_elements, 0], dtype=np.uint32)
-        push_constants.view(np.float32)[1] = scalar
+        # Pack push constants as numpy array: uint32 + scalar (type matches buffer dtype)
+        dtype = a._dtype if a._dtype is not None else np.float32
+        if dtype == np.int32:
+            push_constants = np.array([num_elements, int(scalar)], dtype=np.int32)
+        elif dtype == np.uint32:
+            push_constants = np.array([num_elements, int(scalar)], dtype=np.uint32)
+        else:
+            push_constants = np.array([num_elements, 0], dtype=np.uint32)
+            push_constants.view(np.float32)[1] = float(scalar)
         dispatch.bind(push_constants, 2)
 
         run_func(dispatch)

@@ -445,3 +445,7 @@ TEST_F(CPUKernelVecScalarTest, BinaryVecScalarPow) {
         << "Pow failed at index " << i;
   }
 }
+
+// Note: Int32 kernel tests would go here once executeBinaryVecScalarKernelInt
+// is implemented in CPUKernels.h/cpp. Currently, the CPU backend only supports
+// float operations. See GeneratedShadersTests.cpp for Vulkan int32 tests.
