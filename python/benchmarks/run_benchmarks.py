@@ -12,17 +12,28 @@ This script benchmarks element-wise operations across multiple backends:
 Uses the unified cut.compute interface for CUT backends.
 """
 
-import numpy as np
-import time
+import sys
 import json
 import csv
 import argparse
-import sys
+import time
+import numpy as np
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Callable, Tuple, Dict, List, Optional, Any
-from dataclasses import dataclass, asdict, field
+from typing import Callable, Dict, List, Any
+from dataclasses import asdict
 from pathlib import Path
+
+from common import (
+    TestData,
+    BenchmarkConfig,
+    BackendResult,
+    BenchmarkResult,
+    Colors,
+    OutputFormatter,
+    cleanup,
+)
+from common.operations import get_operations
 
 
 # =============================================================================
@@ -33,7 +44,7 @@ class BackendRegistry:
     """Registry of available compute backends."""
 
     def __init__(self):
-        self.cut_compute = None  # Unified compute module
+        self.cut_compute = None
         self.cupy = None
         self.jax = None
         self.jnp = None
@@ -78,7 +89,7 @@ class BackendRegistry:
         except Exception as e:
             print(f"Note: JAX initialization failed: {e}")
 
-        # Check if any backend is available (not just CUT)
+        # Check if any backend is available
         any_available = (
             self._vulkan_available or
             self._cpu_available or
@@ -112,163 +123,6 @@ backends = BackendRegistry()
 
 
 # =============================================================================
-# Configuration and Results
-# =============================================================================
-
-@dataclass
-class BenchmarkConfig:
-    """Configuration for benchmark runs."""
-    num_elements: int = 1_000_000
-    num_iterations: int = 10
-    warmup_iterations: int = 3
-    seed: int = 42
-
-
-@dataclass
-class BackendResult:
-    """Result from a single backend benchmark."""
-    time_ms: float = float('nan')
-    std_ms: float = 0.0
-    valid: bool = False
-    speedup: float = float('nan')
-
-
-@dataclass
-class BenchmarkResult:
-    """Complete result for one operation across all backends."""
-    name: str
-    category: str
-    numpy: BackendResult
-    vulkan: BackendResult = field(default_factory=BackendResult)
-    cpu: BackendResult = field(default_factory=BackendResult)
-    cpu_simd: BackendResult = field(default_factory=BackendResult)
-    cupy: BackendResult = field(default_factory=BackendResult)
-    jax: BackendResult = field(default_factory=BackendResult)
-
-
-# =============================================================================
-# Terminal Output Formatting
-# =============================================================================
-
-class Colors:
-    """ANSI color codes for terminal output."""
-    HEADER = '\033[95m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    BOLD = '\033[1m'
-    DIM = '\033[2m'
-    RESET = '\033[0m'
-
-    @classmethod
-    def disable(cls):
-        """Disable all colors."""
-        for attr in ['HEADER', 'BLUE', 'CYAN', 'GREEN', 'YELLOW', 'RED', 'BOLD', 'DIM', 'RESET']:
-            setattr(cls, attr, '')
-
-
-class OutputFormatter:
-    """Handles all terminal output formatting."""
-
-    @staticmethod
-    def header(text: str, char: str = "=", width: int = 120):
-        """Print a centered header."""
-        print(f"\n{Colors.BOLD}{char * width}{Colors.RESET}")
-        print(f"{Colors.BOLD}{text.center(width)}{Colors.RESET}")
-        print(f"{Colors.BOLD}{char * width}{Colors.RESET}")
-
-    @staticmethod
-    def subheader(text: str):
-        """Print a category subheader."""
-        print(f"\n{Colors.CYAN}{Colors.BOLD}>>> {text}{Colors.RESET}")
-        print(f"{Colors.DIM}{'─' * 116}{Colors.RESET}")
-
-    @staticmethod
-    def format_time(ms: float, std: float = 0.0, available: bool = True) -> str:
-        """Format time with optional standard deviation."""
-        if not available or np.isnan(ms):
-            return "    N/A     "
-        if std > 0:
-            return f"{ms:8.3f} ± {std:5.3f}"
-        return f"{ms:8.3f}"
-
-    @staticmethod
-    def format_speedup(speedup: float, available: bool = True) -> str:
-        """Format speedup with color based on value."""
-        if not available or np.isnan(speedup):
-            return f"{Colors.DIM}  N/A {Colors.RESET}"
-        if speedup >= 2.0:
-            color = Colors.GREEN
-        elif speedup >= 1.0:
-            color = Colors.CYAN
-        elif speedup >= 0.5:
-            color = Colors.YELLOW
-        else:
-            color = Colors.RED
-        return f"{color}{speedup:6.2f}x{Colors.RESET}"
-
-    @staticmethod
-    def table_header():
-        """Print the results table header."""
-        cols = ['Operation', 'Vulkan (ms)', 'CPU (ms)', 'CPU+SIMD (ms)',
-                'CuPy (ms)', 'JAX (ms)', 'NumPy (ms)',
-                'Vulkan/NP', 'CPU/NP', 'SIMD/NP', 'CuPy/NP', 'JAX/NP', 'Status']
-        widths = [14, 16, 16, 16, 16, 16, 16, 10, 10, 10, 10, 10, 12]
-
-        header = " │ ".join(f"{c:<{w}}" for c, w in zip(cols, widths))
-        separator = "─┼─".join("─" * w for w in widths)
-        print(f"\n{header}")
-        print(separator)
-
-    @staticmethod
-    def result_row(result: BenchmarkResult):
-        """Print a single result row."""
-        fmt = OutputFormatter
-
-        # Format times
-        vk_time = fmt.format_time(result.vulkan.time_ms, result.vulkan.std_ms, backends.vulkan_available)
-        cpu_time = fmt.format_time(result.cpu.time_ms, result.cpu.std_ms, backends.cpu_available)
-        simd_time = fmt.format_time(result.cpu_simd.time_ms, result.cpu_simd.std_ms, backends.cpu_available)
-        cupy_time = fmt.format_time(result.cupy.time_ms, result.cupy.std_ms, backends.cupy_available)
-        jax_time = fmt.format_time(result.jax.time_ms, result.jax.std_ms, backends.jax_available)
-        np_time = fmt.format_time(result.numpy.time_ms, result.numpy.std_ms)
-
-        # Format speedups
-        vk_spd = fmt.format_speedup(result.vulkan.speedup, backends.vulkan_available)
-        cpu_spd = fmt.format_speedup(result.cpu.speedup, backends.cpu_available)
-        simd_spd = fmt.format_speedup(result.cpu_simd.speedup, backends.cpu_available)
-        cupy_spd = fmt.format_speedup(result.cupy.speedup, backends.cupy_available)
-        jax_spd = fmt.format_speedup(result.jax.speedup, backends.jax_available)
-
-        # Build status string
-        status_parts = []
-        if backends.vulkan_available:
-            status_parts.append('V:OK' if result.vulkan.valid else 'V:FAIL')
-        if backends.cpu_available:
-            status_parts.append('C:OK' if result.cpu.valid else 'C:FAIL')
-            status_parts.append('S:OK' if result.cpu_simd.valid else 'S:FAIL')
-        if backends.cupy_available:
-            status_parts.append('G:OK' if result.cupy.valid else 'G:FAIL')
-        if backends.jax_available:
-            status_parts.append('J:OK' if result.jax.valid else 'J:FAIL')
-
-        all_valid = all([
-            not backends.vulkan_available or result.vulkan.valid,
-            not backends.cpu_available or (result.cpu.valid and result.cpu_simd.valid),
-            not backends.cupy_available or result.cupy.valid,
-            not backends.jax_available or result.jax.valid,
-        ])
-        status_color = Colors.GREEN if all_valid else Colors.RED
-        status = f"{status_color}{' '.join(status_parts)}{Colors.RESET}"
-
-        print(f"{result.name:<14} │ {vk_time:<16} │ {cpu_time:<16} │ {simd_time:<16} │ "
-              f"{cupy_time:<16} │ {jax_time:<16} │ {np_time:<16} │ "
-              f"{vk_spd:<19} │ {cpu_spd:<19} │ {simd_spd:<19} │ {cupy_spd:<19} │ {jax_spd:<19} │ {status}")
-
-
-# =============================================================================
 # Backend Runners
 # =============================================================================
 
@@ -286,26 +140,26 @@ class BackendRunner(ABC):
         """Run benchmark for a single operation."""
         pass
 
+    def _verify(self, reference: np.ndarray, result: np.ndarray,
+                rtol: float = 1e-4, atol: float = 1e-5) -> bool:
+        """Verify results match within tolerance."""
+        try:
+            np.testing.assert_allclose(result, reference, rtol=rtol, atol=atol)
+            return True
+        except AssertionError:
+            return False
+
 
 class CUTRunner(BackendRunner):
     """Runs benchmarks on CUT backend using unified compute interface."""
 
-    def __init__(self, test_data: 'TestData', backend_enum, simd_mode=None):
-        """
-        Initialize CUT runner.
-
-        Args:
-            test_data: Test data arrays
-            backend_enum: Backend enum (cc.Backend.Vulkan or cc.Backend.CPU)
-            simd_mode: SIMD mode for CPU backend (None for Vulkan)
-        """
+    def __init__(self, test_data: TestData, backend_enum, simd_mode=None):
         self.data = test_data
         self.backend_enum = backend_enum
         self.simd_mode = simd_mode
         self._buffers = {}
         self._current_backend = None
 
-        # Check availability
         cc = backends.cut_compute
         if cc is None:
             self._available = False
@@ -321,20 +175,15 @@ class CUTRunner(BackendRunner):
 
         cc = backends.cut_compute
 
-        # Check if we need to switch backends
         needs_switch = (
             cc.current_backend() != self.backend_enum or
             self._current_backend != self.backend_enum
         )
 
         if needs_switch:
-            # Clear old buffers first before switching backends
             self._buffers = {}
-            import gc
-            gc.collect()
-            gc.collect()
+            cleanup()
 
-            # Initialize the new backend with force=True to reinitialize
             if self.backend_enum == cc.Backend.Vulkan:
                 cc.init(cc.Backend.Vulkan, force=True)
             else:
@@ -343,7 +192,6 @@ class CUTRunner(BackendRunner):
 
             self._current_backend = self.backend_enum
 
-        # Create buffers if needed
         if not self._buffers:
             self._buffers = {
                 'a': cc.Buffer(self.data.a),
@@ -379,7 +227,6 @@ class CUTRunner(BackendRunner):
             if isinstance(arg, np.ndarray):
                 result.append(mapping.get(id(arg), cc.Buffer(arg)))
             else:
-                # Pass scalar values directly
                 result.append(float(arg))
         return tuple(result)
 
@@ -393,7 +240,6 @@ class CUTRunner(BackendRunner):
                 return BackendResult()
 
             cc = backends.cut_compute
-
             cut_func = getattr(cc, op_name, None)
             if cut_func is None:
                 return BackendResult()
@@ -420,21 +266,13 @@ class CUTRunner(BackendRunner):
                 std_ms=np.std(times) * 1000,
                 valid=valid
             )
-        except Exception as e:
+        except Exception:
             return BackendResult()
-
-    def _verify(self, reference: np.ndarray, result: np.ndarray) -> bool:
-        """Verify results match within tolerance."""
-        try:
-            np.testing.assert_allclose(result, reference, rtol=1e-4, atol=1e-5)
-            return True
-        except AssertionError:
-            return False
 
 
 class VulkanRunner(CUTRunner):
     """Runs benchmarks on Vulkan GPU backend."""
-    def __init__(self, test_data: 'TestData'):
+    def __init__(self, test_data: TestData):
         cc = backends.cut_compute
         if cc is not None:
             super().__init__(test_data, cc.Backend.Vulkan)
@@ -444,7 +282,7 @@ class VulkanRunner(CUTRunner):
 
 class CPURunner(CUTRunner):
     """Runs benchmarks on CPU backend (scalar or SIMD mode)."""
-    def __init__(self, test_data: 'TestData', simd: bool = False):
+    def __init__(self, test_data: TestData, simd: bool = False):
         cc = backends.cut_compute
         if cc is not None:
             simd_mode = cc.SIMDMode.Auto if simd else cc.SIMDMode.Scalar
@@ -456,14 +294,13 @@ class CPURunner(CUTRunner):
 class CuPyRunner(BackendRunner):
     """Runs benchmarks on CuPy (CUDA) backend."""
 
-    def __init__(self, test_data: 'TestData'):
+    def __init__(self, test_data: TestData):
         self.data = test_data
         self._arrays = {}
         if backends.cupy_available:
             self._create_arrays()
 
     def _create_arrays(self):
-        """Create CuPy arrays for test data."""
         cp = backends.cupy
         self._arrays = {
             'a': cp.asarray(self.data.a),
@@ -480,7 +317,6 @@ class CuPyRunner(BackendRunner):
         return backends.cupy_available
 
     def _get_args(self, np_args: tuple) -> tuple:
-        """Map numpy arrays to CuPy arrays."""
         cp = backends.cupy
         mapping = {
             id(self.data.a): self._arrays['a'],
@@ -503,10 +339,8 @@ class CuPyRunner(BackendRunner):
             cp = backends.cupy
             cp_args = self._get_args(np_args)
 
-            # Get equivalent CuPy function
             cp_func = getattr(cp, np_func.__name__, None)
             if cp_func is None:
-                # Handle comparison ops that return bool
                 if op_name in ('equal', 'not_equal', 'less', 'less_equal', 'greater', 'greater_equal'):
                     base_func = getattr(cp, op_name)
                     cp_func = lambda *args: base_func(*args).astype(cp.float32)
@@ -539,25 +373,17 @@ class CuPyRunner(BackendRunner):
         except Exception:
             return BackendResult()
 
-    def _verify(self, reference: np.ndarray, result: np.ndarray) -> bool:
-        try:
-            np.testing.assert_allclose(result, reference, rtol=1e-4, atol=1e-5)
-            return True
-        except AssertionError:
-            return False
-
 
 class JAXRunner(BackendRunner):
     """Runs benchmarks on JAX backend with JIT compilation."""
 
-    def __init__(self, test_data: 'TestData'):
+    def __init__(self, test_data: TestData):
         self.data = test_data
         self._arrays = {}
         if backends.jax_available:
             self._create_arrays()
 
     def _create_arrays(self):
-        """Create JAX arrays for test data."""
         jnp = backends.jnp
         self._arrays = {
             'a': jnp.asarray(self.data.a),
@@ -574,7 +400,6 @@ class JAXRunner(BackendRunner):
         return backends.jax_available
 
     def _get_args(self, np_args: tuple) -> tuple:
-        """Map numpy arrays to JAX arrays."""
         jnp = backends.jnp
         mapping = {
             id(self.data.a): self._arrays['a'],
@@ -598,20 +423,17 @@ class JAXRunner(BackendRunner):
             jnp = backends.jnp
             jax_args = self._get_args(np_args)
 
-            # Get equivalent JAX function
             jax_func = getattr(jnp, np_func.__name__, None)
             if jax_func is None:
-                # Handle comparison ops
                 if op_name in ('equal', 'not_equal', 'less', 'less_equal', 'greater', 'greater_equal'):
                     base_func = getattr(jnp, op_name)
                     jax_func = lambda *args: base_func(*args).astype(jnp.float32)
                 else:
                     return BackendResult()
 
-            # JIT compile
             jax_func_jit = jax.jit(jax_func)
 
-            # Warmup (includes JIT compilation)
+            # Warmup
             for _ in range(config.warmup_iterations):
                 result = jax_func_jit(*jax_args)
                 result.block_until_ready()
@@ -636,124 +458,68 @@ class JAXRunner(BackendRunner):
         except Exception:
             return BackendResult()
 
-    def _verify(self, reference: np.ndarray, result: np.ndarray) -> bool:
-        try:
-            np.testing.assert_allclose(result, reference, rtol=1e-4, atol=1e-5)
-            return True
-        except AssertionError:
-            return False
-
 
 # =============================================================================
-# Test Data and Operations
+# Extended Output Formatting
 # =============================================================================
 
-@dataclass
-class TestData:
-    """Container for test arrays used in benchmarks."""
-    a: np.ndarray
-    b: np.ndarray
-    a_pos: np.ndarray
-    b_pos: np.ndarray
-    a_unit: np.ndarray
-    b_small: np.ndarray
-    a_div10: np.ndarray
-    a_tan_safe: np.ndarray
+class MultiBackendFormatter(OutputFormatter):
+    """Extended formatter for multi-backend benchmark output."""
 
-    @classmethod
-    def generate(cls, num_elements: int, seed: int) -> 'TestData':
-        """Generate random test data."""
-        np.random.seed(seed)
-        N = num_elements
-        a = np.random.randn(N).astype(np.float32)
-        b = np.random.randn(N).astype(np.float32)
+    @staticmethod
+    def table_header():
+        """Print the results table header."""
+        cols = ['Operation', 'Vulkan (ms)', 'CPU (ms)', 'CPU+SIMD (ms)',
+                'CuPy (ms)', 'JAX (ms)', 'NumPy (ms)',
+                'Vulkan/NP', 'CPU/NP', 'SIMD/NP', 'CuPy/NP', 'JAX/NP', 'Status']
+        widths = [14, 16, 16, 16, 16, 16, 16, 10, 10, 10, 10, 10, 12]
 
-        return cls(
-            a=a,
-            b=b,
-            a_pos=np.abs(a) + 0.1,
-            b_pos=np.abs(b) + 0.1,
-            a_unit=np.clip(a, -0.99, 0.99).astype(np.float32),
-            b_small=(np.random.randn(N) * 2).astype(np.float32),
-            a_div10=(a / 10).astype(np.float32),
-            a_tan_safe=np.clip(a, -1.0, 1.0).astype(np.float32),
-        )
+        header = " | ".join(f"{c:<{w}}" for c, w in zip(cols, widths))
+        separator = "-+-".join("-" * w for w in widths)
+        print(f"\n{header}")
+        print(separator)
 
+    @staticmethod
+    def result_row(result: BenchmarkResult):
+        """Print a single result row."""
+        fmt = OutputFormatter
 
-def get_operations(data: TestData) -> Dict[str, List[tuple]]:
-    """
-    Define all benchmark operations organized by category.
+        vk_time = fmt.format_time(result.vulkan.time_ms, result.vulkan.std_ms, backends.vulkan_available)
+        cpu_time = fmt.format_time(result.cpu.time_ms, result.cpu.std_ms, backends.cpu_available)
+        simd_time = fmt.format_time(result.cpu_simd.time_ms, result.cpu_simd.std_ms, backends.cpu_available)
+        cupy_time = fmt.format_time(result.cupy.time_ms, result.cupy.std_ms, backends.cupy_available)
+        jax_time = fmt.format_time(result.jax.time_ms, result.jax.std_ms, backends.jax_available)
+        np_time = fmt.format_time(result.numpy.time_ms, result.numpy.std_ms)
 
-    Each operation is: (name, numpy_function, numpy_args)
-    """
-    return {
-        "Binary Arithmetic": [
-            ("add", np.add, (data.a, data.b)),
-            ("subtract", np.subtract, (data.a, data.b)),
-            ("multiply", np.multiply, (data.a, data.b)),
-            ("divide", np.divide, (data.a, data.b_pos)),
-            ("mod", np.mod, (data.a_pos, data.b_pos)),
-            ("power", np.power, (data.a_pos, data.b_small)),
-            ("floor_divide", np.floor_divide, (data.a, data.b_pos)),
-        ],
-        "Binary Comparison": [
-            ("equal", lambda x, y: np.equal(x, y).astype(np.float32), (data.a, data.b)),
-            ("not_equal", lambda x, y: np.not_equal(x, y).astype(np.float32), (data.a, data.b)),
-            ("less", lambda x, y: np.less(x, y).astype(np.float32), (data.a, data.b)),
-            ("less_equal", lambda x, y: np.less_equal(x, y).astype(np.float32), (data.a, data.b)),
-            ("greater", lambda x, y: np.greater(x, y).astype(np.float32), (data.a, data.b)),
-            ("greater_equal", lambda x, y: np.greater_equal(x, y).astype(np.float32), (data.a, data.b)),
-        ],
-        "Binary Min/Max": [
-            ("minimum", np.minimum, (data.a, data.b)),
-            ("maximum", np.maximum, (data.a, data.b)),
-        ],
-        "Unary Operations": [
-            ("negative", np.negative, (data.a,)),
-            ("abs", np.abs, (data.a,)),
-            ("sqrt", np.sqrt, (data.a_pos,)),
-            ("exp", np.exp, (data.a_div10,)),
-            ("log", np.log, (data.a_pos,)),
-            ("log2", np.log2, (data.a_pos,)),
-            ("log10", np.log10, (data.a_pos,)),
-            ("sin", np.sin, (data.a,)),
-            ("cos", np.cos, (data.a,)),
-            ("tan", np.tan, (data.a_tan_safe,)),
-            ("arcsin", np.arcsin, (data.a_unit,)),
-            ("arccos", np.arccos, (data.a_unit,)),
-            ("arctan", np.arctan, (data.a,)),
-            ("sinh", np.sinh, (data.a_div10,)),
-            ("cosh", np.cosh, (data.a_div10,)),
-            ("tanh", np.tanh, (data.a,)),
-            ("floor", np.floor, (data.a,)),
-            ("ceil", np.ceil, (data.a,)),
-            ("round", np.round, (data.a,)),
-            ("sign", np.sign, (data.a,)),
-            ("reciprocal", np.reciprocal, (data.a_pos,)),
-            ("square", np.square, (data.a,)),
-        ],
-        "Vec-Scalar Arithmetic": [
-            ("add_scalar", lambda x, s: np.add(x, s), (data.a, 2.5)),
-            ("subtract_scalar", lambda x, s: np.subtract(x, s), (data.a, 2.5)),
-            ("multiply_scalar", lambda x, s: np.multiply(x, s), (data.a, 2.5)),
-            ("divide_scalar", lambda x, s: np.divide(x, s), (data.a, 2.5)),
-            ("mod_scalar", lambda x, s: np.mod(x, s), (data.a_pos, 2.5)),
-            ("power_scalar", lambda x, s: np.power(x, s), (data.a_pos, 2.0)),
-            ("floor_divide_scalar", lambda x, s: np.floor_divide(x, s), (data.a, 2.5)),
-        ],
-        "Vec-Scalar Comparison": [
-            ("equal_scalar", lambda x, s: np.equal(x, s).astype(np.float32), (data.a, 0.0)),
-            ("not_equal_scalar", lambda x, s: np.not_equal(x, s).astype(np.float32), (data.a, 0.0)),
-            ("less_scalar", lambda x, s: np.less(x, s).astype(np.float32), (data.a, 0.0)),
-            ("less_equal_scalar", lambda x, s: np.less_equal(x, s).astype(np.float32), (data.a, 0.0)),
-            ("greater_scalar", lambda x, s: np.greater(x, s).astype(np.float32), (data.a, 0.0)),
-            ("greater_equal_scalar", lambda x, s: np.greater_equal(x, s).astype(np.float32), (data.a, 0.0)),
-        ],
-        "Vec-Scalar Min/Max": [
-            ("minimum_scalar", lambda x, s: np.minimum(x, s), (data.a, 0.5)),
-            ("maximum_scalar", lambda x, s: np.maximum(x, s), (data.a, -0.5)),
-        ],
-    }
+        vk_spd = fmt.format_speedup(result.vulkan.speedup, backends.vulkan_available)
+        cpu_spd = fmt.format_speedup(result.cpu.speedup, backends.cpu_available)
+        simd_spd = fmt.format_speedup(result.cpu_simd.speedup, backends.cpu_available)
+        cupy_spd = fmt.format_speedup(result.cupy.speedup, backends.cupy_available)
+        jax_spd = fmt.format_speedup(result.jax.speedup, backends.jax_available)
+
+        status_parts = []
+        if backends.vulkan_available:
+            status_parts.append('V:OK' if result.vulkan.valid else 'V:FAIL')
+        if backends.cpu_available:
+            status_parts.append('C:OK' if result.cpu.valid else 'C:FAIL')
+            status_parts.append('S:OK' if result.cpu_simd.valid else 'S:FAIL')
+        if backends.cupy_available:
+            status_parts.append('G:OK' if result.cupy.valid else 'G:FAIL')
+        if backends.jax_available:
+            status_parts.append('J:OK' if result.jax.valid else 'J:FAIL')
+
+        all_valid = all([
+            not backends.vulkan_available or result.vulkan.valid,
+            not backends.cpu_available or (result.cpu.valid and result.cpu_simd.valid),
+            not backends.cupy_available or result.cupy.valid,
+            not backends.jax_available or result.jax.valid,
+        ])
+        status_color = Colors.GREEN if all_valid else Colors.RED
+        status = f"{status_color}{' '.join(status_parts)}{Colors.RESET}"
+
+        print(f"{result.name:<14} | {vk_time:<16} | {cpu_time:<16} | {simd_time:<16} | "
+              f"{cupy_time:<16} | {jax_time:<16} | {np_time:<16} | "
+              f"{vk_spd:<19} | {cpu_spd:<19} | {simd_spd:<19} | {cupy_spd:<19} | {jax_spd:<19} | {status}")
 
 
 # =============================================================================
@@ -764,9 +530,8 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     """Run all benchmarks and return results."""
     results: List[BenchmarkResult] = []
 
-    # Print configuration
     if verbose:
-        OutputFormatter.header("CUT Benchmark Suite: Vulkan vs CPU vs CPU+SIMD vs NumPy")
+        OutputFormatter.header("CUT Benchmark Suite: Vulkan vs CPU vs CPU+SIMD vs NumPy", width=120)
         print(f"\n{Colors.DIM}Configuration:{Colors.RESET}")
         print(f"  - Elements:   {config.num_elements:,}")
         print(f"  - Iterations: {config.num_iterations}")
@@ -777,7 +542,6 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
         print(f"\n{Colors.DIM}Backends:{Colors.RESET}")
         print(f"  - Vulkan:     {'Available' if backends.vulkan_available else 'Not available'}")
         if backends.cpu_available and backends.cut_compute is not None:
-            # Initialize CPU to get thread count
             cc = backends.cut_compute
             cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Scalar)
             print(f"  - CPU:        Available ({cc.num_threads()} threads)")
@@ -818,8 +582,8 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     # Run benchmarks
     for category, ops in operations.items():
         if verbose:
-            OutputFormatter.subheader(category)
-            OutputFormatter.table_header()
+            OutputFormatter.subheader(category, width=120)
+            MultiBackendFormatter.table_header()
 
         for op_name, np_func, np_args in ops:
             # Run NumPy (reference)
@@ -868,13 +632,13 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
             results.append(result)
 
             if verbose:
-                OutputFormatter.result_row(result)
+                MultiBackendFormatter.result_row(result)
 
     return results
 
 
 # =============================================================================
-# Summary and Export (functions truncated for brevity - same as original)
+# Summary and Export
 # =============================================================================
 
 def compute_stats(results: List[BenchmarkResult], backend: str) -> Dict[str, Any]:
@@ -910,7 +674,7 @@ def compute_stats(results: List[BenchmarkResult], backend: str) -> Dict[str, Any
 
 def print_summary(results: List[BenchmarkResult]):
     """Print comprehensive performance summary."""
-    OutputFormatter.header("Performance Evaluation Summary")
+    OutputFormatter.header("Performance Evaluation Summary", width=120)
 
     stats = {
         'vulkan': compute_stats(results, 'vulkan') if backends.vulkan_available else {'available': False},
@@ -963,14 +727,6 @@ def print_summary(results: List[BenchmarkResult]):
 
 def export_json(results: List[BenchmarkResult], filepath: Path, config: BenchmarkConfig):
     """Export results to JSON file."""
-    def backend_to_dict(br: BackendResult) -> dict:
-        return {
-            'time_ms': br.time_ms if not np.isnan(br.time_ms) else None,
-            'std_ms': br.std_ms,
-            'valid': br.valid,
-            'speedup': br.speedup if not np.isnan(br.speedup) else None,
-        }
-
     cc = backends.cut_compute
     data = {
         "timestamp": datetime.now().isoformat(),
@@ -980,19 +736,7 @@ def export_json(results: List[BenchmarkResult], filepath: Path, config: Benchmar
             "cpu_available": backends.cpu_available,
             "cpu_threads": cc.num_threads() if (backends.cpu_available and cc) else 0,
         },
-        "results": [
-            {
-                'name': r.name,
-                'category': r.category,
-                'numpy': backend_to_dict(r.numpy),
-                'vulkan': backend_to_dict(r.vulkan),
-                'cpu': backend_to_dict(r.cpu),
-                'cpu_simd': backend_to_dict(r.cpu_simd),
-                'cupy': backend_to_dict(r.cupy),
-                'jax': backend_to_dict(r.jax),
-            }
-            for r in results
-        ]
+        "results": [r.to_dict() for r in results]
     }
 
     with open(filepath, 'w') as f:
@@ -1076,9 +820,7 @@ Examples:
     print(f"\n{Colors.DIM}Benchmark complete.{Colors.RESET}\n")
 
     # Cleanup before exit
-    import gc
-    gc.collect()
-    gc.collect()
+    cleanup()
     if backends.cut_compute is not None:
         backends.cut_compute.shutdown()
 

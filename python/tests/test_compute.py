@@ -8,19 +8,12 @@ These tests verify that all operations work correctly across different backends
 import numpy as np
 import pytest
 import cut.compute as cc
+from common import cleanup
 
 
 # =============================================================================
-# Fixtures for Backend Parametrization
+# Test Utilities
 # =============================================================================
-
-import gc
-
-def _cleanup():
-    """Force cleanup of all buffers."""
-    gc.collect()
-    gc.collect()
-
 
 def get_available_backends():
     """Get list of available backends as pytest parameters."""
@@ -32,6 +25,10 @@ def get_available_backends():
     return backends
 
 
+# =============================================================================
+# Fixtures for Backend Parametrization
+# =============================================================================
+
 @pytest.fixture(params=get_available_backends())
 def backend(request):
     """Fixture that yields each available backend."""
@@ -41,8 +38,7 @@ def backend(request):
     else:
         cc.init(backend_type, simd_mode=cc.SIMDMode.Auto)
     yield backend_type
-    # Cleanup after test
-    _cleanup()
+    cleanup()
     cc.shutdown()
 
 
@@ -53,7 +49,7 @@ def cpu_backend():
         pytest.skip("CPU backend not available")
     cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
     yield cc.Backend.CPU
-    _cleanup()
+    cleanup()
     cc.shutdown()
 
 
@@ -64,7 +60,7 @@ def vulkan_backend():
         pytest.skip("Vulkan backend not available")
     cc.init(cc.Backend.Vulkan)
     yield cc.Backend.Vulkan
-    _cleanup()
+    cleanup()
     cc.shutdown()
 
 
@@ -106,12 +102,11 @@ class TestModuleBasics:
         """Test available_backends returns valid list."""
         available = cc.available_backends()
         assert isinstance(available, list)
-        # At minimum CPU should be available
         assert len(available) > 0
 
     def test_cpu_available(self):
         """Test CPU is always available."""
-        assert cc.is_cpu_available() == True
+        assert cc.is_cpu_available() is True
 
 
 # =============================================================================
@@ -137,7 +132,6 @@ class TestBackendInit:
 
         cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
         assert cc.current_backend() == cc.Backend.CPU
-        # SIMD mode should be Auto or detected mode
         mode = cc.simd_mode()
         assert mode in (cc.SIMDMode.Scalar, cc.SIMDMode.SSE,
                        cc.SIMDMode.AVX, cc.SIMDMode.Auto)
@@ -278,23 +272,16 @@ class TestShaderDispatch:
 
     def test_shader_caching(self, backend):
         """Test that shaders are cached and reused."""
-        # Clear cache to start fresh
         cc.clear_shader_cache()
 
-        # First shader creation should not be cached
         shader1 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd)
         assert not shader1.cached
         assert shader1.handle.valid()
 
-        # Second shader with same op should be cached
         shader2 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd)
         assert shader2.cached
         assert shader2.handle.valid()
 
-        # Both should reference the same underlying handle
-        # (they share the same shader module)
-
-        # Check cache stats
         stats = cc.get_shader_cache_stats()
         assert stats['size'] >= 1
 
@@ -305,15 +292,12 @@ class TestShaderDispatch:
         shader_f32 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd, dtype=np.float32)
         shader_i32 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd, dtype=np.int32)
 
-        # Both should have been newly compiled (not cached)
         assert not shader_f32.cached
         assert not shader_i32.cached
 
-        # Cache should have 2 entries
         stats = cc.get_shader_cache_stats()
         assert stats['size'] == 2
 
-        # Creating same shaders again should hit cache
         shader_f32_2 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd, dtype=np.float32)
         shader_i32_2 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd, dtype=np.int32)
         assert shader_f32_2.cached
@@ -327,34 +311,21 @@ class TestShaderDispatch:
 class TestBinaryVecVecFloat32:
     """Test binary vector-vector operations with float32."""
 
-    def test_add(self, backend):
-        """Test add operation."""
+    @pytest.mark.parametrize("op_name,np_func", [
+        ("add", np.add),
+        ("subtract", np.subtract),
+        ("multiply", np.multiply),
+        ("minimum", np.minimum),
+        ("maximum", np.maximum),
+    ])
+    def test_binary_op(self, backend, op_name, np_func):
+        """Test binary operations."""
         a_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
         b_data = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32)
         a = cc.Buffer(a_data)
         b = cc.Buffer(b_data)
-        result = cc.add(a, b)
-        expected = a_data + b_data
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_subtract(self, backend):
-        """Test subtract operation."""
-        a_data = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32)
-        b_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.subtract(a, b)
-        expected = a_data - b_data
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_multiply(self, backend):
-        """Test multiply operation."""
-        a_data = np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
-        b_data = np.array([3.0, 4.0, 5.0, 6.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.multiply(a, b)
-        expected = a_data * b_data
+        result = getattr(cc, op_name)(a, b)
+        expected = np_func(a_data, b_data)
         np.testing.assert_allclose(result.numpy(), expected)
 
     def test_divide(self, backend):
@@ -367,26 +338,6 @@ class TestBinaryVecVecFloat32:
         expected = a_data / b_data
         np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
 
-    def test_minimum(self, backend):
-        """Test minimum operation."""
-        a_data = np.array([1.0, 5.0, 3.0, 8.0], dtype=np.float32)
-        b_data = np.array([2.0, 4.0, 6.0, 7.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.minimum(a, b)
-        expected = np.minimum(a_data, b_data)
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_maximum(self, backend):
-        """Test maximum operation."""
-        a_data = np.array([1.0, 5.0, 3.0, 8.0], dtype=np.float32)
-        b_data = np.array([2.0, 4.0, 6.0, 7.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.maximum(a, b)
-        expected = np.maximum(a_data, b_data)
-        np.testing.assert_allclose(result.numpy(), expected)
-
 
 # =============================================================================
 # Binary Vec-Vec Operations (Int32)
@@ -395,54 +346,21 @@ class TestBinaryVecVecFloat32:
 class TestBinaryVecVecInt32:
     """Test binary vector-vector operations with int32."""
 
-    def test_add_int32(self, backend):
-        """Test add operation with int32."""
+    @pytest.mark.parametrize("op_name,np_func", [
+        ("add", np.add),
+        ("subtract", np.subtract),
+        ("multiply", np.multiply),
+        ("minimum", np.minimum),
+        ("maximum", np.maximum),
+    ])
+    def test_binary_op_int32(self, backend, op_name, np_func):
+        """Test binary operations with int32."""
         a_data = np.array([1, 2, 3, 4], dtype=np.int32)
         b_data = np.array([5, 6, 7, 8], dtype=np.int32)
         a = cc.Buffer(a_data)
         b = cc.Buffer(b_data)
-        result = cc.add(a, b)
-        expected = a_data + b_data
-        np.testing.assert_array_equal(result.numpy(), expected)
-
-    def test_subtract_int32(self, backend):
-        """Test subtract operation with int32."""
-        a_data = np.array([10, 20, 30, 40], dtype=np.int32)
-        b_data = np.array([1, 2, 3, 4], dtype=np.int32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.subtract(a, b)
-        expected = a_data - b_data
-        np.testing.assert_array_equal(result.numpy(), expected)
-
-    def test_multiply_int32(self, backend):
-        """Test multiply operation with int32."""
-        a_data = np.array([2, 3, 4, 5], dtype=np.int32)
-        b_data = np.array([3, 4, 5, 6], dtype=np.int32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.multiply(a, b)
-        expected = a_data * b_data
-        np.testing.assert_array_equal(result.numpy(), expected)
-
-    def test_minimum_int32(self, backend):
-        """Test minimum operation with int32."""
-        a_data = np.array([1, 5, 3, 8], dtype=np.int32)
-        b_data = np.array([2, 4, 6, 7], dtype=np.int32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.minimum(a, b)
-        expected = np.minimum(a_data, b_data)
-        np.testing.assert_array_equal(result.numpy(), expected)
-
-    def test_maximum_int32(self, backend):
-        """Test maximum operation with int32."""
-        a_data = np.array([1, 5, 3, 8], dtype=np.int32)
-        b_data = np.array([2, 4, 6, 7], dtype=np.int32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.maximum(a, b)
-        expected = np.maximum(a_data, b_data)
+        result = getattr(cc, op_name)(a, b)
+        expected = np_func(a_data, b_data)
         np.testing.assert_array_equal(result.numpy(), expected)
 
 
@@ -453,31 +371,19 @@ class TestBinaryVecVecInt32:
 class TestBinaryVecScalar:
     """Test binary vector-scalar operations."""
 
-    def test_add_scalar(self, backend):
-        """Test add_scalar operation."""
-        a_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    @pytest.mark.parametrize("op_name,scalar,np_op", [
+        ("add_scalar", 10.0, lambda a, s: a + s),
+        ("subtract_scalar", 5.0, lambda a, s: a - s),
+        ("multiply_scalar", 3.0, lambda a, s: a * s),
+        ("minimum_scalar", 4.0, lambda a, s: np.minimum(a, s)),
+        ("maximum_scalar", 4.0, lambda a, s: np.maximum(a, s)),
+    ])
+    def test_vec_scalar_op(self, backend, op_name, scalar, np_op):
+        """Test vector-scalar operations."""
+        a_data = np.array([1.0, 5.0, 3.0, 8.0], dtype=np.float32)
         a = cc.Buffer(a_data)
-        scalar = 10.0
-        result = cc.add_scalar(a, scalar)
-        expected = a_data + scalar
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_subtract_scalar(self, backend):
-        """Test subtract_scalar operation."""
-        a_data = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        scalar = 5.0
-        result = cc.subtract_scalar(a, scalar)
-        expected = a_data - scalar
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_multiply_scalar(self, backend):
-        """Test multiply_scalar operation."""
-        a_data = np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        scalar = 3.0
-        result = cc.multiply_scalar(a, scalar)
-        expected = a_data * scalar
+        result = getattr(cc, op_name)(a, scalar)
+        expected = np_op(a_data, scalar)
         np.testing.assert_allclose(result.numpy(), expected)
 
     def test_divide_scalar(self, backend):
@@ -488,24 +394,6 @@ class TestBinaryVecScalar:
         result = cc.divide_scalar(a, scalar)
         expected = a_data / scalar
         np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
-
-    def test_minimum_scalar(self, backend):
-        """Test minimum_scalar operation."""
-        a_data = np.array([1.0, 5.0, 3.0, 8.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        scalar = 4.0
-        result = cc.minimum_scalar(a, scalar)
-        expected = np.minimum(a_data, scalar)
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_maximum_scalar(self, backend):
-        """Test maximum_scalar operation."""
-        a_data = np.array([1.0, 5.0, 3.0, 8.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        scalar = 4.0
-        result = cc.maximum_scalar(a, scalar)
-        expected = np.maximum(a_data, scalar)
-        np.testing.assert_allclose(result.numpy(), expected)
 
     def test_add_scalar_int32(self, backend):
         """Test add_scalar with int32."""
@@ -524,64 +412,22 @@ class TestBinaryVecScalar:
 class TestComparisonOps:
     """Test comparison operations."""
 
-    def test_equal(self, backend):
-        """Test equal comparison."""
-        a_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-        b_data = np.array([1.0, 3.0, 3.0, 5.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.equal(a, b)
-        expected = np.equal(a_data, b_data).astype(np.float32)
-        np.testing.assert_array_equal(result.numpy(), expected)
-
-    def test_not_equal(self, backend):
-        """Test not_equal comparison."""
-        a_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-        b_data = np.array([1.0, 3.0, 3.0, 5.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.not_equal(a, b)
-        expected = np.not_equal(a_data, b_data).astype(np.float32)
-        np.testing.assert_array_equal(result.numpy(), expected)
-
-    def test_less(self, backend):
-        """Test less comparison."""
+    @pytest.mark.parametrize("op_name,np_func", [
+        ("equal", np.equal),
+        ("not_equal", np.not_equal),
+        ("less", np.less),
+        ("less_equal", np.less_equal),
+        ("greater", np.greater),
+        ("greater_equal", np.greater_equal),
+    ])
+    def test_comparison_op(self, backend, op_name, np_func):
+        """Test comparison operations."""
         a_data = np.array([1.0, 5.0, 3.0, 4.0], dtype=np.float32)
         b_data = np.array([2.0, 4.0, 3.0, 5.0], dtype=np.float32)
         a = cc.Buffer(a_data)
         b = cc.Buffer(b_data)
-        result = cc.less(a, b)
-        expected = np.less(a_data, b_data).astype(np.float32)
-        np.testing.assert_array_equal(result.numpy(), expected)
-
-    def test_less_equal(self, backend):
-        """Test less_equal comparison."""
-        a_data = np.array([1.0, 5.0, 3.0, 4.0], dtype=np.float32)
-        b_data = np.array([2.0, 4.0, 3.0, 5.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.less_equal(a, b)
-        expected = np.less_equal(a_data, b_data).astype(np.float32)
-        np.testing.assert_array_equal(result.numpy(), expected)
-
-    def test_greater(self, backend):
-        """Test greater comparison."""
-        a_data = np.array([1.0, 5.0, 3.0, 4.0], dtype=np.float32)
-        b_data = np.array([2.0, 4.0, 3.0, 5.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.greater(a, b)
-        expected = np.greater(a_data, b_data).astype(np.float32)
-        np.testing.assert_array_equal(result.numpy(), expected)
-
-    def test_greater_equal(self, backend):
-        """Test greater_equal comparison."""
-        a_data = np.array([1.0, 5.0, 3.0, 4.0], dtype=np.float32)
-        b_data = np.array([2.0, 4.0, 3.0, 5.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        b = cc.Buffer(b_data)
-        result = cc.greater_equal(a, b)
-        expected = np.greater_equal(a_data, b_data).astype(np.float32)
+        result = getattr(cc, op_name)(a, b)
+        expected = np_func(a_data, b_data).astype(np.float32)
         np.testing.assert_array_equal(result.numpy(), expected)
 
     def test_equal_scalar(self, backend):
@@ -601,44 +447,34 @@ class TestComparisonOps:
 class TestUnaryOps:
     """Test unary operations."""
 
-    def test_negative(self, backend):
-        """Test negative operation."""
-        a_data = np.array([1.0, -2.0, 3.0, -4.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.negative(a)
-        expected = -a_data
+    @pytest.mark.parametrize("op_name,np_func,test_data", [
+        ("negative", np.negative, np.array([1.0, -2.0, 3.0, -4.0], dtype=np.float32)),
+        ("abs", np.abs, np.array([-1.0, 2.0, -3.0, 4.0], dtype=np.float32)),
+        ("floor", np.floor, np.array([1.5, 2.7, -1.5, -2.7], dtype=np.float32)),
+        ("ceil", np.ceil, np.array([1.5, 2.7, -1.5, -2.7], dtype=np.float32)),
+        ("round", np.round, np.array([1.4, 1.5, 2.5, -1.5], dtype=np.float32)),
+        ("sign", np.sign, np.array([-5.0, 0.0, 5.0, -0.0], dtype=np.float32)),
+    ])
+    def test_unary_exact(self, backend, op_name, np_func, test_data):
+        """Test unary operations with exact comparison."""
+        a = cc.Buffer(test_data)
+        result = getattr(cc, op_name)(a)
+        expected = np_func(test_data)
         np.testing.assert_allclose(result.numpy(), expected)
 
-    def test_abs(self, backend):
-        """Test abs operation."""
-        a_data = np.array([-1.0, 2.0, -3.0, 4.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.abs(a)
-        expected = np.abs(a_data)
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_sqrt(self, backend):
-        """Test sqrt operation."""
-        a_data = np.array([1.0, 4.0, 9.0, 16.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.sqrt(a)
-        expected = np.sqrt(a_data)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
-
-    def test_exp(self, backend):
-        """Test exp operation."""
-        a_data = np.array([0.0, 1.0, 2.0, -1.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.exp(a)
-        expected = np.exp(a_data)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
-
-    def test_log(self, backend):
-        """Test log operation."""
-        a_data = np.array([1.0, 2.718281828, 10.0, 100.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.log(a)
-        expected = np.log(a_data)
+    @pytest.mark.parametrize("op_name,np_func,test_data", [
+        ("sqrt", np.sqrt, np.array([1.0, 4.0, 9.0, 16.0], dtype=np.float32)),
+        ("exp", np.exp, np.array([0.0, 1.0, 2.0, -1.0], dtype=np.float32)),
+        ("log", np.log, np.array([1.0, 2.718281828, 10.0, 100.0], dtype=np.float32)),
+        ("tanh", np.tanh, np.array([-2.0, -1.0, 0.0, 1.0, 2.0], dtype=np.float32)),
+        ("reciprocal", np.reciprocal, np.array([1.0, 2.0, 4.0, 0.5], dtype=np.float32)),
+        ("square", np.square, np.array([1.0, 2.0, 3.0, -4.0], dtype=np.float32)),
+    ])
+    def test_unary_approx(self, backend, op_name, np_func, test_data):
+        """Test unary operations with approximate comparison."""
+        a = cc.Buffer(test_data)
+        result = getattr(cc, op_name)(a)
+        expected = np_func(test_data)
         np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
 
     def test_sin(self, backend):
@@ -656,62 +492,6 @@ class TestUnaryOps:
         result = cc.cos(a)
         expected = np.cos(a_data)
         np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5, atol=1e-5)
-
-    def test_tanh(self, backend):
-        """Test tanh operation."""
-        a_data = np.array([-2.0, -1.0, 0.0, 1.0, 2.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.tanh(a)
-        expected = np.tanh(a_data)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
-
-    def test_floor(self, backend):
-        """Test floor operation."""
-        a_data = np.array([1.5, 2.7, -1.5, -2.7], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.floor(a)
-        expected = np.floor(a_data)
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_ceil(self, backend):
-        """Test ceil operation."""
-        a_data = np.array([1.5, 2.7, -1.5, -2.7], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.ceil(a)
-        expected = np.ceil(a_data)
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_round(self, backend):
-        """Test round operation."""
-        a_data = np.array([1.4, 1.5, 2.5, -1.5], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.round(a)
-        expected = np.round(a_data)
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_sign(self, backend):
-        """Test sign operation."""
-        a_data = np.array([-5.0, 0.0, 5.0, -0.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.sign(a)
-        expected = np.sign(a_data)
-        np.testing.assert_allclose(result.numpy(), expected)
-
-    def test_reciprocal(self, backend):
-        """Test reciprocal operation."""
-        a_data = np.array([1.0, 2.0, 4.0, 0.5], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.reciprocal(a)
-        expected = 1.0 / a_data
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
-
-    def test_square(self, backend):
-        """Test square operation."""
-        a_data = np.array([1.0, 2.0, 3.0, -4.0], dtype=np.float32)
-        a = cc.Buffer(a_data)
-        result = cc.square(a)
-        expected = np.square(a_data)
-        np.testing.assert_allclose(result.numpy(), expected)
 
 
 # =============================================================================
@@ -834,51 +614,41 @@ class TestBackendSwitching:
 
     def test_switch_backends(self):
         """Test switching between CPU and Vulkan backends."""
-        # Start with CPU
         if cc.is_cpu_available():
             cc.init(cc.Backend.CPU)
             assert cc.current_backend() == cc.Backend.CPU
 
-            # Create buffer on CPU
             data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
             cpu_buf = cc.Buffer(data)
             cpu_result = cc.add(cpu_buf, cpu_buf).numpy()
 
-            # Cleanup before switching
             del cpu_buf
-            _cleanup()
+            cleanup()
             cc.shutdown()
 
-            # Switch to Vulkan if available
             if cc.is_vulkan_available():
                 cc.init(cc.Backend.Vulkan)
                 assert cc.current_backend() == cc.Backend.Vulkan
 
-                # Create new buffer on Vulkan
                 vk_buf = cc.Buffer(data)
                 vk_result = cc.add(vk_buf, vk_buf).numpy()
 
-                # Results should match
                 np.testing.assert_allclose(cpu_result, vk_result)
 
-                # Cleanup
                 del vk_buf
-                _cleanup()
+                cleanup()
                 cc.shutdown()
 
     def test_simd_mode_switching(self, cpu_backend):
         """Test switching SIMD modes on CPU backend."""
         data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
 
-        # Test with Scalar mode
         cc.set_simd_mode(cc.SIMDMode.Scalar)
         buf1 = cc.Buffer(data)
         result1 = cc.add(buf1, buf1).numpy()
 
-        # Test with Auto mode (SIMD if available)
         cc.set_simd_mode(cc.SIMDMode.Auto)
         buf2 = cc.Buffer(data)
         result2 = cc.add(buf2, buf2).numpy()
 
-        # Results should match regardless of SIMD mode
         np.testing.assert_allclose(result1, result2)
