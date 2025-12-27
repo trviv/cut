@@ -208,9 +208,23 @@ foreach(SHADER_SOURCE ${SHADER_SOURCES})
     compile_shader(${SHADER_SOURCE})
 endforeach()
 
-file(WRITE ${SHADERS_SOURCE_FILE} "")
 if(SHADER_SOURCES)
+    file(WRITE ${SHADERS_SOURCE_FILE} "")
     generate_shader_source(${SHADER_SOURCES})
+else()
+    # Generate a stub CompiledShaders.cpp when there are no shader sources
+    file(WRITE ${SHADERS_SOURCE_FILE} "
+#include <Shaders.h>
+
+namespace cut {
+
+std::optional<std::vector<uint32_t>> getCompiledShader(const OperatorEnum shader) {
+    (void)shader;
+    return std::nullopt;
+}
+
+} // namespace cut
+")
 endif()
 
 # Add custom target for shader compilation
