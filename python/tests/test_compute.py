@@ -8,7 +8,7 @@ These tests verify that all operations work correctly across different backends
 import numpy as np
 import pytest
 import cut.compute as cc
-from common import cleanup
+from cut_utils import cleanup
 
 
 # =============================================================================

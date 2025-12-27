@@ -24,6 +24,7 @@ from typing import Callable, Dict, List, Any
 from dataclasses import asdict
 from pathlib import Path
 
+from cut_utils import cleanup
 from common import (
     TestData,
     BenchmarkConfig,
@@ -31,7 +32,6 @@ from common import (
     BenchmarkResult,
     Colors,
     OutputFormatter,
-    cleanup,
 )
 from common.operations import get_operations
 

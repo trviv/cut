@@ -1,8 +1,7 @@
 """
 Common utilities for CUT benchmarks and tests.
 
-This module provides shared functionality used across benchmark.py,
-run_benchmarks.py, and test_compute.py.
+This module provides shared functionality used across benchmarks and tests.
 """
 
 from .test_data import TestData
@@ -12,7 +11,9 @@ from .timing import TimingContext, benchmark_function
 from .verification import verify_results
 from .formatting import Colors, OutputFormatter
 from .operations import get_operations, BINARY_ARITHMETIC_OPS, COMPARISON_OPS, UNARY_OPS
-from .backend import cleanup, init_backend, backend_context, get_backend_info
+
+# Re-export from cut_utils for convenience
+from cut_utils import cleanup, init_backend, backend_context, get_backend_info
 
 __all__ = [
     # Test data
@@ -35,7 +36,7 @@ __all__ = [
     'BINARY_ARITHMETIC_OPS',
     'COMPARISON_OPS',
     'UNARY_OPS',
-    # Backend management
+    # Backend management (from cut_utils)
     'cleanup',
     'init_backend',
     'backend_context',

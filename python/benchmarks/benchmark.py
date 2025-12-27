@@ -16,13 +16,12 @@ import numpy as np
 from typing import List, Dict
 
 import cut.compute as cut
+from cut_utils import cleanup, init_backend
 from common import (
     TestData,
     BenchmarkConfig,
     verify_results,
     OutputFormatter,
-    cleanup,
-    init_backend,
 )
 from common.operations import (
     BINARY_ARITHMETIC_OPS,

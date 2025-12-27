@@ -1,11 +1,12 @@
 """
-Backend initialization and management utilities.
+CUT backend initialization and management utilities.
 
-Shared between tests and benchmarks for consistent backend handling.
+This module provides utilities for initializing and managing CUT backends.
+Used by both tests and benchmarks.
 """
 
 import gc
-from typing import Optional, Tuple
+from typing import Tuple, Any
 from contextlib import contextmanager
 
 
@@ -15,7 +16,7 @@ def cleanup():
     gc.collect()
 
 
-def init_backend(cc, backend_name: str, force: bool = False) -> Tuple[str, any]:
+def init_backend(cc, backend_name: str, force: bool = False) -> Tuple[str, Any]:
     """
     Initialize a CUT backend by name.
 
