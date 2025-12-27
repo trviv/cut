@@ -65,7 +65,6 @@ def backend_context(cc, backend_name: str = 'auto'):
     try:
         yield name, backend_enum
     finally:
-        cleanup()
         cc.shutdown()
 
 

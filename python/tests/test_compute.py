@@ -8,7 +8,6 @@ These tests verify that all operations work correctly across different backends
 import numpy as np
 import pytest
 import cut.compute as cc
-from cut_utils import cleanup
 
 
 # =============================================================================
@@ -38,7 +37,6 @@ def backend(request):
     else:
         cc.init(backend_type, simd_mode=cc.SIMDMode.Auto)
     yield backend_type
-    cleanup()
     cc.shutdown()
 
 
@@ -49,7 +47,6 @@ def cpu_backend():
         pytest.skip("CPU backend not available")
     cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
     yield cc.Backend.CPU
-    cleanup()
     cc.shutdown()
 
 
@@ -60,7 +57,6 @@ def vulkan_backend():
         pytest.skip("Vulkan backend not available")
     cc.init(cc.Backend.Vulkan)
     yield cc.Backend.Vulkan
-    cleanup()
     cc.shutdown()
 
 
@@ -623,7 +619,6 @@ class TestBackendSwitching:
             cpu_result = cc.add(cpu_buf, cpu_buf).numpy()
 
             del cpu_buf
-            cleanup()
             cc.shutdown()
 
             if cc.is_vulkan_available():
@@ -636,7 +631,6 @@ class TestBackendSwitching:
                 np.testing.assert_allclose(cpu_result, vk_result)
 
                 del vk_buf
-                cleanup()
                 cc.shutdown()
 
     def test_simd_mode_switching(self, cpu_backend):

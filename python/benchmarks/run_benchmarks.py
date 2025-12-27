@@ -24,7 +24,6 @@ from typing import Callable, Dict, List, Any
 from dataclasses import asdict
 from pathlib import Path
 
-from cut_utils import cleanup
 from common import (
     TestData,
     BenchmarkConfig,
@@ -182,7 +181,7 @@ class CUTRunner(BackendRunner):
 
         if needs_switch:
             self._buffers = {}
-            cleanup()
+            cc.shutdown()
 
             if self.backend_enum == cc.Backend.Vulkan:
                 cc.init(cc.Backend.Vulkan, force=True)
@@ -820,7 +819,6 @@ Examples:
     print(f"\n{Colors.DIM}Benchmark complete.{Colors.RESET}\n")
 
     # Cleanup before exit
-    cleanup()
     if backends.cut_compute is not None:
         backends.cut_compute.shutdown()
 

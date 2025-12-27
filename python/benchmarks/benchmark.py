@@ -16,7 +16,7 @@ import numpy as np
 from typing import List, Dict
 
 import cut.compute as cut
-from cut_utils import cleanup, init_backend
+from cut_utils import init_backend
 from common import (
     TestData,
     BenchmarkConfig,
@@ -172,7 +172,6 @@ def run_benchmarks(backend_name: str, config: BenchmarkConfig = DEFAULT_CONFIG):
     OutputFormatter.print_summary_stats(results)
 
     # Cleanup all buffers before returning
-    cleanup()
     cut.shutdown()
 
     return results

@@ -23,6 +23,7 @@ Example:
 from __future__ import annotations
 
 import atexit
+import gc
 import weakref
 import numpy as np
 from typing import Optional, Union, List, Any
@@ -218,6 +219,7 @@ def shutdown():
 
     This function should be called before program exit when using the Vulkan
     backend to ensure proper cleanup. It:
+    - Forces garbage collection to release Python buffer references
     - Clears all live buffer references
     - Clears the shader cache
     - Destroys the compute interface
@@ -233,6 +235,10 @@ def shutdown():
         >>> cc.shutdown()  # Clean up before exit
     """
     global _initialized, _live_buffers, _shader_cache
+
+    # Force garbage collection to release Python buffer references
+    gc.collect()
+    gc.collect()
 
     # Clear all buffer references first
     for buf in list(_live_buffers):
