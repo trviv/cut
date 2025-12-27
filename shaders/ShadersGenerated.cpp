@@ -7,7 +7,7 @@
 namespace cut {
 
 /// Enable/disable caching for generated SPIR-V shaders
-constexpr bool kEnableShaderCache = false;
+constexpr bool kEnableShaderCache = true;
 
 /// Cache for generated SPIR-V shaders, keyed by (OperatorEnum, ScalarDataType)
 static std::unordered_map<uint64_t, std::vector<uint32_t>> shaderCache;
