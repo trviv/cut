@@ -122,7 +122,7 @@ def init(
         >>> cc.init(cc.Backend.Vulkan)  # Initialize Vulkan
         >>> cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.AVX)  # CPU with AVX
     """
-    global _initialized
+    global _initialized, _live_buffers
 
     # Skip re-initialization if already initialized with same backend
     # This prevents destroying resources while buffers still exist
@@ -133,6 +133,17 @@ def init(
                 return cur
         except Exception:
             pass
+
+    # If force reinitializing or switching backends, clean up first
+    if _initialized and force:
+        # Clear all buffer references
+        for buf in list(_live_buffers):
+            if hasattr(buf, '_handle'):
+                buf._handle = None
+        _live_buffers = weakref.WeakSet()
+        # Shutdown the old backend
+        _cut_compute.shutdown()
+        _initialized = False
 
     if backend == Backend.Vulkan and not is_vulkan_available():
         raise RuntimeError("Vulkan backend is not available")
@@ -193,6 +204,39 @@ def set_simd_mode(mode: SIMDMode):
     """
     _ensure_initialized()
     _cut_compute.set_simd_mode(mode)
+
+
+def shutdown():
+    """
+    Shutdown the compute backend and release all resources.
+
+    This function should be called before program exit when using the Vulkan
+    backend to ensure proper cleanup. It:
+    - Clears all live buffer references
+    - Destroys the compute interface
+    - Destroys the Vulkan instance (if using Vulkan)
+
+    After calling shutdown(), you must call init() again before using
+    any compute operations.
+
+    Example:
+        >>> import cut.compute as cc
+        >>> cc.init(cc.Backend.Vulkan)
+        >>> # ... use compute operations ...
+        >>> cc.shutdown()  # Clean up before exit
+    """
+    global _initialized, _live_buffers
+
+    # Clear all buffer references first
+    for buf in list(_live_buffers):
+        if hasattr(buf, '_handle'):
+            buf._handle = None
+    _live_buffers = weakref.WeakSet()
+
+    # Call C++ shutdown to properly destroy Vulkan resources
+    _cut_compute.shutdown()
+
+    _initialized = False
 
 
 # Numpy dtype to DataType mapping
@@ -653,6 +697,7 @@ __all__ = [
     "Backend",
     "SIMDMode",
     "init",
+    "shutdown",
     "available_backends",
     "is_vulkan_available",
     "is_cpu_available",

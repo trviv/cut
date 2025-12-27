@@ -10,12 +10,13 @@ Usage:
     python benchmark.py --backend cpu_simd # Use CPU with SIMD
 """
 
+import gc
 import numpy as np
 import time
 import argparse
 from typing import Callable, Tuple, Dict, List
 
-import cut.backend as cut
+import cut.compute as cut
 
 # Number of elements to test
 N = 100_000
@@ -25,8 +26,8 @@ NUM_ITERATIONS = 10
 WARMUP_ITERATIONS = 3
 
 
-def benchmark(func: Callable, *args, name: str = "") -> Tuple[float, np.ndarray]:
-    """Run a function multiple times and return average time and result."""
+def benchmark_numpy(func: Callable, *args, name: str = "") -> Tuple[float, np.ndarray]:
+    """Run a NumPy function multiple times and return average time and result."""
     # Warmup
     for _ in range(WARMUP_ITERATIONS):
         result = func(*args)
@@ -40,8 +41,34 @@ def benchmark(func: Callable, *args, name: str = "") -> Tuple[float, np.ndarray]
         times.append(end - start)
 
     avg_time = np.mean(times) * 1000  # Convert to ms
+    return avg_time, result
 
-    # Extract numpy array from result if it's a Buffer
+
+def benchmark_cut(func: Callable, *args, name: str = "") -> Tuple[float, np.ndarray]:
+    """Run a CUT function multiple times and return average time and result."""
+    # Convert numpy arrays to Buffers
+    buffer_args = []
+    for arg in args:
+        if isinstance(arg, np.ndarray):
+            buffer_args.append(cut.Buffer(arg))
+        else:
+            buffer_args.append(arg)
+
+    # Warmup
+    for _ in range(WARMUP_ITERATIONS):
+        result = func(*buffer_args)
+
+    # Timed runs
+    times = []
+    for _ in range(NUM_ITERATIONS):
+        start = time.perf_counter()
+        result = func(*buffer_args)
+        end = time.perf_counter()
+        times.append(end - start)
+
+    avg_time = np.mean(times) * 1000  # Convert to ms
+
+    # Extract numpy array from result
     if hasattr(result, 'numpy'):
         result = result.numpy()
 
@@ -58,10 +85,37 @@ def verify_results(cut_result: np.ndarray, np_result: np.ndarray, op_name: str, 
         return False
 
 
+def _cleanup_buffers():
+    """Force cleanup of all buffers before shutdown."""
+    gc.collect()
+    gc.collect()
+
+
 def run_benchmarks(backend_name: str):
     """Run all benchmarks and display results."""
+    # Map string backend names to Backend enum
+    backend_map = {
+        'auto': cut.Backend.CPU,  # Default to CPU for auto
+        'vulkan': cut.Backend.Vulkan,
+        'cpu': cut.Backend.CPU,
+        'cpu_simd': cut.Backend.CPU,
+    }
+
+    simd_map = {
+        'cpu': cut.SIMDMode.Scalar,
+        'cpu_simd': cut.SIMDMode.Auto,
+    }
+
+    backend_enum = backend_map.get(backend_name, cut.Backend.CPU)
+    simd_mode = simd_map.get(backend_name, cut.SIMDMode.Auto)
+
     # Initialize the backend
-    initialized_backend = cut.init(backend_name)
+    if backend_enum == cut.Backend.Vulkan:
+        cut.init(cut.Backend.Vulkan, force=True)
+        initialized_backend = "vulkan"
+    else:
+        cut.init(cut.Backend.CPU, simd_mode=simd_mode, force=True)
+        initialized_backend = backend_name if backend_name in ('cpu', 'cpu_simd') else 'cpu'
 
     print("=" * 80)
     print(f"CUT vs NumPy Benchmark - {N:,} elements ({NUM_ITERATIONS} iterations)")
@@ -69,7 +123,7 @@ def run_benchmarks(backend_name: str):
     print("=" * 80)
 
     # Precompile shaders if using Vulkan
-    if initialized_backend == "vulkan":
+    if cut.current_backend() == cut.Backend.Vulkan:
         print("\nPrecompiling shaders...")
         cut.precompile_shaders()
         print("Shader precompilation complete.\n")
@@ -109,8 +163,8 @@ def run_benchmarks(backend_name: str):
     ]
 
     for name, cut_func, np_func, op_a, op_b in binary_ops:
-        cut_time, cut_result = benchmark(cut_func, op_a, op_b, name=name)
-        np_time, np_result = benchmark(np_func, op_a, op_b, name=name)
+        cut_time, cut_result = benchmark_cut(cut_func, op_a, op_b)
+        np_time, np_result = benchmark_numpy(np_func, op_a, op_b)
 
         valid = verify_results(cut_result, np_result, name)
         speedup = np_time / cut_time if cut_time > 0 else float('inf')
@@ -142,8 +196,8 @@ def run_benchmarks(backend_name: str):
     ]
 
     for name, cut_func, np_func, op_a, op_b in comparison_ops:
-        cut_time, cut_result = benchmark(cut_func, op_a, op_b, name=name)
-        np_time, np_result = benchmark(np_func, op_a, op_b, name=name)
+        cut_time, cut_result = benchmark_cut(cut_func, op_a, op_b)
+        np_time, np_result = benchmark_numpy(np_func, op_a, op_b)
 
         valid = verify_results(cut_result, np_result, name)
         speedup = np_time / cut_time if cut_time > 0 else float('inf')
@@ -171,8 +225,8 @@ def run_benchmarks(backend_name: str):
     ]
 
     for name, cut_func, np_func, op_a, op_b in minmax_ops:
-        cut_time, cut_result = benchmark(cut_func, op_a, op_b, name=name)
-        np_time, np_result = benchmark(np_func, op_a, op_b, name=name)
+        cut_time, cut_result = benchmark_cut(cut_func, op_a, op_b)
+        np_time, np_result = benchmark_numpy(np_func, op_a, op_b)
 
         valid = verify_results(cut_result, np_result, name)
         speedup = np_time / cut_time if cut_time > 0 else float('inf')
@@ -220,8 +274,8 @@ def run_benchmarks(backend_name: str):
     ]
 
     for name, cut_func, np_func, op_a in unary_ops:
-        cut_time, cut_result = benchmark(cut_func, op_a, name=name)
-        np_time, np_result = benchmark(np_func, op_a, name=name)
+        cut_time, cut_result = benchmark_cut(cut_func, op_a)
+        np_time, np_result = benchmark_numpy(np_func, op_a)
 
         valid = verify_results(cut_result, np_result.astype(np.float32), name)
         speedup = np_time / cut_time if cut_time > 0 else float('inf')
@@ -266,6 +320,10 @@ def run_benchmarks(backend_name: str):
 
     print(f"\nBest CUT performance: {best['name']} ({best['speedup']:.2f}x faster)")
     print(f"Worst CUT performance: {worst['name']} ({worst['speedup']:.2f}x)")
+
+    # Cleanup all buffers before returning
+    _cleanup_buffers()
+    cut.shutdown()
 
     return results
 

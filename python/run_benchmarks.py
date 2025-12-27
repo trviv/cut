@@ -328,14 +328,20 @@ class CUTRunner(BackendRunner):
         )
 
         if needs_switch:
+            # Clear old buffers first before switching backends
+            self._buffers = {}
+            import gc
+            gc.collect()
+            gc.collect()
+
+            # Initialize the new backend with force=True to reinitialize
             if self.backend_enum == cc.Backend.Vulkan:
-                cc.init(cc.Backend.Vulkan)
+                cc.init(cc.Backend.Vulkan, force=True)
             else:
                 simd = self.simd_mode if self.simd_mode else cc.SIMDMode.Scalar
-                cc.init(cc.Backend.CPU, simd_mode=simd)
+                cc.init(cc.Backend.CPU, simd_mode=simd, force=True)
 
             self._current_backend = self.backend_enum
-            self._buffers = {}  # Clear old buffers
 
         # Create buffers if needed
         if not self._buffers:
@@ -793,7 +799,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
         if verbose:
             print(f"\n{Colors.YELLOW}Precompiling Vulkan shaders...{Colors.RESET}", end=" ", flush=True)
         cc = backends.cut_compute
-        cc.init(cc.Backend.Vulkan)
+        cc.init(cc.Backend.Vulkan, force=True)
         cc.precompile_shaders()
         if verbose:
             print(f"{Colors.GREEN}Done{Colors.RESET}")
@@ -1068,6 +1074,13 @@ Examples:
         export_csv(results, Path(args.csv))
 
     print(f"\n{Colors.DIM}Benchmark complete.{Colors.RESET}\n")
+
+    # Cleanup before exit
+    import gc
+    gc.collect()
+    gc.collect()
+    if backends.cut_compute is not None:
+        backends.cut_compute.shutdown()
 
     all_valid = all(
         (not backends.vulkan_available or r.vulkan.valid or np.isnan(r.vulkan.time_ms)) and

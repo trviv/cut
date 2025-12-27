@@ -14,15 +14,21 @@ import cut.compute as cc
 # Fixtures for Backend Parametrization
 # =============================================================================
 
+import gc
+
+def _cleanup():
+    """Force cleanup of all buffers."""
+    gc.collect()
+    gc.collect()
+
+
 def get_available_backends():
     """Get list of available backends as pytest parameters."""
     backends = []
     if cc.is_cpu_available():
         backends.append(pytest.param(cc.Backend.CPU, id="cpu"))
-    # Skip Vulkan in parametrized tests due to teardown issues
-    # Vulkan can be tested separately with vulkan_backend fixture
-    # if cc.is_vulkan_available():
-    #     backends.append(pytest.param(cc.Backend.Vulkan, id="vulkan"))
+    if cc.is_vulkan_available():
+        backends.append(pytest.param(cc.Backend.Vulkan, id="vulkan"))
     return backends
 
 
@@ -30,8 +36,14 @@ def get_available_backends():
 def backend(request):
     """Fixture that yields each available backend."""
     backend_type = request.param
-    cc.init(backend_type, simd_mode=cc.SIMDMode.Auto)
+    if backend_type == cc.Backend.Vulkan:
+        cc.init(backend_type)
+    else:
+        cc.init(backend_type, simd_mode=cc.SIMDMode.Auto)
     yield backend_type
+    # Cleanup after test
+    _cleanup()
+    cc.shutdown()
 
 
 @pytest.fixture
@@ -41,17 +53,19 @@ def cpu_backend():
         pytest.skip("CPU backend not available")
     cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
     yield cc.Backend.CPU
+    _cleanup()
+    cc.shutdown()
 
 
 @pytest.fixture
 def vulkan_backend():
     """Fixture for Vulkan backend only."""
-    # Skip Vulkan tests due to pre-existing teardown crash issue
-    pytest.skip("Vulkan teardown causes crash - pre-existing issue")
-    # if not cc.is_vulkan_available():
-    #     pytest.skip("Vulkan backend not available")
-    # cc.init(cc.Backend.Vulkan)
-    # yield cc.Backend.Vulkan
+    if not cc.is_vulkan_available():
+        pytest.skip("Vulkan backend not available")
+    cc.init(cc.Backend.Vulkan)
+    yield cc.Backend.Vulkan
+    _cleanup()
+    cc.shutdown()
 
 
 # =============================================================================
@@ -88,7 +102,6 @@ class TestModuleBasics:
         """Test ShaderEnum is an alias for OperatorEnum."""
         assert cc.ShaderEnum is cc.OperatorEnum
 
-    @pytest.mark.skip(reason="Vulkan availability check causes crash - pre-existing issue")
     def test_available_backends(self):
         """Test available_backends returns valid list."""
         available = cc.available_backends()
@@ -129,7 +142,6 @@ class TestBackendInit:
         assert mode in (cc.SIMDMode.Scalar, cc.SIMDMode.SSE,
                        cc.SIMDMode.AVX, cc.SIMDMode.Auto)
 
-    @pytest.mark.skip(reason="Vulkan teardown causes crash - pre-existing issue")
     def test_init_vulkan(self):
         """Test Vulkan backend initialization."""
         if not cc.is_vulkan_available():
@@ -138,13 +150,13 @@ class TestBackendInit:
         backend = cc.init(cc.Backend.Vulkan)
         assert backend == cc.Backend.Vulkan
         assert cc.current_backend() == cc.Backend.Vulkan
+        cc.shutdown()
 
     def test_num_threads_cpu(self, cpu_backend):
         """Test num_threads returns positive value for CPU."""
         threads = cc.num_threads()
         assert threads > 0
 
-    @pytest.mark.skip(reason="Vulkan teardown causes crash - pre-existing issue")
     def test_num_threads_vulkan(self, vulkan_backend):
         """Test num_threads returns 0 for Vulkan."""
         threads = cc.num_threads()
@@ -777,7 +789,6 @@ class TestLargeArrays:
 class TestBackendSwitching:
     """Test switching between backends."""
 
-    @pytest.mark.skip(reason="Vulkan teardown causes crash - pre-existing issue")
     def test_switch_backends(self):
         """Test switching between CPU and Vulkan backends."""
         # Start with CPU
@@ -790,6 +801,11 @@ class TestBackendSwitching:
             cpu_buf = cc.Buffer(data)
             cpu_result = cc.add(cpu_buf, cpu_buf).numpy()
 
+            # Cleanup before switching
+            del cpu_buf
+            _cleanup()
+            cc.shutdown()
+
             # Switch to Vulkan if available
             if cc.is_vulkan_available():
                 cc.init(cc.Backend.Vulkan)
@@ -801,6 +817,11 @@ class TestBackendSwitching:
 
                 # Results should match
                 np.testing.assert_allclose(cpu_result, vk_result)
+
+                # Cleanup
+                del vk_buf
+                _cleanup()
+                cc.shutdown()
 
     def test_simd_mode_switching(self, cpu_backend):
         """Test switching SIMD modes on CPU backend."""

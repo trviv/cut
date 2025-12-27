@@ -473,6 +473,27 @@ PYBIND11_MODULE(_cut_compute, m) {
       py::arg("cmd_buffer"), "Wait for a command buffer to complete");
 
   // =========================================================================
+  // Shutdown function for proper cleanup
+  // =========================================================================
+  m.def(
+      "shutdown",
+      []() {
+        auto &state = ComputeState::instance();
+        // First destroy the interface (which holds Vulkan resources)
+        // This must happen before destroying the VulkanInstance
+        state.interface.reset();
+        // Then destroy the Vulkan instance
+        state.vulkan_instance.reset();
+        // Reset state flags
+        state.vulkan_available = false;
+        state.backend_type = BackendType::CPU;
+        state.simd_mode = cut::SIMDMode::Auto;
+        state.num_threads = 0;
+      },
+      "Shutdown the compute backend and release all resources. "
+      "Must be called before program exit to avoid crashes.");
+
+  // =========================================================================
   // Helper function to get SPIR-V shaders (Vulkan)
   // =========================================================================
   m.def("get_shader", &cut::getShader,
