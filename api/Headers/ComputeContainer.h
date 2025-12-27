@@ -148,7 +148,7 @@ public:
   template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
   const DataType &get(const ComputeHandle &handle) const {
     if (!handle) {
-      throw std::runtime_error("Trying to get data for an empty handle");
+      logErr("Trying to get data for an empty handle, in %s", name());
     }
     verify(handle);
     return objects_[handle.id_];
@@ -160,7 +160,8 @@ protected:
   virtual ~ComputeDataContainer() {
     if (objects_.size() != freeSlotCount()) {
       logErr("Trying to destroy container before all objects in it have "
-             "been deallocated.");
+             "been deallocated, in:  %s",
+             name());
     }
     objects_.clear();
   }
