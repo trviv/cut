@@ -276,6 +276,49 @@ class TestShaderDispatch:
         expected = a + b
         np.testing.assert_allclose(result, expected)
 
+    def test_shader_caching(self, backend):
+        """Test that shaders are cached and reused."""
+        # Clear cache to start fresh
+        cc.clear_shader_cache()
+
+        # First shader creation should not be cached
+        shader1 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd)
+        assert not shader1.cached
+        assert shader1.handle.valid()
+
+        # Second shader with same op should be cached
+        shader2 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd)
+        assert shader2.cached
+        assert shader2.handle.valid()
+
+        # Both should reference the same underlying handle
+        # (they share the same shader module)
+
+        # Check cache stats
+        stats = cc.get_shader_cache_stats()
+        assert stats['size'] >= 1
+
+    def test_shader_cache_different_dtypes(self, backend):
+        """Test that different dtypes get different cached shaders."""
+        cc.clear_shader_cache()
+
+        shader_f32 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd, dtype=np.float32)
+        shader_i32 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd, dtype=np.int32)
+
+        # Both should have been newly compiled (not cached)
+        assert not shader_f32.cached
+        assert not shader_i32.cached
+
+        # Cache should have 2 entries
+        stats = cc.get_shader_cache_stats()
+        assert stats['size'] == 2
+
+        # Creating same shaders again should hit cache
+        shader_f32_2 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd, dtype=np.float32)
+        shader_i32_2 = cc.Shader(cc.OperatorEnum.BinaryVecVecAdd, dtype=np.int32)
+        assert shader_f32_2.cached
+        assert shader_i32_2.cached
+
 
 # =============================================================================
 # Binary Vec-Vec Operations (Float32)
