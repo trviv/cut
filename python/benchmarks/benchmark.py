@@ -16,8 +16,8 @@ import numpy as np
 from typing import List, Dict
 
 import cut.compute as cut
-from cut_utils import init_backend
 from common import (
+    init_backend,
     TestData,
     BenchmarkConfig,
     verify_results,

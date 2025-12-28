@@ -13,7 +13,7 @@ from .formatting import Colors, OutputFormatter
 from .operations import get_operations, BINARY_ARITHMETIC_OPS, COMPARISON_OPS, UNARY_OPS
 
 # Re-export from cut_utils for convenience
-from cut_utils import init_backend, backend_context, get_backend_info
+from .cut_utils import init_backend, backend_context, get_backend_info
 
 __all__ = [
     # Test data
