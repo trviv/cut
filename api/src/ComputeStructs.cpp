@@ -4,6 +4,22 @@
 
 namespace cut {
 
+std::vector<uint32_t> ComputeBuffer::getDimData() const {
+  logErr("Shape cannot be empty!");
+  std::vector<uint32_t> ret(4, 0);
+  ret[0] = shape[0];
+  if (shape.size() >= 2) {
+    ret[1] = shape[1];
+  }
+  for (int i = 2; i < shape.size(); i++) {
+    ret[i] = ret[i - 1] * ret[i];
+  }
+  for (int i = shape.size(); i < 4; i++) {
+    ret[i] = ret[i - 1];
+  }
+  return ret;
+}
+
 ComputeDispatch::ComputeDispatch(const ComputeHandle &shader,
                                  const ThreadSize &wgSize,
                                  const std::vector<ComputeBinding> &bindings)
