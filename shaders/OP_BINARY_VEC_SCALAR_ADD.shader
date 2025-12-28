@@ -1,35 +1,38 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 
 #include "ComputeOpsShared.h"
-
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 // Specialization constants
 layout(constant_id = 0) const uint dtype_vec_size = 4;
 layout(constant_id = 1) const uint op_type = OP_BINARY_VEC_SCALAR_ADD;
 
+// Push constants
 layout(push_constant) uniform PushConstants {
     uint numElements;
     float scalar;
-};
+} pushConstants;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
+// Storage buffers
+layout(set = 0, binding = 0) readonly buffer DataA {
     vec4 dataA[];
 };
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOutput {
+layout(set = 0, binding = 1) writeonly buffer DataOut {
     vec4 dataOut[];
 };
 
-void main() {
-    const uint index = gl_GlobalInvocationID.x;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-    if (index * dtype_vec_size >= numElements) {
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+
+    if (index * dtype_vec_size >= pushConstants.numElements) {
         return;
     }
 
     vec4 a = dataA[index];
-    vec4 s = vec4(scalar);
+    vec4 s = vec4(pushConstants.scalar);
     vec4 result;
 
     switch (op_type) {
@@ -79,7 +82,7 @@ void main() {
             result = max(a, s);
             break;
         default:
-            result = vec4(0.0);
+            result = vec4(0.0, 0.0, 0.0, 0.0);
             break;
     }
 
