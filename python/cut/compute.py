@@ -62,17 +62,29 @@ _live_buffers: weakref.WeakSet = weakref.WeakSet()
 _shader_cache: dict = {}
 
 
-def _cleanup():
-    """Clean up resources at exit."""
-    global _initialized, _shader_cache
-    for buf in list(_live_buffers):
-        if hasattr(buf, '_handle'):
-            buf._handle = None
-    _shader_cache.clear()
-    _initialized = False
+def _atexit_shutdown():
+    """Shutdown handler called automatically at module exit."""
+    global _initialized
+    if _initialized:
+        # Import here to avoid issues during interpreter shutdown
+        import gc as gc_module
+        gc_module.collect()
+        gc_module.collect()
+
+        for buf in list(_live_buffers):
+            if hasattr(buf, '_handle'):
+                buf._handle = None
+        _shader_cache.clear()
+
+        try:
+            _cut_compute.shutdown()
+        except Exception:
+            pass  # Ignore errors during interpreter shutdown
+
+        _initialized = False
 
 
-atexit.register(_cleanup)
+atexit.register(_atexit_shutdown)
 
 
 def available_backends() -> List[str]:

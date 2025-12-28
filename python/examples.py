@@ -287,8 +287,6 @@ def main():
     print("All examples completed successfully!")
     print("=" * 60)
 
-    cc.shutdown()
-
 
 if __name__ == "__main__":
     main()
