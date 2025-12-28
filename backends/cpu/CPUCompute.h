@@ -56,7 +56,7 @@ public:
    * @param immutable Ignored for CPU backend (all buffers are read/write).
    * @return Handle to the created buffer.
    */
-  ComputeHandle createBuffer(const std::vector<size_t> &shape,
+  ComputeHandle createBuffer(const std::vector<uint32_t> &shape,
                              DataType dtype,
                              const void *srcPtr = nullptr,
                              bool immutable = false) override;

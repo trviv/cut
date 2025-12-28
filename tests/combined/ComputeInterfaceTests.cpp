@@ -36,7 +36,7 @@ public:
     setCommandBufferContainer(std::make_unique<MockCommandBufferContainer>());
   }
 
-  ComputeHandle createBuffer(const std::vector<size_t> &,
+  ComputeHandle createBuffer(const std::vector<uint32_t> &,
                              DataType,
                              const void * = nullptr,
                              bool = false) override {

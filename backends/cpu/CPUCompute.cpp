@@ -23,13 +23,20 @@ CPUCompute::~CPUCompute() {
   threadPool_.reset();
 }
 
-ComputeHandle CPUCompute::createBuffer(const std::vector<size_t> &shape,
+ComputeHandle CPUCompute::createBuffer(const std::vector<uint32_t> &shape,
                                        DataType dtype,
                                        const void *srcPtr,
                                        bool /*immutable*/) {
   if (shape.empty()) {
     throw std::runtime_error("Cannot create buffer with empty shape");
   }
+
+  // Convert size_t shape to uint32_t
+  // std::vector<uint32_t> shape32;
+  // shape32.reserve(shape.size());
+  // for (size_t dim : shape) {
+  //   shape32.push_back(static_cast<uint32_t>(dim));
+  // }
 
   const size_t totalSize = calculateAlignedSize(shape, dtype);
 
@@ -39,7 +46,7 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<size_t> &shape,
 
   CPUBufferStruct bufferStruct;
   bufferStruct.size = totalSize;
-  bufferStruct.shape = shape; // Store original shape
+  bufferStruct.shape = std::move(shape);
   bufferStruct.dtype = dtype; // Store element data type
   bufferStruct.data = aligned_alloc(kAlignment, alignedSize);
 
@@ -49,7 +56,7 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<size_t> &shape,
 
   if (srcPtr != nullptr) {
     // Copy actual data to aligned buffer using the helper function
-    copyActualToAligned(srcPtr, bufferStruct.data, shape, dtype);
+    copyActualToAligned(srcPtr, bufferStruct.data, bufferStruct.shape, dtype);
   }
 
   return containers_->bufferContainer.create(std::move(bufferStruct));

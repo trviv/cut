@@ -42,7 +42,7 @@ public:
    * creation.
    * @return Handle to the created buffer.
    */
-  virtual ComputeHandle createBuffer(const std::vector<size_t> &shape,
+  virtual ComputeHandle createBuffer(const std::vector<uint32_t> &shape,
                                      DataType dtype,
                                      const void *hostSourcePtr = nullptr,
                                      bool immutable = false) = 0;
@@ -119,7 +119,7 @@ protected:
    * @param dtype Data type of each element.
    * @return Total size in bytes without alignment padding.
    */
-  static size_t calculateActualSize(const std::vector<size_t> &shape,
+  static size_t calculateActualSize(const std::vector<uint32_t> &shape,
                                     DataType dtype);
 
   /**
@@ -129,7 +129,7 @@ protected:
    * @param dtype Data type of each element.
    * @return Total size in bytes after aligning the innermost dimension.
    */
-  static size_t calculateAlignedSize(const std::vector<size_t> &shape,
+  static size_t calculateAlignedSize(const std::vector<uint32_t> &shape,
                                      DataType dtype);
 
   /**
@@ -146,7 +146,7 @@ protected:
    */
   static void copyActualToAligned(const void *src,
                                   void *dst,
-                                  const std::vector<size_t> &shape,
+                                  const std::vector<uint32_t> &shape,
                                   DataType dtype,
                                   size_t srcOffset = 0,
                                   size_t dstOffset = 0,
@@ -166,7 +166,7 @@ protected:
    */
   static void copyAlignedToActual(const void *src,
                                   void *dst,
-                                  const std::vector<size_t> &shape,
+                                  const std::vector<uint32_t> &shape,
                                   DataType dtype,
                                   size_t srcOffset = 0,
                                   size_t dstOffset = 0,

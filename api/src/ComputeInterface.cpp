@@ -42,29 +42,30 @@ void ComputeInterface::setCommandBufferContainer(
   commandBufferContainer_ = std::move(commandBufferContainer);
 }
 
-size_t ComputeInterface::calculateActualSize(const std::vector<size_t> &shape,
+size_t ComputeInterface::calculateActualSize(const std::vector<uint32_t> &shape,
                                              DataType dtype) {
   if (shape.empty()) {
     return 0;
   }
   size_t totalElements = 1;
-  for (size_t dim : shape) {
+  for (uint32_t dim : shape) {
     totalElements *= dim;
   }
   return totalElements * dataTypeSize(dtype);
 }
 
-size_t ComputeInterface::calculateAlignedSize(const std::vector<size_t> &shape,
-                                              DataType dtype) {
+size_t
+ComputeInterface::calculateAlignedSize(const std::vector<uint32_t> &shape,
+                                       DataType dtype) {
   if (shape.empty()) {
     return 0;
   }
   // Round innermost dimension to multiple of 4
-  std::vector<size_t> alignedShape = shape;
-  alignedShape.back() = (alignedShape.back() + 3) & ~static_cast<size_t>(3);
+  std::vector<uint32_t> alignedShape = shape;
+  alignedShape.back() = (alignedShape.back() + 3) & ~static_cast<uint32_t>(3);
 
   size_t totalElements = 1;
-  for (size_t dim : alignedShape) {
+  for (uint32_t dim : alignedShape) {
     totalElements *= dim;
   }
   return totalElements * dataTypeSize(dtype);
@@ -72,7 +73,7 @@ size_t ComputeInterface::calculateAlignedSize(const std::vector<size_t> &shape,
 
 void ComputeInterface::copyActualToAligned(const void *src,
                                            void *dst,
-                                           const std::vector<size_t> &shape,
+                                           const std::vector<uint32_t> &shape,
                                            DataType dtype,
                                            size_t srcOffset,
                                            size_t dstOffset,
@@ -118,7 +119,7 @@ void ComputeInterface::copyActualToAligned(const void *src,
 
 void ComputeInterface::copyAlignedToActual(const void *src,
                                            void *dst,
-                                           const std::vector<size_t> &shape,
+                                           const std::vector<uint32_t> &shape,
                                            DataType dtype,
                                            size_t srcOffset,
                                            size_t dstOffset,

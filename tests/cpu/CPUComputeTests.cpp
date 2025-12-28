@@ -82,8 +82,8 @@ TEST_F(CPUComputeTest, BufferCreation) {
 
 TEST_F(CPUComputeTest, BufferCreationWithInitialData) {
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
-  auto handle =
-      interface_->createBuffer({data.size()}, DataType::Float32, data.data());
+  auto handle = interface_->createBuffer({static_cast<uint32_t>(data.size())},
+                                         DataType::Float32, data.data());
   EXPECT_TRUE(handle);
 
   // Read back the data (buffer is padded to multiple of 4, but we read original
@@ -100,7 +100,8 @@ TEST_F(CPUComputeTest, BufferCopyRoundTrip) {
   std::vector<float> original(numElements);
   std::iota(original.begin(), original.end(), 0.0f);
 
-  auto handle = interface_->createBuffer({original.size()}, DataType::Float32);
+  auto handle = interface_->createBuffer(
+      {static_cast<uint32_t>(original.size())}, DataType::Float32);
 
   // Copy data to buffer
   interface_->copyDataToBuffer(original.data(), handle,
@@ -116,8 +117,8 @@ TEST_F(CPUComputeTest, BufferCopyRoundTrip) {
 
 TEST_F(CPUComputeTest, BufferPartialCopy) {
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
-  auto handle =
-      interface_->createBuffer({data.size()}, DataType::Float32, data.data());
+  auto handle = interface_->createBuffer({static_cast<uint32_t>(data.size())},
+                                         DataType::Float32, data.data());
 
   // Read only middle portion
   std::vector<float> partial(2);
@@ -142,7 +143,8 @@ TEST_F(CPUComputeTest, AlignedBufferCopyRoundTrip1D) {
   // 8 elements - already aligned (multiple of 4)
   std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f,
                                  5.0f, 6.0f, 7.0f, 8.0f};
-  auto handle = interface_->createBuffer({original.size()}, DataType::Float32);
+  auto handle = interface_->createBuffer(
+      {static_cast<uint32_t>(original.size())}, DataType::Float32);
 
   interface_->copyDataToBuffer(original.data(), handle,
                                original.size() * sizeof(float), 0, 0);
@@ -161,7 +163,8 @@ TEST_F(CPUComputeTest, AlignedBufferCopyRoundTrip2D) {
   std::vector<float> original(rows * cols);
   std::iota(original.begin(), original.end(), 1.0f);
 
-  auto handle = interface_->createBuffer({rows, cols}, DataType::Float32);
+  auto handle = interface_->createBuffer({static_cast<uint32_t>(rows), cols},
+                                         DataType::Float32);
 
   interface_->copyDataToBuffer(original.data(), handle,
                                original.size() * sizeof(float), 0, 0);
@@ -177,7 +180,8 @@ TEST_F(CPUComputeTest, AlignedBufferCopyRoundTrip2D) {
 TEST_F(CPUComputeTest, MisalignedBufferCopyRoundTrip1D) {
   // 5 elements - not aligned (not a multiple of 4)
   std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
-  auto handle = interface_->createBuffer({original.size()}, DataType::Float32);
+  auto handle = interface_->createBuffer(
+      {static_cast<uint32_t>(original.size())}, DataType::Float32);
 
   interface_->copyDataToBuffer(original.data(), handle,
                                original.size() * sizeof(float), 0, 0);
@@ -196,7 +200,9 @@ TEST_F(CPUComputeTest, MisalignedBufferCopyRoundTrip2D) {
   std::vector<float> original(rows * cols);
   std::iota(original.begin(), original.end(), 1.0f);
 
-  auto handle = interface_->createBuffer({rows, cols}, DataType::Float32);
+  auto handle = interface_->createBuffer(
+      {static_cast<uint32_t>(rows), static_cast<uint32_t>(cols)},
+      DataType::Float32);
 
   interface_->copyDataToBuffer(original.data(), handle,
                                original.size() * sizeof(float), 0, 0);
@@ -216,8 +222,10 @@ TEST_F(CPUComputeTest, MisalignedBufferCopyRoundTrip3D) {
   std::vector<float> original(depth * rows * cols);
   std::iota(original.begin(), original.end(), 1.0f);
 
-  auto handle =
-      interface_->createBuffer({depth, rows, cols}, DataType::Float32);
+  auto handle = interface_->createBuffer({static_cast<uint32_t>(depth),
+                                          static_cast<uint32_t>(rows),
+                                          static_cast<uint32_t>(cols)},
+                                         DataType::Float32);
 
   interface_->copyDataToBuffer(original.data(), handle,
                                original.size() * sizeof(float), 0, 0);
@@ -232,8 +240,9 @@ TEST_F(CPUComputeTest, MisalignedBufferCopyRoundTrip3D) {
 TEST_F(CPUComputeTest, MisalignedBufferCreationWithData) {
   // 7 elements - not aligned
   std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f};
-  auto handle = interface_->createBuffer({original.size()}, DataType::Float32,
-                                         original.data());
+  auto handle =
+      interface_->createBuffer({static_cast<uint32_t>(original.size())},
+                               DataType::Float32, original.data());
 
   std::vector<float> readback(original.size());
   interface_->copyDataFromBuffer(handle, readback.data(),
@@ -245,7 +254,8 @@ TEST_F(CPUComputeTest, MisalignedBufferCreationWithData) {
 TEST_F(CPUComputeTest, MisalignedBufferWithUInt32) {
   // 6 elements - not aligned (needs padding to 8)
   std::vector<uint32_t> original = {10, 20, 30, 40, 50, 60};
-  auto handle = interface_->createBuffer({original.size()}, DataType::UInt32);
+  auto handle = interface_->createBuffer(
+      {static_cast<uint32_t>(original.size())}, DataType::UInt32);
 
   interface_->copyDataToBuffer(original.data(), handle,
                                original.size() * sizeof(uint32_t), 0, 0);

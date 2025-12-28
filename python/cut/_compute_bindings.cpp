@@ -344,7 +344,7 @@ PYBIND11_MODULE(_cut_compute, m) {
         auto *iface = state.getInterface();
 
         py::buffer_info info = arr.request();
-        std::vector<size_t> shape(info.shape.begin(), info.shape.end());
+        std::vector<uint32_t> shape(info.shape.begin(), info.shape.end());
         cut::DataType dtype = numpyFormatToDataType(info.format, info.itemsize);
 
         return iface->createBuffer(shape, dtype, info.ptr, is_uniform);
@@ -354,7 +354,7 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "create_buffer_empty",
-      [](std::vector<size_t> shape, cut::DataType dtype, bool is_uniform) {
+      [](std::vector<uint32_t> shape, cut::DataType dtype, bool is_uniform) {
         auto &state = ComputeState::instance();
         auto *iface = state.getInterface();
         return iface->createBuffer(shape, dtype, nullptr, is_uniform);

@@ -72,8 +72,8 @@ TEST_F(VulkanComputeTest, CanCreateBuffer) {
 
 TEST_F(VulkanComputeTest, CanCreateBufferWithInitialData) {
   std::vector<uint32_t> data = {1, 2, 3, 4, 5};
-  auto buffer = compute_->createBuffer({data.size()}, DataType::UInt32,
-                                       data.data(), false);
+  auto buffer = compute_->createBuffer({static_cast<uint32_t>(data.size())},
+                                       DataType::UInt32, data.data(), false);
   EXPECT_TRUE(buffer);
 }
 
@@ -99,7 +99,8 @@ TEST_F(VulkanComputeTest, CanCreateMultipleBuffers) {
 
 TEST_F(VulkanComputeTest, CopyDataToBuffer) {
   std::vector<uint32_t> srcData = {10, 20, 30, 40, 50};
-  auto buffer = compute_->createBuffer({srcData.size()}, DataType::UInt32);
+  auto buffer = compute_->createBuffer({static_cast<uint32_t>(srcData.size())},
+                                       DataType::UInt32);
 
   EXPECT_NO_THROW(compute_->copyDataToBuffer(
       srcData.data(), buffer, srcData.size() * sizeof(uint32_t), 0, 0));
@@ -107,8 +108,8 @@ TEST_F(VulkanComputeTest, CopyDataToBuffer) {
 
 TEST_F(VulkanComputeTest, CopyDataFromBuffer) {
   std::vector<uint32_t> srcData = {10, 20, 30, 40, 50};
-  auto buffer = compute_->createBuffer({srcData.size()}, DataType::UInt32,
-                                       srcData.data());
+  auto buffer = compute_->createBuffer({static_cast<uint32_t>(srcData.size())},
+                                       DataType::UInt32, srcData.data());
 
   std::vector<uint32_t> dstData(5);
   EXPECT_NO_THROW(compute_->copyDataFromBuffer(
@@ -146,7 +147,8 @@ TEST_F(VulkanComputeTest, AlignedBufferCopyRoundTrip1D) {
   // 8 elements - already aligned (multiple of 4)
   std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f,
                                  5.0f, 6.0f, 7.0f, 8.0f};
-  auto handle = compute_->createBuffer({original.size()}, DataType::Float32);
+  auto handle = compute_->createBuffer({static_cast<uint32_t>(original.size())},
+                                       DataType::Float32);
 
   compute_->copyDataToBuffer(original.data(), handle,
                              original.size() * sizeof(float), 0, 0);
@@ -183,7 +185,8 @@ TEST_F(VulkanComputeTest, AlignedBufferCopyRoundTrip2D) {
 TEST_F(VulkanComputeTest, MisalignedBufferCopyRoundTrip1D) {
   // 5 elements - not aligned (not a multiple of 4)
   std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
-  auto handle = compute_->createBuffer({original.size()}, DataType::Float32);
+  auto handle = compute_->createBuffer({static_cast<uint32_t>(original.size())},
+                                       DataType::Float32);
 
   compute_->copyDataToBuffer(original.data(), handle,
                              original.size() * sizeof(float), 0, 0);
@@ -241,8 +244,8 @@ TEST_F(VulkanComputeTest, MisalignedBufferCopyRoundTrip3D) {
 TEST_F(VulkanComputeTest, MisalignedBufferCreationWithData) {
   // 7 elements - not aligned
   std::vector<float> original = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f};
-  auto handle = compute_->createBuffer({original.size()}, DataType::Float32,
-                                       original.data());
+  auto handle = compute_->createBuffer({static_cast<uint32_t>(original.size())},
+                                       DataType::Float32, original.data());
 
   std::vector<float> readback(original.size());
   compute_->copyDataFromBuffer(handle, readback.data(),
@@ -254,7 +257,8 @@ TEST_F(VulkanComputeTest, MisalignedBufferCreationWithData) {
 TEST_F(VulkanComputeTest, MisalignedBufferWithUInt32) {
   // 6 elements - not aligned (needs padding to 8)
   std::vector<uint32_t> original = {10, 20, 30, 40, 50, 60};
-  auto handle = compute_->createBuffer({original.size()}, DataType::UInt32);
+  auto handle = compute_->createBuffer({static_cast<uint32_t>(original.size())},
+                                       DataType::UInt32);
 
   compute_->copyDataToBuffer(original.data(), handle,
                              original.size() * sizeof(uint32_t), 0, 0);

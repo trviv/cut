@@ -11,10 +11,10 @@ std::vector<uint32_t> ComputeBuffer::getDimData() const {
   if (shape.size() >= 2) {
     ret[1] = shape[1];
   }
-  for (int i = 2; i < shape.size(); i++) {
-    ret[i] = ret[i - 1] * ret[i];
+  for (size_t i = 2; i < shape.size(); i++) {
+    ret[i] = ret[i - 1] * shape[i];
   }
-  for (int i = shape.size(); i < 4; i++) {
+  for (size_t i = shape.size(); i < 4; i++) {
     ret[i] = ret[i - 1];
   }
   return ret;

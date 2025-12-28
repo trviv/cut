@@ -19,10 +19,10 @@ public:
   /// Creates a GPU buffer with tensor-like shape.
   /// The innermost dimension is rounded up to a multiple of 4 for alignment.
   ComputeHandle
-  createBuffer(const std::vector<size_t> &shape, // Dimension-wise sizes
-               DataType dtype,                   // Data type of each element
-               const void *srcPtr = nullptr,     // Host source ptr
-               bool isUniform = false) override; // Is uniform buffer
+  createBuffer(const std::vector<uint32_t> &shape, // Dimension-wise sizes
+               DataType dtype,                     // Data type of each element
+               const void *srcPtr = nullptr,       // Host source ptr
+               bool isUniform = false) override;   // Is uniform buffer
 
   /// Copies data from host memory to a GPU buffer.
   void copyDataToBuffer(
@@ -74,7 +74,7 @@ private:
                              bool deviceOnly,
                              const void *srcPtr,
                              bool isUniform,
-                             const std::vector<size_t> &shape,
+                             const std::vector<uint32_t> &shape,
                              DataType dtype);
 
   /// Creates a staging buffer for transfer operations.

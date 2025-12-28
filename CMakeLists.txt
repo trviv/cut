@@ -104,6 +104,7 @@ set(LIB_HEADERS
     backends/cpu/CPUSIMDConfig.h
     backends/cpu/CPUSIMDKernels.h
     shaders/Shaders.h
+    runtime/Runtime.h
 )
 
 # Source files
@@ -125,6 +126,7 @@ set(LIB_SOURCES
     backends/cpu/CPUContainers.cpp
     backends/cpu/CPUCommandBuffer.cpp
     backends/cpu/CPUCompute.cpp
+    runtime/Runtime.cpp
 )
 
 if (OPENL_CL_WITH_VULKAN)
@@ -158,6 +160,7 @@ target_include_directories(CUTLib PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/vulkan
     ${CMAKE_SOURCE_DIR}/backends/cpu
     ${CMAKE_SOURCE_DIR}/shaders
+    ${CMAKE_SOURCE_DIR}/runtime
 )
 
 # macOS specific linking
