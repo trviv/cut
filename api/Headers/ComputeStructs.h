@@ -63,6 +63,19 @@ private:
 };
 
 /**
+ * Base struct for compute buffers across all backends.
+ * Contains common metadata shared by all buffer implementations.
+ */
+struct ComputeBuffer {
+  void *data = nullptr;               ///< Pointer to mapped/accessible data.
+  size_t size = 0;                    ///< Size in bytes.
+  std::vector<size_t> shape;          ///< Dimension-wise sizes (tensor shape).
+  DataType dtype = DataType::Float32; ///< Element data type.
+
+  virtual ~ComputeBuffer() = default;
+};
+
+/**
  * Represents a single compute dispatch operation.
  * Contains shader, thread group size, workgroup size, and resource/data
  * bindings.
