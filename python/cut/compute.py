@@ -57,9 +57,19 @@ ComputeDispatch = _cut_compute.ComputeDispatch
 # Module state
 _initialized = False
 _live_buffers: weakref.WeakSet = weakref.WeakSet()
+_pending_commands = False  # Track if there are pending GPU commands
 
 # Shader cache: maps (OperatorEnum, DataType) -> ComputeHandle
 _shader_cache: dict = {}
+
+
+def _flush_pending():
+    """Submit and wait for any pending GPU commands."""
+    global _pending_commands
+    if _pending_commands:
+        cmd = _cut_compute.submit()
+        _cut_compute.wait(cmd)
+        _pending_commands = False
 
 
 def _atexit_shutdown():
@@ -231,6 +241,7 @@ def shutdown():
 
     This function should be called before program exit when using the Vulkan
     backend to ensure proper cleanup. It:
+    - Flushes any pending GPU commands
     - Forces garbage collection to release Python buffer references
     - Clears all live buffer references
     - Clears the shader cache
@@ -246,7 +257,10 @@ def shutdown():
         >>> # ... use compute operations ...
         >>> cc.shutdown()  # Clean up before exit
     """
-    global _initialized, _live_buffers, _shader_cache
+    global _initialized, _live_buffers, _shader_cache, _pending_commands
+
+    # Flush any pending GPU commands before shutdown
+    _flush_pending()
 
     # Force garbage collection to release Python buffer references
     gc.collect()
@@ -265,6 +279,7 @@ def shutdown():
     _cut_compute.shutdown()
 
     _initialized = False
+    _pending_commands = False
 
 
 # Numpy dtype to DataType mapping
@@ -425,6 +440,7 @@ class Buffer:
         Returns:
             NumPy array with buffer contents
         """
+        _flush_pending()  # Ensure all GPU work is complete before reading
         if out is None:
             if self._dtype is not None and self._shape is not None:
                 out = np.empty(self._shape, dtype=self._dtype)
@@ -436,7 +452,7 @@ class Buffer:
 
     def numpy(self) -> np.ndarray:
         """Get buffer contents as numpy array."""
-        return self.copy_to()
+        return self.copy_to()  # copy_to already flushes pending commands
 
 
 class Shader:
@@ -558,20 +574,31 @@ class Dispatch:
         return self._dispatch
 
 
-def run(*dispatches: Dispatch):
+def run(dispatch: Dispatch):
     """
-    Execute one or more compute dispatches.
+    Execute a compute dispatch.
+
+    For Vulkan backend: dispatch is encoded and executed lazily when buffer
+    data is read back to CPU (via numpy() or copy_to()).
+
+    For CPU backend: dispatch is executed immediately to avoid race conditions
+    with the thread pool.
 
     Args:
-        *dispatches: Dispatch objects to execute
+        dispatch: Dispatch object to execute
     """
+    global _pending_commands
     _ensure_initialized()
 
-    for dispatch in dispatches:
-        _cut_compute.encode(dispatch.inner)
+    _cut_compute.encode(dispatch.inner)
 
-    cmd = _cut_compute.submit()
-    _cut_compute.wait(cmd)
+    # For CPU backend, execute immediately to avoid race conditions
+    # For Vulkan, use lazy execution for better batching
+    if current_backend() == Backend.Vulkan:
+        _pending_commands = True
+    else:
+        cmd = _cut_compute.submit()
+        _cut_compute.wait(cmd)
 
 
 def precompile_shaders() -> int:
