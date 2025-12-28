@@ -202,6 +202,19 @@ def current_backend() -> Backend:
     return _cut_compute.current_backend()
 
 
+def is_gpu() -> bool:
+    """
+    Check if the current backend is a GPU backend.
+
+    GPU backends (Vulkan) use async execution where commands are batched and
+    executed lazily when results are read. CPU backend executes synchronously.
+
+    Returns:
+        True if using GPU backend (Vulkan), False otherwise (CPU)
+    """
+    return current_backend() == Backend.Vulkan
+
+
 def num_threads() -> int:
     """
     Get number of worker threads (CPU backend only).
@@ -592,9 +605,9 @@ def run(dispatch: Dispatch):
 
     _cut_compute.encode(dispatch.inner)
 
-    # For CPU backend, execute immediately to avoid race conditions
-    # For Vulkan, use lazy execution for better batching
-    if current_backend() == Backend.Vulkan:
+    # Async backends (Vulkan) use lazy execution for better batching
+    # Sync backends (CPU) execute immediately
+    if is_gpu():
         _pending_commands = True
     else:
         cmd = _cut_compute.submit()
@@ -611,7 +624,7 @@ def precompile_shaders() -> int:
     """
     _ensure_initialized()
 
-    if current_backend() != Backend.Vulkan:
+    if not is_gpu():
         return 0
 
     # Precompile all operator shaders for all data types
@@ -817,6 +830,7 @@ __all__ = [
     "is_vulkan_available",
     "is_cpu_available",
     "current_backend",
+    "is_gpu",
     "num_threads",
     "simd_mode",
     "set_simd_mode",
