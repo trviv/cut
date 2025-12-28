@@ -2,6 +2,7 @@
 #include <ComputeCommon.h>
 #include <Shaders.h>
 #include <optional>
+#include <string>
 #include <unordered_map>
 
 namespace cut {
@@ -18,18 +19,35 @@ static uint64_t makeCacheKey(OperatorEnum shader, ScalarDataType datatype) {
          static_cast<uint64_t>(datatype);
 }
 
-// Template for binary operations using an operator (e.g., +, -, *, /)
-static const char *binaryVecVecShaderTemplate = R"(
-#version 450
+// =============================================================================
+// Reusable shader template components
+// =============================================================================
+
+// Common shader header with version and workgroup size
+static const char *shaderHeader = R"(#version 450
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
+)";
 
+// Push constants for element count only (binary vec-vec and unary)
+static const char *pushConstantsNumElements = R"(
 layout(push_constant) uniform PushConstants {
     uint numElements;
 };
+)";
 
+// Push constants with scalar value (binary vec-scalar)
+static const char *pushConstantsWithScalar = R"(
+layout(push_constant) uniform PushConstants {
+    uint numElements;
+    %SCALAR_DTYPE% scalar;
+};
+)";
+
+// Buffer declarations for binary vec-vec operations (2 inputs, 1 output)
+static const char *buffersVecVec = R"(
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
     %VEC_DTYPE% dataA[];
 };
@@ -41,102 +59,10 @@ layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
 layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
     %VEC_DTYPE% dataOut[];
 };
-
-void main() {
-    const uint index = gl_GlobalInvocationID.x;
-
-    if (index * dtype_vec_size >= numElements) {
-        return;
-    }
-
-    dataOut[index] = dataA[index] %OP% dataB[index];
-}
 )";
 
-// Template for binary operations using a function (e.g., pow, min, max)
-static const char *binaryVecVecFuncShaderTemplate = R"(
-#version 450
-
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
-
-layout(push_constant) uniform PushConstants {
-    uint numElements;
-};
-
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    %VEC_DTYPE% dataA[];
-};
-
-layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
-    %VEC_DTYPE% dataB[];
-};
-
-layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
-    %VEC_DTYPE% dataOut[];
-};
-
-void main() {
-    const uint index = gl_GlobalInvocationID.x;
-
-    if (index * dtype_vec_size >= numElements) {
-        return;
-    }
-
-    dataOut[index] = %FUNC%(dataA[index], dataB[index]);
-}
-)";
-
-// Template for binary comparison operations (returns 1.0 or 0.0)
-static const char *binaryVecVecCompareShaderTemplate = R"(
-#version 450
-
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
-
-layout(push_constant) uniform PushConstants {
-    uint numElements;
-};
-
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    %VEC_DTYPE% dataA[];
-};
-
-layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
-    %VEC_DTYPE% dataB[];
-};
-
-layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
-    %VEC_DTYPE% dataOut[];
-};
-
-void main() {
-    const uint index = gl_GlobalInvocationID.x;
-
-    if (index * dtype_vec_size >= numElements) {
-        return;
-    }
-
-    dataOut[index] = %VEC_DTYPE%(%EXPR%);
-}
-)";
-
-// Template for binary vec-scalar operations using an operator (e.g., +, -, *,
-// /) Scalar is passed via push constants
-static const char *binaryVecScalarShaderTemplate = R"(
-#version 450
-
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
-
-layout(push_constant) uniform PushConstants {
-    uint numElements;
-    %SCALAR_DTYPE% scalar;
-};
-
+// Buffer declarations for binary vec-scalar operations (1 input, 1 output)
+static const char *buffersVecScalar = R"(
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
     %VEC_DTYPE% dataA[];
 };
@@ -144,96 +70,10 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
 layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOutput {
     %VEC_DTYPE% dataOut[];
 };
-
-void main() {
-    const uint index = gl_GlobalInvocationID.x;
-
-    if (index * dtype_vec_size >= numElements) {
-        return;
-    }
-
-    dataOut[index] = dataA[index] %OP% %VEC_DTYPE%(scalar);
-}
 )";
 
-// Template for binary vec-scalar operations using a function (e.g., pow, min,
-// max) Scalar is passed via push constants
-static const char *binaryVecScalarFuncShaderTemplate = R"(
-#version 450
-
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
-
-layout(push_constant) uniform PushConstants {
-    uint numElements;
-    %SCALAR_DTYPE% scalar;
-};
-
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    %VEC_DTYPE% dataA[];
-};
-
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOutput {
-    %VEC_DTYPE% dataOut[];
-};
-
-void main() {
-    const uint index = gl_GlobalInvocationID.x;
-
-    if (index * dtype_vec_size >= numElements) {
-        return;
-    }
-
-    dataOut[index] = %FUNC%(dataA[index], %VEC_DTYPE%(scalar));
-}
-)";
-
-// Template for binary vec-scalar comparison operations (returns 1.0 or 0.0)
-// Scalar is passed via push constants
-static const char *binaryVecScalarCompareShaderTemplate = R"(
-#version 450
-
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
-
-layout(push_constant) uniform PushConstants {
-    uint numElements;
-    %SCALAR_DTYPE% scalar;
-};
-
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    %VEC_DTYPE% dataA[];
-};
-
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOutput {
-    %VEC_DTYPE% dataOut[];
-};
-
-void main() {
-    const uint index = gl_GlobalInvocationID.x;
-
-    if (index * dtype_vec_size >= numElements) {
-        return;
-    }
-
-    dataOut[index] = %VEC_DTYPE%(%EXPR%);
-}
-)";
-
-// Template for unary operations (e.g., sqrt, sin, cos)
-static const char *unaryShaderTemplate = R"(
-#version 450
-
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
-
-layout(push_constant) uniform PushConstants {
-    uint numElements;
-};
-
+// Buffer declarations for unary operations (1 input, 1 output)
+static const char *buffersUnary = R"(
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
     %VEC_DTYPE% dataIn[];
 };
@@ -241,7 +81,10 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
 layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOutput {
     %VEC_DTYPE% dataOut[];
 };
+)";
 
+// Main function with bounds check and expression
+static const char *mainWithExpression = R"(
 void main() {
     const uint index = gl_GlobalInvocationID.x;
 
@@ -252,6 +95,62 @@ void main() {
     dataOut[index] = %EXPR%;
 }
 )";
+
+// =============================================================================
+// Template assembly functions
+// =============================================================================
+
+// Assemble a binary vec-vec shader
+static std::string assembleBinaryVecVecShader(const char *expr) {
+  std::string shader;
+  shader += shaderHeader;
+  shader += pushConstantsNumElements;
+  shader += buffersVecVec;
+  shader += mainWithExpression;
+
+  // Replace expression placeholder
+  size_t pos = shader.find("%EXPR%");
+  if (pos != std::string::npos) {
+    shader.replace(pos, 6, expr);
+  }
+  return shader;
+}
+
+// Assemble a binary vec-scalar shader
+static std::string assembleBinaryVecScalarShader(const char *expr) {
+  std::string shader;
+  shader += shaderHeader;
+  shader += pushConstantsWithScalar;
+  shader += buffersVecScalar;
+  shader += mainWithExpression;
+
+  // Replace expression placeholder
+  size_t pos = shader.find("%EXPR%");
+  if (pos != std::string::npos) {
+    shader.replace(pos, 6, expr);
+  }
+  return shader;
+}
+
+// Assemble a unary shader
+static std::string assembleUnaryShader(const char *expr) {
+  std::string shader;
+  shader += shaderHeader;
+  shader += pushConstantsNumElements;
+  shader += buffersUnary;
+  shader += mainWithExpression;
+
+  // Replace expression placeholder
+  size_t pos = shader.find("%EXPR%");
+  if (pos != std::string::npos) {
+    shader.replace(pos, 6, expr);
+  }
+  return shader;
+}
+
+// =============================================================================
+// Utility functions
+// =============================================================================
 
 static std::string replaceAll(const std::string &str,
                               const std::string &from,
@@ -295,72 +194,85 @@ static const char *getGLSLScalarType(ScalarDataType datatype) {
   }
 }
 
-static std::string generateBinaryVecVecShader(const char *op,
+// Apply datatype substitutions to assembled shader
+static std::string applyDatatypeSubstitutions(std::string shader,
                                               ScalarDataType datatype) {
-  std::string shader = binaryVecVecShaderTemplate;
   shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
-  shader = replaceAll(shader, "%OP%", op);
+  shader = replaceAll(shader, "%SCALAR_DTYPE%", getGLSLScalarType(datatype));
   shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
   return shader;
 }
 
+// =============================================================================
+// High-level shader generation functions
+// =============================================================================
+
+// Binary vec-vec with operator (e.g., +, -, *, /)
+static std::string generateBinaryVecVecOpShader(const char *op,
+                                                ScalarDataType datatype) {
+  std::string expr = std::string("dataA[index] ") + op + " dataB[index]";
+  std::string shader = assembleBinaryVecVecShader(expr.c_str());
+  return applyDatatypeSubstitutions(shader, datatype);
+}
+
+// Binary vec-vec with function (e.g., pow, min, max)
 static std::string generateBinaryVecVecFuncShader(const char *func,
                                                   ScalarDataType datatype) {
-  std::string shader = binaryVecVecFuncShaderTemplate;
-  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
-  shader = replaceAll(shader, "%FUNC%", func);
-  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
-  return shader;
+  std::string expr = std::string(func) + "(dataA[index], dataB[index])";
+  std::string shader = assembleBinaryVecVecShader(expr.c_str());
+  return applyDatatypeSubstitutions(shader, datatype);
 }
 
-static std::string generateBinaryVecVecCompareShader(const char *expr,
+// Binary vec-vec comparison (returns 1.0 or 0.0)
+static std::string generateBinaryVecVecCompareShader(const char *compareFunc,
                                                      ScalarDataType datatype) {
-  std::string shader = binaryVecVecCompareShaderTemplate;
-  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
-  shader = replaceAll(shader, "%EXPR%", expr);
-  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
-  return shader;
+  std::string expr = std::string(getGLSLType(datatype)) + "(" + compareFunc +
+                     "(dataA[index], dataB[index]))";
+  std::string shader = assembleBinaryVecVecShader(expr.c_str());
+  return applyDatatypeSubstitutions(shader, datatype);
 }
 
-static std::string generateUnaryShader(const char *expr,
-                                       ScalarDataType datatype) {
-  std::string shader = unaryShaderTemplate;
-  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
-  shader = replaceAll(shader, "%EXPR%", expr);
-  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
-  return shader;
+// Binary vec-scalar with operator (e.g., +, -, *, /)
+static std::string generateBinaryVecScalarOpShader(const char *op,
+                                                   ScalarDataType datatype) {
+  std::string vecType = getGLSLType(datatype);
+  std::string expr =
+      std::string("dataA[index] ") + op + " " + vecType + "(scalar)";
+  std::string shader = assembleBinaryVecScalarShader(expr.c_str());
+  return applyDatatypeSubstitutions(shader, datatype);
 }
 
-static std::string generateBinaryVecScalarShader(const char *op,
-                                                 ScalarDataType datatype) {
-  std::string shader = binaryVecScalarShaderTemplate;
-  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
-  shader = replaceAll(shader, "%SCALAR_DTYPE%", getGLSLScalarType(datatype));
-  shader = replaceAll(shader, "%OP%", op);
-  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
-  return shader;
-}
-
+// Binary vec-scalar with function (e.g., pow, min, max)
 static std::string generateBinaryVecScalarFuncShader(const char *func,
                                                      ScalarDataType datatype) {
-  std::string shader = binaryVecScalarFuncShaderTemplate;
-  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
-  shader = replaceAll(shader, "%SCALAR_DTYPE%", getGLSLScalarType(datatype));
-  shader = replaceAll(shader, "%FUNC%", func);
-  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
-  return shader;
+  std::string vecType = getGLSLType(datatype);
+  std::string expr =
+      std::string(func) + "(dataA[index], " + vecType + "(scalar))";
+  std::string shader = assembleBinaryVecScalarShader(expr.c_str());
+  return applyDatatypeSubstitutions(shader, datatype);
 }
 
+// Binary vec-scalar comparison (returns 1.0 or 0.0)
 static std::string
-generateBinaryVecScalarCompareShader(const std::string &expr,
+generateBinaryVecScalarCompareShader(const char *compareFunc,
                                      ScalarDataType datatype) {
-  std::string shader = binaryVecScalarCompareShaderTemplate;
-  shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
-  shader = replaceAll(shader, "%SCALAR_DTYPE%", getGLSLScalarType(datatype));
-  shader = replaceAll(shader, "%EXPR%", expr);
-  shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
-  return shader;
+  std::string vecType = getGLSLType(datatype);
+  std::string expr =
+      vecType + "(" + compareFunc + "(dataA[index], " + vecType + "(scalar)))";
+  std::string shader = assembleBinaryVecScalarShader(expr.c_str());
+  return applyDatatypeSubstitutions(shader, datatype);
 }
+
+// Unary operation
+static std::string generateUnaryShader(const char *expr,
+                                       ScalarDataType datatype) {
+  std::string shader = assembleUnaryShader(expr);
+  return applyDatatypeSubstitutions(shader, datatype);
+}
+
+// =============================================================================
+// Main shader generation entry point
+// =============================================================================
 
 std::optional<std::vector<uint32_t>>
 getGeneratedShader(const OperatorEnum shader, const ScalarDataType datatype) {
@@ -377,25 +289,24 @@ getGeneratedShader(const OperatorEnum shader, const ScalarDataType datatype) {
   std::string shaderName = "generated_shader";
 
   switch (shader) {
-  // Binary arithmetic operations
+  // Binary vec-vec arithmetic operations
   case BinaryVecVecAdd:
-    shaderSource = generateBinaryVecVecShader("+", datatype);
+    shaderSource = generateBinaryVecVecOpShader("+", datatype);
     shaderName = "binary_vec_vec_add";
     break;
   case BinaryVecVecSub:
-    shaderSource = generateBinaryVecVecShader("-", datatype);
+    shaderSource = generateBinaryVecVecOpShader("-", datatype);
     shaderName = "binary_vec_vec_sub";
     break;
   case BinaryVecVecMul:
-    shaderSource = generateBinaryVecVecShader("*", datatype);
+    shaderSource = generateBinaryVecVecOpShader("*", datatype);
     shaderName = "binary_vec_vec_mul";
     break;
   case BinaryVecVecDiv:
-    shaderSource = generateBinaryVecVecShader("/", datatype);
+    shaderSource = generateBinaryVecVecOpShader("/", datatype);
     shaderName = "binary_vec_vec_div";
     break;
   case BinaryVecVecMod:
-    // GLSL uses mod() instead of fmod()
     shaderSource = generateBinaryVecVecFuncShader("mod", datatype);
     shaderName = "binary_vec_vec_mod";
     break;
@@ -403,47 +314,42 @@ getGeneratedShader(const OperatorEnum shader, const ScalarDataType datatype) {
     shaderSource = generateBinaryVecVecFuncShader("pow", datatype);
     shaderName = "binary_vec_vec_pow";
     break;
-  case BinaryVecVecFloorDiv:
-    // floor(a / b) - integer division rounded down
-    shaderSource = generateBinaryVecVecShader("/", datatype);
-    shaderSource = replaceAll(shaderSource, "dataA[index] / dataB[index]",
-                              "floor(dataA[index] / dataB[index])");
+  case BinaryVecVecFloorDiv: {
+    std::string expr = "floor(dataA[index] / dataB[index])";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
     shaderName = "binary_vec_vec_floor_div";
     break;
+  }
 
-  // Binary comparison operations
+  // Binary vec-vec comparison operations
   case BinaryVecVecEqual:
-    shaderSource = generateBinaryVecVecCompareShader(
-        "equal(dataA[index], dataB[index])", datatype);
+    shaderSource = generateBinaryVecVecCompareShader("equal", datatype);
     shaderName = "binary_vec_vec_equal";
     break;
   case BinaryVecVecNotEqual:
-    shaderSource = generateBinaryVecVecCompareShader(
-        "notEqual(dataA[index], dataB[index])", datatype);
+    shaderSource = generateBinaryVecVecCompareShader("notEqual", datatype);
     shaderName = "binary_vec_vec_not_equal";
     break;
   case BinaryVecVecLess:
-    shaderSource = generateBinaryVecVecCompareShader(
-        "lessThan(dataA[index], dataB[index])", datatype);
+    shaderSource = generateBinaryVecVecCompareShader("lessThan", datatype);
     shaderName = "binary_vec_vec_less";
     break;
   case BinaryVecVecLessEqual:
-    shaderSource = generateBinaryVecVecCompareShader(
-        "lessThanEqual(dataA[index], dataB[index])", datatype);
+    shaderSource = generateBinaryVecVecCompareShader("lessThanEqual", datatype);
     shaderName = "binary_vec_vec_less_equal";
     break;
   case BinaryVecVecGreater:
-    shaderSource = generateBinaryVecVecCompareShader(
-        "greaterThan(dataA[index], dataB[index])", datatype);
+    shaderSource = generateBinaryVecVecCompareShader("greaterThan", datatype);
     shaderName = "binary_vec_vec_greater";
     break;
   case BinaryVecVecGreaterEqual:
-    shaderSource = generateBinaryVecVecCompareShader(
-        "greaterThanEqual(dataA[index], dataB[index])", datatype);
+    shaderSource =
+        generateBinaryVecVecCompareShader("greaterThanEqual", datatype);
     shaderName = "binary_vec_vec_greater_equal";
     break;
 
-  // Binary min/max operations
+  // Binary vec-vec min/max operations
   case BinaryVecVecMin:
     shaderSource = generateBinaryVecVecFuncShader("min", datatype);
     shaderName = "binary_vec_vec_min";
@@ -455,19 +361,19 @@ getGeneratedShader(const OperatorEnum shader, const ScalarDataType datatype) {
 
   // Binary vec-scalar arithmetic operations
   case BinaryVecScalarAdd:
-    shaderSource = generateBinaryVecScalarShader("+", datatype);
+    shaderSource = generateBinaryVecScalarOpShader("+", datatype);
     shaderName = "binary_vec_scalar_add";
     break;
   case BinaryVecScalarSub:
-    shaderSource = generateBinaryVecScalarShader("-", datatype);
+    shaderSource = generateBinaryVecScalarOpShader("-", datatype);
     shaderName = "binary_vec_scalar_sub";
     break;
   case BinaryVecScalarMul:
-    shaderSource = generateBinaryVecScalarShader("*", datatype);
+    shaderSource = generateBinaryVecScalarOpShader("*", datatype);
     shaderName = "binary_vec_scalar_mul";
     break;
   case BinaryVecScalarDiv:
-    shaderSource = generateBinaryVecScalarShader("/", datatype);
+    shaderSource = generateBinaryVecScalarOpShader("/", datatype);
     shaderName = "binary_vec_scalar_div";
     break;
   case BinaryVecScalarMod:
@@ -478,57 +384,41 @@ getGeneratedShader(const OperatorEnum shader, const ScalarDataType datatype) {
     shaderSource = generateBinaryVecScalarFuncShader("pow", datatype);
     shaderName = "binary_vec_scalar_pow";
     break;
-  case BinaryVecScalarFloorDiv:
-    shaderSource = generateBinaryVecScalarShader("/", datatype);
-    shaderSource = replaceAll(
-        shaderSource,
-        "dataA[index] / " + std::string(getGLSLType(datatype)) + "(scalar)",
-        "floor(dataA[index] / " + std::string(getGLSLType(datatype)) +
-            "(scalar))");
+  case BinaryVecScalarFloorDiv: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = "floor(dataA[index] / " + vecType + "(scalar))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
     shaderName = "binary_vec_scalar_floor_div";
     break;
+  }
 
   // Binary vec-scalar comparison operations
   case BinaryVecScalarEqual:
-    shaderSource = generateBinaryVecScalarCompareShader(
-        "equal(dataA[index], " + std::string(getGLSLType(datatype)) +
-            "(scalar))",
-        datatype);
+    shaderSource = generateBinaryVecScalarCompareShader("equal", datatype);
     shaderName = "binary_vec_scalar_equal";
     break;
   case BinaryVecScalarNotEqual:
-    shaderSource = generateBinaryVecScalarCompareShader(
-        "notEqual(dataA[index], " + std::string(getGLSLType(datatype)) +
-            "(scalar))",
-        datatype);
+    shaderSource = generateBinaryVecScalarCompareShader("notEqual", datatype);
     shaderName = "binary_vec_scalar_not_equal";
     break;
   case BinaryVecScalarLess:
-    shaderSource = generateBinaryVecScalarCompareShader(
-        "lessThan(dataA[index], " + std::string(getGLSLType(datatype)) +
-            "(scalar))",
-        datatype);
+    shaderSource = generateBinaryVecScalarCompareShader("lessThan", datatype);
     shaderName = "binary_vec_scalar_less";
     break;
   case BinaryVecScalarLessEqual:
-    shaderSource = generateBinaryVecScalarCompareShader(
-        "lessThanEqual(dataA[index], " + std::string(getGLSLType(datatype)) +
-            "(scalar))",
-        datatype);
+    shaderSource =
+        generateBinaryVecScalarCompareShader("lessThanEqual", datatype);
     shaderName = "binary_vec_scalar_less_equal";
     break;
   case BinaryVecScalarGreater:
-    shaderSource = generateBinaryVecScalarCompareShader(
-        "greaterThan(dataA[index], " + std::string(getGLSLType(datatype)) +
-            "(scalar))",
-        datatype);
+    shaderSource =
+        generateBinaryVecScalarCompareShader("greaterThan", datatype);
     shaderName = "binary_vec_scalar_greater";
     break;
   case BinaryVecScalarGreaterEqual:
-    shaderSource = generateBinaryVecScalarCompareShader(
-        "greaterThanEqual(dataA[index], " + std::string(getGLSLType(datatype)) +
-            "(scalar))",
-        datatype);
+    shaderSource =
+        generateBinaryVecScalarCompareShader("greaterThanEqual", datatype);
     shaderName = "binary_vec_scalar_greater_equal";
     break;
 
