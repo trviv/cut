@@ -6,7 +6,7 @@ namespace cut {
 
 std::vector<uint32_t> ComputeBuffer::getDimData() const {
   logErr("Shape cannot be empty!");
-  std::vector<uint32_t> ret(4, 0);
+  std::vector<uint32_t> ret(4, 1);
   ret[0] = shape[0];
   if (shape.size() >= 2) {
     ret[1] = shape[1];
