@@ -85,6 +85,7 @@ def benchmark_cut(func: Callable, *args, **kwargs) -> Tuple[float, np.ndarray]:
     for _ in range(NUM_ITERATIONS):
         start = time.perf_counter()
         result = func(*args)
+        result = result.numpy() # do this so commands are flushed
         end = time.perf_counter()
         times.append(end - start)
 

@@ -76,6 +76,7 @@ def benchmark_cut(func, *args, config: BenchmarkConfig = DEFAULT_CONFIG):
     for _ in range(config.num_iterations):
         start = time.perf_counter()
         result = func(*buffer_args)
+        result = result.numpy() # do this so commands are flushed
         end = time.perf_counter()
         times.append(end - start)
 
