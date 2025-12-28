@@ -15,11 +15,14 @@ set(EMBEDDED_SHADERS "")
 function(compile_shader SHADER_SOURCE)
     get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
     set(SHADER_BINARY ${SHADER_BINARY_DIR}/${SHADER_NAME}_shader.spv)
-    
+
+    # Include paths for shader headers
+    set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/api/Headers)
+
     add_custom_command(
         OUTPUT ${SHADER_BINARY}
-        COMMAND ${Vulkan_GLSLC_EXECUTABLE} -mfmt=c -fshader-stage=comp ${SHADER_SOURCE} -o ${SHADER_BINARY} --target-env=vulkan1.0 -O
-        DEPENDS ${SHADER_SOURCE}
+        COMMAND ${Vulkan_GLSLC_EXECUTABLE} -mfmt=c -fshader-stage=comp -I${SHADER_INCLUDE_DIR} ${SHADER_SOURCE} -o ${SHADER_BINARY} --target-env=vulkan1.0 -O
+        DEPENDS ${SHADER_SOURCE} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
         COMMENT "Compiling ${SHADER_NAME} to SPIR-V"
         VERBATIM
     )
