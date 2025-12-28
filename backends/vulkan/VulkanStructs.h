@@ -25,19 +25,16 @@ struct VulkanContextConfig {
 
 /// Represents a GPU buffer with its memory allocation and mapping state.
 /// Supports both VMA-managed and manual memory allocation strategies.
-struct VulkanBufferStruct {
+/// Inherits common buffer properties from ComputeBuffer.
+struct VulkanBufferStruct : public ComputeBuffer {
   static constexpr std::string_view Name = "VulkanBufferStruct";
 
   VkBuffer buffer = VK_NULL_HANDLE;
-  VkDeviceSize size = 0;
   VkDeviceSize offset = 0;
-  void *mappedData = nullptr;
   bool isCoherent = false;
-  std::vector<size_t> shape; ///< Dimension-wise sizes (like tensor shape).
-  DataType dtype = DataType::Float32; ///< Element data type.
 
   /// Returns true if this buffer is device-only (not host-visible).
-  bool isDeviceOnly() const { return mappedData == nullptr; }
+  bool isDeviceOnly() const { return data == nullptr; }
 
   // VMA dependent members
   IF_VMA_ENABLED_THEN(VmaAllocation allocation = VK_NULL_HANDLE);

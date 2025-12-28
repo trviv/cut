@@ -241,7 +241,7 @@ ComputeHandle VulkanCompute::createBuffer(size_t size,
   // Only map host-visible memory
   if (memoryPropertyFlag & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
     VK_CHECK(vkMapMemory(device_, bufferStruct.memory, 0, alignedSize, 0,
-                         &bufferStruct.mappedData));
+                         &bufferStruct.data));
   }
   bufferStruct.isCoherent =
       (memoryPropertyFlag & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
@@ -282,7 +282,7 @@ VulkanBufferStruct VulkanCompute::createStagingBuffer(size_t size) {
   VK_CHECK(vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo,
                            &stagingBuffer.buffer, &stagingBuffer.allocation,
                            &allocationInfo));
-  stagingBuffer.mappedData = allocationInfo.pMappedData;
+  stagingBuffer.data = allocationInfo.pMappedData;
   stagingBuffer.isCoherent = true;
 #else
   const VkMemoryPropertyFlags memoryPropertyFlag =
@@ -312,7 +312,7 @@ VulkanBufferStruct VulkanCompute::createStagingBuffer(size_t size) {
                               stagingBuffer.memory, 0));
 
   VK_CHECK(vkMapMemory(device_, stagingBuffer.memory, 0, alignedSize, 0,
-                       &stagingBuffer.mappedData));
+                       &stagingBuffer.data));
   stagingBuffer.isCoherent = true;
 #endif
 
@@ -327,7 +327,7 @@ void VulkanCompute::destroyStagingBuffer(VulkanBufferStruct &stagingBuffer) {
 #if CUT_USE_VMA
   vmaDestroyBuffer(allocator_, stagingBuffer.buffer, stagingBuffer.allocation);
 #else
-  if (stagingBuffer.mappedData != nullptr) {
+  if (stagingBuffer.data != nullptr) {
     vkUnmapMemory(device_, stagingBuffer.memory);
   }
   vkFreeMemory(device_, stagingBuffer.memory, nullptr);
@@ -335,7 +335,7 @@ void VulkanCompute::destroyStagingBuffer(VulkanBufferStruct &stagingBuffer) {
 #endif
 
   stagingBuffer.buffer = VK_NULL_HANDLE;
-  stagingBuffer.mappedData = nullptr;
+  stagingBuffer.data = nullptr;
 }
 
 void VulkanCompute::executeBufferCopy(VkBuffer srcBuffer,
@@ -407,7 +407,7 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
                                      bool useStaging,
                                      bool wait) {
   const auto &buffer = containers_->bufferContainer.getBuffer(dstBuffer);
-  const bool localUseStaging = useStaging || (buffer.mappedData == nullptr);
+  const bool localUseStaging = useStaging || (buffer.data == nullptr);
 
   if (buffer.size < dstOffset + size) {
     logErr("Trying to write data outside destination buffer range.");
@@ -422,14 +422,14 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
         isFullCopy ? calculateAlignedSize(buffer.shape, buffer.dtype) : size;
     VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
-    copyActualToAligned(srcPtr, stagingBuffer.mappedData, buffer.shape,
-                        buffer.dtype, isFullCopy ? 0 : srcOffset, 0, size);
+    copyActualToAligned(srcPtr, stagingBuffer.data, buffer.shape, buffer.dtype,
+                        isFullCopy ? 0 : srcOffset, 0, size);
     executeBufferCopy(stagingBuffer.buffer, buffer.buffer, copySize, 0,
                       isFullCopy ? 0 : dstOffset);
     destroyStagingBuffer(stagingBuffer);
   } else {
     // Host-visible buffer - use unified copy function
-    copyActualToAligned(srcPtr, buffer.mappedData, buffer.shape, buffer.dtype,
+    copyActualToAligned(srcPtr, buffer.data, buffer.shape, buffer.dtype,
                         srcOffset, dstOffset, size);
 
     // Flush memory to make writes visible to GPU
@@ -459,7 +459,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
                                        bool useStaging,
                                        bool wait) {
   const auto &buffer = containers_->bufferContainer.getBuffer(srcBuffer);
-  const bool localUseStaging = useStaging || (buffer.mappedData == nullptr);
+  const bool localUseStaging = useStaging || (buffer.data == nullptr);
 
   if (buffer.size < srcOffset + size) {
     logErr("Trying to read data outside source buffer range.");
@@ -476,8 +476,8 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
 
     executeBufferCopy(buffer.buffer, stagingBuffer.buffer, copySize,
                       isFullCopy ? 0 : srcOffset, 0);
-    copyAlignedToActual(stagingBuffer.mappedData, dstPtr, buffer.shape,
-                        buffer.dtype, 0, isFullCopy ? 0 : dstOffset, size);
+    copyAlignedToActual(stagingBuffer.data, dstPtr, buffer.shape, buffer.dtype,
+                        0, isFullCopy ? 0 : dstOffset, size);
     destroyStagingBuffer(stagingBuffer);
   } else {
     // Invalidate memory to make GPU writes visible to CPU
@@ -499,7 +499,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     }
 
     // Host-visible buffer - use unified copy function
-    copyAlignedToActual(buffer.mappedData, dstPtr, buffer.shape, buffer.dtype,
+    copyAlignedToActual(buffer.data, dstPtr, buffer.shape, buffer.dtype,
                         srcOffset, dstOffset, size);
   }
 }

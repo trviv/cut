@@ -15,14 +15,10 @@ class CPUContainers;
 
 /**
  * CPU buffer data structure.
+ * Inherits common buffer properties from ComputeBuffer.
  */
-struct CPUBufferStruct {
+struct CPUBufferStruct : public ComputeBuffer {
   static constexpr std::string_view Name = "CPUBuffer";
-
-  void *data = nullptr;
-  size_t size = 0;
-  std::vector<size_t> shape; ///< Dimension-wise sizes (like tensor shape).
-  DataType dtype = DataType::Float32; ///< Element data type.
 };
 
 /**

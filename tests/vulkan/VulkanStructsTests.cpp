@@ -28,7 +28,7 @@ TEST(VulkanBufferStruct, DefaultInitialization) {
   EXPECT_EQ(buffer.buffer, VK_NULL_HANDLE);
   EXPECT_EQ(buffer.size, 0);
   EXPECT_EQ(buffer.offset, 0);
-  EXPECT_EQ(buffer.mappedData, nullptr);
+  EXPECT_EQ(buffer.data, nullptr);
   EXPECT_FALSE(buffer.isCoherent);
 }
 

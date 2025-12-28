@@ -72,7 +72,7 @@ void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
   auto &buffer = get(handle);
 
 #if CUT_USE_VMA
-  if (buffer.mappedData != nullptr) {
+  if (buffer.data != nullptr) {
     vmaUnmapMemory(allocator_, buffer.allocation);
   }
 
@@ -80,7 +80,7 @@ void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
     vmaDestroyBuffer(allocator_, buffer.buffer, buffer.allocation);
   }
 #else
-  if (buffer.mappedData != nullptr) {
+  if (buffer.data != nullptr) {
     vkUnmapMemory(getDevice(), buffer.memory);
   }
 
