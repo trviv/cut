@@ -99,11 +99,8 @@ def run_benchmarks(backend_name: str, config: BenchmarkConfig = DEFAULT_CONFIG):
     )
     print(f"Backend: {initialized_backend.upper()}")
 
-    # Precompile shaders if using Vulkan
     if cut.current_backend() == cut.Backend.Vulkan:
-        print("\nPrecompiling shaders...")
-        cut.precompile_shaders()
-        print("Shader precompilation complete.\n")
+        print()  # blank line
     else:
         print(f"\nUsing {cut.num_threads()} threads, SIMD mode: {cut.simd_mode()}\n")
 

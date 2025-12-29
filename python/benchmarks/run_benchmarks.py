@@ -557,16 +557,6 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
             print(f"  - JAX:        Not available")
         print(f"  - NumPy:      {np.__version__}")
 
-    # Precompile Vulkan shaders
-    if backends.vulkan_available and backends.cut_compute is not None:
-        if verbose:
-            print(f"\n{Colors.YELLOW}Precompiling Vulkan shaders...{Colors.RESET}", end=" ", flush=True)
-        cc = backends.cut_compute
-        cc.init(cc.Backend.Vulkan, force=True)
-        cc.precompile_shaders()
-        if verbose:
-            print(f"{Colors.GREEN}Done{Colors.RESET}")
-
     # Generate test data and create runners
     data = TestData.generate(config.num_elements, config.seed)
 

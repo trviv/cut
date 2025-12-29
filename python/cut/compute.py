@@ -26,8 +26,7 @@ import atexit
 import gc
 import weakref
 import numpy as np
-from typing import Optional, Union, List, Any
-from enum import Enum, auto
+from typing import Optional, Union, List
 
 # Import the unified C++ binding
 from . import _cut_compute
@@ -58,9 +57,6 @@ ComputeDispatch = _cut_compute.ComputeDispatch
 _initialized = False
 _live_buffers: weakref.WeakSet = weakref.WeakSet()
 
-# Shader cache: maps (OperatorEnum, DataType) -> ComputeHandle
-_shader_cache: dict = {}
-
 
 def _atexit_shutdown():
     """Shutdown handler called automatically at module exit."""
@@ -74,7 +70,6 @@ def _atexit_shutdown():
         for buf in list(_live_buffers):
             if hasattr(buf, '_handle'):
                 buf._handle = None
-        _shader_cache.clear()
 
         try:
             _cut_compute.shutdown()
@@ -158,8 +153,6 @@ def init(
             if hasattr(buf, '_handle'):
                 buf._handle = None
         _live_buffers = weakref.WeakSet()
-        # Clear shader cache (shaders are tied to the backend instance)
-        _shader_cache.clear()
         # Shutdown the old backend
         _cut_compute.shutdown()
         _initialized = False
@@ -243,7 +236,6 @@ def shutdown():
     backend to ensure proper cleanup. It:
     - Forces garbage collection to release Python buffer references
     - Clears all live buffer references
-    - Clears the shader cache
     - Destroys the compute interface
     - Destroys the Vulkan instance (if using Vulkan)
 
@@ -256,7 +248,7 @@ def shutdown():
         >>> # ... use compute operations ...
         >>> cc.shutdown()  # Clean up before exit
     """
-    global _initialized, _live_buffers, _shader_cache
+    global _initialized, _live_buffers
 
     # Force garbage collection to release Python buffer references
     gc.collect()
@@ -267,9 +259,6 @@ def shutdown():
         if hasattr(buf, '_handle'):
             buf._handle = None
     _live_buffers = weakref.WeakSet()
-
-    # Clear shader cache
-    _shader_cache.clear()
 
     # Call C++ shutdown to properly destroy Vulkan resources
     _cut_compute.shutdown()
@@ -449,198 +438,6 @@ class Buffer:
         return self.copy_to()
 
 
-class Shader:
-    """
-    Unified shader/kernel class.
-
-    For Vulkan, this wraps a compiled SPIR-V shader module.
-    For CPU, this wraps a kernel function reference.
-
-    Shaders are cached by (operator, dtype) to avoid recompilation.
-    """
-
-    def __init__(
-        self,
-        op_or_spirv: Union[OperatorEnum, List[int]],
-        dtype: Optional[np.dtype] = None
-    ):
-        """
-        Create a shader/kernel.
-
-        Args:
-            op_or_spirv: OperatorEnum for built-in ops, or SPIR-V bytecode list
-            dtype: NumPy dtype for type-specific shaders (Vulkan)
-
-        Example:
-            >>> shader = Shader(OperatorEnum.BinaryVecVecAdd)
-            >>> shader = Shader(OperatorEnum.BinaryVecVecAdd, dtype=np.int32)
-        """
-        _ensure_initialized()
-
-        if isinstance(op_or_spirv, (list, tuple)):
-            # SPIR-V bytecode - not cached (custom shaders)
-            self._handle = _cut_compute.create_shader_from_spirv(op_or_spirv)
-            self._op = None
-            self._cached = False
-        else:
-            # Operator enum - check cache first
-            cut_dtype = DataType.Float32
-            if dtype is not None:
-                cut_dtype = _numpy_dtype_to_cut(dtype)
-
-            cache_key = (op_or_spirv, cut_dtype)
-            if cache_key in _shader_cache:
-                # Use cached shader handle
-                self._handle = _shader_cache[cache_key]
-                self._cached = True
-            else:
-                # Create new shader and cache it
-                self._handle = _cut_compute.create_shader(op_or_spirv, cut_dtype)
-                _shader_cache[cache_key] = self._handle
-                self._cached = False
-
-            self._op = op_or_spirv
-
-    @property
-    def handle(self) -> ComputeHandle:
-        """Get the underlying compute handle."""
-        return self._handle
-
-    @property
-    def cached(self) -> bool:
-        """Returns True if this shader was retrieved from cache."""
-        return self._cached
-
-
-class Dispatch:
-    """
-    Unified dispatch class for executing compute operations.
-    """
-
-    def __init__(self, shader: Shader, thread_groups: tuple = (1, 1, 1)):
-        """
-        Create a compute dispatch.
-
-        Args:
-            shader: Shader/Kernel to execute
-            thread_groups: Number of thread groups (x, y, z)
-        """
-        _ensure_initialized()
-
-        self._dispatch = ComputeDispatch(shader.handle)
-        self._dispatch.set_workgroup_size(
-            ThreadSize(thread_groups[0], thread_groups[1], thread_groups[2])
-        )
-        self._bindings = []  # Keep references alive
-
-    def bind(
-        self,
-        resource: Union[Buffer, np.ndarray, int, float],
-        binding: int
-    ) -> "Dispatch":
-        """
-        Bind a resource to a binding point.
-
-        Args:
-            resource: Buffer, numpy array, int, or float
-            binding: Binding index
-
-        Returns:
-            self for chaining
-        """
-        if isinstance(resource, Buffer):
-            self._dispatch.bind_resource(resource.handle, binding)
-        elif isinstance(resource, np.ndarray):
-            data = np.ascontiguousarray(resource)
-            self._dispatch.bind_data(data, binding)
-            self._bindings.append(data)  # Keep reference alive
-        elif isinstance(resource, int):
-            self._dispatch.bind_uint(resource, binding)
-        elif isinstance(resource, float):
-            self._dispatch.bind_float(resource, binding)
-        else:
-            raise TypeError(f"Unsupported resource type: {type(resource)}")
-        return self
-
-    @property
-    def inner(self) -> ComputeDispatch:
-        """Get the underlying dispatch object."""
-        return self._dispatch
-
-
-def run(dispatch: Dispatch):
-    """
-    Execute a compute dispatch.
-
-    Args:
-        dispatch: Dispatch object to execute
-    """
-    _ensure_initialized()
-    _cut_compute.encode_and_maybe_submit(dispatch.inner)
-
-
-def precompile_shaders() -> int:
-    """
-    Precompile all shaders and populate the shader cache (Vulkan backend only).
-    For CPU backend, this is a no-op.
-
-    Returns:
-        Number of shaders compiled (0 for CPU backend)
-    """
-    _ensure_initialized()
-
-    if not is_gpu():
-        return 0
-
-    # Precompile all operator shaders for all data types
-    # Using Shader class automatically populates the cache
-    dtypes = [np.float32, np.int32, np.uint32]
-    compiled = 0
-
-    for op in OperatorEnum.__members__.values():
-        for dtype in dtypes:
-            try:
-                shader = Shader(op, dtype=dtype)
-                if not shader.cached:
-                    compiled += 1
-            except Exception:
-                pass  # Some combinations may not exist
-
-    return compiled
-
-
-def get_shader_cache_stats() -> dict:
-    """
-    Get statistics about the shader cache.
-
-    Returns:
-        Dictionary with cache statistics:
-        - size: Number of cached shaders
-        - entries: List of (op_name, dtype_name) tuples for cached shaders
-    """
-    entries = []
-    for (op, dtype) in _shader_cache.keys():
-        op_name = op.name if hasattr(op, 'name') else str(op)
-        dtype_name = dtype.name if hasattr(dtype, 'name') else str(dtype)
-        entries.append((op_name, dtype_name))
-
-    return {
-        'size': len(_shader_cache),
-        'entries': entries
-    }
-
-
-def clear_shader_cache():
-    """
-    Clear the shader cache.
-
-    Note: This only clears the Python-side cache. The underlying shader
-    modules remain valid until shutdown() is called.
-    """
-    global _shader_cache
-    _shader_cache.clear()
-
-
 # =============================================================================
 # Operation Implementations
 # =============================================================================
@@ -798,16 +595,9 @@ __all__ = [
     "ShaderEnum",
     # Classes
     "Buffer",
-    "Shader",
-    "Dispatch",
     "ThreadSize",
     "ComputeHandle",
     "ComputeDispatch",
     # Core functions
-    "run",
-    "precompile_shaders",
     "get_shader",
-    # Shader cache functions
-    "get_shader_cache_stats",
-    "clear_shader_cache",
 ] + ALL_OPERATION_NAMES
