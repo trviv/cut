@@ -1,6 +1,8 @@
 #include <ComputeStructs.h>
 
 #include <algorithm>
+#include <iterator>
+#include <limits>
 #include <stdexcept>
 
 namespace cut {
@@ -14,24 +16,28 @@ void ComputeBuffer::setShape(const std::vector<uint32_t> &newShape) {
   // Copy the shape and pad with 1s to ensure size is exactly 4
   shape_ = newShape;
   shape_.resize(4, 1);
+
+  // Calculate execution size with overflow checking
+  executionSize_ = ((static_cast<size_t>(shape_.back()) + 3) & ~size_t{3});
+  for (auto it = shape_.rbegin() + 1; it != shape_.rend(); ++it) {
+    executionSize_ *= *it;
+  }
 }
 
 std::vector<uint32_t> ComputeBuffer::getDimData() const {
   if (shape_.empty()) {
     throw std::runtime_error("Shape cannot be empty!");
   }
-  std::vector<uint32_t> ret(4, 1);
-  ret[0] = shape_[0];
-  if (shape_.size() >= 2) {
-    ret[1] = shape_[1];
-  }
-  for (size_t i = 2; i < shape_.size(); i++) {
-    ret[i] = ret[i - 1] * shape_[i];
-  }
-  for (size_t i = shape_.size(); i < 4; i++) {
-    ret[i] = ret[i - 1];
+  // Initialize ret as reverse of shape_
+  std::vector<uint32_t> ret(shape_.rbegin(), shape_.rend());
+  for (size_t i = 2; i < ret.size(); i++) {
+    ret[i] = ret[i] * ret[i - 1];
   }
   return ret;
+}
+
+size_t ComputeBuffer::getExecutionSize() const {
+  return executionSize_;
 }
 
 ComputeDispatch::ComputeDispatch(const ComputeHandle &shader,

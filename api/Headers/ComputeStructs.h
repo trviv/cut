@@ -93,8 +93,11 @@ struct ComputeBuffer {
    */
   std::vector<uint32_t> getDimData() const;
 
+  size_t executionSize() const;
+
 private:
   std::vector<uint32_t> shape_; ///< Dimension-wise sizes (always size 4).
+  size_t executionSize_;
 };
 
 /**
