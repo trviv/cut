@@ -285,7 +285,7 @@ void Dispatcher::encode(OperatorEnum op,
 
     const ComputeHandle &handle = binding.getHandle();
     const ComputeBuffer &buffer = iface_->getBuffer(handle);
-    uint32_t bufferElementCount = computeElementCount(buffer.shape);
+    uint32_t bufferElementCount = computeElementCount(buffer.getShape());
 
     if (!dtypeSet) {
       inferredDtype = buffer.dtype;

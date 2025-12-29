@@ -69,12 +69,32 @@ private:
 struct ComputeBuffer {
   void *data = nullptr;               ///< Pointer to mapped/accessible data.
   size_t size = 0;                    ///< Size in bytes.
-  std::vector<uint32_t> shape;        ///< Dimension-wise sizes (tensor shape).
   DataType dtype = DataType::Float32; ///< Element data type.
 
   virtual ~ComputeBuffer() = default;
 
+  /**
+   * Returns the shape of the buffer.
+   * Shape is always padded to exactly 4 dimensions.
+   */
+  const std::vector<uint32_t> getShape() const { return shape_; }
+
+  /**
+   * Sets the shape of the buffer.
+   * If size < 4, pads with 1s at the end.
+   * @param newShape The new shape (must have size <= 4).
+   * @throws std::runtime_error if newShape.size() > 4.
+   */
+  void setShape(const std::vector<uint32_t> &newShape);
+
+  /**
+   * Returns dimension data for shader uniforms.
+   * Format: [dim0, dim1, dim2, dim3] padded to 4 elements.
+   */
   std::vector<uint32_t> getDimData() const;
+
+private:
+  std::vector<uint32_t> shape_; ///< Dimension-wise sizes (always size 4).
 };
 
 /**

@@ -63,6 +63,11 @@ public:
   ComputeHandle createShaderModule(const std::vector<uint32_t> &) override {
     return {};
   }
+
+  const ComputeBuffer &getBuffer(const ComputeHandle &) const override {
+    static ComputeBuffer dummyBuffer;
+    return dummyBuffer;
+  }
 };
 
 class ComputeContainersTest : public ::testing::Test {

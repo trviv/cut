@@ -191,9 +191,9 @@ ComputeHandle VulkanCompute::createBuffer(size_t size,
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct bufferStruct;
-  bufferStruct.size = size;   // Store original size for user queries
-  bufferStruct.shape = shape; // Store tensor shape
-  bufferStruct.dtype = dtype; // Store element data type
+  bufferStruct.size = size;     // Store original size for user queries
+  bufferStruct.setShape(shape); // Store tensor shape
+  bufferStruct.dtype = dtype;   // Store element data type
 
 #if CUT_USE_VMA
   const auto &allocator = allocator_;
@@ -415,29 +415,32 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
     logErr("Trying to write data outside destination buffer range.");
   }
 
-  const size_t actualSize = calculateActualSize(buffer.shape, buffer.dtype);
+  const size_t actualSize =
+      calculateActualSize(buffer.getShape(), buffer.dtype);
   const bool isFullCopy =
       srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
     const size_t copySize =
-        isFullCopy ? calculateAlignedSize(buffer.shape, buffer.dtype) : size;
+        isFullCopy ? calculateAlignedSize(buffer.getShape(), buffer.dtype)
+                   : size;
     VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
-    copyActualToAligned(srcPtr, stagingBuffer.data, buffer.shape, buffer.dtype,
-                        isFullCopy ? 0 : srcOffset, 0, size);
+    copyActualToAligned(srcPtr, stagingBuffer.data, buffer.getShape(),
+                        buffer.dtype, isFullCopy ? 0 : srcOffset, 0, size);
     executeBufferCopy(stagingBuffer.buffer, buffer.buffer, copySize, 0,
                       isFullCopy ? 0 : dstOffset);
     destroyStagingBuffer(stagingBuffer);
   } else {
     // Host-visible buffer - use unified copy function
-    copyActualToAligned(srcPtr, buffer.data, buffer.shape, buffer.dtype,
+    copyActualToAligned(srcPtr, buffer.data, buffer.getShape(), buffer.dtype,
                         srcOffset, dstOffset, size);
 
     // Flush memory to make writes visible to GPU
     if (!buffer.isCoherent) {
       const size_t flushSize =
-          isFullCopy ? calculateAlignedSize(buffer.shape, buffer.dtype) : size;
+          isFullCopy ? calculateAlignedSize(buffer.getShape(), buffer.dtype)
+                     : size;
 #if CUT_USE_VMA
       vmaFlushAllocation(allocator_, buffer.allocation, dstOffset, flushSize);
 #else
@@ -467,25 +470,28 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     logErr("Trying to read data outside source buffer range.");
   }
 
-  const size_t actualSize = calculateActualSize(buffer.shape, buffer.dtype);
+  const size_t actualSize =
+      calculateActualSize(buffer.getShape(), buffer.dtype);
   const bool isFullCopy =
       srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
     const size_t copySize =
-        isFullCopy ? calculateAlignedSize(buffer.shape, buffer.dtype) : size;
+        isFullCopy ? calculateAlignedSize(buffer.getShape(), buffer.dtype)
+                   : size;
     VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
     executeBufferCopy(buffer.buffer, stagingBuffer.buffer, copySize,
                       isFullCopy ? 0 : srcOffset, 0);
-    copyAlignedToActual(stagingBuffer.data, dstPtr, buffer.shape, buffer.dtype,
-                        0, isFullCopy ? 0 : dstOffset, size);
+    copyAlignedToActual(stagingBuffer.data, dstPtr, buffer.getShape(),
+                        buffer.dtype, 0, isFullCopy ? 0 : dstOffset, size);
     destroyStagingBuffer(stagingBuffer);
   } else {
     // Invalidate memory to make GPU writes visible to CPU
     if (!buffer.isCoherent) {
       const size_t invalidateSize =
-          isFullCopy ? calculateAlignedSize(buffer.shape, buffer.dtype) : size;
+          isFullCopy ? calculateAlignedSize(buffer.getShape(), buffer.dtype)
+                     : size;
 #if CUT_USE_VMA
       vmaInvalidateAllocation(allocator_, buffer.allocation, srcOffset,
                               invalidateSize);
@@ -501,7 +507,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     }
 
     // Host-visible buffer - use unified copy function
-    copyAlignedToActual(buffer.data, dstPtr, buffer.shape, buffer.dtype,
+    copyAlignedToActual(buffer.data, dstPtr, buffer.getShape(), buffer.dtype,
                         srcOffset, dstOffset, size);
   }
 }

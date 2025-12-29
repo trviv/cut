@@ -47,7 +47,7 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<uint32_t> &shape,
 
   CPUBufferStruct bufferStruct;
   bufferStruct.size = totalSize;
-  bufferStruct.shape = std::move(shape);
+  bufferStruct.setShape(shape);
   bufferStruct.dtype = dtype; // Store element data type
   bufferStruct.data = aligned_alloc(kAlignment, alignedSize);
 
@@ -57,7 +57,8 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<uint32_t> &shape,
 
   if (srcPtr != nullptr) {
     // Copy actual data to aligned buffer using the helper function
-    copyActualToAligned(srcPtr, bufferStruct.data, bufferStruct.shape, dtype);
+    copyActualToAligned(srcPtr, bufferStruct.data, bufferStruct.getShape(),
+                        dtype);
   }
 
   return containers_->bufferContainer.create(std::move(bufferStruct));
@@ -77,7 +78,7 @@ void CPUCompute::copyDataToBuffer(const void *srcPtr,
         "Trying to write data outside destination buffer range");
   }
 
-  copyActualToAligned(srcPtr, buffer.data, buffer.shape, buffer.dtype,
+  copyActualToAligned(srcPtr, buffer.data, buffer.getShape(), buffer.dtype,
                       srcOffset, dstOffset, size);
 }
 
@@ -94,7 +95,7 @@ void CPUCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     throw std::runtime_error("Trying to read data outside source buffer range");
   }
 
-  copyAlignedToActual(buffer.data, dstPtr, buffer.shape, buffer.dtype,
+  copyAlignedToActual(buffer.data, dstPtr, buffer.getShape(), buffer.dtype,
                       srcOffset, dstOffset, size);
 }
 

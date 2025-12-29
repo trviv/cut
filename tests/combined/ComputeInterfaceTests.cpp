@@ -59,8 +59,13 @@ public:
                           bool = false,
                           bool = false) {};
 
-  ComputeHandle createShaderModule(const std::vector<uint32_t> &) {
+  ComputeHandle createShaderModule(const std::vector<uint32_t> &) override {
     return shaderContainer_.createInteger();
+  }
+
+  const ComputeBuffer &getBuffer(const ComputeHandle &) const override {
+    static ComputeBuffer dummyBuffer;
+    return dummyBuffer;
   }
 
 private:

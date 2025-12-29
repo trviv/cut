@@ -1,20 +1,34 @@
 #include <ComputeStructs.h>
 
 #include <algorithm>
+#include <stdexcept>
 
 namespace cut {
 
+void ComputeBuffer::setShape(const std::vector<uint32_t> &newShape) {
+  if (newShape.size() > 4) {
+    throw std::runtime_error("Shape size must be <= 4, got " +
+                             std::to_string(newShape.size()));
+  }
+
+  // Copy the shape and pad with 1s to ensure size is exactly 4
+  shape_ = newShape;
+  shape_.resize(4, 1);
+}
+
 std::vector<uint32_t> ComputeBuffer::getDimData() const {
-  logErr("Shape cannot be empty!");
+  if (shape_.empty()) {
+    throw std::runtime_error("Shape cannot be empty!");
+  }
   std::vector<uint32_t> ret(4, 1);
-  ret[0] = shape[0];
-  if (shape.size() >= 2) {
-    ret[1] = shape[1];
+  ret[0] = shape_[0];
+  if (shape_.size() >= 2) {
+    ret[1] = shape_[1];
   }
-  for (size_t i = 2; i < shape.size(); i++) {
-    ret[i] = ret[i - 1] * shape[i];
+  for (size_t i = 2; i < shape_.size(); i++) {
+    ret[i] = ret[i - 1] * shape_[i];
   }
-  for (size_t i = shape.size(); i < 4; i++) {
+  for (size_t i = shape_.size(); i < 4; i++) {
     ret[i] = ret[i - 1];
   }
   return ret;
