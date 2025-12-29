@@ -202,19 +202,6 @@ public:
   // =========================================================================
 
   /**
-   * Returns true if the current backend is a GPU backend.
-   * GPU backends (Vulkan) execute commands lazily for better batching.
-   * CPU backend executes commands immediately.
-   */
-  bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
-
-  /**
-   * Returns true if there are pending commands that haven't been
-   * submitted/waited.
-   */
-  bool hasPendingCommands() const { return pendingCommands_; }
-
-  /**
    * Encodes a dispatch and handles submission based on backend type.
    * For async backends (Vulkan): queues the dispatch and marks pending.
    * For sync backends (CPU): encodes, submits, and waits immediately.
@@ -251,6 +238,17 @@ private:
    * Gets or creates a cached shader for the given operator and data type.
    */
   ComputeHandle getOrCreateShader(OperatorEnum op, DataType dtype);
+
+  // =========================================================================
+  // Deferred Execution Support
+  // =========================================================================
+
+  /**
+   * Returns true if the current backend is a GPU backend.
+   * GPU backends (Vulkan) execute commands lazily for better batching.
+   * CPU backend executes commands immediately.
+   */
+  bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
 };
 
 } // namespace cut

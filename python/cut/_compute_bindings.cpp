@@ -349,15 +349,6 @@ PYBIND11_MODULE(_cut_compute, m) {
       "flush_pending", []() { getRuntime().flushPendingCommands(); },
       "Flush any pending commands by submitting and waiting");
 
-  m.def(
-      "has_pending_commands",
-      []() { return getRuntime().hasPendingCommands(); },
-      "Check if there are pending commands");
-
-  m.def(
-      "is_gpu_backend", []() { return getRuntime().isGpuBackend(); },
-      "Check if the current backend is a GPU backend");
-
   // =========================================================================
   // Shutdown function for proper cleanup
   // =========================================================================
