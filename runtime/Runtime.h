@@ -19,6 +19,7 @@ namespace cut {
 class VulkanInstance;
 class VulkanCompute;
 class CPUCompute;
+class Dispatcher;
 
 /**
  * Backend type enum for runtime selection.
@@ -170,6 +171,16 @@ public:
                        DataType dtype = DataType::Float32);
 
   /**
+   * Encodes a compute operator using the Dispatcher.
+   * Infers dtype and workgroup size from buffer bindings.
+   *
+   * @param op The operator to execute (from OperatorEnum).
+   * @param bindings Vector of compute bindings (buffers and data).
+   */
+  void encodeOperator(OperatorEnum op,
+                      const std::vector<ComputeBinding> &bindings);
+
+  /**
    * Creates a shader/kernel for the specified operator.
    * @param op The operator type.
    * @param dtype Data type for the operation.
@@ -209,6 +220,9 @@ private:
   // Shader cache: maps (OperatorEnum, DataType) -> ComputeHandle
   using ShaderCacheKey = std::pair<OperatorEnum, DataType>;
   std::map<ShaderCacheKey, ComputeHandle> shaderCache_;
+
+  // Dispatcher for encoding operators
+  std::unique_ptr<Dispatcher> dispatcher_;
 
   /**
    * Returns the underlying compute interface.

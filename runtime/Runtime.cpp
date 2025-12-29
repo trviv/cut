@@ -1,6 +1,7 @@
 #include "Runtime.h"
 
 #include "CPUCompute.h"
+#include "Dispatcher.h"
 #include "Shaders.h"
 #include "VulkanCompute.h"
 
@@ -20,7 +21,8 @@ Runtime::Runtime(Runtime &&other) noexcept
       interface_(std::move(other.interface_)), simdMode_(other.simdMode_),
       numThreads_(other.numThreads_), vulkanAvailable_(other.vulkanAvailable_),
       vulkanChecked_(other.vulkanChecked_),
-      pendingCommands_(other.pendingCommands_) {
+      pendingCommands_(other.pendingCommands_),
+      dispatcher_(std::move(other.dispatcher_)) {
   other.backendType_ = BackendType::CPU;
   other.simdMode_ = SIMDMode::Auto;
   other.numThreads_ = 0;
@@ -41,6 +43,7 @@ Runtime &Runtime::operator=(Runtime &&other) noexcept {
     vulkanAvailable_ = other.vulkanAvailable_;
     vulkanChecked_ = other.vulkanChecked_;
     pendingCommands_ = other.pendingCommands_;
+    dispatcher_ = std::move(other.dispatcher_);
 
     other.backendType_ = BackendType::CPU;
     other.simdMode_ = SIMDMode::Auto;
@@ -80,6 +83,9 @@ void Runtime::init(BackendType backend, size_t numThreads, SIMDMode simdMode) {
     interface_ = std::move(cpu);
     backendType_ = BackendType::CPU;
   }
+
+  // Create dispatcher with the initialized interface
+  dispatcher_ = std::make_unique<Dispatcher>(interface_.get());
 }
 
 void Runtime::shutdown() {
@@ -87,6 +93,8 @@ void Runtime::shutdown() {
   flushPendingCommands();
   // Clear shader cache before destroying interface
   shaderCache_.clear();
+  // Destroy dispatcher before interface (it holds a raw pointer)
+  dispatcher_.reset();
   // First destroy the interface (which holds backend resources)
   interface_.reset();
   // Then destroy the Vulkan instance if present
@@ -209,6 +217,25 @@ void Runtime::executeOperator(OperatorEnum op,
 
   // Encode, submit, and wait
   encodeAndMaybeSubmit(std::move(dispatch));
+}
+
+void Runtime::encodeOperator(OperatorEnum op,
+                             const std::vector<ComputeBinding> &bindings) {
+  if (!dispatcher_) {
+    throw std::runtime_error(
+        "Dispatcher not initialized. Call init() first.");
+  }
+
+  // Use dispatcher to encode (it infers dtype and workgroup size from bindings)
+  dispatcher_->encode(op, bindings);
+
+  // Handle submission based on backend type
+  if (isGpuBackend()) {
+    pendingCommands_ = true;
+  } else {
+    ComputeHandle cmd = submit();
+    wait(cmd);
+  }
 }
 
 ComputeHandle Runtime::submit() {
