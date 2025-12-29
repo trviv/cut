@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include <type_traits>
 
 namespace cut {
 
@@ -111,6 +112,13 @@ ComputeHandle CPUCompute::createKernel(OperatorEnum operatorType) {
   CPUShaderStruct shaderStruct;
   shaderStruct.operatorType = operatorType;
   return containers_->shaderContainer.create(std::move(shaderStruct));
+}
+
+const ComputeBuffer &
+CPUCompute::getBuffer(const ComputeHandle &bufferHandle) const {
+  static_assert(std::is_base_of<ComputeBuffer, CPUBufferStruct>::value,
+                "CPUBufferStruct must derive from ComputeBuffer");
+  return containers_->bufferContainer.getBuffer(bufferHandle);
 }
 
 size_t CPUCompute::numThreads() const {

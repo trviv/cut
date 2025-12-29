@@ -92,6 +92,14 @@ public:
   createShaderModule(const std::vector<uint32_t> &spirvCode) = 0;
 
   /**
+   * Returns a const reference to the buffer metadata.
+   * @param bufferHandle Handle to the buffer.
+   * @return Const reference to the ComputeBuffer containing shape, dtype, etc.
+   */
+  virtual const ComputeBuffer &
+  getBuffer(const ComputeHandle &bufferHandle) const = 0;
+
+  /**
    * Encodes a compute dispatch to the active command buffer.
    * If no command buffer is currently recording, one will be created.
    * @param dispatch The compute dispatch object to encode (moved).

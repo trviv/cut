@@ -2,6 +2,8 @@
 #include <VulkanCommandBuffer.h>
 #include <VulkanCompute.h>
 
+#include <type_traits>
+
 namespace cut {
 
 VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
@@ -507,6 +509,13 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
 ComputeHandle
 VulkanCompute::createShaderModule(const std::vector<uint32_t> &spirvCode) {
   return containers_->shaderContainer.createShader(spirvCode);
+}
+
+const ComputeBuffer &
+VulkanCompute::getBuffer(const ComputeHandle &bufferHandle) const {
+  static_assert(std::is_base_of<ComputeBuffer, VulkanBufferStruct>::value,
+                "VulkanBufferStruct must derive from ComputeBuffer");
+  return containers_->bufferContainer.getBuffer(bufferHandle);
 }
 
 // Debug callback for validation layer messages

@@ -100,6 +100,14 @@ public:
   ComputeHandle createKernel(OperatorEnum operatorType);
 
   /**
+   * Returns a const reference to the buffer metadata.
+   * @param bufferHandle Handle to the buffer.
+   * @return Const reference to the ComputeBuffer.
+   */
+  const ComputeBuffer &
+  getBuffer(const ComputeHandle &bufferHandle) const override;
+
+  /**
    * Returns the number of worker threads in the thread pool.
    */
   size_t numThreads() const;

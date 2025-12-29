@@ -48,6 +48,10 @@ public:
   ComputeHandle
   createShaderModule(const std::vector<uint32_t> &spirvCode) override;
 
+  /// Returns a const reference to the buffer metadata.
+  const ComputeBuffer &
+  getBuffer(const ComputeHandle &bufferHandle) const override;
+
   /// Constructs a VulkanCompute instance with the given Vulkan instance and
   /// configuration.
   VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
