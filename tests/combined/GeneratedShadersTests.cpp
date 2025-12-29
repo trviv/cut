@@ -1490,7 +1490,7 @@ protected:
     auto bufferOut =
         interface->createBuffer({elements}, cut::DataType::Int32, nullptr);
 
-    const auto shader = cut::getShader(shaderEnum, cut::Int);
+    const auto shader = cut::getShader(shaderEnum, cut::DataType::Int32);
     auto shaderModule = interface->createShaderModule(shader);
 
     const uint32_t threadGroups = (elements + 63) / 64;
@@ -1522,7 +1522,7 @@ protected:
     auto bufferOut =
         interface->createBuffer({elements}, cut::DataType::Int32, nullptr);
 
-    const auto shader = cut::getShader(shaderEnum, cut::Int);
+    const auto shader = cut::getShader(shaderEnum, cut::DataType::Int32);
     auto shaderModule = interface->createShaderModule(shader);
 
     const uint32_t threadGroups = (elements + 255) / 256;

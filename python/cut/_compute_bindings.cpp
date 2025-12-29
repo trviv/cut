@@ -78,15 +78,8 @@ PYBIND11_MODULE(_cut_compute, m) {
       .export_values();
 
   // =========================================================================
-  // Data Type Enums
+  // Data Type Enum
   // =========================================================================
-  py::enum_<cut::ScalarDataType>(m, "ScalarDataType")
-      .value("Float", cut::ScalarDataType::Float)
-      .value("Half", cut::ScalarDataType::Half)
-      .value("UInt", cut::ScalarDataType::UInt)
-      .value("Int", cut::ScalarDataType::Int)
-      .export_values();
-
   py::enum_<cut::DataType>(m, "DataType")
       .value("Float32", cut::DataType::Float32)
       .value("Float16", cut::DataType::Float16)
@@ -379,6 +372,45 @@ PYBIND11_MODULE(_cut_compute, m) {
       "shutdown", []() { getRuntime().shutdown(); },
       "Shutdown the compute backend and release all resources. "
       "Must be called before program exit to avoid crashes.");
+
+  // =========================================================================
+  // Unified operator execution
+  // =========================================================================
+
+  m.def(
+      "execute_operator",
+      [](cut::OperatorEnum op, py::list buffer_handles, uint32_t num_elements,
+         py::object push_constants, cut::DataType dtype) {
+        std::vector<cut::ComputeBinding> bindings;
+
+        // Bind buffer handles at sequential indices starting from 0
+        uint32_t binding_idx = 0;
+        for (auto handle : buffer_handles) {
+          bindings.emplace_back(binding_idx++,
+                                handle.cast<cut::ComputeHandle>());
+        }
+
+        // Bind push constants (either just num_elements, or array with scalar)
+        if (push_constants.is_none()) {
+          // Just bind num_elements
+          bindings.emplace_back(
+              binding_idx, cut::DataReference(&num_elements, sizeof(uint32_t)));
+        } else {
+          // Push constants array provided (contains num_elements + scalar)
+          py::array arr = push_constants.cast<py::array>();
+          py::buffer_info info = arr.request();
+          bindings.emplace_back(
+              binding_idx,
+              cut::DataReference(info.ptr, info.size * info.itemsize));
+        }
+
+        cut::ThreadSize workgroupSize{num_elements, 1, 1};
+        getRuntime().executeOperator(op, bindings, workgroupSize, dtype);
+      },
+      py::arg("op"), py::arg("buffer_handles"), py::arg("num_elements"),
+      py::arg("push_constants") = py::none(),
+      py::arg("dtype") = cut::DataType::Float32,
+      "Execute an operator with the given buffer handles and push constants");
 
   // =========================================================================
   // Helper function to get SPIR-V shaders (Vulkan)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ComputeHandle.h>
+#include <ComputeOps.h>
 #include <string>
 #include <vector>
 
@@ -184,5 +185,8 @@ struct ShaderReflection {
  * @return ShaderReflection containing all binding information.
  */
 ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode);
+
+/// Creates a cache key from operator enum and datatype
+uint64_t makeCacheKey(OperatorEnum op, DataType datatype);
 
 } // namespace cut

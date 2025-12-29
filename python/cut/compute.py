@@ -684,15 +684,12 @@ def _create_binary_op(op_enum: OperatorEnum):
 
         itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
         num_elements = a.size // itemsize
+        cut_dtype = _numpy_dtype_to_cut(a._dtype)
 
-        shader = Shader(op_enum, dtype=a._dtype)
-        dispatch = Dispatch(shader, (num_elements, 1, 1))
-        dispatch.bind(a, 0)
-        dispatch.bind(b, 1)
-        dispatch.bind(out, 2)
-        dispatch.bind(num_elements, 3)
-
-        run(dispatch)
+        _cut_compute.execute_operator(
+            op_enum, [a._handle, b._handle, out._handle], num_elements,
+            None, cut_dtype
+        )
         return out
 
     return binary_op
@@ -708,14 +705,12 @@ def _create_unary_op(op_enum: OperatorEnum):
 
         itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
         num_elements = a.size // itemsize
+        cut_dtype = _numpy_dtype_to_cut(a._dtype)
 
-        shader = Shader(op_enum, dtype=a._dtype)
-        dispatch = Dispatch(shader, (num_elements, 1, 1))
-        dispatch.bind(a, 0)
-        dispatch.bind(out, 1)
-        dispatch.bind(num_elements, 2)
-
-        run(dispatch)
+        _cut_compute.execute_operator(
+            op_enum, [a._handle, out._handle], num_elements,
+            None, cut_dtype
+        )
         return out
 
     return unary_op
@@ -735,13 +730,9 @@ def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
 
         itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
         num_elements = a.size // itemsize
+        cut_dtype = _numpy_dtype_to_cut(a._dtype)
 
-        shader = Shader(op_enum, dtype=a._dtype)
-        dispatch = Dispatch(shader, (num_elements, 1, 1))
-        dispatch.bind(a, 0)
-        dispatch.bind(out, 1)
-
-        # Pack push constants as numpy array
+        # Pack push constants as numpy array (num_elements + scalar value)
         dtype = a._dtype if a._dtype is not None else np.float32
         if dtype == np.int32:
             push_constants = np.array([num_elements, int(scalar)], dtype=np.int32)
@@ -750,9 +741,11 @@ def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
         else:
             push_constants = np.array([num_elements, 0], dtype=np.uint32)
             push_constants.view(np.float32)[1] = float(scalar)
-        dispatch.bind(push_constants, 2)
 
-        run(dispatch)
+        _cut_compute.execute_operator(
+            op_enum, [a._handle, out._handle], num_elements,
+            push_constants, cut_dtype
+        )
         return out
 
     return vec_scalar_op
@@ -793,18 +786,18 @@ _register_operations()
 
 
 # Helper function to get SPIR-V shaders
-def get_shader(op: OperatorEnum, scalar_dtype: _cut_compute.ScalarDataType):
+def get_shader(op: OperatorEnum, dtype: DataType = DataType.Float32):
     """
     Get SPIR-V bytecode for a built-in shader.
 
     Args:
         op: Operator enum
-        scalar_dtype: Scalar data type
+        dtype: Data type (default: Float32)
 
     Returns:
         List of uint32 SPIR-V words
     """
-    return _cut_compute.get_shader(op, scalar_dtype)
+    return _cut_compute.get_shader(op, dtype)
 
 
 # =============================================================================

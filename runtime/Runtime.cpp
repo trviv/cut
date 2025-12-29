@@ -85,6 +85,8 @@ void Runtime::init(BackendType backend, size_t numThreads, SIMDMode simdMode) {
 void Runtime::shutdown() {
   // Flush any pending commands before shutdown
   flushPendingCommands();
+  // Clear shader cache before destroying interface
+  shaderCache_.clear();
   // First destroy the interface (which holds backend resources)
   interface_.reset();
   // Then destroy the Vulkan instance if present
@@ -167,28 +169,12 @@ void Runtime::copyFromBuffer(ComputeHandle handle,
 // Operator Execution
 // =========================================================================
 
-ScalarDataType Runtime::dataTypeToScalar(DataType dtype) {
-  switch (dtype) {
-  case DataType::Float32:
-    return ScalarDataType::Float;
-  case DataType::Float16:
-    return ScalarDataType::Half;
-  case DataType::UInt32:
-    return ScalarDataType::UInt;
-  case DataType::Int32:
-    return ScalarDataType::Int;
-  default:
-    return ScalarDataType::Float;
-  }
-}
-
 ComputeHandle Runtime::createShader(OperatorEnum op, DataType dtype) {
   auto *iface = getInterface();
 
   if (backendType_ == BackendType::Vulkan) {
     // Get SPIR-V and create shader module
-    ScalarDataType scalarDtype = dataTypeToScalar(dtype);
-    std::vector<uint32_t> spirv = getShader(op, scalarDtype);
+    std::vector<uint32_t> spirv = getShader(op, dtype);
     return iface->createShaderModule(spirv);
   } else {
     // CPU backend - create kernel handle
@@ -196,12 +182,23 @@ ComputeHandle Runtime::createShader(OperatorEnum op, DataType dtype) {
   }
 }
 
+ComputeHandle Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
+  ShaderCacheKey key{op, dtype};
+  auto it = shaderCache_.find(key);
+  if (it != shaderCache_.end()) {
+    return it->second;
+  }
+  ComputeHandle shader = createShader(op, dtype);
+  shaderCache_[key] = shader;
+  return shader;
+}
+
 void Runtime::executeOperator(OperatorEnum op,
                               const std::vector<ComputeBinding> &bindings,
                               const ThreadSize &workgroupSize,
                               DataType dtype) {
-  // Create shader for this operator
-  ComputeHandle shader = createShader(op, dtype);
+  // Get cached shader for this operator
+  ComputeHandle shader = getOrCreateShader(op, dtype);
 
   // Create dispatch with shader and workgroup size
   ComputeDispatch dispatch(shader, workgroupSize, bindings);

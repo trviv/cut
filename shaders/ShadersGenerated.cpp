@@ -10,14 +10,8 @@ namespace cut {
 /// Enable/disable caching for generated SPIR-V shaders
 constexpr bool kEnableShaderCache = true;
 
-/// Cache for generated SPIR-V shaders, keyed by (OperatorEnum, ScalarDataType)
+/// Cache for generated SPIR-V shaders, keyed by (OperatorEnum, DataType)
 static std::unordered_map<uint64_t, std::vector<uint32_t>> shaderCache;
-
-/// Creates a cache key from operator enum and datatype
-static uint64_t makeCacheKey(OperatorEnum shader, ScalarDataType datatype) {
-  return (static_cast<uint64_t>(shader) << 32) |
-         static_cast<uint64_t>(datatype);
-}
 
 // =============================================================================
 // Reusable shader template components
@@ -164,30 +158,30 @@ static std::string replaceAll(const std::string &str,
   return result;
 }
 
-static const char *getGLSLType(ScalarDataType datatype) {
+static const char *getGLSLType(DataType datatype) {
   switch (datatype) {
-  case ScalarDataType::Float:
+  case DataType::Float32:
     return "vec4";
-  case ScalarDataType::Half:
+  case DataType::Float16:
     return "mediump vec4";
-  case ScalarDataType::UInt:
+  case DataType::UInt32:
     return "uvec4";
-  case ScalarDataType::Int:
+  case DataType::Int32:
     return "ivec4";
   default:
     return "vec4";
   }
 }
 
-static const char *getGLSLScalarType(ScalarDataType datatype) {
+static const char *getGLSLScalarType(DataType datatype) {
   switch (datatype) {
-  case ScalarDataType::Float:
+  case DataType::Float32:
     return "float";
-  case ScalarDataType::Half:
+  case DataType::Float16:
     return "mediump float";
-  case ScalarDataType::UInt:
+  case DataType::UInt32:
     return "uint";
-  case ScalarDataType::Int:
+  case DataType::Int32:
     return "int";
   default:
     return "float";
@@ -196,7 +190,7 @@ static const char *getGLSLScalarType(ScalarDataType datatype) {
 
 // Apply datatype substitutions to assembled shader
 static std::string applyDatatypeSubstitutions(std::string shader,
-                                              ScalarDataType datatype) {
+                                              DataType datatype) {
   shader = replaceAll(shader, "%VEC_DTYPE%", getGLSLType(datatype));
   shader = replaceAll(shader, "%SCALAR_DTYPE%", getGLSLScalarType(datatype));
   shader = replaceAll(shader, "%DTYPE_SIZE%", "4");
@@ -209,7 +203,7 @@ static std::string applyDatatypeSubstitutions(std::string shader,
 
 // Binary vec-vec with operator (e.g., +, -, *, /)
 static std::string generateBinaryVecVecOpShader(const char *op,
-                                                ScalarDataType datatype) {
+                                                DataType datatype) {
   std::string expr = std::string("dataA[index] ") + op + " dataB[index]";
   std::string shader = assembleBinaryVecVecShader(expr.c_str());
   return applyDatatypeSubstitutions(shader, datatype);
@@ -217,7 +211,7 @@ static std::string generateBinaryVecVecOpShader(const char *op,
 
 // Binary vec-vec with function (e.g., pow, min, max)
 static std::string generateBinaryVecVecFuncShader(const char *func,
-                                                  ScalarDataType datatype) {
+                                                  DataType datatype) {
   std::string expr = std::string(func) + "(dataA[index], dataB[index])";
   std::string shader = assembleBinaryVecVecShader(expr.c_str());
   return applyDatatypeSubstitutions(shader, datatype);
@@ -225,7 +219,7 @@ static std::string generateBinaryVecVecFuncShader(const char *func,
 
 // Binary vec-vec comparison (returns 1.0 or 0.0)
 static std::string generateBinaryVecVecCompareShader(const char *compareFunc,
-                                                     ScalarDataType datatype) {
+                                                     DataType datatype) {
   std::string expr = std::string(getGLSLType(datatype)) + "(" + compareFunc +
                      "(dataA[index], dataB[index]))";
   std::string shader = assembleBinaryVecVecShader(expr.c_str());
@@ -234,7 +228,7 @@ static std::string generateBinaryVecVecCompareShader(const char *compareFunc,
 
 // Binary vec-scalar with operator (e.g., +, -, *, /)
 static std::string generateBinaryVecScalarOpShader(const char *op,
-                                                   ScalarDataType datatype) {
+                                                   DataType datatype) {
   std::string vecType = getGLSLType(datatype);
   std::string expr =
       std::string("dataA[index] ") + op + " " + vecType + "(scalar)";
@@ -244,7 +238,7 @@ static std::string generateBinaryVecScalarOpShader(const char *op,
 
 // Binary vec-scalar with function (e.g., pow, min, max)
 static std::string generateBinaryVecScalarFuncShader(const char *func,
-                                                     ScalarDataType datatype) {
+                                                     DataType datatype) {
   std::string vecType = getGLSLType(datatype);
   std::string expr =
       std::string(func) + "(dataA[index], " + vecType + "(scalar))";
@@ -253,9 +247,8 @@ static std::string generateBinaryVecScalarFuncShader(const char *func,
 }
 
 // Binary vec-scalar comparison (returns 1.0 or 0.0)
-static std::string
-generateBinaryVecScalarCompareShader(const char *compareFunc,
-                                     ScalarDataType datatype) {
+static std::string generateBinaryVecScalarCompareShader(const char *compareFunc,
+                                                        DataType datatype) {
   std::string vecType = getGLSLType(datatype);
   std::string expr =
       vecType + "(" + compareFunc + "(dataA[index], " + vecType + "(scalar)))";
@@ -264,8 +257,7 @@ generateBinaryVecScalarCompareShader(const char *compareFunc,
 }
 
 // Unary operation
-static std::string generateUnaryShader(const char *expr,
-                                       ScalarDataType datatype) {
+static std::string generateUnaryShader(const char *expr, DataType datatype) {
   std::string shader = assembleUnaryShader(expr);
   return applyDatatypeSubstitutions(shader, datatype);
 }
@@ -275,7 +267,7 @@ static std::string generateUnaryShader(const char *expr,
 // =============================================================================
 
 std::optional<std::vector<uint32_t>>
-getGeneratedShader(const OperatorEnum shader, const ScalarDataType datatype) {
+getGeneratedShader(const OperatorEnum shader, const DataType datatype) {
   // Check cache first
   if constexpr (kEnableShaderCache) {
     uint64_t cacheKey = makeCacheKey(shader, datatype);

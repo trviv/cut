@@ -9,6 +9,7 @@
 // For SIMDMode enum
 #include "../backends/cpu/CPUKernels.h"
 
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -241,10 +242,14 @@ private:
   bool vulkanChecked_ = false;
   bool pendingCommands_ = false;
 
+  // Shader cache: maps (OperatorEnum, DataType) -> ComputeHandle
+  using ShaderCacheKey = std::pair<OperatorEnum, DataType>;
+  std::map<ShaderCacheKey, ComputeHandle> shaderCache_;
+
   /**
-   * Converts DataType to ScalarDataType for shader selection.
+   * Gets or creates a cached shader for the given operator and data type.
    */
-  static ScalarDataType dataTypeToScalar(DataType dtype);
+  ComputeHandle getOrCreateShader(OperatorEnum op, DataType dtype);
 };
 
 } // namespace cut

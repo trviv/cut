@@ -8,17 +8,6 @@
 namespace cut {
 
 /**
- * Scalar data type for operations.
- * Values match DTYPE_* defines in ComputeOps.glsl for shader compatibility.
- */
-enum ScalarDataType {
-  Float = DTYPE_FLOAT,
-  Half = DTYPE_HALF,
-  UInt = DTYPE_UINT,
-  Int = DTYPE_INT,
-};
-
-/**
  * Operator enum for built-in compute operations.
  * Used by both GPU shaders and CPU kernels.
  * Values match OP_* defines in ComputeOps.glsl for shader compatibility.

@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <cstdint>
 #include <fstream>
@@ -18,7 +19,7 @@ using ShaderEnum = OperatorEnum;
  * Function returns spirv encoding for an in-build shader.
  */
 std::vector<uint32_t> getShader(const OperatorEnum shader,
-                                const ScalarDataType datatype = Float);
+                                const DataType datatype = DataType::Float32);
 
 /*
  * Function returns spirv encoding for a runtime-generated shader.
@@ -26,7 +27,7 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
  */
 std::optional<std::vector<uint32_t>>
 getGeneratedShader(const OperatorEnum shader,
-                   const ScalarDataType datatype = Float);
+                   const DataType datatype = DataType::Float32);
 
 /*
  * Function returns spirv encoding for a pre-compiled shader.
@@ -42,6 +43,6 @@ getCompiledShader(const OperatorEnum shader);
  */
 uint32_t getScaledDispatchSize(uint32_t dispatchSize,
                                const OperatorEnum shader,
-                               const ScalarDataType datatype = Float);
+                               const DataType datatype = DataType::Float32);
 
 } // namespace cut

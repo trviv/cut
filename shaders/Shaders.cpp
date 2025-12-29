@@ -4,7 +4,7 @@
 namespace cut {
 
 std::vector<uint32_t> getShader(const OperatorEnum shader,
-                                const ScalarDataType datatype) {
+                                const DataType datatype) {
   // First try to get a runtime-generated shader
   auto generated = getGeneratedShader(shader, datatype);
   if (generated.has_value()) {
@@ -83,7 +83,7 @@ static bool isGeneratedShader(const OperatorEnum shader) {
 
 uint32_t getScaledDispatchSize(uint32_t dispatchSize,
                                const OperatorEnum shader,
-                               const ScalarDataType datatype) {
+                               const DataType datatype) {
   // Generated shaders use vec4 types, so they process 4 elements per invocation
   if (isGeneratedShader(shader)) {
     return (dispatchSize + 3) / 4; // Round up division by 4
