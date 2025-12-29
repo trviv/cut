@@ -19,12 +19,14 @@ Runtime::Runtime(Runtime &&other) noexcept
       vulkanInstance_(std::move(other.vulkanInstance_)),
       interface_(std::move(other.interface_)), simdMode_(other.simdMode_),
       numThreads_(other.numThreads_), vulkanAvailable_(other.vulkanAvailable_),
-      vulkanChecked_(other.vulkanChecked_) {
+      vulkanChecked_(other.vulkanChecked_),
+      pendingCommands_(other.pendingCommands_) {
   other.backendType_ = BackendType::CPU;
   other.simdMode_ = SIMDMode::Auto;
   other.numThreads_ = 0;
   other.vulkanAvailable_ = false;
   other.vulkanChecked_ = false;
+  other.pendingCommands_ = false;
 }
 
 Runtime &Runtime::operator=(Runtime &&other) noexcept {
@@ -38,12 +40,14 @@ Runtime &Runtime::operator=(Runtime &&other) noexcept {
     numThreads_ = other.numThreads_;
     vulkanAvailable_ = other.vulkanAvailable_;
     vulkanChecked_ = other.vulkanChecked_;
+    pendingCommands_ = other.pendingCommands_;
 
     other.backendType_ = BackendType::CPU;
     other.simdMode_ = SIMDMode::Auto;
     other.numThreads_ = 0;
     other.vulkanAvailable_ = false;
     other.vulkanChecked_ = false;
+    other.pendingCommands_ = false;
   }
   return *this;
 }
@@ -79,6 +83,8 @@ void Runtime::init(BackendType backend, size_t numThreads, SIMDMode simdMode) {
 }
 
 void Runtime::shutdown() {
+  // Flush any pending commands before shutdown
+  flushPendingCommands();
   // First destroy the interface (which holds backend resources)
   interface_.reset();
   // Then destroy the Vulkan instance if present
@@ -89,6 +95,7 @@ void Runtime::shutdown() {
   backendType_ = BackendType::CPU;
   simdMode_ = SIMDMode::Auto;
   numThreads_ = 0;
+  pendingCommands_ = false;
 }
 
 size_t Runtime::numThreads() const {
@@ -150,6 +157,8 @@ void Runtime::copyFromBuffer(ComputeHandle handle,
                              size_t size,
                              size_t srcOffset,
                              size_t dstOffset) {
+  // Ensure all pending GPU work is complete before reading data back
+  flushPendingCommands();
   getInterface()->copyDataFromBuffer(handle, dstPtr, size, srcOffset, dstOffset,
                                      false, true);
 }
@@ -213,6 +222,31 @@ ComputeHandle Runtime::submit() {
 
 void Runtime::wait(ComputeHandle cmdBuffer) {
   getInterface()->wait(cmdBuffer);
+}
+
+// =========================================================================
+// Deferred Execution Support
+// =========================================================================
+
+void Runtime::encodeAndMaybeSubmit(ComputeDispatch &&dispatch) {
+  encode(std::move(dispatch));
+
+  if (isGpuBackend()) {
+    // GPU backends (Vulkan) use lazy execution for better batching
+    pendingCommands_ = true;
+  } else {
+    // CPU backend executes immediately
+    ComputeHandle cmd = submit();
+    wait(cmd);
+  }
+}
+
+void Runtime::flushPendingCommands() {
+  if (pendingCommands_ && interface_) {
+    ComputeHandle cmd = submit();
+    wait(cmd);
+    pendingCommands_ = false;
+  }
 }
 
 } // namespace cut

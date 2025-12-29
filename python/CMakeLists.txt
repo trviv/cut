@@ -40,12 +40,14 @@ include_directories(${CUT_ROOT})
 include_directories(${CUT_ROOT}/api/Headers)
 include_directories(${CUT_ROOT}/backends/vulkan)
 include_directories(${CUT_ROOT}/backends/cpu)
+include_directories(${CUT_ROOT}/runtime)
 include_directories(${CUT_ROOT}/shaders)
 
 # Collect CUT library sources
 file(GLOB API_SOURCES ${CUT_ROOT}/api/src/*.cpp)
 file(GLOB VULKAN_SOURCES ${CUT_ROOT}/backends/vulkan/*.cpp)
 file(GLOB CPU_SOURCES ${CUT_ROOT}/backends/cpu/*.cpp)
+file(GLOB RUNTIME_SOURCES ${CUT_ROOT}/runtime/*.cpp)
 file(GLOB SHADER_SOURCES ${CUT_ROOT}/shaders/*.cpp)
 
 # =============================================================================
@@ -56,6 +58,7 @@ pybind11_add_module(_cut_compute
     ${API_SOURCES}
     ${VULKAN_SOURCES}
     ${CPU_SOURCES}
+    ${RUNTIME_SOURCES}
     ${SHADER_SOURCES}
 )
 

@@ -57,19 +57,18 @@ ComputeDispatch = _cut_compute.ComputeDispatch
 # Module state
 _initialized = False
 _live_buffers: weakref.WeakSet = weakref.WeakSet()
-_pending_commands = False  # Track if there are pending GPU commands
 
 # Shader cache: maps (OperatorEnum, DataType) -> ComputeHandle
 _shader_cache: dict = {}
 
 
 def _flush_pending():
-    """Submit and wait for any pending GPU commands."""
-    global _pending_commands
-    if _pending_commands:
-        cmd = _cut_compute.submit()
-        _cut_compute.wait(cmd)
-        _pending_commands = False
+    """Submit and wait for any pending GPU commands.
+
+    This delegates to the Runtime's pending command tracking, which handles
+    deferred vs immediate execution based on the backend type.
+    """
+    _cut_compute.flush_pending()
 
 
 def _atexit_shutdown():
@@ -254,7 +253,7 @@ def shutdown():
 
     This function should be called before program exit when using the Vulkan
     backend to ensure proper cleanup. It:
-    - Flushes any pending GPU commands
+    - Flushes any pending GPU commands (handled by Runtime)
     - Forces garbage collection to release Python buffer references
     - Clears all live buffer references
     - Clears the shader cache
@@ -270,10 +269,7 @@ def shutdown():
         >>> # ... use compute operations ...
         >>> cc.shutdown()  # Clean up before exit
     """
-    global _initialized, _live_buffers, _shader_cache, _pending_commands
-
-    # Flush any pending GPU commands before shutdown
-    _flush_pending()
+    global _initialized, _live_buffers, _shader_cache
 
     # Force garbage collection to release Python buffer references
     gc.collect()
@@ -289,10 +285,10 @@ def shutdown():
     _shader_cache.clear()
 
     # Call C++ shutdown to properly destroy Vulkan resources
+    # (Runtime.shutdown() flushes pending commands automatically)
     _cut_compute.shutdown()
 
     _initialized = False
-    _pending_commands = False
 
 
 # Numpy dtype to DataType mapping
@@ -597,21 +593,16 @@ def run(dispatch: Dispatch):
     For CPU backend: dispatch is executed immediately to avoid race conditions
     with the thread pool.
 
+    The Runtime handles the decision of whether to execute immediately or defer
+    based on the backend type.
+
     Args:
         dispatch: Dispatch object to execute
     """
-    global _pending_commands
     _ensure_initialized()
 
-    _cut_compute.encode(dispatch.inner)
-
-    # Async backends (Vulkan) use lazy execution for better batching
-    # Sync backends (CPU) execute immediately
-    if is_gpu():
-        _pending_commands = True
-    else:
-        cmd = _cut_compute.submit()
-        _cut_compute.wait(cmd)
+    # Runtime handles deferred vs immediate execution based on backend
+    _cut_compute.encode_and_maybe_submit(dispatch.inner)
 
 
 def precompile_shaders() -> int:

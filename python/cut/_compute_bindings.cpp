@@ -2,8 +2,8 @@
  * Unified Python bindings for CUT ComputeInterface.
  *
  * This single binding provides access to all backends (Vulkan, CPU) through
- * the unified ComputeInterface. Backend selection is done at runtime via
- * the Backend enum.
+ * the unified ComputeInterface via the Runtime class. Backend selection is
+ * done at runtime via the Backend enum.
  */
 
 #include <memory>
@@ -18,9 +18,8 @@
 #include <ComputeOps.h>
 #include <ComputeStructs.h>
 
-// Backend implementations
-#include "CPUCompute.h"
-#include "VulkanCompute.h"
+// Runtime class that manages all compute operations
+#include "Runtime.h"
 
 // Shader access for Vulkan
 #include "Shaders.h"
@@ -30,45 +29,12 @@ namespace py = pybind11;
 namespace {
 
 /**
- * Backend type enum for Python.
+ * Global Runtime singleton for Python bindings.
  */
-enum class BackendType { Vulkan, CPU };
-
-/**
- * Global state for the unified compute interface.
- */
-struct ComputeState {
-  BackendType backend_type = BackendType::CPU;
-  std::shared_ptr<cut::VulkanInstance> vulkan_instance;
-  std::unique_ptr<cut::ComputeInterface> interface;
-  cut::SIMDMode simd_mode = cut::SIMDMode::Auto;
-  size_t num_threads = 0;
-  bool vulkan_available = false;
-
-  static ComputeState &instance() {
-    static ComputeState state;
-    return state;
-  }
-
-  void checkVulkanAvailable() {
-    if (!vulkan_available) {
-      try {
-        vulkan_instance = std::make_shared<cut::VulkanInstance>();
-        vulkan_available = true;
-      } catch (...) {
-        vulkan_available = false;
-      }
-    }
-  }
-
-  cut::ComputeInterface *getInterface() {
-    if (!interface) {
-      throw std::runtime_error(
-          "Compute interface not initialized. Call init() first.");
-    }
-    return interface.get();
-  }
-};
+cut::Runtime &getRuntime() {
+  static cut::Runtime runtime;
+  return runtime;
+}
 
 // Helper to convert numpy dtype format to DataType
 cut::DataType numpyFormatToDataType(const std::string &format,
@@ -93,9 +59,9 @@ PYBIND11_MODULE(_cut_compute, m) {
   // =========================================================================
   // Backend Type Enum
   // =========================================================================
-  py::enum_<BackendType>(m, "BackendType", "Available compute backends")
-      .value("Vulkan", BackendType::Vulkan, "Vulkan GPU backend")
-      .value("CPU", BackendType::CPU, "CPU backend with optional SIMD")
+  py::enum_<cut::BackendType>(m, "BackendType", "Available compute backends")
+      .value("Vulkan", cut::BackendType::Vulkan, "Vulkan GPU backend")
+      .value("CPU", cut::BackendType::CPU, "CPU backend with optional SIMD")
       .export_values();
 
   // =========================================================================
@@ -258,11 +224,7 @@ PYBIND11_MODULE(_cut_compute, m) {
   // =========================================================================
 
   m.def(
-      "is_vulkan_available",
-      []() {
-        ComputeState::instance().checkVulkanAvailable();
-        return ComputeState::instance().vulkan_available;
-      },
+      "is_vulkan_available", []() { return getRuntime().isVulkanAvailable(); },
       "Check if Vulkan backend is available");
 
   m.def(
@@ -271,66 +233,29 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "init",
-      [](BackendType backend, size_t num_threads, cut::SIMDMode simd_mode) {
-        auto &state = ComputeState::instance();
-
-        if (backend == BackendType::Vulkan) {
-          state.checkVulkanAvailable();
-          if (!state.vulkan_available) {
-            throw std::runtime_error("Vulkan backend is not available");
-          }
-          state.interface = state.vulkan_instance->createInterface();
-          state.backend_type = BackendType::Vulkan;
-        } else {
-          // CPU backend
-          auto cpu = std::make_unique<cut::CPUCompute>(num_threads, simd_mode);
-          state.num_threads = cpu->numThreads();
-          state.simd_mode = cpu->simdMode();
-          state.interface = std::move(cpu);
-          state.backend_type = BackendType::CPU;
-        }
+      [](cut::BackendType backend, size_t num_threads,
+         cut::SIMDMode simd_mode) {
+        getRuntime().init(backend, num_threads, simd_mode);
       },
-      py::arg("backend") = BackendType::CPU, py::arg("num_threads") = 0,
+      py::arg("backend") = cut::BackendType::CPU, py::arg("num_threads") = 0,
       py::arg("simd_mode") = cut::SIMDMode::Auto,
       "Initialize the compute backend");
 
   m.def(
-      "current_backend", []() { return ComputeState::instance().backend_type; },
+      "current_backend", []() { return getRuntime().currentBackend(); },
       "Get the current backend type");
 
   m.def(
-      "num_threads",
-      []() {
-        auto &state = ComputeState::instance();
-        if (state.backend_type == BackendType::CPU && state.interface) {
-          return static_cast<cut::CPUCompute *>(state.interface.get())
-              ->numThreads();
-        }
-        return size_t(0);
-      },
+      "num_threads", []() { return getRuntime().numThreads(); },
       "Get number of worker threads (CPU backend only)");
 
   m.def(
-      "simd_mode",
-      []() {
-        auto &state = ComputeState::instance();
-        if (state.backend_type == BackendType::CPU && state.interface) {
-          return static_cast<cut::CPUCompute *>(state.interface.get())
-              ->simdMode();
-        }
-        return cut::SIMDMode::Scalar;
-      },
+      "simd_mode", []() { return getRuntime().simdMode(); },
       "Get current SIMD mode (CPU backend only)");
 
   m.def(
       "set_simd_mode",
-      [](cut::SIMDMode mode) {
-        auto &state = ComputeState::instance();
-        if (state.backend_type == BackendType::CPU && state.interface) {
-          static_cast<cut::CPUCompute *>(state.interface.get())
-              ->setSIMDMode(mode);
-        }
-      },
+      [](cut::SIMDMode mode) { getRuntime().setSIMDMode(mode); },
       py::arg("mode"), "Set SIMD mode (CPU backend only)");
 
   // =========================================================================
@@ -340,14 +265,11 @@ PYBIND11_MODULE(_cut_compute, m) {
   m.def(
       "create_buffer",
       [](py::array arr, bool is_uniform) {
-        auto &state = ComputeState::instance();
-        auto *iface = state.getInterface();
-
         py::buffer_info info = arr.request();
         std::vector<uint32_t> shape(info.shape.begin(), info.shape.end());
         cut::DataType dtype = numpyFormatToDataType(info.format, info.itemsize);
 
-        return iface->createBuffer(shape, dtype, info.ptr, is_uniform);
+        return getRuntime().createBuffer(shape, dtype, info.ptr, is_uniform);
       },
       py::arg("data"), py::arg("is_uniform") = false,
       "Create a buffer from numpy array");
@@ -355,9 +277,7 @@ PYBIND11_MODULE(_cut_compute, m) {
   m.def(
       "create_buffer_empty",
       [](std::vector<uint32_t> shape, cut::DataType dtype, bool is_uniform) {
-        auto &state = ComputeState::instance();
-        auto *iface = state.getInterface();
-        return iface->createBuffer(shape, dtype, nullptr, is_uniform);
+        return getRuntime().createBufferEmpty(shape, dtype, is_uniform);
       },
       py::arg("shape"), py::arg("dtype"), py::arg("is_uniform") = false,
       "Create an empty buffer");
@@ -366,13 +286,10 @@ PYBIND11_MODULE(_cut_compute, m) {
       "copy_to_buffer",
       [](cut::ComputeHandle handle, py::array arr, size_t src_offset,
          size_t dst_offset) {
-        auto &state = ComputeState::instance();
-        auto *iface = state.getInterface();
-
         py::buffer_info info = arr.request();
         size_t size = info.size * info.itemsize;
-        iface->copyDataToBuffer(info.ptr, handle, size, src_offset, dst_offset,
-                                false, true);
+        getRuntime().copyToBuffer(handle, info.ptr, size, src_offset,
+                                  dst_offset);
       },
       py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
       py::arg("dst_offset") = 0, "Copy data to buffer");
@@ -381,13 +298,10 @@ PYBIND11_MODULE(_cut_compute, m) {
       "copy_from_buffer",
       [](cut::ComputeHandle handle, py::array arr, size_t src_offset,
          size_t dst_offset) {
-        auto &state = ComputeState::instance();
-        auto *iface = state.getInterface();
-
         py::buffer_info info = arr.request();
         size_t size = info.size * info.itemsize;
-        iface->copyDataFromBuffer(handle, info.ptr, size, src_offset,
-                                  dst_offset, false, true);
+        getRuntime().copyFromBuffer(handle, info.ptr, size, src_offset,
+                                    dst_offset);
       },
       py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
       py::arg("dst_offset") = 0, "Copy data from buffer");
@@ -399,35 +313,7 @@ PYBIND11_MODULE(_cut_compute, m) {
   m.def(
       "create_shader",
       [](cut::OperatorEnum op, cut::DataType dtype) {
-        auto &state = ComputeState::instance();
-        auto *iface = state.getInterface();
-
-        if (state.backend_type == BackendType::Vulkan) {
-          // Get SPIR-V and create shader module
-          cut::ScalarDataType scalar_dtype;
-          switch (dtype) {
-          case cut::DataType::Float32:
-            scalar_dtype = cut::ScalarDataType::Float;
-            break;
-          case cut::DataType::Float16:
-            scalar_dtype = cut::ScalarDataType::Half;
-            break;
-          case cut::DataType::UInt32:
-            scalar_dtype = cut::ScalarDataType::UInt;
-            break;
-          case cut::DataType::Int32:
-            scalar_dtype = cut::ScalarDataType::Int;
-            break;
-          default:
-            scalar_dtype = cut::ScalarDataType::Float;
-          }
-
-          std::vector<uint32_t> spirv = cut::getShader(op, scalar_dtype);
-          return iface->createShaderModule(spirv);
-        } else {
-          // CPU backend - create kernel handle
-          return static_cast<cut::CPUCompute *>(iface)->createKernel(op);
-        }
+        return getRuntime().createShader(op, dtype);
       },
       py::arg("op"), py::arg("dtype") = cut::DataType::Float32,
       "Create a shader/kernel for the specified operation");
@@ -435,9 +321,7 @@ PYBIND11_MODULE(_cut_compute, m) {
   m.def(
       "create_shader_from_spirv",
       [](const std::vector<uint32_t> &spirv) {
-        auto &state = ComputeState::instance();
-        auto *iface = state.getInterface();
-        return iface->createShaderModule(spirv);
+        return getRuntime().getInterface()->createShaderModule(spirv);
       },
       py::arg("spirv"), "Create a shader from SPIR-V bytecode (Vulkan only)");
 
@@ -448,48 +332,51 @@ PYBIND11_MODULE(_cut_compute, m) {
   m.def(
       "encode",
       [](cut::ComputeDispatch &dispatch) {
-        auto &state = ComputeState::instance();
-        auto *iface = state.getInterface();
-        iface->encode(std::move(dispatch));
+        getRuntime().encode(std::move(dispatch));
       },
       py::arg("dispatch"), "Encode a dispatch to the command buffer");
 
   m.def(
-      "submit",
-      []() {
-        auto &state = ComputeState::instance();
-        auto *iface = state.getInterface();
-        return iface->submit();
-      },
+      "submit", []() { return getRuntime().submit(); },
       "Submit the command buffer for execution");
 
   m.def(
       "wait",
-      [](cut::ComputeHandle cmd_buffer) {
-        auto &state = ComputeState::instance();
-        auto *iface = state.getInterface();
-        iface->wait(cmd_buffer);
-      },
+      [](cut::ComputeHandle cmd_buffer) { getRuntime().wait(cmd_buffer); },
       py::arg("cmd_buffer"), "Wait for a command buffer to complete");
+
+  // =========================================================================
+  // Deferred Execution Support
+  // =========================================================================
+
+  m.def(
+      "encode_and_maybe_submit",
+      [](cut::ComputeDispatch &dispatch) {
+        getRuntime().encodeAndMaybeSubmit(std::move(dispatch));
+      },
+      py::arg("dispatch"),
+      "Encode a dispatch and handle submission based on backend type. "
+      "For async backends (Vulkan): queues the dispatch. "
+      "For sync backends (CPU): executes immediately.");
+
+  m.def(
+      "flush_pending", []() { getRuntime().flushPendingCommands(); },
+      "Flush any pending commands by submitting and waiting");
+
+  m.def(
+      "has_pending_commands",
+      []() { return getRuntime().hasPendingCommands(); },
+      "Check if there are pending commands");
+
+  m.def(
+      "is_gpu_backend", []() { return getRuntime().isGpuBackend(); },
+      "Check if the current backend is a GPU backend");
 
   // =========================================================================
   // Shutdown function for proper cleanup
   // =========================================================================
   m.def(
-      "shutdown",
-      []() {
-        auto &state = ComputeState::instance();
-        // First destroy the interface (which holds Vulkan resources)
-        // This must happen before destroying the VulkanInstance
-        state.interface.reset();
-        // Then destroy the Vulkan instance
-        state.vulkan_instance.reset();
-        // Reset state flags
-        state.vulkan_available = false;
-        state.backend_type = BackendType::CPU;
-        state.simd_mode = cut::SIMDMode::Auto;
-        state.num_threads = 0;
-      },
+      "shutdown", []() { getRuntime().shutdown(); },
       "Shutdown the compute backend and release all resources. "
       "Must be called before program exit to avoid crashes.");
 

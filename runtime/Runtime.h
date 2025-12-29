@@ -143,6 +143,7 @@ public:
 
   /**
    * Copies data from a buffer to host memory.
+   * Automatically flushes any pending GPU commands before reading.
    * @param handle Buffer handle.
    * @param dstPtr Destination data pointer.
    * @param size Number of bytes to copy.
@@ -200,6 +201,36 @@ public:
    */
   void wait(ComputeHandle cmdBuffer);
 
+  // =========================================================================
+  // Deferred Execution Support
+  // =========================================================================
+
+  /**
+   * Returns true if the current backend is a GPU backend.
+   * GPU backends (Vulkan) execute commands lazily for better batching.
+   * CPU backend executes commands immediately.
+   */
+  bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
+
+  /**
+   * Returns true if there are pending commands that haven't been
+   * submitted/waited.
+   */
+  bool hasPendingCommands() const { return pendingCommands_; }
+
+  /**
+   * Encodes a dispatch and handles submission based on backend type.
+   * For async backends (Vulkan): queues the dispatch and marks pending.
+   * For sync backends (CPU): encodes, submits, and waits immediately.
+   */
+  void encodeAndMaybeSubmit(ComputeDispatch &&dispatch);
+
+  /**
+   * Flushes any pending commands by submitting and waiting.
+   * No-op if there are no pending commands.
+   */
+  void flushPendingCommands();
+
 private:
   BackendType backendType_ = BackendType::CPU;
   std::shared_ptr<VulkanInstance> vulkanInstance_;
@@ -208,6 +239,7 @@ private:
   size_t numThreads_ = 0;
   bool vulkanAvailable_ = false;
   bool vulkanChecked_ = false;
+  bool pendingCommands_ = false;
 
   /**
    * Converts DataType to ScalarDataType for shader selection.
