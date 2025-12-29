@@ -319,19 +319,6 @@ PYBIND11_MODULE(_cut_compute, m) {
       py::arg("spirv"), "Create a shader from SPIR-V bytecode (Vulkan only)");
 
   // =========================================================================
-  // Dispatch Execution
-  // =========================================================================
-
-  m.def(
-      "submit", []() { return getRuntime().submit(); },
-      "Submit the command buffer for execution");
-
-  m.def(
-      "wait",
-      [](cut::ComputeHandle cmd_buffer) { getRuntime().wait(cmd_buffer); },
-      py::arg("cmd_buffer"), "Wait for a command buffer to complete");
-
-  // =========================================================================
   // Deferred Execution Support
   // =========================================================================
 

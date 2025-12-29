@@ -185,18 +185,6 @@ public:
    */
   ComputeHandle createShaderModule(const std::vector<uint32_t> &spirv);
 
-  /**
-   * Submits the command buffer for execution.
-   * @return Handle to the submitted command buffer.
-   */
-  ComputeHandle submit();
-
-  /**
-   * Waits for a command buffer to complete execution.
-   * @param cmdBuffer Handle to the command buffer.
-   */
-  void wait(ComputeHandle cmdBuffer);
-
   // =========================================================================
   // Deferred Execution Support
   // =========================================================================
@@ -249,6 +237,22 @@ private:
    * No-op if there are no pending commands.
    */
   void flushPendingCommands();
+
+  // =========================================================================
+  // Operator Execution
+  // =========================================================================
+
+  /**
+   * Submits the command buffer for execution.
+   * @return Handle to the submitted command buffer.
+   */
+  ComputeHandle submit();
+
+  /**
+   * Waits for a command buffer to complete execution.
+   * @param cmdBuffer Handle to the command buffer.
+   */
+  void wait(ComputeHandle cmdBuffer);
 };
 
 } // namespace cut
