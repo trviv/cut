@@ -207,9 +207,7 @@ void Runtime::executeOperator(OperatorEnum op,
   ComputeDispatch dispatch(shader, workgroupSize, bindings);
 
   // Encode, submit, and wait
-  encode(std::move(dispatch));
-  ComputeHandle cmd = submit();
-  wait(cmd);
+  encodeAndMaybeSubmit(std::move(dispatch));
 }
 
 void Runtime::encode(ComputeDispatch &&dispatch) {
