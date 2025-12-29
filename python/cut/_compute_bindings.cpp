@@ -314,20 +314,13 @@ PYBIND11_MODULE(_cut_compute, m) {
   m.def(
       "create_shader_from_spirv",
       [](const std::vector<uint32_t> &spirv) {
-        return getRuntime().getInterface()->createShaderModule(spirv);
+        return getRuntime().createShaderModule(spirv);
       },
       py::arg("spirv"), "Create a shader from SPIR-V bytecode (Vulkan only)");
 
   // =========================================================================
   // Dispatch Execution
   // =========================================================================
-
-  m.def(
-      "encode",
-      [](cut::ComputeDispatch &dispatch) {
-        getRuntime().encode(std::move(dispatch));
-      },
-      py::arg("dispatch"), "Encode a dispatch to the command buffer");
 
   m.def(
       "submit", []() { return getRuntime().submit(); },

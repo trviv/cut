@@ -94,12 +94,6 @@ public:
    */
   void setSIMDMode(SIMDMode mode);
 
-  /**
-   * Returns the underlying compute interface.
-   * @throws std::runtime_error if not initialized.
-   */
-  ComputeInterface *getInterface();
-
   // =========================================================================
   // Buffer Operations
   // =========================================================================
@@ -185,10 +179,11 @@ public:
                              DataType dtype = DataType::Float32);
 
   /**
-   * Encodes a compute dispatch to the command buffer.
-   * @param dispatch The dispatch to encode.
+   * Creates a shader module from SPIR-V bytecode (Vulkan only).
+   * @param spirv SPIR-V bytecode.
+   * @return Handle to the created shader module.
    */
-  void encode(ComputeDispatch &&dispatch);
+  ComputeHandle createShaderModule(const std::vector<uint32_t> &spirv);
 
   /**
    * Submits the command buffer for execution.
@@ -245,6 +240,12 @@ private:
   // Shader cache: maps (OperatorEnum, DataType) -> ComputeHandle
   using ShaderCacheKey = std::pair<OperatorEnum, DataType>;
   std::map<ShaderCacheKey, ComputeHandle> shaderCache_;
+
+  /**
+   * Returns the underlying compute interface.
+   * @throws std::runtime_error if not initialized.
+   */
+  ComputeInterface *getInterface();
 
   /**
    * Gets or creates a cached shader for the given operator and data type.
