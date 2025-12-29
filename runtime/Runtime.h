@@ -208,12 +208,6 @@ public:
    */
   void encodeAndMaybeSubmit(ComputeDispatch &&dispatch);
 
-  /**
-   * Flushes any pending commands by submitting and waiting.
-   * No-op if there are no pending commands.
-   */
-  void flushPendingCommands();
-
 private:
   BackendType backendType_ = BackendType::CPU;
   std::shared_ptr<VulkanInstance> vulkanInstance_;
@@ -249,6 +243,12 @@ private:
    * CPU backend executes commands immediately.
    */
   bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
+
+  /**
+   * Flushes any pending commands by submitting and waiting.
+   * No-op if there are no pending commands.
+   */
+  void flushPendingCommands();
 };
 
 } // namespace cut

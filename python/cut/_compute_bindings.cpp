@@ -345,10 +345,6 @@ PYBIND11_MODULE(_cut_compute, m) {
       "For async backends (Vulkan): queues the dispatch. "
       "For sync backends (CPU): executes immediately.");
 
-  m.def(
-      "flush_pending", []() { getRuntime().flushPendingCommands(); },
-      "Flush any pending commands by submitting and waiting");
-
   // =========================================================================
   // Shutdown function for proper cleanup
   // =========================================================================

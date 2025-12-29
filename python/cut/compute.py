@@ -62,15 +62,6 @@ _live_buffers: weakref.WeakSet = weakref.WeakSet()
 _shader_cache: dict = {}
 
 
-def _flush_pending():
-    """Submit and wait for any pending GPU commands.
-
-    This delegates to the Runtime's pending command tracking, which handles
-    deferred vs immediate execution based on the backend type.
-    """
-    _cut_compute.flush_pending()
-
-
 def _atexit_shutdown():
     """Shutdown handler called automatically at module exit."""
     global _initialized
@@ -205,9 +196,6 @@ def is_gpu() -> bool:
     """
     Check if the current backend is a GPU backend.
 
-    GPU backends (Vulkan) use async execution where commands are batched and
-    executed lazily when results are read. CPU backend executes synchronously.
-
     Returns:
         True if using GPU backend (Vulkan), False otherwise (CPU)
     """
@@ -253,7 +241,6 @@ def shutdown():
 
     This function should be called before program exit when using the Vulkan
     backend to ensure proper cleanup. It:
-    - Flushes any pending GPU commands (handled by Runtime)
     - Forces garbage collection to release Python buffer references
     - Clears all live buffer references
     - Clears the shader cache
@@ -285,7 +272,6 @@ def shutdown():
     _shader_cache.clear()
 
     # Call C++ shutdown to properly destroy Vulkan resources
-    # (Runtime.shutdown() flushes pending commands automatically)
     _cut_compute.shutdown()
 
     _initialized = False
@@ -449,7 +435,6 @@ class Buffer:
         Returns:
             NumPy array with buffer contents
         """
-        _flush_pending()  # Ensure all GPU work is complete before reading
         if out is None:
             if self._dtype is not None and self._shape is not None:
                 out = np.empty(self._shape, dtype=self._dtype)
@@ -461,7 +446,7 @@ class Buffer:
 
     def numpy(self) -> np.ndarray:
         """Get buffer contents as numpy array."""
-        return self.copy_to()  # copy_to already flushes pending commands
+        return self.copy_to()
 
 
 class Shader:
@@ -587,21 +572,10 @@ def run(dispatch: Dispatch):
     """
     Execute a compute dispatch.
 
-    For Vulkan backend: dispatch is encoded and executed lazily when buffer
-    data is read back to CPU (via numpy() or copy_to()).
-
-    For CPU backend: dispatch is executed immediately to avoid race conditions
-    with the thread pool.
-
-    The Runtime handles the decision of whether to execute immediately or defer
-    based on the backend type.
-
     Args:
         dispatch: Dispatch object to execute
     """
     _ensure_initialized()
-
-    # Runtime handles deferred vs immediate execution based on backend
     _cut_compute.encode_and_maybe_submit(dispatch.inner)
 
 
