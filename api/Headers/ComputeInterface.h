@@ -121,26 +121,6 @@ public:
 
 protected:
   /**
-   * Calculates the actual buffer size in bytes from a shape vector (no
-   * padding).
-   * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
-   * @param dtype Data type of each element.
-   * @return Total size in bytes without alignment padding.
-   */
-  static size_t calculateActualSize(const std::vector<uint32_t> &shape,
-                                    DataType dtype);
-
-  /**
-   * Calculates the total buffer size in bytes from a shape vector.
-   * Rounds the innermost dimension up to a multiple of 4 for alignment.
-   * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
-   * @param dtype Data type of each element.
-   * @return Total size in bytes after aligning the innermost dimension.
-   */
-  static size_t calculateAlignedSize(const std::vector<uint32_t> &shape,
-                                     DataType dtype);
-
-  /**
    * Copies data from actual-sized host memory to aligned buffer memory.
    * Handles row-by-row copying when the innermost dimension needs padding.
    * For partial copies (non-zero offsets or size != actualSize), uses memcpy.

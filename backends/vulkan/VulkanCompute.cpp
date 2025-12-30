@@ -159,7 +159,7 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
     logErr("Cannot create buffer with empty shape");
   }
 
-  const size_t alignedSize = calculateAlignedSize(shape, dtype);
+  const size_t alignedSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
 
   // Create buffer with aligned size, passing converted shape
   // Default to device-only for optimal GPU performance
@@ -191,7 +191,7 @@ ComputeHandle VulkanCompute::createBuffer(size_t size,
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct bufferStruct;
-  bufferStruct.size = size;     // Store original size for user queries
+  bufferStruct.setSize(size);   // Store original size for user queries
   bufferStruct.setShape(shape); // Store tensor shape
   bufferStruct.dtype = dtype;   // Store element data type
 
@@ -253,7 +253,7 @@ ComputeHandle VulkanCompute::createBuffer(size_t size,
 
   if (srcPtr != nullptr && !shape.empty()) {
     // Pass actualSize so copyDataToBuffer uses aligned copy
-    const size_t actualSize = calculateActualSize(shape, dtype);
+    const size_t actualSize = ComputeBuffer::calculateActualSize(shape, dtype);
     copyDataToBuffer(srcPtr, handle, actualSize, 0, 0, deviceOnly);
   }
 
@@ -273,7 +273,7 @@ VulkanBufferStruct VulkanCompute::createStagingBuffer(size_t size) {
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct stagingBuffer;
-  stagingBuffer.size = size;
+  stagingBuffer.setSize(size);
 
 #if CUT_USE_VMA
   VmaAllocationCreateInfo allocInfo = {};
@@ -411,19 +411,16 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
   const auto &buffer = containers_->bufferContainer.getBuffer(dstBuffer);
   const bool localUseStaging = useStaging || (buffer.data == nullptr);
 
-  if (buffer.size < dstOffset + size) {
+  if (buffer.size() < dstOffset + size) {
     logErr("Trying to write data outside destination buffer range.");
   }
 
-  const size_t actualSize =
-      calculateActualSize(buffer.getShape(), buffer.dtype);
+  const size_t actualSize = buffer.calculateActualSize();
   const bool isFullCopy =
       srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
-    const size_t copySize =
-        isFullCopy ? calculateAlignedSize(buffer.getShape(), buffer.dtype)
-                   : size;
+    const size_t copySize = isFullCopy ? buffer.calculateAlignedSize() : size;
     VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
     copyActualToAligned(srcPtr, stagingBuffer.data, buffer.getShape(),
@@ -439,8 +436,7 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
     // Flush memory to make writes visible to GPU
     if (!buffer.isCoherent) {
       const size_t flushSize =
-          isFullCopy ? calculateAlignedSize(buffer.getShape(), buffer.dtype)
-                     : size;
+          isFullCopy ? buffer.calculateAlignedSize() : size;
 #if CUT_USE_VMA
       vmaFlushAllocation(allocator_, buffer.allocation, dstOffset, flushSize);
 #else
@@ -466,19 +462,16 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
   const auto &buffer = containers_->bufferContainer.getBuffer(srcBuffer);
   const bool localUseStaging = useStaging || (buffer.data == nullptr);
 
-  if (buffer.size < srcOffset + size) {
+  if (buffer.size() < srcOffset + size) {
     logErr("Trying to read data outside source buffer range.");
   }
 
-  const size_t actualSize =
-      calculateActualSize(buffer.getShape(), buffer.dtype);
+  const size_t actualSize = buffer.calculateActualSize();
   const bool isFullCopy =
       srcOffset == 0 && dstOffset == 0 && size == actualSize;
 
   if (localUseStaging) {
-    const size_t copySize =
-        isFullCopy ? calculateAlignedSize(buffer.getShape(), buffer.dtype)
-                   : size;
+    const size_t copySize = isFullCopy ? buffer.calculateAlignedSize() : size;
     VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
     executeBufferCopy(buffer.buffer, stagingBuffer.buffer, copySize,
@@ -490,8 +483,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     // Invalidate memory to make GPU writes visible to CPU
     if (!buffer.isCoherent) {
       const size_t invalidateSize =
-          isFullCopy ? calculateAlignedSize(buffer.getShape(), buffer.dtype)
-                     : size;
+          isFullCopy ? buffer.calculateAlignedSize() : size;
 #if CUT_USE_VMA
       vmaInvalidateAllocation(allocator_, buffer.allocation, srcOffset,
                               invalidateSize);

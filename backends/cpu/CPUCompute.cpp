@@ -39,14 +39,14 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<uint32_t> &shape,
   //   shape32.push_back(static_cast<uint32_t>(dim));
   // }
 
-  const size_t totalSize = calculateAlignedSize(shape, dtype);
+  const size_t totalSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
 
   // Allocate buffer
   constexpr size_t kAlignment = 16;
   const size_t alignedSize = (totalSize + kAlignment - 1) & ~(kAlignment - 1);
 
   CPUBufferStruct bufferStruct;
-  bufferStruct.size = totalSize;
+  bufferStruct.setSize(totalSize);
   bufferStruct.setShape(shape);
   bufferStruct.dtype = dtype; // Store element data type
   bufferStruct.data = aligned_alloc(kAlignment, alignedSize);
@@ -73,7 +73,7 @@ void CPUCompute::copyDataToBuffer(const void *srcPtr,
                                   bool /*wait*/) {
   const auto &buffer = containers_->bufferContainer.getBuffer(dstBuffer);
 
-  if (buffer.size < dstOffset + size) {
+  if (buffer.size() < dstOffset + size) {
     throw std::runtime_error(
         "Trying to write data outside destination buffer range");
   }
@@ -91,7 +91,7 @@ void CPUCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
                                     bool /*wait*/) {
   const auto &buffer = containers_->bufferContainer.getBuffer(srcBuffer);
 
-  if (buffer.size < srcOffset + size) {
+  if (buffer.size() < srcOffset + size) {
     throw std::runtime_error("Trying to read data outside source buffer range");
   }
 

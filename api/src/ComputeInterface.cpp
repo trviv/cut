@@ -1,8 +1,25 @@
 #include <ComputeInterface.h>
 
+#include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace cut {
+
+namespace {
+// Returns the effective shape by stripping trailing 1s (except the first dim)
+// This handles padded shapes like {4,1,1,1} -> {4}
+std::vector<uint32_t> getEffectiveShape(const std::vector<uint32_t> &shape) {
+  if (shape.empty()) {
+    return shape;
+  }
+  size_t effectiveSize = shape.size();
+  while (effectiveSize > 1 && shape[effectiveSize - 1] == 1) {
+    --effectiveSize;
+  }
+  return std::vector<uint32_t>(shape.begin(), shape.begin() + effectiveSize);
+}
+} // namespace
 
 void ComputeInterface::encode(ComputeDispatch &&dispatch) {
   if (!activeCommandBuffer_) {
@@ -42,35 +59,6 @@ void ComputeInterface::setCommandBufferContainer(
   commandBufferContainer_ = std::move(commandBufferContainer);
 }
 
-size_t ComputeInterface::calculateActualSize(const std::vector<uint32_t> &shape,
-                                             DataType dtype) {
-  if (shape.empty()) {
-    return 0;
-  }
-  size_t totalElements = 1;
-  for (uint32_t dim : shape) {
-    totalElements *= dim;
-  }
-  return totalElements * dataTypeSize(dtype);
-}
-
-size_t
-ComputeInterface::calculateAlignedSize(const std::vector<uint32_t> &shape,
-                                       DataType dtype) {
-  if (shape.empty()) {
-    return 0;
-  }
-  // Round innermost dimension to multiple of 4
-  std::vector<uint32_t> alignedShape = shape;
-  alignedShape.back() = (alignedShape.back() + 3) & ~static_cast<uint32_t>(3);
-
-  size_t totalElements = 1;
-  for (uint32_t dim : alignedShape) {
-    totalElements *= dim;
-  }
-  return totalElements * dataTypeSize(dtype);
-}
-
 void ComputeInterface::copyActualToAligned(const void *src,
                                            void *dst,
                                            const std::vector<uint32_t> &shape,
@@ -82,10 +70,13 @@ void ComputeInterface::copyActualToAligned(const void *src,
     return;
   }
 
+  // Use effective shape (strip trailing 1s from padded shapes)
+  const auto effShape = getEffectiveShape(shape);
+
   const size_t elementSize = dataTypeSize(dtype);
-  const size_t innerDim = shape.back();
+  const size_t innerDim = effShape.back();
   const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
-  const size_t actualSize = calculateActualSize(shape, dtype);
+  const size_t actualSize = ComputeBuffer::calculateActualSize(effShape, dtype);
 
   // If size is 0, copy the full buffer
   if (size == 0) {
@@ -104,8 +95,8 @@ void ComputeInterface::copyActualToAligned(const void *src,
 
   // Full copy with padding - copy row by row
   size_t numRows = 1;
-  for (size_t i = 0; i < shape.size() - 1; ++i) {
-    numRows *= shape[i];
+  for (size_t i = 0; i < effShape.size() - 1; ++i) {
+    numRows *= effShape[i];
   }
 
   const size_t srcRowBytes = innerDim * elementSize;
@@ -128,10 +119,13 @@ void ComputeInterface::copyAlignedToActual(const void *src,
     return;
   }
 
+  // Use effective shape (strip trailing 1s from padded shapes)
+  const auto effShape = getEffectiveShape(shape);
+
   const size_t elementSize = dataTypeSize(dtype);
-  const size_t innerDim = shape.back();
+  const size_t innerDim = effShape.back();
   const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
-  const size_t actualSize = calculateActualSize(shape, dtype);
+  const size_t actualSize = ComputeBuffer::calculateActualSize(effShape, dtype);
 
   // If size is 0, copy the full buffer
   if (size == 0) {
@@ -150,8 +144,8 @@ void ComputeInterface::copyAlignedToActual(const void *src,
 
   // Full copy with padding - copy row by row
   size_t numRows = 1;
-  for (size_t i = 0; i < shape.size() - 1; ++i) {
-    numRows *= shape[i];
+  for (size_t i = 0; i < effShape.size() - 1; ++i) {
+    numRows *= effShape[i];
   }
 
   const size_t srcRowBytes = alignedInnerDim * elementSize;

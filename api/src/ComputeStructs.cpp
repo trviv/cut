@@ -13,15 +13,21 @@ void ComputeBuffer::setShape(const std::vector<uint32_t> &newShape) {
                              std::to_string(newShape.size()));
   }
 
-  // Copy the shape and pad with 1s to ensure size is exactly 4
-  shape_ = newShape;
-  shape_.resize(4, 1);
+  // Prepend 1s to ensure size is exactly 4, keeping innermost dimension at back
+  const size_t padCount = 4 - newShape.size();
+  shape_.assign(padCount, 1);
+  shape_.insert(shape_.end(), newShape.begin(), newShape.end());
 
   // Calculate execution size with overflow checking
-  executionSize_ = ((static_cast<size_t>(shape_.back()) + 3) & ~size_t{3});
+  // Innermost dimension (shape_.back()) is aligned to multiple of 4
+  executionElementCount_ =
+      ((static_cast<size_t>(shape_.back()) + 3) & ~size_t{3});
+  size_ = shape_.back();
   for (auto it = shape_.rbegin() + 1; it != shape_.rend(); ++it) {
-    executionSize_ *= *it;
+    executionElementCount_ *= *it;
+    size_ *= *it;
   }
+  size_ *= dataTypeSize(dtype);
 }
 
 std::vector<uint32_t> ComputeBuffer::getDimData() const {
@@ -36,8 +42,35 @@ std::vector<uint32_t> ComputeBuffer::getDimData() const {
   return ret;
 }
 
-size_t ComputeBuffer::getExecutionSize() const {
-  return executionSize_;
+size_t ComputeBuffer::executionSize() const {
+  return executionElementCount_;
+}
+
+size_t ComputeBuffer::calculateActualSize(const std::vector<uint32_t> &shape,
+                                          DataType dtype) {
+  if (shape.empty()) {
+    return 0;
+  }
+  size_t totalElements = 1;
+  for (uint32_t dim : shape) {
+    totalElements *= dim;
+  }
+  return totalElements * dataTypeSize(dtype);
+}
+
+size_t ComputeBuffer::calculateAlignedSize(const std::vector<uint32_t> &shape,
+                                           DataType dtype) {
+  if (shape.empty()) {
+    return 0;
+  }
+  // Round innermost dimension to multiple of 4
+  size_t totalElements = 1;
+  for (size_t i = 0; i < shape.size() - 1; ++i) {
+    totalElements *= shape[i];
+  }
+  size_t alignedInner = (shape.back() + 3) & ~static_cast<uint32_t>(3);
+  totalElements *= alignedInner;
+  return totalElements * dataTypeSize(dtype);
 }
 
 ComputeDispatch::ComputeDispatch(const ComputeHandle &shader,

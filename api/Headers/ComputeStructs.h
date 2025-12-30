@@ -68,7 +68,6 @@ private:
  */
 struct ComputeBuffer {
   void *data = nullptr;               ///< Pointer to mapped/accessible data.
-  size_t size = 0;                    ///< Size in bytes.
   DataType dtype = DataType::Float32; ///< Element data type.
 
   virtual ~ComputeBuffer() = default;
@@ -95,9 +94,57 @@ struct ComputeBuffer {
 
   size_t executionSize() const;
 
+  /**
+   * Returns the buffer size in bytes (actual size, no alignment padding).
+   */
+  size_t size() const { return size_; }
+
+  /**
+   * Sets the buffer size in bytes.
+   */
+  void setSize(size_t newSize) { size_ = newSize; }
+
+  /**
+   * Calculates the actual buffer size in bytes (no padding).
+   * Uses the buffer's shape and dtype.
+   * @return Total size in bytes without alignment padding.
+   */
+  size_t calculateActualSize() const { return size_; }
+
+  /**
+   * Calculates the total buffer size in bytes with alignment.
+   * Rounds the innermost dimension up to a multiple of 4 for alignment.
+   * Uses the buffer's shape and dtype.
+   * @return Total size in bytes after aligning the innermost dimension.
+   */
+  size_t calculateAlignedSize() const {
+    return executionElementCount_ * dataTypeSize(dtype);
+  }
+
+  /**
+   * Calculates the actual buffer size in bytes from a shape vector (no
+   * padding).
+   * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
+   * @param dtype Data type of each element.
+   * @return Total size in bytes without alignment padding.
+   */
+  static size_t calculateActualSize(const std::vector<uint32_t> &shape,
+                                    DataType dtype);
+
+  /**
+   * Calculates the total buffer size in bytes from a shape vector.
+   * Rounds the innermost dimension up to a multiple of 4 for alignment.
+   * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
+   * @param dtype Data type of each element.
+   * @return Total size in bytes after aligning the innermost dimension.
+   */
+  static size_t calculateAlignedSize(const std::vector<uint32_t> &shape,
+                                     DataType dtype);
+
 private:
   std::vector<uint32_t> shape_; ///< Dimension-wise sizes (always size 4).
-  size_t executionSize_;
+  size_t size_ = 0;             ///< Size in bytes.
+  size_t executionElementCount_ = 0;
 };
 
 /**

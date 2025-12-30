@@ -26,7 +26,7 @@ TEST(VulkanContextConfig, CustomValues) {
 TEST(VulkanBufferStruct, DefaultInitialization) {
   VulkanBufferStruct buffer;
   EXPECT_EQ(buffer.buffer, VK_NULL_HANDLE);
-  EXPECT_EQ(buffer.size, 0);
+  EXPECT_EQ(buffer.size(), 0);
   EXPECT_EQ(buffer.offset, 0);
   EXPECT_EQ(buffer.data, nullptr);
   EXPECT_FALSE(buffer.isCoherent);
@@ -34,11 +34,11 @@ TEST(VulkanBufferStruct, DefaultInitialization) {
 
 TEST(VulkanBufferStruct, SetValues) {
   VulkanBufferStruct buffer;
-  buffer.size = 1024;
+  buffer.setSize(1024);
   buffer.offset = 256;
   buffer.isCoherent = true;
 
-  EXPECT_EQ(buffer.size, 1024);
+  EXPECT_EQ(buffer.size(), 1024);
   EXPECT_EQ(buffer.offset, 256);
   EXPECT_TRUE(buffer.isCoherent);
 }
