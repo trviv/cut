@@ -288,16 +288,16 @@ void Dispatcher::encode(OperatorEnum op,
     uint32_t bufferElementCount = computeElementCount(buffer.getShape());
 
     if (!dtypeSet) {
-      inferredDtype = buffer.dtype;
+      inferredDtype = buffer.getDtype();
       elementCount = bufferElementCount;
       dtypeSet = true;
     } else {
       // Validate dtype matches
-      if (buffer.dtype != inferredDtype) {
+      if (buffer.getDtype() != inferredDtype) {
         throw std::runtime_error(
             std::string("Buffer dtype mismatch: expected ") +
             dataTypeName(inferredDtype) + " but got " +
-            dataTypeName(buffer.dtype));
+            dataTypeName(buffer.getDtype()));
       }
       // Validate element count matches
       if (bufferElementCount != elementCount) {

@@ -67,8 +67,7 @@ private:
  * Contains common metadata shared by all buffer implementations.
  */
 struct ComputeBuffer {
-  void *data = nullptr;               ///< Pointer to mapped/accessible data.
-  DataType dtype = DataType::Float32; ///< Element data type.
+  void *data = nullptr; ///< Pointer to mapped/accessible data.
 
   virtual ~ComputeBuffer() = default;
 
@@ -85,6 +84,18 @@ struct ComputeBuffer {
    * @throws std::runtime_error if newShape.size() > 4.
    */
   void setShape(const std::vector<uint32_t> &newShape);
+
+  /**
+   * Returns the data type of the buffer elements.
+   */
+  DataType getDtype() const { return dtype_; }
+
+  /**
+   * Sets the data type of the buffer elements.
+   * Recalculates buffer size if shape is already set.
+   * @param newDtype The new data type.
+   */
+  void setDtype(DataType newDtype);
 
   /**
    * Returns dimension data for shader uniforms.
@@ -113,7 +124,7 @@ struct ComputeBuffer {
    * @return Total size in bytes after aligning the innermost dimension.
    */
   size_t calculateAlignedSize() const {
-    return executionElementCount_ * dataTypeSize(dtype);
+    return executionElementCount_ * dataTypeSize(dtype_);
   }
 
   /**
@@ -138,7 +149,8 @@ struct ComputeBuffer {
 
 private:
   std::vector<uint32_t> shape_; ///< Dimension-wise sizes (always size 4).
-  size_t size_ = 0;             ///< Size in bytes.
+  DataType dtype_ = DataType::Float32; ///< Element data type.
+  size_t size_ = 0;                    ///< Size in bytes.
   size_t executionElementCount_ = 0;
 };
 

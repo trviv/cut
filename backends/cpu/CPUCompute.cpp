@@ -42,8 +42,8 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<uint32_t> &shape,
   const size_t alignedSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
 
   CPUBufferStruct bufferStruct;
-  bufferStruct.dtype =
-      dtype; // Store element data type (must be set before setShape)
+  bufferStruct.setDtype(
+      dtype); // Store element data type (must be set before setShape)
   bufferStruct.setShape(shape); // Store tensor shape and calculate aligned size
 
   // Allocate buffer with 16-byte alignment for SIMD operations
@@ -77,7 +77,7 @@ void CPUCompute::copyDataToBuffer(const void *srcPtr,
         "Trying to write data outside destination buffer range");
   }
 
-  copyActualToAligned(srcPtr, buffer.data, buffer.getShape(), buffer.dtype,
+  copyActualToAligned(srcPtr, buffer.data, buffer.getShape(), buffer.getDtype(),
                       srcOffset, dstOffset, size);
 }
 
@@ -94,7 +94,7 @@ void CPUCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     throw std::runtime_error("Trying to read data outside source buffer range");
   }
 
-  copyAlignedToActual(buffer.data, dstPtr, buffer.getShape(), buffer.dtype,
+  copyAlignedToActual(buffer.data, dstPtr, buffer.getShape(), buffer.getDtype(),
                       srcOffset, dstOffset, size);
 }
 

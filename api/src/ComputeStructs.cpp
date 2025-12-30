@@ -27,7 +27,17 @@ void ComputeBuffer::setShape(const std::vector<uint32_t> &newShape) {
   }
 
   // Calculate aligned size
-  size_ = calculateAlignedSize(shape_, dtype);
+  size_ = calculateAlignedSize(shape_, dtype_);
+}
+
+void ComputeBuffer::setDtype(DataType newDtype) {
+  dtype_ = newDtype;
+  // Recalculate size if shape is already set
+  if (!shape_.empty()) {
+    size_ = calculateAlignedSize(shape_, dtype_);
+  } else {
+    size_ = 0;
+  }
 }
 
 std::vector<uint32_t> ComputeBuffer::getDimData() const {
@@ -47,7 +57,7 @@ size_t ComputeBuffer::executionSize() const {
 }
 
 size_t ComputeBuffer::calculateActualSize() const {
-  return calculateActualSize(shape_, dtype);
+  return calculateActualSize(shape_, dtype_);
 }
 
 size_t ComputeBuffer::calculateActualSize(const std::vector<uint32_t> &shape,

@@ -179,8 +179,8 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct bufferStruct;
-  bufferStruct.dtype =
-      dtype; // Store element data type (must be set before setShape)
+  bufferStruct.setDtype(
+      dtype); // Store element data type (must be set before setShape)
   bufferStruct.setShape(shape); // Store tensor shape and calculate aligned size
 
 #if CUT_USE_VMA
@@ -414,14 +414,14 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
     VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
     copyActualToAligned(srcPtr, stagingBuffer.data, buffer.getShape(),
-                        buffer.dtype, isFullCopy ? 0 : srcOffset, 0, size);
+                        buffer.getDtype(), isFullCopy ? 0 : srcOffset, 0, size);
     executeBufferCopy(stagingBuffer.buffer, buffer.buffer, copySize, 0,
                       isFullCopy ? 0 : dstOffset);
     destroyStagingBuffer(stagingBuffer);
   } else {
     // Host-visible buffer - use unified copy function
-    copyActualToAligned(srcPtr, buffer.data, buffer.getShape(), buffer.dtype,
-                        srcOffset, dstOffset, size);
+    copyActualToAligned(srcPtr, buffer.data, buffer.getShape(),
+                        buffer.getDtype(), srcOffset, dstOffset, size);
 
     // Flush memory to make writes visible to GPU
     if (!buffer.isCoherent) {
@@ -467,7 +467,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     executeBufferCopy(buffer.buffer, stagingBuffer.buffer, copySize,
                       isFullCopy ? 0 : srcOffset, 0);
     copyAlignedToActual(stagingBuffer.data, dstPtr, buffer.getShape(),
-                        buffer.dtype, 0, isFullCopy ? 0 : dstOffset, size);
+                        buffer.getDtype(), 0, isFullCopy ? 0 : dstOffset, size);
     destroyStagingBuffer(stagingBuffer);
   } else {
     // Invalidate memory to make GPU writes visible to CPU
@@ -489,8 +489,8 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     }
 
     // Host-visible buffer - use unified copy function
-    copyAlignedToActual(buffer.data, dstPtr, buffer.getShape(), buffer.dtype,
-                        srcOffset, dstOffset, size);
+    copyAlignedToActual(buffer.data, dstPtr, buffer.getShape(),
+                        buffer.getDtype(), srcOffset, dstOffset, size);
   }
 }
 
