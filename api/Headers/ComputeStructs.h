@@ -103,12 +103,21 @@ struct ComputeBuffer {
    */
   std::vector<uint32_t> getDimData() const;
 
+  /**
+   * Returns the total number of elements for execution.
+   * The innermost dimension is aligned to a multiple of 4.
+   */
   size_t executionSize() const;
 
   /**
    * Returns the buffer size in bytes (aligned size).
    */
   size_t size() const { return size_; }
+
+  /**
+   * Returns the size of the innermost dimension (before alignment).
+   */
+  uint32_t innerDimSize() const;
 
   /**
    * Calculates the actual buffer size in bytes (no padding).

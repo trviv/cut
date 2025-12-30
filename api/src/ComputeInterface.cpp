@@ -1,25 +1,8 @@
 #include <ComputeInterface.h>
 
-#include <cstdint>
 #include <cstring>
-#include <vector>
 
 namespace cut {
-
-namespace {
-// Returns the effective shape by stripping trailing 1s (except the first dim)
-// This handles padded shapes like {4,1,1,1} -> {4}
-std::vector<uint32_t> getEffectiveShape(const std::vector<uint32_t> &shape) {
-  if (shape.empty()) {
-    return shape;
-  }
-  size_t effectiveSize = shape.size();
-  while (effectiveSize > 1 && shape[effectiveSize - 1] == 1) {
-    --effectiveSize;
-  }
-  return std::vector<uint32_t>(shape.begin(), shape.begin() + effectiveSize);
-}
-} // namespace
 
 void ComputeInterface::encode(ComputeDispatch &&dispatch) {
   if (!activeCommandBuffer_) {
@@ -61,22 +44,18 @@ void ComputeInterface::setCommandBufferContainer(
 
 void ComputeInterface::copyActualToAligned(const void *src,
                                            void *dst,
-                                           const std::vector<uint32_t> &shape,
-                                           DataType dtype,
+                                           const ComputeBuffer &buffer,
                                            size_t srcOffset,
                                            size_t dstOffset,
                                            size_t size) {
-  if (shape.empty() || src == nullptr || dst == nullptr) {
+  if (src == nullptr || dst == nullptr) {
     return;
   }
 
-  // Use effective shape (strip trailing 1s from padded shapes)
-  const auto effShape = getEffectiveShape(shape);
-
-  const size_t elementSize = dataTypeSize(dtype);
-  const size_t innerDim = effShape.back();
+  const size_t elementSize = dataTypeSize(buffer.getDtype());
+  const size_t innerDim = buffer.innerDimSize();
   const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
-  const size_t actualSize = ComputeBuffer::calculateActualSize(effShape, dtype);
+  const size_t actualSize = buffer.calculateActualSize();
 
   // If size is 0, copy the full buffer
   if (size == 0) {
@@ -94,11 +73,7 @@ void ComputeInterface::copyActualToAligned(const void *src,
   }
 
   // Full copy with padding - copy row by row
-  size_t numRows = 1;
-  for (size_t i = 0; i < effShape.size() - 1; ++i) {
-    numRows *= effShape[i];
-  }
-
+  const size_t numRows = buffer.executionSize() / alignedInnerDim;
   const size_t srcRowBytes = innerDim * elementSize;
   const size_t dstRowBytes = alignedInnerDim * elementSize;
 
@@ -110,22 +85,18 @@ void ComputeInterface::copyActualToAligned(const void *src,
 
 void ComputeInterface::copyAlignedToActual(const void *src,
                                            void *dst,
-                                           const std::vector<uint32_t> &shape,
-                                           DataType dtype,
+                                           const ComputeBuffer &buffer,
                                            size_t srcOffset,
                                            size_t dstOffset,
                                            size_t size) {
-  if (shape.empty() || src == nullptr || dst == nullptr) {
+  if (src == nullptr || dst == nullptr) {
     return;
   }
 
-  // Use effective shape (strip trailing 1s from padded shapes)
-  const auto effShape = getEffectiveShape(shape);
-
-  const size_t elementSize = dataTypeSize(dtype);
-  const size_t innerDim = effShape.back();
+  const size_t elementSize = dataTypeSize(buffer.getDtype());
+  const size_t innerDim = buffer.innerDimSize();
   const size_t alignedInnerDim = (innerDim + 3) & ~static_cast<size_t>(3);
-  const size_t actualSize = ComputeBuffer::calculateActualSize(effShape, dtype);
+  const size_t actualSize = buffer.calculateActualSize();
 
   // If size is 0, copy the full buffer
   if (size == 0) {
@@ -143,11 +114,7 @@ void ComputeInterface::copyAlignedToActual(const void *src,
   }
 
   // Full copy with padding - copy row by row
-  size_t numRows = 1;
-  for (size_t i = 0; i < effShape.size() - 1; ++i) {
-    numRows *= effShape[i];
-  }
-
+  const size_t numRows = buffer.executionSize() / alignedInnerDim;
   const size_t srcRowBytes = alignedInnerDim * elementSize;
   const size_t dstRowBytes = innerDim * elementSize;
 

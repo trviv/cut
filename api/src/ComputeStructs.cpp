@@ -56,6 +56,10 @@ size_t ComputeBuffer::executionSize() const {
   return executionElementCount_;
 }
 
+uint32_t ComputeBuffer::innerDimSize() const {
+  return shape_.empty() ? 0 : shape_.back();
+}
+
 size_t ComputeBuffer::calculateActualSize() const {
   return calculateActualSize(shape_, dtype_);
 }

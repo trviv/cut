@@ -413,15 +413,15 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
     const size_t copySize = isFullCopy ? buffer.calculateAlignedSize() : size;
     VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
-    copyActualToAligned(srcPtr, stagingBuffer.data, buffer.getShape(),
-                        buffer.getDtype(), isFullCopy ? 0 : srcOffset, 0, size);
+    copyActualToAligned(srcPtr, stagingBuffer.data, buffer,
+                        isFullCopy ? 0 : srcOffset, 0, size);
     executeBufferCopy(stagingBuffer.buffer, buffer.buffer, copySize, 0,
                       isFullCopy ? 0 : dstOffset);
     destroyStagingBuffer(stagingBuffer);
   } else {
     // Host-visible buffer - use unified copy function
-    copyActualToAligned(srcPtr, buffer.data, buffer.getShape(),
-                        buffer.getDtype(), srcOffset, dstOffset, size);
+    copyActualToAligned(srcPtr, buffer.data, buffer, srcOffset, dstOffset,
+                        size);
 
     // Flush memory to make writes visible to GPU
     if (!buffer.isCoherent) {
@@ -466,8 +466,8 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
 
     executeBufferCopy(buffer.buffer, stagingBuffer.buffer, copySize,
                       isFullCopy ? 0 : srcOffset, 0);
-    copyAlignedToActual(stagingBuffer.data, dstPtr, buffer.getShape(),
-                        buffer.getDtype(), 0, isFullCopy ? 0 : dstOffset, size);
+    copyAlignedToActual(stagingBuffer.data, dstPtr, buffer, 0,
+                        isFullCopy ? 0 : dstOffset, size);
     destroyStagingBuffer(stagingBuffer);
   } else {
     // Invalidate memory to make GPU writes visible to CPU
@@ -489,8 +489,8 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     }
 
     // Host-visible buffer - use unified copy function
-    copyAlignedToActual(buffer.data, dstPtr, buffer.getShape(),
-                        buffer.getDtype(), srcOffset, dstOffset, size);
+    copyAlignedToActual(buffer.data, dstPtr, buffer, srcOffset, dstOffset,
+                        size);
   }
 }
 
