@@ -179,9 +179,9 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct bufferStruct;
-  bufferStruct.setSize(alignedSize); // Store aligned size
-  bufferStruct.setShape(shape);      // Store tensor shape
-  bufferStruct.dtype = dtype;        // Store element data type
+  bufferStruct.dtype =
+      dtype; // Store element data type (must be set before setShape)
+  bufferStruct.setShape(shape); // Store tensor shape and calculate aligned size
 
 #if CUT_USE_VMA
   const auto &allocator = allocator_;
@@ -261,7 +261,9 @@ VulkanBufferStruct VulkanCompute::createStagingBuffer(size_t size) {
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct stagingBuffer;
-  stagingBuffer.setSize(size);
+  // Set shape as 1D buffer with size bytes (dtype defaults to Float32 which is
+  // 4 bytes)
+  stagingBuffer.setShape({static_cast<uint32_t>((size + 3) / 4)});
 
 #if CUT_USE_VMA
   VmaAllocationCreateInfo allocInfo = {};

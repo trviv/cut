@@ -34,7 +34,7 @@ TEST(VulkanBufferStruct, DefaultInitialization) {
 
 TEST(VulkanBufferStruct, SetValues) {
   VulkanBufferStruct buffer;
-  buffer.setSize(1024);
+  buffer.setShape({256}); // 256 elements * 4 bytes (Float32) = 1024 bytes
   buffer.offset = 256;
   buffer.isCoherent = true;
 

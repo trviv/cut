@@ -95,21 +95,16 @@ struct ComputeBuffer {
   size_t executionSize() const;
 
   /**
-   * Returns the buffer size in bytes (actual size, no alignment padding).
+   * Returns the buffer size in bytes (aligned size).
    */
   size_t size() const { return size_; }
-
-  /**
-   * Sets the buffer size in bytes.
-   */
-  void setSize(size_t newSize) { size_ = newSize; }
 
   /**
    * Calculates the actual buffer size in bytes (no padding).
    * Uses the buffer's shape and dtype.
    * @return Total size in bytes without alignment padding.
    */
-  size_t calculateActualSize() const { return size_; }
+  size_t calculateActualSize() const;
 
   /**
    * Calculates the total buffer size in bytes with alignment.

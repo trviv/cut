@@ -22,12 +22,12 @@ void ComputeBuffer::setShape(const std::vector<uint32_t> &newShape) {
   // Innermost dimension (shape_.back()) is aligned to multiple of 4
   executionElementCount_ =
       ((static_cast<size_t>(shape_.back()) + 3) & ~size_t{3});
-  size_ = shape_.back();
   for (auto it = shape_.rbegin() + 1; it != shape_.rend(); ++it) {
     executionElementCount_ *= *it;
-    size_ *= *it;
   }
-  size_ *= dataTypeSize(dtype);
+
+  // Calculate aligned size
+  size_ = calculateAlignedSize(shape_, dtype);
 }
 
 std::vector<uint32_t> ComputeBuffer::getDimData() const {
@@ -44,6 +44,10 @@ std::vector<uint32_t> ComputeBuffer::getDimData() const {
 
 size_t ComputeBuffer::executionSize() const {
   return executionElementCount_;
+}
+
+size_t ComputeBuffer::calculateActualSize() const {
+  return calculateActualSize(shape_, dtype);
 }
 
 size_t ComputeBuffer::calculateActualSize(const std::vector<uint32_t> &shape,

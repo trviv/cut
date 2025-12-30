@@ -42,9 +42,9 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<uint32_t> &shape,
   const size_t alignedSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
 
   CPUBufferStruct bufferStruct;
-  bufferStruct.setSize(alignedSize);
-  bufferStruct.setShape(shape);
-  bufferStruct.dtype = dtype; // Store element data type
+  bufferStruct.dtype =
+      dtype; // Store element data type (must be set before setShape)
+  bufferStruct.setShape(shape); // Store tensor shape and calculate aligned size
 
   // Allocate buffer with 16-byte alignment for SIMD operations
   constexpr size_t kAlignment = 16;
