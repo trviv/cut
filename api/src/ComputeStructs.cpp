@@ -55,7 +55,11 @@ size_t ComputeBuffer::calculateActualSize(const std::vector<uint32_t> &shape,
   for (uint32_t dim : shape) {
     totalElements *= dim;
   }
-  return totalElements * dataTypeSize(dtype);
+  const size_t size = totalElements * dataTypeSize(dtype);
+
+  // Align total size to 16 bytes for optimal GPU access
+  constexpr size_t kAlignment = 16;
+  return (size + kAlignment - 1) & ~(kAlignment - 1);
 }
 
 size_t ComputeBuffer::calculateAlignedSize(const std::vector<uint32_t> &shape,
@@ -70,7 +74,11 @@ size_t ComputeBuffer::calculateAlignedSize(const std::vector<uint32_t> &shape,
   }
   size_t alignedInner = (shape.back() + 3) & ~static_cast<uint32_t>(3);
   totalElements *= alignedInner;
-  return totalElements * dataTypeSize(dtype);
+  const size_t size = totalElements * dataTypeSize(dtype);
+
+  // Align total size to 16 bytes for optimal GPU access
+  constexpr size_t kAlignment = 16;
+  return (size + kAlignment - 1) & ~(kAlignment - 1);
 }
 
 ComputeDispatch::ComputeDispatch(const ComputeHandle &shader,

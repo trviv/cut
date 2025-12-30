@@ -159,11 +159,7 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
     logErr("Cannot create buffer with empty shape");
   }
 
-  const size_t size = ComputeBuffer::calculateAlignedSize(shape, dtype);
-
-  // Align buffer size to 16 bytes (vec4 alignment) for optimal GPU access
-  constexpr size_t kAlignment = 16;
-  const size_t alignedSize = (size + kAlignment - 1) & ~(kAlignment - 1);
+  const size_t alignedSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
 
   // Default to device-only for optimal GPU performance
   constexpr bool deviceOnly = true;
@@ -183,9 +179,9 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct bufferStruct;
-  bufferStruct.setSize(size);   // Store original size for user queries
-  bufferStruct.setShape(shape); // Store tensor shape
-  bufferStruct.dtype = dtype;   // Store element data type
+  bufferStruct.setSize(alignedSize); // Store aligned size
+  bufferStruct.setShape(shape);      // Store tensor shape
+  bufferStruct.dtype = dtype;        // Store element data type
 
 #if CUT_USE_VMA
   const auto &allocator = allocator_;

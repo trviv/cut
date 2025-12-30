@@ -39,16 +39,15 @@ ComputeHandle CPUCompute::createBuffer(const std::vector<uint32_t> &shape,
   //   shape32.push_back(static_cast<uint32_t>(dim));
   // }
 
-  const size_t totalSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
-
-  // Allocate buffer
-  constexpr size_t kAlignment = 16;
-  const size_t alignedSize = (totalSize + kAlignment - 1) & ~(kAlignment - 1);
+  const size_t alignedSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
 
   CPUBufferStruct bufferStruct;
-  bufferStruct.setSize(totalSize);
+  bufferStruct.setSize(alignedSize);
   bufferStruct.setShape(shape);
   bufferStruct.dtype = dtype; // Store element data type
+
+  // Allocate buffer with 16-byte alignment for SIMD operations
+  constexpr size_t kAlignment = 16;
   bufferStruct.data = aligned_alloc(kAlignment, alignedSize);
 
   if (bufferStruct.data == nullptr) {
