@@ -65,22 +65,6 @@ private:
   /// Releases all Vulkan resources held by this instance.
   void cleanup();
 
-  /// Creates a GPU buffer with specified memory type.
-  /// @param size Buffer size in bytes (aligned).
-  /// @param deviceOnly If true, allocates device-local memory (requires staging
-  /// for CPU access).
-  /// @param srcPtr Optional host data to initialize the buffer.
-  /// @param isUniform If true, creates a uniform buffer; otherwise storage.
-  /// @param shape Tensor shape (required when srcPtr is not null).
-  /// @param dtype Data type of elements (required when srcPtr is not null).
-  /// @return Handle to the created buffer.
-  ComputeHandle createBuffer(size_t size,
-                             bool deviceOnly,
-                             const void *srcPtr,
-                             bool isUniform,
-                             const std::vector<uint32_t> &shape,
-                             DataType dtype);
-
   /// Creates a staging buffer for transfer operations.
   /// @param size Size of the staging buffer in bytes.
   /// @return VulkanBufferStruct for the staging buffer.
