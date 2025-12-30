@@ -55,11 +55,7 @@ size_t ComputeBuffer::calculateActualSize(const std::vector<uint32_t> &shape,
   for (uint32_t dim : shape) {
     totalElements *= dim;
   }
-  const size_t size = totalElements * dataTypeSize(dtype);
-
-  // Align total size to 16 bytes for optimal GPU access
-  constexpr size_t kAlignment = 16;
-  return (size + kAlignment - 1) & ~(kAlignment - 1);
+  return totalElements * dataTypeSize(dtype);
 }
 
 size_t ComputeBuffer::calculateAlignedSize(const std::vector<uint32_t> &shape,
