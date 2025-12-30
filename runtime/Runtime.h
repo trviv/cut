@@ -217,9 +217,8 @@ private:
   bool vulkanChecked_ = false;
   bool pendingCommands_ = false;
 
-  // Shader cache: maps (OperatorEnum, DataType) -> ComputeHandle
-  using ShaderCacheKey = std::pair<OperatorEnum, DataType>;
-  std::map<ShaderCacheKey, ComputeHandle> shaderCache_;
+  // Shader cache: maps makeCacheKey(OperatorEnum, DataType) -> ComputeHandle
+  std::map<uint64_t, ComputeHandle> shaderCache_;
 
   // Dispatcher for encoding operators
   std::unique_ptr<Dispatcher> dispatcher_;

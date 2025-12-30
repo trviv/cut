@@ -195,7 +195,7 @@ ComputeHandle Runtime::createShaderModule(const std::vector<uint32_t> &spirv) {
 }
 
 ComputeHandle Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
-  ShaderCacheKey key{op, dtype};
+  uint64_t key = makeCacheKey(op, dtype);
   auto it = shaderCache_.find(key);
   if (it != shaderCache_.end()) {
     return it->second;
@@ -222,8 +222,7 @@ void Runtime::executeOperator(OperatorEnum op,
 void Runtime::encodeOperator(OperatorEnum op,
                              const std::vector<ComputeBinding> &bindings) {
   if (!dispatcher_) {
-    throw std::runtime_error(
-        "Dispatcher not initialized. Call init() first.");
+    throw std::runtime_error("Dispatcher not initialized. Call init() first.");
   }
 
   // Use dispatcher to encode (it infers dtype and workgroup size from bindings)
