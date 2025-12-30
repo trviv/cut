@@ -157,20 +157,6 @@ public:
   // =========================================================================
 
   /**
-   * Executes a compute operator with the provided bindings.
-   * This is the main entry point for executing compute operations.
-   *
-   * @param op The operator to execute (from OperatorEnum).
-   * @param bindings Vector of compute bindings (buffers and data).
-   * @param workgroupSize The workgroup/dispatch size for the operation.
-   * @param dtype Data type for the operation.
-   */
-  void executeOperator(OperatorEnum op,
-                       const std::vector<ComputeBinding> &bindings,
-                       const ThreadSize &workgroupSize,
-                       DataType dtype = DataType::Float32);
-
-  /**
    * Encodes a compute operator using the Dispatcher.
    * Infers dtype and workgroup size from buffer bindings.
    *
@@ -179,33 +165,6 @@ public:
    */
   void encodeOperator(OperatorEnum op,
                       const std::vector<ComputeBinding> &bindings);
-
-  /**
-   * Creates a shader/kernel for the specified operator.
-   * @param op The operator type.
-   * @param dtype Data type for the operation.
-   * @return Handle to the created shader/kernel.
-   */
-  ComputeHandle createShader(OperatorEnum op,
-                             DataType dtype = DataType::Float32);
-
-  /**
-   * Creates a shader module from SPIR-V bytecode (Vulkan only).
-   * @param spirv SPIR-V bytecode.
-   * @return Handle to the created shader module.
-   */
-  ComputeHandle createShaderModule(const std::vector<uint32_t> &spirv);
-
-  // =========================================================================
-  // Deferred Execution Support
-  // =========================================================================
-
-  /**
-   * Encodes a dispatch and handles submission based on backend type.
-   * For async backends (Vulkan): queues the dispatch and marks pending.
-   * For sync backends (CPU): encodes, submits, and waits immediately.
-   */
-  void encodeAndMaybeSubmit(ComputeDispatch &&dispatch);
 
 private:
   BackendType backendType_ = BackendType::CPU;
@@ -228,6 +187,11 @@ private:
    * @throws std::runtime_error if not initialized.
    */
   ComputeInterface *getInterface();
+
+  /**
+   * Creates a shader/kernel for the specified operator.
+   */
+  ComputeHandle createShader(OperatorEnum op, DataType dtype);
 
   /**
    * Gets or creates a cached shader for the given operator and data type.

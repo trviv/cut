@@ -190,10 +190,6 @@ ComputeHandle Runtime::createShader(OperatorEnum op, DataType dtype) {
   }
 }
 
-ComputeHandle Runtime::createShaderModule(const std::vector<uint32_t> &spirv) {
-  return getInterface()->createShaderModule(spirv);
-}
-
 ComputeHandle Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
   uint64_t key = makeCacheKey(op, dtype);
   auto it = shaderCache_.find(key);
@@ -203,20 +199,6 @@ ComputeHandle Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
   ComputeHandle shader = createShader(op, dtype);
   shaderCache_[key] = shader;
   return shader;
-}
-
-void Runtime::executeOperator(OperatorEnum op,
-                              const std::vector<ComputeBinding> &bindings,
-                              const ThreadSize &workgroupSize,
-                              DataType dtype) {
-  // Get cached shader for this operator
-  ComputeHandle shader = getOrCreateShader(op, dtype);
-
-  // Create dispatch with shader and workgroup size
-  ComputeDispatch dispatch(shader, workgroupSize, bindings);
-
-  // Encode, submit, and wait
-  encodeAndMaybeSubmit(std::move(dispatch));
 }
 
 void Runtime::encodeOperator(OperatorEnum op,
@@ -243,23 +225,6 @@ ComputeHandle Runtime::submit() {
 
 void Runtime::wait(ComputeHandle cmdBuffer) {
   getInterface()->wait(cmdBuffer);
-}
-
-// =========================================================================
-// Deferred Execution Support
-// =========================================================================
-
-void Runtime::encodeAndMaybeSubmit(ComputeDispatch &&dispatch) {
-  getInterface()->encode(std::move(dispatch));
-
-  if (isGpuBackend()) {
-    // GPU backends (Vulkan) use lazy execution for better batching
-    pendingCommands_ = true;
-  } else {
-    // CPU backend executes immediately
-    ComputeHandle cmd = submit();
-    wait(cmd);
-  }
 }
 
 void Runtime::flushPendingCommands() {

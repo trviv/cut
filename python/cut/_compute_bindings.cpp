@@ -300,39 +300,6 @@ PYBIND11_MODULE(_cut_compute, m) {
       py::arg("dst_offset") = 0, "Copy data from buffer");
 
   // =========================================================================
-  // Shader/Kernel Operations
-  // =========================================================================
-
-  m.def(
-      "create_shader",
-      [](cut::OperatorEnum op, cut::DataType dtype) {
-        return getRuntime().createShader(op, dtype);
-      },
-      py::arg("op"), py::arg("dtype") = cut::DataType::Float32,
-      "Create a shader/kernel for the specified operation");
-
-  m.def(
-      "create_shader_from_spirv",
-      [](const std::vector<uint32_t> &spirv) {
-        return getRuntime().createShaderModule(spirv);
-      },
-      py::arg("spirv"), "Create a shader from SPIR-V bytecode (Vulkan only)");
-
-  // =========================================================================
-  // Deferred Execution Support
-  // =========================================================================
-
-  m.def(
-      "encode_and_maybe_submit",
-      [](cut::ComputeDispatch &dispatch) {
-        getRuntime().encodeAndMaybeSubmit(std::move(dispatch));
-      },
-      py::arg("dispatch"),
-      "Encode a dispatch and handle submission based on backend type. "
-      "For async backends (Vulkan): queues the dispatch. "
-      "For sync backends (CPU): executes immediately.");
-
-  // =========================================================================
   // Shutdown function for proper cleanup
   // =========================================================================
   m.def(
@@ -347,7 +314,7 @@ PYBIND11_MODULE(_cut_compute, m) {
   m.def(
       "execute_operator",
       [](cut::OperatorEnum op, py::list buffer_handles, uint32_t num_elements,
-         py::object push_constants, cut::DataType dtype) {
+         py::object push_constants) {
         std::vector<cut::ComputeBinding> bindings;
 
         // Bind buffer handles at sequential indices starting from 0
@@ -371,12 +338,10 @@ PYBIND11_MODULE(_cut_compute, m) {
               cut::DataReference(info.ptr, info.size * info.itemsize));
         }
 
-        cut::ThreadSize workgroupSize{num_elements, 1, 1};
-        getRuntime().executeOperator(op, bindings, workgroupSize, dtype);
+        getRuntime().encodeOperator(op, bindings);
       },
       py::arg("op"), py::arg("buffer_handles"), py::arg("num_elements"),
       py::arg("push_constants") = py::none(),
-      py::arg("dtype") = cut::DataType::Float32,
       "Execute an operator with the given buffer handles and push constants");
 
   // =========================================================================
