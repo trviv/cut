@@ -455,11 +455,10 @@ def _create_binary_op(op_enum: OperatorEnum):
 
         itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
         num_elements = a.size // itemsize
-        cut_dtype = _numpy_dtype_to_cut(a._dtype)
 
         _cut_compute.execute_operator(
             op_enum, [a._handle, b._handle, out._handle], num_elements,
-            None, cut_dtype
+            None
         )
         return out
 
@@ -476,11 +475,10 @@ def _create_unary_op(op_enum: OperatorEnum):
 
         itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
         num_elements = a.size // itemsize
-        cut_dtype = _numpy_dtype_to_cut(a._dtype)
 
         _cut_compute.execute_operator(
             op_enum, [a._handle, out._handle], num_elements,
-            None, cut_dtype
+            None
         )
         return out
 
@@ -501,7 +499,6 @@ def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
 
         itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
         num_elements = a.size // itemsize
-        cut_dtype = _numpy_dtype_to_cut(a._dtype)
 
         # Pack push constants as numpy array (num_elements + scalar value)
         dtype = a._dtype if a._dtype is not None else np.float32
@@ -515,7 +512,7 @@ def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
 
         _cut_compute.execute_operator(
             op_enum, [a._handle, out._handle], num_elements,
-            push_constants, cut_dtype
+            push_constants
         )
         return out
 

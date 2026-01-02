@@ -242,16 +242,16 @@ Runtime::inferDataType(const std::vector<ComputeBinding> &bindings) const {
   return inferredDtype;
 }
 
-void Runtime::encodeOperator(OperatorEnum op,
-                             const std::vector<ComputeBinding> &bindings) {
-  if (!dispatcher_) {
-    throw std::runtime_error("Dispatcher not initialized. Call init() first.");
-  }
+size_t
+Runtime::getExecutionSize(OperatorEnum op,
+                          const std::vector<ComputeBinding> &bindings) const {
+  // For current operators (unary, binary vec-vec, binary vec-scalar),
+  // execution size is determined by buffer.executionSize() which accounts
+  // for alignment of the innermost dimension.
+  // Future operators (e.g., matmul, reduce) may compute execution size
+  // differently based on their semantics.
+  (void)op; // Currently unused, reserved for future operator-specific logic
 
-  // Infer dtype from buffer bindings (also validates dtype consistency)
-  DataType dtype = inferDataType(bindings);
-
-  // Validate buffer shapes match and get execution size
   size_t executionSize = 0;
   bool executionSizeSet = false;
 
@@ -277,6 +277,21 @@ void Runtime::encodeOperator(OperatorEnum op,
   if (!executionSizeSet) {
     throw std::runtime_error("No buffer bindings found");
   }
+
+  return executionSize;
+}
+
+void Runtime::encodeOperator(OperatorEnum op,
+                             const std::vector<ComputeBinding> &bindings) {
+  if (!dispatcher_) {
+    throw std::runtime_error("Dispatcher not initialized. Call init() first.");
+  }
+
+  // Infer dtype from buffer bindings (also validates dtype consistency)
+  DataType dtype = inferDataType(bindings);
+
+  // Get execution size for this operator
+  size_t executionSize = getExecutionSize(op, bindings);
 
   // Get or create shader for this operator
   ComputeHandle shader = getOrCreateShader(op, dtype);

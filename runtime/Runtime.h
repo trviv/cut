@@ -206,6 +206,20 @@ private:
    */
   DataType inferDataType(const std::vector<ComputeBinding> &bindings) const;
 
+  /**
+   * Computes the execution size for an operator based on its bindings.
+   * Validates that all buffer bindings have matching execution sizes.
+   * For current operators (unary, binary vec-vec, binary vec-scalar),
+   * returns buffer.executionSize() which accounts for alignment.
+   *
+   * @param op The operator to execute.
+   * @param bindings Vector of compute bindings.
+   * @return The execution size (number of elements to process).
+   * @throws std::runtime_error if buffer sizes don't match or no buffers found.
+   */
+  size_t getExecutionSize(OperatorEnum op,
+                          const std::vector<ComputeBinding> &bindings) const;
+
   // =========================================================================
   // Deferred Execution Support
   // =========================================================================
