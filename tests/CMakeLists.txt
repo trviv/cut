@@ -52,6 +52,11 @@ set(CPU_TEST_SOURCES
     cpu/CPUComputeTests.cpp
 )
 
+# Runtime test sources
+set(RUNTIME_TEST_SOURCES
+    runtime/RuntimeTests.cpp
+)
+
 # Create single test executable with all tests
 add_executable(tests
     Utils.h
@@ -59,6 +64,7 @@ add_executable(tests
     ${VULKAN_TEST_SOURCES}
     ${COMBINED_TEST_SOURCES}
     ${CPU_TEST_SOURCES}
+    ${RUNTIME_TEST_SOURCES}
 )
 
 # Include directories
@@ -68,6 +74,7 @@ target_include_directories(tests PRIVATE
     ${CMAKE_SOURCE_DIR}/api/Headers
     ${CMAKE_SOURCE_DIR}/backends/vulkan
     ${CMAKE_SOURCE_DIR}/backends/cpu
+    ${CMAKE_SOURCE_DIR}/runtime
     ${CMAKE_SOURCE_DIR}/tests
 )
 

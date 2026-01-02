@@ -26,15 +26,17 @@ public:
 
   /**
    * Encodes a math operator dispatch to the compute backend.
-   * Infers dtype from buffer bindings (validates they match) and computes
-   * workgroup size from the total element count in the buffer shapes.
    *
    * @param op The operator to execute (from OperatorEnum).
    * @param bindings Vector of compute bindings (buffers and data).
-   * @throws std::runtime_error if buffer dtypes don't match or shapes are
-   * incompatible.
+   * @param shader Pre-created shader handle for this operator.
+   * @param executionSize Number of elements to process (from buffer execution
+   * size).
    */
-  void encode(OperatorEnum op, const std::vector<ComputeBinding> &bindings);
+  void encode(OperatorEnum op,
+              const std::vector<ComputeBinding> &bindings,
+              const ComputeHandle &shader,
+              size_t executionSize);
 
   /**
    * Returns a string name for the given operator.

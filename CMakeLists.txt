@@ -105,6 +105,7 @@ set(LIB_HEADERS
     backends/cpu/CPUSIMDKernels.h
     shaders/Shaders.h
     runtime/Runtime.h
+    runtime/Dispatcher.h
 )
 
 # Source files
@@ -127,6 +128,7 @@ set(LIB_SOURCES
     backends/cpu/CPUCommandBuffer.cpp
     backends/cpu/CPUCompute.cpp
     runtime/Runtime.cpp
+    runtime/Dispatcher.cpp
 )
 
 if (OPENL_CL_WITH_VULKAN)

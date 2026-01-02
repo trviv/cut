@@ -9,6 +9,22 @@
 
 namespace cut {
 
+/// Returns a string representation of DataType for error messages.
+static const char *dataTypeName(DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return "Float32";
+  case DataType::Float16:
+    return "Float16";
+  case DataType::UInt32:
+    return "UInt32";
+  case DataType::Int32:
+    return "Int32";
+  default:
+    return "Unknown";
+  }
+}
+
 Runtime::Runtime() = default;
 
 Runtime::~Runtime() {
@@ -201,14 +217,72 @@ ComputeHandle Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
   return shader;
 }
 
+DataType
+Runtime::inferDataType(const std::vector<ComputeBinding> &bindings) const {
+  DataType inferredDtype = DataType::Float32;
+  bool dtypeSet = false;
+
+  for (const auto &binding : bindings) {
+    if (!binding.isHandle()) {
+      continue;
+    }
+
+    const ComputeBuffer &buffer = interface_->getBuffer(binding.getHandle());
+
+    if (!dtypeSet) {
+      inferredDtype = buffer.getDtype();
+      dtypeSet = true;
+    } else if (buffer.getDtype() != inferredDtype) {
+      throw std::runtime_error(std::string("Buffer dtype mismatch: expected ") +
+                               dataTypeName(inferredDtype) + " but got " +
+                               dataTypeName(buffer.getDtype()));
+    }
+  }
+
+  return inferredDtype;
+}
+
 void Runtime::encodeOperator(OperatorEnum op,
                              const std::vector<ComputeBinding> &bindings) {
   if (!dispatcher_) {
     throw std::runtime_error("Dispatcher not initialized. Call init() first.");
   }
 
-  // Use dispatcher to encode (it infers dtype and workgroup size from bindings)
-  dispatcher_->encode(op, bindings);
+  // Infer dtype from buffer bindings (also validates dtype consistency)
+  DataType dtype = inferDataType(bindings);
+
+  // Validate buffer shapes match and get execution size
+  size_t executionSize = 0;
+  bool executionSizeSet = false;
+
+  for (const auto &binding : bindings) {
+    if (!binding.isHandle()) {
+      continue; // Skip data bindings (e.g., scalar values)
+    }
+
+    const ComputeBuffer &buffer = interface_->getBuffer(binding.getHandle());
+    size_t bufferExecSize = buffer.executionSize();
+
+    if (!executionSizeSet) {
+      executionSize = bufferExecSize;
+      executionSizeSet = true;
+    } else if (bufferExecSize != executionSize) {
+      throw std::runtime_error(
+          "Buffer shape mismatch: execution sizes do not match (" +
+          std::to_string(executionSize) + " vs " +
+          std::to_string(bufferExecSize) + ")");
+    }
+  }
+
+  if (!executionSizeSet) {
+    throw std::runtime_error("No buffer bindings found");
+  }
+
+  // Get or create shader for this operator
+  ComputeHandle shader = getOrCreateShader(op, dtype);
+
+  // Use dispatcher to encode with the shader and execution size
+  dispatcher_->encode(op, bindings, shader, executionSize);
 
   // Handle submission based on backend type
   if (isGpuBackend()) {

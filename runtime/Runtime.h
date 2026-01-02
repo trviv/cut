@@ -198,6 +198,14 @@ private:
    */
   ComputeHandle getOrCreateShader(OperatorEnum op, DataType dtype);
 
+  /**
+   * Infers the data type from compute bindings.
+   * Looks for the first buffer binding and returns its dtype.
+   * @param bindings Vector of compute bindings.
+   * @return The inferred data type, or Float32 if no buffer bindings found.
+   */
+  DataType inferDataType(const std::vector<ComputeBinding> &bindings) const;
+
   // =========================================================================
   // Deferred Execution Support
   // =========================================================================

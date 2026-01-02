@@ -245,7 +245,9 @@ const char *Dispatcher::operatorName(OperatorEnum op) {
 }
 
 void Dispatcher::encode(OperatorEnum op,
-                        const std::vector<ComputeBinding> &bindings) {
+                        const std::vector<ComputeBinding> &bindings,
+                        const ComputeHandle &shader,
+                        size_t executionSize) {
   if (!iface_) {
     throw std::runtime_error("Dispatcher::encode: ComputeInterface is null");
   }
@@ -273,59 +275,44 @@ void Dispatcher::encode(OperatorEnum op,
                              operatorName(op));
   }
 
-  // Collect buffer handles and validate dtypes match
-  DataType inferredDtype = DataType::Float32;
-  uint32_t elementCount = 0;
-  bool dtypeSet = false;
-
-  for (const auto &binding : bindings) {
-    if (!binding.isHandle()) {
-      continue; // Skip data bindings (e.g., scalar values)
-    }
-
-    const ComputeHandle &handle = binding.getHandle();
-    const ComputeBuffer &buffer = iface_->getBuffer(handle);
-    uint32_t bufferElementCount = computeElementCount(buffer.getShape());
-
-    if (!dtypeSet) {
-      inferredDtype = buffer.getDtype();
-      elementCount = bufferElementCount;
-      dtypeSet = true;
-    } else {
-      // Validate dtype matches
-      if (buffer.getDtype() != inferredDtype) {
-        throw std::runtime_error(
-            std::string("Buffer dtype mismatch: expected ") +
-            dataTypeName(inferredDtype) + " but got " +
-            dataTypeName(buffer.getDtype()));
-      }
-      // Validate element count matches
-      if (bufferElementCount != elementCount) {
-        throw std::runtime_error(
-            "Buffer shape mismatch: element counts do not match (" +
-            std::to_string(elementCount) + " vs " +
-            std::to_string(bufferElementCount) + ")");
-      }
-    }
+  if (executionSize == 0) {
+    throw std::runtime_error("Execution size is zero");
   }
 
-  if (!dtypeSet) {
-    throw std::runtime_error("No buffer bindings found to infer dtype");
-  }
-
-  if (elementCount == 0) {
-    throw std::runtime_error("Buffer has zero elements");
-  }
-
-  // Compute workgroup size from element count
-  // Use 1D dispatch with x = element count
-  ThreadSize workgroupSize{elementCount, 1, 1};
-
-  // Create shader/kernel for this operator
-  ComputeHandle shader = iface_->createShaderModule({});
+  // Compute workgroup size from execution size
+  // Use 1D dispatch with x = execution size
+  ThreadSize workgroupSize{static_cast<uint32_t>(executionSize), 1, 1};
 
   // Create dispatch with shader, workgroup size, and bindings
   ComputeDispatch dispatch(shader, workgroupSize, bindings);
+
+  // Add numElements as push constant data for CPU backend
+  // For binary vec-scalar ops, also extract and include the scalar value
+  uint32_t numElements = static_cast<uint32_t>(executionSize);
+  if (isBinaryVecScalarOp(op)) {
+    // Find the scalar value from the data bindings
+    float scalar = 0.0f;
+    for (const auto &binding : bindings) {
+      if (binding.isData()) {
+        const auto &data = binding.getData();
+        if (data.size() >= sizeof(float)) {
+          scalar = *reinterpret_cast<const float *>(data.data());
+        }
+        break;
+      }
+    }
+    // Pack numElements + scalar into push constant data
+    struct PushConstants {
+      uint32_t numElements;
+      float scalar;
+    } pushData{numElements, scalar};
+    dispatch.bindData(DataReference(&pushData, sizeof(pushData)),
+                      static_cast<uint32_t>(bindings.size()));
+  } else {
+    // Just add numElements for other operation types
+    dispatch.bindData(DataReference(numElements),
+                      static_cast<uint32_t>(bindings.size()));
+  }
 
   // Encode the dispatch
   iface_->encode(std::move(dispatch));
