@@ -50,6 +50,7 @@ OperatorEnum = _cut_compute.OperatorEnum
 ShaderEnum = _cut_compute.OperatorEnum  # Alias for backward compatibility
 ThreadSize = _cut_compute.ThreadSize
 ComputeHandle = _cut_compute.ComputeHandle
+ComputeBinding = _cut_compute.ComputeBinding
 ComputeDispatch = _cut_compute.ComputeDispatch
 
 
@@ -442,6 +443,26 @@ class Buffer:
 # Operation Implementations
 # =============================================================================
 
+def _create_scalar_binding(index: int, scalar: Union[int, float], dtype):
+    """
+    Create a ComputeBinding for a scalar value based on the target dtype.
+
+    Args:
+        index: The binding index.
+        scalar: The scalar value to bind.
+        dtype: The target data type (determines how scalar is stored).
+
+    Returns:
+        A ComputeBinding with the scalar value in the appropriate format.
+    """
+    if dtype == np.int32:
+        return ComputeBinding.from_int(index, int(scalar))
+    elif dtype == np.uint32:
+        return ComputeBinding.from_uint(index, int(scalar))
+    else:
+        return ComputeBinding.from_float(index, float(scalar))
+
+
 def _create_binary_op(op_enum: OperatorEnum):
     """Create a binary vec-vec operation function."""
     def binary_op(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
@@ -453,13 +474,12 @@ def _create_binary_op(op_enum: OperatorEnum):
         if out is None:
             out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
 
-        itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
-        num_elements = a.size // itemsize
-
-        _cut_compute.execute_operator(
-            op_enum, [a._handle, b._handle, out._handle], num_elements,
-            None
-        )
+        bindings = [
+            ComputeBinding(0, a._handle),
+            ComputeBinding(1, b._handle),
+            ComputeBinding(2, out._handle),
+        ]
+        _cut_compute.execute_operator(op_enum, bindings)
         return out
 
     return binary_op
@@ -473,13 +493,11 @@ def _create_unary_op(op_enum: OperatorEnum):
         if out is None:
             out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
 
-        itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
-        num_elements = a.size // itemsize
-
-        _cut_compute.execute_operator(
-            op_enum, [a._handle, out._handle], num_elements,
-            None
-        )
+        bindings = [
+            ComputeBinding(0, a._handle),
+            ComputeBinding(1, out._handle),
+        ]
+        _cut_compute.execute_operator(op_enum, bindings)
         return out
 
     return unary_op
@@ -497,23 +515,13 @@ def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
         if out is None:
             out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
 
-        itemsize = np.dtype(a._dtype).itemsize if a._dtype is not None else 4
-        num_elements = a.size // itemsize
-
-        # Pack push constants as numpy array (num_elements + scalar value)
         dtype = a._dtype if a._dtype is not None else np.float32
-        if dtype == np.int32:
-            push_constants = np.array([num_elements, int(scalar)], dtype=np.int32)
-        elif dtype == np.uint32:
-            push_constants = np.array([num_elements, int(scalar)], dtype=np.uint32)
-        else:
-            push_constants = np.array([num_elements, 0], dtype=np.uint32)
-            push_constants.view(np.float32)[1] = float(scalar)
-
-        _cut_compute.execute_operator(
-            op_enum, [a._handle, out._handle], num_elements,
-            push_constants
-        )
+        bindings = [
+            ComputeBinding(0, a._handle),
+            ComputeBinding(1, out._handle),
+            _create_scalar_binding(2, scalar, dtype),
+        ]
+        _cut_compute.execute_operator(op_enum, bindings)
         return out
 
     return vec_scalar_op
@@ -594,6 +602,7 @@ __all__ = [
     "Buffer",
     "ThreadSize",
     "ComputeHandle",
+    "ComputeBinding",
     "ComputeDispatch",
     # Core functions
     "get_shader",

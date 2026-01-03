@@ -186,6 +186,40 @@ PYBIND11_MODULE(_cut_compute, m) {
       .def("valid", &cut::ComputeHandle::operator bool);
 
   // =========================================================================
+  // ComputeBinding
+  // =========================================================================
+  py::class_<cut::ComputeBinding>(m, "ComputeBinding",
+                                  "Binding for compute dispatch operations")
+      .def(py::init<uint32_t, const cut::ComputeHandle &>(), py::arg("index"),
+           py::arg("handle"), "Create a buffer binding")
+      .def_static(
+          "from_float",
+          [](uint32_t index, float value) {
+            return cut::ComputeBinding(
+                index, cut::DataReference(&value, sizeof(float)));
+          },
+          py::arg("index"), py::arg("value"), "Create a float data binding")
+      .def_static(
+          "from_int",
+          [](uint32_t index, int32_t value) {
+            return cut::ComputeBinding(
+                index, cut::DataReference(&value, sizeof(int32_t)));
+          },
+          py::arg("index"), py::arg("value"), "Create an int data binding")
+      .def_static(
+          "from_uint",
+          [](uint32_t index, uint32_t value) {
+            return cut::ComputeBinding(
+                index, cut::DataReference(&value, sizeof(uint32_t)));
+          },
+          py::arg("index"), py::arg("value"), "Create a uint data binding")
+      .def("index", &cut::ComputeBinding::index, "Get the binding index")
+      .def("is_handle", &cut::ComputeBinding::isHandle,
+           "Check if this is a buffer binding")
+      .def("is_data", &cut::ComputeBinding::isData,
+           "Check if this is a data binding");
+
+  // =========================================================================
   // ComputeDispatch
   // =========================================================================
   py::class_<cut::ComputeDispatch>(m, "ComputeDispatch")
@@ -313,36 +347,12 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "execute_operator",
-      [](cut::OperatorEnum op, py::list buffer_handles, uint32_t num_elements,
-         py::object push_constants) {
-        std::vector<cut::ComputeBinding> bindings;
-
-        // Bind buffer handles at sequential indices starting from 0
-        uint32_t binding_idx = 0;
-        for (auto handle : buffer_handles) {
-          bindings.emplace_back(binding_idx++,
-                                handle.cast<cut::ComputeHandle>());
-        }
-
-        // Bind push constants (either just num_elements, or array with scalar)
-        if (push_constants.is_none()) {
-          // Just bind num_elements
-          bindings.emplace_back(
-              binding_idx, cut::DataReference(&num_elements, sizeof(uint32_t)));
-        } else {
-          // Push constants array provided (contains num_elements + scalar)
-          py::array arr = push_constants.cast<py::array>();
-          py::buffer_info info = arr.request();
-          bindings.emplace_back(
-              binding_idx,
-              cut::DataReference(info.ptr, info.size * info.itemsize));
-        }
-
+      [](cut::OperatorEnum op,
+         const std::vector<cut::ComputeBinding> &bindings) {
         getRuntime().encodeOperator(op, bindings);
       },
-      py::arg("op"), py::arg("buffer_handles"), py::arg("num_elements"),
-      py::arg("push_constants") = py::none(),
-      "Execute an operator with the given buffer handles and push constants");
+      py::arg("op"), py::arg("bindings"),
+      "Execute an operator with the given bindings");
 
   // =========================================================================
   // Helper function to get SPIR-V shaders (Vulkan)
