@@ -88,7 +88,7 @@ protected:
   }
 
   // Helper to run a binary vec-scalar shader operation
-  // Push constants layout: { uint numElements, float scalar }
+  // Push constants layout: { float scalar, uint numElements }
   void runBinaryVecScalarOp(cut::ShaderEnum shaderEnum,
                             const std::vector<float> &dataA,
                             float scalar,
@@ -104,11 +104,11 @@ protected:
     const uint32_t threadGroups = (elements + 255) / 256;
     cut::ThreadSize tgSize{threadGroups, 1, 1};
 
-    // Pack push constants: numElements (uint32) + scalar (float)
+    // Pack push constants: scalar (float) + numElements (uint32)
     struct PushConstants {
-      uint32_t numElements;
       float scalar;
-    } pushConstants{elements, scalar};
+      uint32_t numElements;
+    } pushConstants{scalar, elements};
 
     interface->encode(
         {shaderModule,
@@ -1513,6 +1513,7 @@ protected:
   }
 
   // Helper to run a binary vec-scalar shader operation with int32
+  // Push constants layout: { int32 scalar, uint numElements }
   void runBinaryVecScalarOpInt32(cut::ShaderEnum shaderEnum,
                                  const std::vector<int32_t> &dataA,
                                  int32_t scalar,
@@ -1528,11 +1529,11 @@ protected:
     const uint32_t threadGroups = (elements + 255) / 256;
     cut::ThreadSize tgSize{threadGroups, 1, 1};
 
-    // Pack push constants: numElements (uint32) + scalar (int32)
+    // Pack push constants: scalar (int32) + numElements (uint32)
     struct PushConstants {
-      uint32_t numElements;
       int32_t scalar;
-    } pushConstants{elements, scalar};
+      uint32_t numElements;
+    } pushConstants{scalar, elements};
 
     interface->encode(
         {shaderModule,

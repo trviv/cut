@@ -44,13 +44,14 @@ void CPUCommandBuffer::submit() {
       } else if (binding.isData()) {
         // Push constant data
         const auto &data = binding.getData();
-        if (data.size() >= sizeof(uint32_t)) {
+        if (data.size() == sizeof(uint32_t)) {
+          // Single uint32 - this is just numElements (non-vec-scalar ops)
           numElements = *reinterpret_cast<const uint32_t *>(data.data());
-        }
-        // For vec-scalar ops, scalar is after numElements (offset 4 bytes)
-        if (data.size() >= sizeof(uint32_t) + sizeof(float)) {
-          scalar =
-              *reinterpret_cast<const float *>(data.data() + sizeof(uint32_t));
+        } else if (data.size() >= sizeof(float) + sizeof(uint32_t)) {
+          // For vec-scalar ops: layout is {scalar, numElements}
+          scalar = *reinterpret_cast<const float *>(data.data());
+          numElements =
+              *reinterpret_cast<const uint32_t *>(data.data() + sizeof(float));
         }
       }
     }

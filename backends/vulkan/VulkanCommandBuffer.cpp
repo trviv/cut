@@ -367,14 +367,21 @@ void VulkanCommandBuffer::end() {
                               pipelineLayouts[dispatchIndex], 0, 1,
                               &descriptorSets[dispatchIndex], 0, nullptr);
 
+      uint32_t pcOffset = 0;
+      std::array<uint8_t, 128> pcData;
+
       // Push constants from data bindings
       for (const auto &binding : dispatch.bindings()) {
         if (binding.isData()) {
           const auto &data = binding.getData();
-          vkCmdPushConstants(commandBuffer_, pipelineLayouts[dispatchIndex],
-                             VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                             static_cast<uint32_t>(data.size()), data.data());
+          memcpy(pcData.data(), data.data(), data.size());
+          pcOffset += static_cast<uint32_t>(data.size());
         }
+      }
+      if (pcOffset != 0) {
+        vkCmdPushConstants(commandBuffer_, pipelineLayouts[dispatchIndex],
+                           VK_SHADER_STAGE_COMPUTE_BIT, 0, pcOffset,
+                           pcData.data());
       }
 
       // Dispatch compute work using workgroup size

@@ -255,20 +255,20 @@ void Dispatcher::encode(OperatorEnum op,
   // Validate binding count based on operator type
   if (isBinaryVecVecOp(op)) {
     // Binary vec-vec: input A, input B, output
-    if (bindings.size() < 3) {
+    if (bindings.size() != 3) {
       throw std::runtime_error(
-          "Binary vec-vec operation requires at least 3 bindings");
+          "Binary vec-vec operation requires exactly 3 bindings");
     }
   } else if (isBinaryVecScalarOp(op)) {
     // Binary vec-scalar: input vector, scalar (data), output
-    if (bindings.size() < 3) {
+    if (bindings.size() != 3) {
       throw std::runtime_error(
-          "Binary vec-scalar operation requires at least 3 bindings");
+          "Binary vec-scalar operation requires exactly 3 bindings");
     }
   } else if (isUnaryOp(op)) {
     // Unary: input, output
-    if (bindings.size() < 2) {
-      throw std::runtime_error("Unary operation requires at least 2 bindings");
+    if (bindings.size() != 2) {
+      throw std::runtime_error("Unary operation requires exactly 2 bindings");
     }
   } else {
     throw std::runtime_error(std::string("Unknown operator: ") +
@@ -283,31 +283,42 @@ void Dispatcher::encode(OperatorEnum op,
   // Use 1D dispatch with x = execution size
   ThreadSize workgroupSize{static_cast<uint32_t>(executionSize), 1, 1};
 
-  // Create dispatch with shader, workgroup size, and bindings
-  ComputeDispatch dispatch(shader, workgroupSize, bindings);
+  // For binary vec-scalar ops, filter out data bindings (scalar) from handle
+  // bindings since we'll pack them into push constants with numElements
+  std::vector<ComputeBinding> handleBindings;
+  float scalar = 0.0f;
 
-  // Add numElements as push constant data for CPU backend
-  // For binary vec-scalar ops, also extract and include the scalar value
-  uint32_t numElements = static_cast<uint32_t>(executionSize);
   if (isBinaryVecScalarOp(op)) {
-    // Find the scalar value from the data bindings
-    float scalar = 0.0f;
     for (const auto &binding : bindings) {
-      if (binding.isData()) {
+      if (binding.isHandle()) {
+        handleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        // Extract scalar value from data binding
         const auto &data = binding.getData();
         if (data.size() >= sizeof(float)) {
           scalar = *reinterpret_cast<const float *>(data.data());
         }
-        break;
       }
     }
-    // Pack numElements + scalar into push constant data
+  }
+
+  // Create dispatch with shader, workgroup size, and bindings
+  // Use filtered handle bindings for vec-scalar ops, original bindings
+  // otherwise
+  ComputeDispatch dispatch(shader, workgroupSize,
+                           isBinaryVecScalarOp(op) ? handleBindings : bindings);
+
+  // Add push constant data
+  uint32_t numElements = static_cast<uint32_t>(executionSize);
+  if (isBinaryVecScalarOp(op)) {
+    // Pack scalar + numElements into push constant data
+    // Shader layout: scalar first, then numElements
     struct PushConstants {
-      uint32_t numElements;
       float scalar;
-    } pushData{numElements, scalar};
+      uint32_t numElements;
+    } pushData{scalar, numElements};
     dispatch.bindData(DataReference(&pushData, sizeof(pushData)),
-                      static_cast<uint32_t>(bindings.size()));
+                      static_cast<uint32_t>(handleBindings.size()));
   } else {
     // Just add numElements for other operation types
     dispatch.bindData(DataReference(numElements),

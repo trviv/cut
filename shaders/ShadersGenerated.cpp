@@ -35,8 +35,8 @@ layout(push_constant) uniform PushConstants {
 // Push constants with scalar value (binary vec-scalar)
 static const char *pushConstantsWithScalar = R"(
 layout(push_constant) uniform PushConstants {
-    uint numElements;
     %SCALAR_DTYPE% scalar;
+    uint numElements;
 };
 )";
 
