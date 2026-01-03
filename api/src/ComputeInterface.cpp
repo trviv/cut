@@ -39,6 +39,11 @@ void ComputeInterface::wait(const ComputeHandle &commandBufferHandle) {
 
 void ComputeInterface::setCommandBufferContainer(
     std::unique_ptr<CommandBufferContainer> commandBufferContainer) {
+  // Reset active command buffer before destroying the old container
+  // to avoid use-after-free when the handle's destructor accesses the container
+  if (!commandBufferContainer && commandBufferContainer_) {
+    activeCommandBuffer_.reset();
+  }
   commandBufferContainer_ = std::move(commandBufferContainer);
 }
 

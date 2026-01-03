@@ -8,12 +8,25 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 
 namespace cut {
 
 // Forward declaration
 class CPUCompute;
+
+/**
+ * Shared synchronization state for CPU command buffer tasks.
+ * This is shared between the command buffer and its submitted tasks
+ * to ensure safe access even if the command buffer is destroyed
+ * before all tasks complete their notification.
+ */
+struct CPUCommandBufferSync {
+  std::atomic<size_t> pendingTasks{0};
+  std::mutex mutex;
+  std::condition_variable cv;
+};
 
 /**
  * CPU implementation of CommandBuffer.
@@ -35,9 +48,7 @@ private:
   CPUContainers &containers_;
   ThreadPool &threadPool_;
   CPUCompute *compute_;
-  std::atomic<size_t> pendingTasks_{0};
-  std::mutex mutex_;
-  std::condition_variable cv_;
+  std::shared_ptr<CPUCommandBufferSync> sync_;
   bool submitted_{false};
 };
 

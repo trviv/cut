@@ -19,6 +19,14 @@ CPUCompute::CPUCompute(size_t numThreads, SIMDMode simdMode)
 }
 
 CPUCompute::~CPUCompute() {
+  // First, wait for all pending thread pool tasks to complete.
+  // This is critical because CPUCommandBuffer lambdas capture 'this'
+  // and access the command buffer's mutex. We must ensure all tasks
+  // finish before destroying any command buffers.
+  if (threadPool_) {
+    threadPool_->waitAll();
+  }
+
   setCommandBufferContainer(nullptr);
   containers_.reset();
   threadPool_.reset();
