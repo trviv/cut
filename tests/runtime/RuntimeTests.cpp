@@ -1200,6 +1200,469 @@ TEST_F(DimensionSizeRangeTest, AllSizes_4D_Float32) {
 }
 
 // ============================================================================
+// Non-Aligned Innermost Dimension Tests
+// ============================================================================
+
+// Tests for multi-dimensional shapes where innermost dimension is NOT a
+// multiple of 4 (1, 3, 5, 11, 13). These tests verify that the
+// calculateAlignedElements function properly handles alignment.
+
+class NonAlignedInnermostTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::CPU);
+  }
+};
+
+// Test 2D shapes with non-aligned innermost dimensions
+TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim1) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecAdd;
+
+  for (uint32_t outer : {2u, 5u, 7u}) {
+    std::vector<uint32_t> shape = {outer, 1};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferB),
+                                  ComputeBinding(2, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] + dataB[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim3) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecMul;
+
+  for (uint32_t outer : {2u, 5u, 7u}) {
+    std::vector<uint32_t> shape = {outer, 3};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferB),
+                                  ComputeBinding(2, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] * dataB[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim5) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecSub;
+
+  for (uint32_t outer : {2u, 5u, 7u}) {
+    std::vector<uint32_t> shape = {outer, 5};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferB),
+                                  ComputeBinding(2, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] - dataB[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim11) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecAdd;
+
+  for (uint32_t outer : {2u, 3u, 5u}) {
+    std::vector<uint32_t> shape = {outer, 11};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferB),
+                                  ComputeBinding(2, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] + dataB[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim13) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecMul;
+
+  for (uint32_t outer : {2u, 3u, 5u}) {
+    std::vector<uint32_t> shape = {outer, 13};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferB),
+                                  ComputeBinding(2, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] * dataB[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+// Test 3D shapes with non-aligned innermost dimensions
+TEST_F(NonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecAdd;
+
+  // Test innermost dimensions 1, 3, 5, 11, 13
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {2, 3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferB),
+                                  ComputeBinding(2, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] + dataB[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+// Test 4D shapes with non-aligned innermost dimensions
+TEST_F(NonAlignedInnermostTest, BinaryVecVec_4D_NonAlignedInnermost) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecMul;
+
+  // Test innermost dimensions 1, 3, 5, 11, 13
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {2, 2, 3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferB),
+                                  ComputeBinding(2, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] * dataB[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+// Test unary operators with non-aligned innermost dimensions
+TEST_F(NonAlignedInnermostTest, Unary_2D_NonAlignedInnermost) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = UnaryNeg;
+
+  // Test innermost dimensions 1, 3, 5, 11, 13
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {4, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataIn = generateTestData<float>(elements, 42);
+
+    auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(
+        op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = -dataIn[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+// Test vec-scalar operators with non-aligned innermost dimensions
+TEST_F(NonAlignedInnermostTest, VecScalar_2D_NonAlignedInnermost) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarMul;
+  const float scalar = 2.5f;
+
+  // Test innermost dimensions 1, 3, 5, 11, 13
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {4, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferOut),
+                                  ComputeBinding(2, DataReference(scalar))});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] * scalar;
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+// Vulkan backend tests with non-aligned innermost dimensions
+class VulkanNonAlignedInnermostTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_2D_NonAlignedInnermost) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecAdd;
+
+  // Test innermost dimensions 1, 3, 5, 11, 13
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    for (uint32_t outer : {2u, 3u, 5u}) {
+      std::vector<uint32_t> shape = {outer, innerDim};
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(float);
+
+      SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+      auto dataA = generateTestData<float>(elements, 42);
+      auto dataB = generateTestData<float>(elements, 123);
+
+      auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+      auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                    ComputeBinding(1, bufferB),
+                                    ComputeBinding(2, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = dataA[i] + dataB[i];
+        EXPECT_NEAR(output[i], expected, 1e-5f)
+            << "Mismatch at index " << i << " for shape "
+            << shapeToString(shape);
+      }
+    }
+  }
+}
+
+TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecMul;
+
+  // Test innermost dimensions 1, 3, 5, 11, 13
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {2, 3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferB),
+                                  ComputeBinding(2, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] * dataB[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_4D_NonAlignedInnermost) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecVecSub;
+
+  // Test innermost dimensions 1, 3, 5, 11, 13
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {2, 2, 3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                  ComputeBinding(1, bufferB),
+                                  ComputeBinding(2, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataA[i] - dataB[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+TEST_F(VulkanNonAlignedInnermostTest, Unary_NonAlignedInnermost) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = UnarySquare;
+
+  // Test innermost dimensions 1, 3, 5, 11, 13
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataIn = generateTestData<float>(elements, 42);
+
+    auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
+    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+    runtime_->encodeOperator(
+        op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = dataIn[i] * dataIn[i];
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+// ============================================================================
 // Runtime Lifecycle Tests
 // ============================================================================
 
