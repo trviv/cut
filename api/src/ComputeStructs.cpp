@@ -14,17 +14,12 @@ void ComputeBuffer::setShape(const std::vector<uint32_t> &newShape) {
   }
 
   // Prepend 1s to ensure size is exactly 4, keeping innermost dimension at back
+  shape_.reserve(4);
   const size_t padCount = 4 - newShape.size();
   shape_.assign(padCount, 1);
   shape_.insert(shape_.end(), newShape.begin(), newShape.end());
 
-  // Calculate execution size with overflow checking
-  // Innermost dimension (shape_.back()) is aligned to multiple of 4
-  executionElementCount_ =
-      ((static_cast<size_t>(shape_.back()) + 3) & ~size_t{3});
-  for (auto it = shape_.rbegin() + 1; it != shape_.rend(); ++it) {
-    executionElementCount_ *= *it;
-  }
+  executionElementCount_ = calculateAlignedElements(shape_);
 
   // Calculate aligned size
   size_ = calculateAlignedSize(shape_, dtype_);
@@ -33,11 +28,7 @@ void ComputeBuffer::setShape(const std::vector<uint32_t> &newShape) {
 void ComputeBuffer::setDtype(DataType newDtype) {
   dtype_ = newDtype;
   // Recalculate size if shape is already set
-  if (!shape_.empty()) {
-    size_ = calculateAlignedSize(shape_, dtype_);
-  } else {
-    size_ = 0;
-  }
+  size_ = calculateAlignedSize(shape_, dtype_);
 }
 
 std::vector<uint32_t> ComputeBuffer::getDimData() const {
@@ -76,8 +67,8 @@ size_t ComputeBuffer::calculateActualSize(const std::vector<uint32_t> &shape,
   return totalElements * dataTypeSize(dtype);
 }
 
-size_t ComputeBuffer::calculateAlignedSize(const std::vector<uint32_t> &shape,
-                                           DataType dtype) {
+size_t
+ComputeBuffer::calculateAlignedElements(const std::vector<uint32_t> &shape) {
   if (shape.empty()) {
     return 0;
   }
@@ -88,7 +79,12 @@ size_t ComputeBuffer::calculateAlignedSize(const std::vector<uint32_t> &shape,
   }
   size_t alignedInner = (shape.back() + 3) & ~static_cast<uint32_t>(3);
   totalElements *= alignedInner;
-  const size_t size = totalElements * dataTypeSize(dtype);
+  return totalElements;
+}
+
+size_t ComputeBuffer::calculateAlignedSize(const std::vector<uint32_t> &shape,
+                                           DataType dtype) {
+  const size_t size = calculateAlignedElements(shape) * dataTypeSize(dtype);
 
   // Align total size to 16 bytes for optimal GPU access
   constexpr size_t kAlignment = 16;

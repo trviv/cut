@@ -156,6 +156,14 @@ struct ComputeBuffer {
   static size_t calculateAlignedSize(const std::vector<uint32_t> &shape,
                                      DataType dtype);
 
+  /**
+   * Calculates the total number of elements with the innermost dimension
+   * aligned to a multiple of 4.
+   * @param shape Dimension-wise sizes (e.g., {batch, height, width, channels}).
+   * @return Total element count with aligned innermost dimension.
+   */
+  static size_t calculateAlignedElements(const std::vector<uint32_t> &shape);
+
 private:
   std::vector<uint32_t> shape_; ///< Dimension-wise sizes (always size 4).
   DataType dtype_ = DataType::Float32; ///< Element data type.
