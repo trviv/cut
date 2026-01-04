@@ -158,6 +158,99 @@ inline float opSquare(float x) {
   return x * x;
 }
 
+// New unary operations
+inline float opExpm1(float x) {
+  return std::expm1(x);
+}
+inline float opLog1p(float x) {
+  return std::log1p(x);
+}
+inline float opCbrt(float x) {
+  return std::cbrt(x);
+}
+inline float opExp2(float x) {
+  return std::exp2(x);
+}
+inline float opDegrees(float x) {
+  return x * 180.0f / 3.14159265358979323846f;
+}
+inline float opRadians(float x) {
+  return x * 3.14159265358979323846f / 180.0f;
+}
+inline float opLogicalNot(float x) {
+  return x == 0.0f ? 1.0f : 0.0f;
+}
+inline float opBitwiseNot(float x) {
+  int32_t ix = static_cast<int32_t>(x);
+  return static_cast<float>(~ix);
+}
+inline float opRelu(float x) {
+  return x > 0.0f ? x : 0.0f;
+}
+inline float opSigmoid(float x) {
+  return 1.0f / (1.0f + std::exp(-x));
+}
+inline float opGelu(float x) {
+  // GELU approximation: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+  const float sqrt2pi = 0.7978845608028654f; // sqrt(2/pi)
+  float x3 = x * x * x;
+  return 0.5f * x * (1.0f + std::tanh(sqrt2pi * (x + 0.044715f * x3)));
+}
+inline float opSilu(float x) {
+  // SiLU/Swish: x * sigmoid(x)
+  return x / (1.0f + std::exp(-x));
+}
+inline float opSoftplus(float x) {
+  return std::log(1.0f + std::exp(x));
+}
+inline float opIsNan(float x) {
+  return std::isnan(x) ? 1.0f : 0.0f;
+}
+inline float opIsInf(float x) {
+  return std::isinf(x) ? 1.0f : 0.0f;
+}
+
+// New binary operations
+inline float opBitwiseAnd(float a, float b) {
+  return static_cast<float>(static_cast<int32_t>(a) & static_cast<int32_t>(b));
+}
+inline float opBitwiseOr(float a, float b) {
+  return static_cast<float>(static_cast<int32_t>(a) | static_cast<int32_t>(b));
+}
+inline float opBitwiseXor(float a, float b) {
+  return static_cast<float>(static_cast<int32_t>(a) ^ static_cast<int32_t>(b));
+}
+inline float opLeftShift(float a, float b) {
+  return static_cast<float>(static_cast<int32_t>(a) << static_cast<int32_t>(b));
+}
+inline float opRightShift(float a, float b) {
+  return static_cast<float>(static_cast<int32_t>(a) >> static_cast<int32_t>(b));
+}
+inline float opLogicalAnd(float a, float b) {
+  return (a != 0.0f && b != 0.0f) ? 1.0f : 0.0f;
+}
+inline float opLogicalOr(float a, float b) {
+  return (a != 0.0f || b != 0.0f) ? 1.0f : 0.0f;
+}
+inline float opLogicalXor(float a, float b) {
+  return ((a != 0.0f) != (b != 0.0f)) ? 1.0f : 0.0f;
+}
+inline float opAtan2(float a, float b) {
+  return std::atan2(a, b);
+}
+inline float opHypot(float a, float b) {
+  return std::hypot(a, b);
+}
+inline float opCopysign(float a, float b) {
+  return std::copysign(a, b);
+}
+inline float opFmod(float a, float b) {
+  return std::fmod(a, b);
+}
+inline float opLeakyRelu(float x, float alpha) {
+  return x > 0.0f ? x : alpha * x;
+}
+
 template <typename BinaryOp>
 void binaryLoop(const float *a,
                 const float *b,
@@ -400,6 +493,43 @@ void executeBinaryKernel(OperatorEnum op,
 #endif
     binaryLoop(a, b, out, start, end, opMax);
     break;
+  // New binary vec-vec operations
+  case BinaryVecVecBitwiseAnd:
+    binaryLoop(a, b, out, start, end, opBitwiseAnd);
+    break;
+  case BinaryVecVecBitwiseOr:
+    binaryLoop(a, b, out, start, end, opBitwiseOr);
+    break;
+  case BinaryVecVecBitwiseXor:
+    binaryLoop(a, b, out, start, end, opBitwiseXor);
+    break;
+  case BinaryVecVecLeftShift:
+    binaryLoop(a, b, out, start, end, opLeftShift);
+    break;
+  case BinaryVecVecRightShift:
+    binaryLoop(a, b, out, start, end, opRightShift);
+    break;
+  case BinaryVecVecLogicalAnd:
+    binaryLoop(a, b, out, start, end, opLogicalAnd);
+    break;
+  case BinaryVecVecLogicalOr:
+    binaryLoop(a, b, out, start, end, opLogicalOr);
+    break;
+  case BinaryVecVecLogicalXor:
+    binaryLoop(a, b, out, start, end, opLogicalXor);
+    break;
+  case BinaryVecVecAtan2:
+    binaryLoop(a, b, out, start, end, opAtan2);
+    break;
+  case BinaryVecVecHypot:
+    binaryLoop(a, b, out, start, end, opHypot);
+    break;
+  case BinaryVecVecCopysign:
+    binaryLoop(a, b, out, start, end, opCopysign);
+    break;
+  case BinaryVecVecFmod:
+    binaryLoop(a, b, out, start, end, opFmod);
+    break;
   default:
     break;
   }
@@ -459,6 +589,46 @@ void executeBinaryVecScalarKernel(OperatorEnum op,
     break;
   case BinaryVecScalarMax:
     binaryVecScalarLoop(a, scalar, out, start, end, opMax);
+    break;
+  // New binary vec-scalar operations
+  case BinaryVecScalarBitwiseAnd:
+    binaryVecScalarLoop(a, scalar, out, start, end, opBitwiseAnd);
+    break;
+  case BinaryVecScalarBitwiseOr:
+    binaryVecScalarLoop(a, scalar, out, start, end, opBitwiseOr);
+    break;
+  case BinaryVecScalarBitwiseXor:
+    binaryVecScalarLoop(a, scalar, out, start, end, opBitwiseXor);
+    break;
+  case BinaryVecScalarLeftShift:
+    binaryVecScalarLoop(a, scalar, out, start, end, opLeftShift);
+    break;
+  case BinaryVecScalarRightShift:
+    binaryVecScalarLoop(a, scalar, out, start, end, opRightShift);
+    break;
+  case BinaryVecScalarLogicalAnd:
+    binaryVecScalarLoop(a, scalar, out, start, end, opLogicalAnd);
+    break;
+  case BinaryVecScalarLogicalOr:
+    binaryVecScalarLoop(a, scalar, out, start, end, opLogicalOr);
+    break;
+  case BinaryVecScalarLogicalXor:
+    binaryVecScalarLoop(a, scalar, out, start, end, opLogicalXor);
+    break;
+  case BinaryVecScalarAtan2:
+    binaryVecScalarLoop(a, scalar, out, start, end, opAtan2);
+    break;
+  case BinaryVecScalarHypot:
+    binaryVecScalarLoop(a, scalar, out, start, end, opHypot);
+    break;
+  case BinaryVecScalarCopysign:
+    binaryVecScalarLoop(a, scalar, out, start, end, opCopysign);
+    break;
+  case BinaryVecScalarFmod:
+    binaryVecScalarLoop(a, scalar, out, start, end, opFmod);
+    break;
+  case BinaryVecScalarLeakyRelu:
+    binaryVecScalarLoop(a, scalar, out, start, end, opLeakyRelu);
     break;
   default:
     break;
@@ -655,9 +825,197 @@ void executeUnaryKernel(OperatorEnum op,
 #endif
     unaryLoop(in, out, start, end, opSquare);
     break;
+  // New unary operations
+  case UnaryExpm1:
+    unaryLoop(in, out, start, end, opExpm1);
+    break;
+  case UnaryLog1p:
+    unaryLoop(in, out, start, end, opLog1p);
+    break;
+  case UnaryCbrt:
+    unaryLoop(in, out, start, end, opCbrt);
+    break;
+  case UnaryExp2:
+    unaryLoop(in, out, start, end, opExp2);
+    break;
+  case UnaryDegrees:
+    unaryLoop(in, out, start, end, opDegrees);
+    break;
+  case UnaryRadians:
+    unaryLoop(in, out, start, end, opRadians);
+    break;
+  case UnaryLogicalNot:
+    unaryLoop(in, out, start, end, opLogicalNot);
+    break;
+  case UnaryBitwiseNot:
+    unaryLoop(in, out, start, end, opBitwiseNot);
+    break;
+  case UnaryRelu:
+    unaryLoop(in, out, start, end, opRelu);
+    break;
+  case UnarySigmoid:
+    unaryLoop(in, out, start, end, opSigmoid);
+    break;
+  case UnaryGelu:
+    unaryLoop(in, out, start, end, opGelu);
+    break;
+  case UnarySilu:
+    unaryLoop(in, out, start, end, opSilu);
+    break;
+  case UnarySoftplus:
+    unaryLoop(in, out, start, end, opSoftplus);
+    break;
+  case UnaryIsNan:
+    unaryLoop(in, out, start, end, opIsNan);
+    break;
+  case UnaryIsInf:
+    unaryLoop(in, out, start, end, opIsInf);
+    break;
   default:
     break;
   }
+}
+
+void executeTernaryClampKernel(const float *in,
+                               float minVal,
+                               float maxVal,
+                               float *out,
+                               size_t start,
+                               size_t end,
+                               SIMDMode simdMode) {
+  (void)simdMode; // Currently using scalar implementation
+
+  for (size_t i = start; i < end; ++i) {
+    float val = in[i];
+    if (val < minVal) {
+      out[i] = minVal;
+    } else if (val > maxVal) {
+      out[i] = maxVal;
+    } else {
+      out[i] = val;
+    }
+  }
+}
+
+void executeReductionKernel(OperatorEnum op,
+                            const float *in,
+                            float *out,
+                            size_t count,
+                            SIMDMode simdMode) {
+  (void)simdMode; // Currently using scalar implementation
+
+  if (count == 0) {
+    *out = 0.0f;
+    return;
+  }
+
+  switch (op) {
+  case ReduceSum: {
+    float sum = 0.0f;
+    for (size_t i = 0; i < count; ++i) {
+      sum += in[i];
+    }
+    *out = sum;
+    break;
+  }
+  case ReduceMean: {
+    float sum = 0.0f;
+    for (size_t i = 0; i < count; ++i) {
+      sum += in[i];
+    }
+    *out = sum / static_cast<float>(count);
+    break;
+  }
+  case ReduceMin: {
+    float minVal = in[0];
+    for (size_t i = 1; i < count; ++i) {
+      if (in[i] < minVal) {
+        minVal = in[i];
+      }
+    }
+    *out = minVal;
+    break;
+  }
+  case ReduceMax: {
+    float maxVal = in[0];
+    for (size_t i = 1; i < count; ++i) {
+      if (in[i] > maxVal) {
+        maxVal = in[i];
+      }
+    }
+    *out = maxVal;
+    break;
+  }
+  case ReduceProd: {
+    float prod = 1.0f;
+    for (size_t i = 0; i < count; ++i) {
+      prod *= in[i];
+    }
+    *out = prod;
+    break;
+  }
+  case ReduceAny: {
+    // Logical OR: returns 1.0 if any element is non-zero
+    float result = 0.0f;
+    for (size_t i = 0; i < count; ++i) {
+      if (in[i] != 0.0f) {
+        result = 1.0f;
+        break;
+      }
+    }
+    *out = result;
+    break;
+  }
+  case ReduceAll: {
+    // Logical AND: returns 1.0 only if all elements are non-zero
+    float result = 1.0f;
+    for (size_t i = 0; i < count; ++i) {
+      if (in[i] == 0.0f) {
+        result = 0.0f;
+        break;
+      }
+    }
+    *out = result;
+    break;
+  }
+  default:
+    *out = 0.0f;
+    break;
+  }
+}
+
+void executeMatMulKernel(
+    const float *a, const float *b, float *c, size_t M, size_t K, size_t N) {
+  // Simple naive matrix multiplication: C[i,j] = sum_k(A[i,k] * B[k,j])
+  for (size_t i = 0; i < M; ++i) {
+    for (size_t j = 0; j < N; ++j) {
+      float sum = 0.0f;
+      for (size_t k = 0; k < K; ++k) {
+        sum += a[i * K + k] * b[k * N + j];
+      }
+      c[i * N + j] = sum;
+    }
+  }
+}
+
+void executeTransposeKernel(const float *a, float *b, size_t M, size_t N) {
+  // Transpose: B[j,i] = A[i,j]
+  for (size_t i = 0; i < M; ++i) {
+    for (size_t j = 0; j < N; ++j) {
+      b[j * M + i] = a[i * N + j];
+    }
+  }
+}
+
+void executeDotKernel(const float *a,
+                      const float *b,
+                      float *result,
+                      size_t count) {
+  float sum = 0.0f;
+  for (size_t i = 0; i < count; ++i) {
+    sum += a[i] * b[i];
+  }
+  *result = sum;
 }
 
 } // namespace cut

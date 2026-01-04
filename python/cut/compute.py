@@ -561,6 +561,369 @@ def _register_operations():
 _register_operations()
 
 
+# =============================================================================
+# Special Operations (not auto-generated)
+# =============================================================================
+
+def reduce_sum(a: Buffer) -> float:
+    """
+    Compute the sum of all elements in the buffer.
+
+    Args:
+        a: Input buffer
+
+    Returns:
+        Sum of all elements
+
+    Example:
+        >>> a = Buffer(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> result = reduce_sum(a)  # Returns 10.0
+    """
+    _ensure_initialized()
+
+    # Create output buffer for single result
+    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.ReduceSum, bindings)
+
+    return float(out.numpy()[0])
+
+
+def reduce_mean(a: Buffer) -> float:
+    """
+    Compute the mean of all elements in the buffer.
+
+    Args:
+        a: Input buffer
+
+    Returns:
+        Mean of all elements
+
+    Example:
+        >>> a = Buffer(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> result = reduce_mean(a)  # Returns 2.5
+    """
+    _ensure_initialized()
+
+    # For mean, we compute sum on GPU and divide by count on CPU
+    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.ReduceMean, bindings)
+
+    # GPU computes sum, we divide by count
+    total = float(out.numpy()[0])
+    count = np.prod(a.shape)
+    return total / count
+
+
+def reduce_min(a: Buffer) -> float:
+    """
+    Find the minimum element in the buffer.
+
+    Args:
+        a: Input buffer
+
+    Returns:
+        Minimum element
+
+    Example:
+        >>> a = Buffer(np.array([3, 1, 4, 1, 5], dtype=np.float32))
+        >>> result = reduce_min(a)  # Returns 1.0
+    """
+    _ensure_initialized()
+
+    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.ReduceMin, bindings)
+
+    return float(out.numpy()[0])
+
+
+def reduce_max(a: Buffer) -> float:
+    """
+    Find the maximum element in the buffer.
+
+    Args:
+        a: Input buffer
+
+    Returns:
+        Maximum element
+
+    Example:
+        >>> a = Buffer(np.array([3, 1, 4, 1, 5], dtype=np.float32))
+        >>> result = reduce_max(a)  # Returns 5.0
+    """
+    _ensure_initialized()
+
+    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.ReduceMax, bindings)
+
+    return float(out.numpy()[0])
+
+
+def reduce_prod(a: Buffer) -> float:
+    """
+    Compute the product of all elements in the buffer.
+
+    Args:
+        a: Input buffer
+
+    Returns:
+        Product of all elements
+
+    Example:
+        >>> a = Buffer(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> result = reduce_prod(a)  # Returns 24.0
+    """
+    _ensure_initialized()
+
+    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.ReduceProd, bindings)
+
+    return float(out.numpy()[0])
+
+
+def reduce_any(a: Buffer) -> bool:
+    """
+    Check if any element in the buffer is non-zero (logical OR).
+
+    Args:
+        a: Input buffer
+
+    Returns:
+        True if any element is non-zero
+
+    Example:
+        >>> a = Buffer(np.array([0, 0, 1, 0], dtype=np.float32))
+        >>> result = reduce_any(a)  # Returns True
+    """
+    _ensure_initialized()
+
+    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.ReduceAny, bindings)
+
+    return bool(out.numpy()[0] != 0.0)
+
+
+def reduce_all(a: Buffer) -> bool:
+    """
+    Check if all elements in the buffer are non-zero (logical AND).
+
+    Args:
+        a: Input buffer
+
+    Returns:
+        True if all elements are non-zero
+
+    Example:
+        >>> a = Buffer(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> result = reduce_all(a)  # Returns True
+    """
+    _ensure_initialized()
+
+    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.ReduceAll, bindings)
+
+    return bool(out.numpy()[0] != 0.0)
+
+
+def matmul(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """
+    Matrix multiplication: C = A @ B
+
+    Args:
+        a: Input matrix A with shape (M, K)
+        b: Input matrix B with shape (K, N)
+        out: Optional output buffer with shape (M, N)
+
+    Returns:
+        Buffer with result of matrix multiplication
+
+    Example:
+        >>> a = Buffer(np.array([[1, 2], [3, 4]], dtype=np.float32))
+        >>> b = Buffer(np.array([[5, 6], [7, 8]], dtype=np.float32))
+        >>> result = matmul(a, b)  # Returns [[19, 22], [43, 50]]
+    """
+    _ensure_initialized()
+
+    # Get shapes
+    if len(a.shape) != 2 or len(b.shape) != 2:
+        raise ValueError("matmul requires 2D matrices")
+
+    M, K = a.shape
+    K2, N = b.shape
+
+    if K != K2:
+        raise ValueError(f"Matrix dimension mismatch: A is {M}x{K}, B is {K2}x{N}")
+
+    if out is None:
+        out = Buffer(size=M * N * 4, dtype=np.float32, shape=(M, N))
+
+    # Create shape data binding
+    shape_data = np.array([M, K, N], dtype=np.uint32)
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, b._handle),
+        ComputeBinding(2, out._handle),
+        ComputeBinding.from_bytes(3, shape_data),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.MatMul, bindings)
+    return out
+
+
+def transpose(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    """
+    Matrix transpose: B = A^T
+
+    Args:
+        a: Input matrix A with shape (M, N)
+        out: Optional output buffer with shape (N, M)
+
+    Returns:
+        Buffer with transposed matrix
+
+    Example:
+        >>> a = Buffer(np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32))
+        >>> result = transpose(a)  # Returns [[1, 4], [2, 5], [3, 6]]
+    """
+    _ensure_initialized()
+
+    if len(a.shape) != 2:
+        raise ValueError("transpose requires a 2D matrix")
+
+    M, N = a.shape
+
+    if out is None:
+        out = Buffer(size=M * N * 4, dtype=np.float32, shape=(N, M))
+
+    # Create shape data binding
+    shape_data = np.array([M, N], dtype=np.uint32)
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+        ComputeBinding.from_bytes(2, shape_data),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.Transpose, bindings)
+    return out
+
+
+def dot(a: Buffer, b: Buffer) -> float:
+    """
+    Dot product of two vectors: result = sum(A * B)
+
+    Args:
+        a: Input vector A
+        b: Input vector B (same size as A)
+
+    Returns:
+        Scalar dot product result
+
+    Example:
+        >>> a = Buffer(np.array([1, 2, 3], dtype=np.float32))
+        >>> b = Buffer(np.array([4, 5, 6], dtype=np.float32))
+        >>> result = dot(a, b)  # Returns 32.0 (1*4 + 2*5 + 3*6)
+    """
+    _ensure_initialized()
+
+    if a.size != b.size:
+        raise ValueError(f"Vector size mismatch: {a.size} vs {b.size}")
+
+    count = np.prod(a.shape)
+
+    # Create output buffer for single result
+    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+
+    # Create count data binding
+    count_data = np.array([count], dtype=np.uint32)
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, b._handle),
+        ComputeBinding(2, out._handle),
+        ComputeBinding.from_bytes(3, count_data),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.Dot, bindings)
+    return float(out.numpy()[0])
+
+
+def clamp(a: Buffer, min_val: Union[int, float], max_val: Union[int, float],
+          out: Optional[Buffer] = None) -> Buffer:
+    """
+    Clamp buffer values to a range.
+
+    Each element is clamped to be within [min_val, max_val].
+
+    Args:
+        a: Input buffer
+        min_val: Minimum value
+        max_val: Maximum value
+        out: Optional output buffer
+
+    Returns:
+        Buffer with clamped values
+
+    Example:
+        >>> a = Buffer(np.array([-1, 0, 5, 10], dtype=np.float32))
+        >>> result = clamp(a, 0, 5)  # Returns [0, 0, 5, 5]
+    """
+    _ensure_initialized()
+
+    if out is None:
+        out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
+
+    dtype = a._dtype if a._dtype is not None else np.float32
+
+    # Create data binding with min and max values packed as numpy array
+    if dtype == np.int32:
+        clamp_data = np.array([int(min_val), int(max_val)], dtype=np.int32)
+    elif dtype == np.uint32:
+        clamp_data = np.array([int(min_val), int(max_val)], dtype=np.uint32)
+    else:
+        clamp_data = np.array([float(min_val), float(max_val)], dtype=np.float32)
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+        ComputeBinding.from_bytes(2, clamp_data),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.TernaryClamp, bindings)
+    return out
+
+
 # Helper function to get SPIR-V shaders
 def get_shader(op: OperatorEnum, dtype: DataType = DataType.Float32):
     """
@@ -606,4 +969,18 @@ __all__ = [
     "ComputeDispatch",
     # Core functions
     "get_shader",
+    # Special operations
+    "clamp",
+    # Reduction operations
+    "reduce_sum",
+    "reduce_mean",
+    "reduce_min",
+    "reduce_max",
+    "reduce_prod",
+    "reduce_any",
+    "reduce_all",
+    # Matrix operations
+    "matmul",
+    "transpose",
+    "dot",
 ] + ALL_OPERATION_NAMES

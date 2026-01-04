@@ -54,6 +54,19 @@ bool isBinaryVecVecOp(OperatorEnum op) {
   case BinaryVecVecGreaterEqual:
   case BinaryVecVecMin:
   case BinaryVecVecMax:
+  // New binary vec-vec operations
+  case BinaryVecVecBitwiseAnd:
+  case BinaryVecVecBitwiseOr:
+  case BinaryVecVecBitwiseXor:
+  case BinaryVecVecLeftShift:
+  case BinaryVecVecRightShift:
+  case BinaryVecVecLogicalAnd:
+  case BinaryVecVecLogicalOr:
+  case BinaryVecVecLogicalXor:
+  case BinaryVecVecAtan2:
+  case BinaryVecVecHypot:
+  case BinaryVecVecCopysign:
+  case BinaryVecVecFmod:
     return true;
   default:
     return false;
@@ -78,6 +91,20 @@ bool isBinaryVecScalarOp(OperatorEnum op) {
   case BinaryVecScalarGreaterEqual:
   case BinaryVecScalarMin:
   case BinaryVecScalarMax:
+  // New binary vec-scalar operations
+  case BinaryVecScalarBitwiseAnd:
+  case BinaryVecScalarBitwiseOr:
+  case BinaryVecScalarBitwiseXor:
+  case BinaryVecScalarLeftShift:
+  case BinaryVecScalarRightShift:
+  case BinaryVecScalarLogicalAnd:
+  case BinaryVecScalarLogicalOr:
+  case BinaryVecScalarLogicalXor:
+  case BinaryVecScalarAtan2:
+  case BinaryVecScalarHypot:
+  case BinaryVecScalarCopysign:
+  case BinaryVecScalarFmod:
+  case BinaryVecScalarLeakyRelu:
     return true;
   default:
     return false;
@@ -109,6 +136,55 @@ bool isUnaryOp(OperatorEnum op) {
   case UnarySign:
   case UnaryReciprocal:
   case UnarySquare:
+  // New unary operations
+  case UnaryExpm1:
+  case UnaryLog1p:
+  case UnaryCbrt:
+  case UnaryExp2:
+  case UnaryDegrees:
+  case UnaryRadians:
+  case UnaryLogicalNot:
+  case UnaryBitwiseNot:
+  case UnaryRelu:
+  case UnarySigmoid:
+  case UnaryGelu:
+  case UnarySilu:
+  case UnarySoftplus:
+  case UnaryIsNan:
+  case UnaryIsInf:
+    return true;
+  default:
+    return false;
+  }
+}
+
+/// Checks if an operator is a ternary operation (like clamp).
+bool isTernaryOp(OperatorEnum op) {
+  return op == TernaryClamp;
+}
+
+/// Checks if an operator is a reduction operation.
+bool isReductionOp(OperatorEnum op) {
+  switch (op) {
+  case ReduceSum:
+  case ReduceMean:
+  case ReduceMin:
+  case ReduceMax:
+  case ReduceProd:
+  case ReduceAny:
+  case ReduceAll:
+    return true;
+  default:
+    return false;
+  }
+}
+
+/// Checks if an operator is a matrix operation.
+bool isMatrixOp(OperatorEnum op) {
+  switch (op) {
+  case MatMul:
+  case Transpose:
+  case Dot:
     return true;
   default:
     return false;
@@ -239,6 +315,120 @@ const char *Dispatcher::operatorName(OperatorEnum op) {
   case UnarySquare:
     return "UnarySquare";
 
+  // New unary operations
+  case UnaryExpm1:
+    return "UnaryExpm1";
+  case UnaryLog1p:
+    return "UnaryLog1p";
+  case UnaryCbrt:
+    return "UnaryCbrt";
+  case UnaryExp2:
+    return "UnaryExp2";
+  case UnaryDegrees:
+    return "UnaryDegrees";
+  case UnaryRadians:
+    return "UnaryRadians";
+  case UnaryLogicalNot:
+    return "UnaryLogicalNot";
+  case UnaryBitwiseNot:
+    return "UnaryBitwiseNot";
+  case UnaryRelu:
+    return "UnaryRelu";
+  case UnarySigmoid:
+    return "UnarySigmoid";
+  case UnaryGelu:
+    return "UnaryGelu";
+  case UnarySilu:
+    return "UnarySilu";
+  case UnarySoftplus:
+    return "UnarySoftplus";
+  case UnaryIsNan:
+    return "UnaryIsNan";
+  case UnaryIsInf:
+    return "UnaryIsInf";
+
+  // New binary vec-vec operations
+  case BinaryVecVecBitwiseAnd:
+    return "BinaryVecVecBitwiseAnd";
+  case BinaryVecVecBitwiseOr:
+    return "BinaryVecVecBitwiseOr";
+  case BinaryVecVecBitwiseXor:
+    return "BinaryVecVecBitwiseXor";
+  case BinaryVecVecLeftShift:
+    return "BinaryVecVecLeftShift";
+  case BinaryVecVecRightShift:
+    return "BinaryVecVecRightShift";
+  case BinaryVecVecLogicalAnd:
+    return "BinaryVecVecLogicalAnd";
+  case BinaryVecVecLogicalOr:
+    return "BinaryVecVecLogicalOr";
+  case BinaryVecVecLogicalXor:
+    return "BinaryVecVecLogicalXor";
+  case BinaryVecVecAtan2:
+    return "BinaryVecVecAtan2";
+  case BinaryVecVecHypot:
+    return "BinaryVecVecHypot";
+  case BinaryVecVecCopysign:
+    return "BinaryVecVecCopysign";
+  case BinaryVecVecFmod:
+    return "BinaryVecVecFmod";
+
+  // New binary vec-scalar operations
+  case BinaryVecScalarBitwiseAnd:
+    return "BinaryVecScalarBitwiseAnd";
+  case BinaryVecScalarBitwiseOr:
+    return "BinaryVecScalarBitwiseOr";
+  case BinaryVecScalarBitwiseXor:
+    return "BinaryVecScalarBitwiseXor";
+  case BinaryVecScalarLeftShift:
+    return "BinaryVecScalarLeftShift";
+  case BinaryVecScalarRightShift:
+    return "BinaryVecScalarRightShift";
+  case BinaryVecScalarLogicalAnd:
+    return "BinaryVecScalarLogicalAnd";
+  case BinaryVecScalarLogicalOr:
+    return "BinaryVecScalarLogicalOr";
+  case BinaryVecScalarLogicalXor:
+    return "BinaryVecScalarLogicalXor";
+  case BinaryVecScalarAtan2:
+    return "BinaryVecScalarAtan2";
+  case BinaryVecScalarHypot:
+    return "BinaryVecScalarHypot";
+  case BinaryVecScalarCopysign:
+    return "BinaryVecScalarCopysign";
+  case BinaryVecScalarFmod:
+    return "BinaryVecScalarFmod";
+  case BinaryVecScalarLeakyRelu:
+    return "BinaryVecScalarLeakyRelu";
+
+  // Ternary operations
+  case TernaryClamp:
+    return "TernaryClamp";
+
+  // Reduction operations
+  case ReduceSum:
+    return "ReduceSum";
+  case ReduceMean:
+    return "ReduceMean";
+  case ReduceMin:
+    return "ReduceMin";
+  case ReduceMax:
+    return "ReduceMax";
+  case ReduceProd:
+    return "ReduceProd";
+  case ReduceAny:
+    return "ReduceAny";
+  case ReduceAll:
+    return "ReduceAll";
+
+  // Matrix operations
+  case MatMul:
+    return "MatMul";
+  case Transpose:
+    return "Transpose";
+  case Dot:
+    return "Dot";
+
   default:
     return "Unknown";
   }
@@ -269,6 +459,27 @@ void Dispatcher::encode(OperatorEnum op,
     // Unary: input, output
     if (bindings.size() != 2) {
       throw std::runtime_error("Unary operation requires exactly 2 bindings");
+    }
+  } else if (isTernaryOp(op)) {
+    // Ternary (clamp): input, output + 2 scalar values in push constants
+    if (bindings.size() < 2) {
+      throw std::runtime_error(
+          "Ternary operation requires at least 2 bindings");
+    }
+  } else if (isReductionOp(op)) {
+    // Reduction: input, output (output is scalar or reduced array)
+    if (bindings.size() != 2) {
+      throw std::runtime_error(
+          "Reduction operation requires exactly 2 bindings");
+    }
+  } else if (isMatrixOp(op)) {
+    // Matrix operations have varying requirements
+    if (op == MatMul && bindings.size() != 3) {
+      throw std::runtime_error("MatMul requires exactly 3 bindings (A, B, C)");
+    } else if (op == Transpose && bindings.size() != 2) {
+      throw std::runtime_error("Transpose requires exactly 2 bindings");
+    } else if (op == Dot && bindings.size() != 3) {
+      throw std::runtime_error("Dot requires exactly 3 bindings");
     }
   } else {
     throw std::runtime_error(std::string("Unknown operator: ") +
@@ -319,6 +530,125 @@ void Dispatcher::encode(OperatorEnum op,
     } pushData{scalar, numElements};
     dispatch.bindData(DataReference(&pushData, sizeof(pushData)),
                       static_cast<uint32_t>(handleBindings.size()));
+  } else if (isTernaryOp(op)) {
+    // Ternary ops (clamp) need min and max values from data bindings
+    float minVal = 0.0f;
+    float maxVal = 0.0f;
+    std::vector<ComputeBinding> ternaryHandleBindings;
+
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        ternaryHandleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        const auto &data = binding.getData();
+        if (data.size() >= 2 * sizeof(float)) {
+          // Expect [minVal, maxVal] in data
+          const float *vals = reinterpret_cast<const float *>(data.data());
+          minVal = vals[0];
+          maxVal = vals[1];
+        }
+      }
+    }
+
+    // Recreate dispatch with only handle bindings
+    ComputeDispatch ternaryDispatch(shader, workgroupSize,
+                                    ternaryHandleBindings);
+    struct ClampPushConstants {
+      float minVal;
+      float maxVal;
+      uint32_t numElements;
+    } clampPushData{minVal, maxVal, numElements};
+    ternaryDispatch.bindData(
+        DataReference(&clampPushData, sizeof(clampPushData)),
+        static_cast<uint32_t>(ternaryHandleBindings.size()));
+    iface_->encode(std::move(ternaryDispatch));
+    return;
+  } else if (isReductionOp(op)) {
+    // Reduction ops: dispatch with workgroups for parallel reduction
+    // Calculate number of workgroups needed
+    const uint32_t workgroupSize256 = 256;
+    uint32_t numWorkgroups =
+        (numElements + workgroupSize256 - 1) / workgroupSize256;
+
+    ThreadSize reductionWorkgroupSize{numWorkgroups * workgroupSize256, 1, 1};
+    ComputeDispatch reductionDispatch(shader, reductionWorkgroupSize, bindings);
+    reductionDispatch.bindData(DataReference(numElements),
+                               static_cast<uint32_t>(bindings.size()));
+    iface_->encode(std::move(reductionDispatch));
+    return;
+  } else if (isMatrixOp(op)) {
+    // Matrix ops need shape info from data bindings
+    std::vector<ComputeBinding> matrixHandleBindings;
+    uint32_t M = 0, K = 0, N = 0;
+
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        matrixHandleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        const auto &data = binding.getData();
+        if (data.size() >= 3 * sizeof(uint32_t)) {
+          // Expect [M, K, N] for matmul or [M, N] for transpose
+          const uint32_t *dims =
+              reinterpret_cast<const uint32_t *>(data.data());
+          M = dims[0];
+          K = dims[1];
+          N = dims[2];
+        } else if (data.size() >= 2 * sizeof(uint32_t)) {
+          const uint32_t *dims =
+              reinterpret_cast<const uint32_t *>(data.data());
+          M = dims[0];
+          N = dims[1];
+        }
+      }
+    }
+
+    if (op == MatMul) {
+      // 2D dispatch for matmul
+      const uint32_t tileSize = 16;
+      uint32_t gridX = (N + tileSize - 1) / tileSize * tileSize;
+      uint32_t gridY = (M + tileSize - 1) / tileSize * tileSize;
+
+      ThreadSize matmulWorkgroupSize{gridX, gridY, 1};
+      ComputeDispatch matmulDispatch(shader, matmulWorkgroupSize,
+                                     matrixHandleBindings);
+      struct MatMulPushConstants {
+        uint32_t M, K, N;
+      } pushData{M, K, N};
+      matmulDispatch.bindData(
+          DataReference(&pushData, sizeof(pushData)),
+          static_cast<uint32_t>(matrixHandleBindings.size()));
+      iface_->encode(std::move(matmulDispatch));
+    } else if (op == Transpose) {
+      // 2D dispatch for transpose
+      const uint32_t tileSize = 16;
+      uint32_t gridX = (N + tileSize - 1) / tileSize * tileSize;
+      uint32_t gridY = (M + tileSize - 1) / tileSize * tileSize;
+
+      ThreadSize transposeWorkgroupSize{gridX, gridY, 1};
+      ComputeDispatch transposeDispatch(shader, transposeWorkgroupSize,
+                                        matrixHandleBindings);
+      struct TransposePushConstants {
+        uint32_t M, N;
+      } pushData{M, N};
+      transposeDispatch.bindData(
+          DataReference(&pushData, sizeof(pushData)),
+          static_cast<uint32_t>(matrixHandleBindings.size()));
+      iface_->encode(std::move(transposeDispatch));
+    } else if (op == Dot) {
+      // 1D dispatch for dot product (like reduction)
+      const uint32_t workgroupSize256 = 256;
+      uint32_t count = M; // M holds element count for dot
+      uint32_t numWorkgroups =
+          (count + workgroupSize256 - 1) / workgroupSize256;
+
+      ThreadSize dotWorkgroupSize{numWorkgroups * workgroupSize256, 1, 1};
+      ComputeDispatch dotDispatch(shader, dotWorkgroupSize,
+                                  matrixHandleBindings);
+      dotDispatch.bindData(DataReference(count),
+                           static_cast<uint32_t>(matrixHandleBindings.size()));
+      iface_->encode(std::move(dotDispatch));
+    }
+    return;
   } else {
     // Just add numElements for other operation types
     dispatch.bindData(DataReference(numElements),

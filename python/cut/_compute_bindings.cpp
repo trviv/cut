@@ -156,6 +156,78 @@ PYBIND11_MODULE(_cut_compute, m) {
       .value("UnarySign", cut::OperatorEnum::UnarySign)
       .value("UnaryReciprocal", cut::OperatorEnum::UnaryReciprocal)
       .value("UnarySquare", cut::OperatorEnum::UnarySquare)
+      // New unary operations
+      .value("UnaryExpm1", cut::OperatorEnum::UnaryExpm1)
+      .value("UnaryLog1p", cut::OperatorEnum::UnaryLog1p)
+      .value("UnaryCbrt", cut::OperatorEnum::UnaryCbrt)
+      .value("UnaryExp2", cut::OperatorEnum::UnaryExp2)
+      .value("UnaryDegrees", cut::OperatorEnum::UnaryDegrees)
+      .value("UnaryRadians", cut::OperatorEnum::UnaryRadians)
+      .value("UnaryLogicalNot", cut::OperatorEnum::UnaryLogicalNot)
+      .value("UnaryBitwiseNot", cut::OperatorEnum::UnaryBitwiseNot)
+      .value("UnaryRelu", cut::OperatorEnum::UnaryRelu)
+      .value("UnarySigmoid", cut::OperatorEnum::UnarySigmoid)
+      .value("UnaryGelu", cut::OperatorEnum::UnaryGelu)
+      .value("UnarySilu", cut::OperatorEnum::UnarySilu)
+      .value("UnarySoftplus", cut::OperatorEnum::UnarySoftplus)
+      .value("UnaryIsNan", cut::OperatorEnum::UnaryIsNan)
+      .value("UnaryIsInf", cut::OperatorEnum::UnaryIsInf)
+      // New binary vec-vec operations
+      .value("BinaryVecVecBitwiseAnd",
+             cut::OperatorEnum::BinaryVecVecBitwiseAnd)
+      .value("BinaryVecVecBitwiseOr", cut::OperatorEnum::BinaryVecVecBitwiseOr)
+      .value("BinaryVecVecBitwiseXor",
+             cut::OperatorEnum::BinaryVecVecBitwiseXor)
+      .value("BinaryVecVecLeftShift", cut::OperatorEnum::BinaryVecVecLeftShift)
+      .value("BinaryVecVecRightShift",
+             cut::OperatorEnum::BinaryVecVecRightShift)
+      .value("BinaryVecVecLogicalAnd",
+             cut::OperatorEnum::BinaryVecVecLogicalAnd)
+      .value("BinaryVecVecLogicalOr", cut::OperatorEnum::BinaryVecVecLogicalOr)
+      .value("BinaryVecVecLogicalXor",
+             cut::OperatorEnum::BinaryVecVecLogicalXor)
+      .value("BinaryVecVecAtan2", cut::OperatorEnum::BinaryVecVecAtan2)
+      .value("BinaryVecVecHypot", cut::OperatorEnum::BinaryVecVecHypot)
+      .value("BinaryVecVecCopysign", cut::OperatorEnum::BinaryVecVecCopysign)
+      .value("BinaryVecVecFmod", cut::OperatorEnum::BinaryVecVecFmod)
+      // New binary vec-scalar operations
+      .value("BinaryVecScalarBitwiseAnd",
+             cut::OperatorEnum::BinaryVecScalarBitwiseAnd)
+      .value("BinaryVecScalarBitwiseOr",
+             cut::OperatorEnum::BinaryVecScalarBitwiseOr)
+      .value("BinaryVecScalarBitwiseXor",
+             cut::OperatorEnum::BinaryVecScalarBitwiseXor)
+      .value("BinaryVecScalarLeftShift",
+             cut::OperatorEnum::BinaryVecScalarLeftShift)
+      .value("BinaryVecScalarRightShift",
+             cut::OperatorEnum::BinaryVecScalarRightShift)
+      .value("BinaryVecScalarLogicalAnd",
+             cut::OperatorEnum::BinaryVecScalarLogicalAnd)
+      .value("BinaryVecScalarLogicalOr",
+             cut::OperatorEnum::BinaryVecScalarLogicalOr)
+      .value("BinaryVecScalarLogicalXor",
+             cut::OperatorEnum::BinaryVecScalarLogicalXor)
+      .value("BinaryVecScalarAtan2", cut::OperatorEnum::BinaryVecScalarAtan2)
+      .value("BinaryVecScalarHypot", cut::OperatorEnum::BinaryVecScalarHypot)
+      .value("BinaryVecScalarCopysign",
+             cut::OperatorEnum::BinaryVecScalarCopysign)
+      .value("BinaryVecScalarFmod", cut::OperatorEnum::BinaryVecScalarFmod)
+      .value("BinaryVecScalarLeakyRelu",
+             cut::OperatorEnum::BinaryVecScalarLeakyRelu)
+      // Ternary operations
+      .value("TernaryClamp", cut::OperatorEnum::TernaryClamp)
+      // Reduction operations
+      .value("ReduceSum", cut::OperatorEnum::ReduceSum)
+      .value("ReduceMean", cut::OperatorEnum::ReduceMean)
+      .value("ReduceMin", cut::OperatorEnum::ReduceMin)
+      .value("ReduceMax", cut::OperatorEnum::ReduceMax)
+      .value("ReduceProd", cut::OperatorEnum::ReduceProd)
+      .value("ReduceAny", cut::OperatorEnum::ReduceAny)
+      .value("ReduceAll", cut::OperatorEnum::ReduceAll)
+      // Matrix operations
+      .value("MatMul", cut::OperatorEnum::MatMul)
+      .value("Transpose", cut::OperatorEnum::Transpose)
+      .value("Dot", cut::OperatorEnum::Dot)
       .export_values();
 
   // Backward compatibility alias
@@ -213,6 +285,17 @@ PYBIND11_MODULE(_cut_compute, m) {
                 index, cut::DataReference(&value, sizeof(uint32_t)));
           },
           py::arg("index"), py::arg("value"), "Create a uint data binding")
+      .def_static(
+          "from_bytes",
+          [](uint32_t index, py::buffer data) {
+            py::buffer_info info = data.request();
+            return cut::ComputeBinding(
+                index,
+                cut::DataReference(info.ptr, static_cast<uint32_t>(
+                                                 info.size * info.itemsize)));
+          },
+          py::arg("index"), py::arg("data"),
+          "Create a data binding from raw bytes")
       .def("index", &cut::ComputeBinding::index, "Get the binding index")
       .def("is_handle", &cut::ComputeBinding::isHandle,
            "Check if this is a buffer binding")

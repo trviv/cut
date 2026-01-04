@@ -40,6 +40,211 @@ layout(push_constant) uniform PushConstants {
 };
 )";
 
+// Push constants with two scalar values (ternary clamp: minVal, maxVal)
+static const char *pushConstantsClamp = R"(
+layout(push_constant) uniform PushConstants {
+    %SCALAR_DTYPE% minVal;
+    %SCALAR_DTYPE% maxVal;
+    uint numElements;
+};
+)";
+
+// Matrix multiplication shader template (tiled)
+static const char *matmulShaderTemplate = R"(#version 450
+
+#define TILE_SIZE 16
+layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;  // rows of A
+    uint K;  // cols of A / rows of B
+    uint N;  // cols of B
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
+    float dataA[];
+};
+
+layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
+    float dataB[];
+};
+
+layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferC {
+    float dataC[];
+};
+
+shared float tileA[TILE_SIZE][TILE_SIZE];
+shared float tileB[TILE_SIZE][TILE_SIZE];
+
+void main() {
+    uint row = gl_GlobalInvocationID.y;
+    uint col = gl_GlobalInvocationID.x;
+    uint localRow = gl_LocalInvocationID.y;
+    uint localCol = gl_LocalInvocationID.x;
+
+    float sum = 0.0;
+
+    // Loop over tiles
+    uint numTiles = (K + TILE_SIZE - 1) / TILE_SIZE;
+    for (uint t = 0; t < numTiles; t++) {
+        // Load tile from A
+        uint aCol = t * TILE_SIZE + localCol;
+        if (row < M && aCol < K) {
+            tileA[localRow][localCol] = dataA[row * K + aCol];
+        } else {
+            tileA[localRow][localCol] = 0.0;
+        }
+
+        // Load tile from B
+        uint bRow = t * TILE_SIZE + localRow;
+        if (bRow < K && col < N) {
+            tileB[localRow][localCol] = dataB[bRow * N + col];
+        } else {
+            tileB[localRow][localCol] = 0.0;
+        }
+
+        barrier();
+
+        // Compute partial sum for this tile
+        for (uint k = 0; k < TILE_SIZE; k++) {
+            sum += tileA[localRow][k] * tileB[k][localCol];
+        }
+
+        barrier();
+    }
+
+    // Write result
+    if (row < M && col < N) {
+        dataC[row * N + col] = sum;
+    }
+}
+)";
+
+// Transpose shader template
+static const char *transposeShaderTemplate = R"(#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;  // rows of input
+    uint N;  // cols of input
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    float dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    float dataOut[];
+};
+
+void main() {
+    uint row = gl_GlobalInvocationID.y;
+    uint col = gl_GlobalInvocationID.x;
+
+    if (row < M && col < N) {
+        // Transpose: out[col, row] = in[row, col]
+        dataOut[col * M + row] = dataIn[row * N + col];
+    }
+}
+)";
+
+// Dot product shader template
+static const char *dotShaderTemplate = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
+    float dataA[];
+};
+
+layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
+    float dataB[];
+};
+
+layout(set = 0, binding = 2, std430) restrict buffer BufferOut {
+    float dataOut[];
+};
+
+shared float sharedData[256];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint gid = gl_GlobalInvocationID.x;
+
+    // Load and multiply
+    if (gid < numElements) {
+        sharedData[tid] = dataA[gid] * dataB[gid];
+    } else {
+        sharedData[tid] = 0.0;
+    }
+    barrier();
+
+    // Parallel reduction
+    for (uint stride = gl_WorkGroupSize.x / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            sharedData[tid] += sharedData[tid + stride];
+        }
+        barrier();
+    }
+
+    // Atomically add to output
+    if (tid == 0) {
+        atomicAdd(dataOut[0], sharedData[0]);
+    }
+}
+)";
+
+// Reduction shader template (uses shared memory for parallel reduction)
+static const char *reductionShaderTemplate = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    float dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict buffer BufferOut {
+    float dataOut[];
+};
+
+shared float sharedData[256];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint gid = gl_GlobalInvocationID.x;
+
+    // Load data into shared memory (identity element if out of bounds)
+    if (gid < numElements) {
+        sharedData[tid] = dataIn[gid];
+    } else {
+        sharedData[tid] = %IDENTITY%;
+    }
+    barrier();
+
+    // Parallel reduction in shared memory
+    for (uint stride = gl_WorkGroupSize.x / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            sharedData[tid] = %REDUCE_OP%;
+        }
+        barrier();
+    }
+
+    // Write result from first thread of workgroup
+    if (tid == 0) {
+        atomicAdd(dataOut[0], sharedData[0]);
+    }
+}
+)";
+
 // Buffer declarations for binary vec-vec operations (2 inputs, 1 output)
 static const char *buffersVecVec = R"(
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
@@ -131,6 +336,23 @@ static std::string assembleUnaryShader(const char *expr) {
   std::string shader;
   shader += shaderHeader;
   shader += pushConstantsNumElements;
+  shader += buffersUnary;
+  shader += mainWithExpression;
+
+  // Replace expression placeholder
+  size_t pos = shader.find("%EXPR%");
+  if (pos != std::string::npos) {
+    shader.replace(pos, 6, expr);
+  }
+  return shader;
+}
+
+// Assemble a ternary clamp shader (uses unary buffers with clamp push
+// constants)
+static std::string assembleTernaryClampShader(const char *expr) {
+  std::string shader;
+  shader += shaderHeader;
+  shader += pushConstantsClamp;
   shader += buffersUnary;
   shader += mainWithExpression;
 
@@ -516,6 +738,394 @@ getGeneratedShader(const OperatorEnum shader, const DataType datatype) {
         generateUnaryShader("dataIn[index] * dataIn[index]", datatype);
     shaderName = "unary_square";
     break;
+
+  // New unary operations
+  case UnaryExpm1:
+    // expm1(x) = exp(x) - 1
+    shaderSource = generateUnaryShader("exp(dataIn[index]) - 1.0", datatype);
+    shaderName = "unary_expm1";
+    break;
+  case UnaryLog1p:
+    // log1p(x) = log(1 + x)
+    shaderSource = generateUnaryShader("log(1.0 + dataIn[index])", datatype);
+    shaderName = "unary_log1p";
+    break;
+  case UnaryCbrt: {
+    // cbrt(x) = sign(x) * pow(abs(x), 1/3)
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = "sign(dataIn[index]) * pow(abs(dataIn[index]), " +
+                       vecType + "(0.333333333333333))";
+    shaderSource = generateUnaryShader(expr.c_str(), datatype);
+    shaderName = "unary_cbrt";
+    break;
+  }
+  case UnaryExp2:
+    shaderSource = generateUnaryShader("exp2(dataIn[index])", datatype);
+    shaderName = "unary_exp2";
+    break;
+  case UnaryDegrees:
+    shaderSource = generateUnaryShader("degrees(dataIn[index])", datatype);
+    shaderName = "unary_degrees";
+    break;
+  case UnaryRadians:
+    shaderSource = generateUnaryShader("radians(dataIn[index])", datatype);
+    shaderName = "unary_radians";
+    break;
+  case UnaryLogicalNot: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = vecType + "(equal(dataIn[index], " + vecType + "(0.0)))";
+    shaderSource = generateUnaryShader(expr.c_str(), datatype);
+    shaderName = "unary_logical_not";
+    break;
+  }
+  case UnaryBitwiseNot: {
+    // Bitwise NOT on integer representation
+    std::string expr = "intBitsToFloat(~floatBitsToInt(dataIn[index]))";
+    shaderSource = generateUnaryShader(expr.c_str(), datatype);
+    shaderName = "unary_bitwise_not";
+    break;
+  }
+  case UnaryRelu:
+    shaderSource = generateUnaryShader("max(dataIn[index], 0.0)", datatype);
+    shaderName = "unary_relu";
+    break;
+  case UnarySigmoid:
+    shaderSource =
+        generateUnaryShader("1.0 / (1.0 + exp(-dataIn[index]))", datatype);
+    shaderName = "unary_sigmoid";
+    break;
+  case UnaryGelu: {
+    // GELU approximation: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 *
+    // x^3)))
+    std::string expr =
+        "0.5 * dataIn[index] * (1.0 + tanh(0.7978845608 * (dataIn[index] + "
+        "0.044715 * dataIn[index] * dataIn[index] * dataIn[index])))";
+    shaderSource = generateUnaryShader(expr.c_str(), datatype);
+    shaderName = "unary_gelu";
+    break;
+  }
+  case UnarySilu:
+    // SiLU/Swish: x * sigmoid(x) = x / (1 + exp(-x))
+    shaderSource = generateUnaryShader(
+        "dataIn[index] / (1.0 + exp(-dataIn[index]))", datatype);
+    shaderName = "unary_silu";
+    break;
+  case UnarySoftplus:
+    // softplus(x) = log(1 + exp(x))
+    shaderSource =
+        generateUnaryShader("log(1.0 + exp(dataIn[index]))", datatype);
+    shaderName = "unary_softplus";
+    break;
+  case UnaryIsNan: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = vecType + "(isnan(dataIn[index]))";
+    shaderSource = generateUnaryShader(expr.c_str(), datatype);
+    shaderName = "unary_isnan";
+    break;
+  }
+  case UnaryIsInf: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = vecType + "(isinf(dataIn[index]))";
+    shaderSource = generateUnaryShader(expr.c_str(), datatype);
+    shaderName = "unary_isinf";
+    break;
+  }
+
+  // New binary vec-vec operations
+  case BinaryVecVecBitwiseAnd: {
+    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) & "
+                       "floatBitsToInt(dataB[index]))";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_bitwise_and";
+    break;
+  }
+  case BinaryVecVecBitwiseOr: {
+    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) | "
+                       "floatBitsToInt(dataB[index]))";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_bitwise_or";
+    break;
+  }
+  case BinaryVecVecBitwiseXor: {
+    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) ^ "
+                       "floatBitsToInt(dataB[index]))";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_bitwise_xor";
+    break;
+  }
+  case BinaryVecVecLeftShift: {
+    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) << "
+                       "floatBitsToInt(dataB[index]))";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_left_shift";
+    break;
+  }
+  case BinaryVecVecRightShift: {
+    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) >> "
+                       "floatBitsToInt(dataB[index]))";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_right_shift";
+    break;
+  }
+  case BinaryVecVecLogicalAnd: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = vecType + "(notEqual(dataA[index], " + vecType +
+                       "(0.0)) && notEqual(dataB[index], " + vecType +
+                       "(0.0)))";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_logical_and";
+    break;
+  }
+  case BinaryVecVecLogicalOr: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = vecType + "(notEqual(dataA[index], " + vecType +
+                       "(0.0)) || notEqual(dataB[index], " + vecType +
+                       "(0.0)))";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_logical_or";
+    break;
+  }
+  case BinaryVecVecLogicalXor: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = vecType + "(notEqual(notEqual(dataA[index], " + vecType +
+                       "(0.0)), notEqual(dataB[index], " + vecType + "(0.0))))";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_logical_xor";
+    break;
+  }
+  case BinaryVecVecAtan2:
+    shaderSource = generateBinaryVecVecFuncShader("atan", datatype);
+    shaderName = "binary_vec_vec_atan2";
+    break;
+  case BinaryVecVecHypot: {
+    std::string expr =
+        "sqrt(dataA[index] * dataA[index] + dataB[index] * dataB[index])";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_hypot";
+    break;
+  }
+  case BinaryVecVecCopysign: {
+    std::string expr = "sign(dataB[index]) * abs(dataA[index])";
+    std::string s = assembleBinaryVecVecShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_vec_copysign";
+    break;
+  }
+  case BinaryVecVecFmod:
+    shaderSource = generateBinaryVecVecFuncShader("mod", datatype);
+    shaderName = "binary_vec_vec_fmod";
+    break;
+
+  // New binary vec-scalar operations
+  case BinaryVecScalarBitwiseAnd: {
+    std::string expr =
+        "intBitsToFloat(floatBitsToInt(dataA[index]) & int(scalar))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_bitwise_and";
+    break;
+  }
+  case BinaryVecScalarBitwiseOr: {
+    std::string expr =
+        "intBitsToFloat(floatBitsToInt(dataA[index]) | int(scalar))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_bitwise_or";
+    break;
+  }
+  case BinaryVecScalarBitwiseXor: {
+    std::string expr =
+        "intBitsToFloat(floatBitsToInt(dataA[index]) ^ int(scalar))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_bitwise_xor";
+    break;
+  }
+  case BinaryVecScalarLeftShift: {
+    std::string expr =
+        "intBitsToFloat(floatBitsToInt(dataA[index]) << int(scalar))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_left_shift";
+    break;
+  }
+  case BinaryVecScalarRightShift: {
+    std::string expr =
+        "intBitsToFloat(floatBitsToInt(dataA[index]) >> int(scalar))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_right_shift";
+    break;
+  }
+  case BinaryVecScalarLogicalAnd: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = vecType + "(notEqual(dataA[index], " + vecType +
+                       "(0.0)) && (scalar != 0.0))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_logical_and";
+    break;
+  }
+  case BinaryVecScalarLogicalOr: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = vecType + "(notEqual(dataA[index], " + vecType +
+                       "(0.0)) || (scalar != 0.0))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_logical_or";
+    break;
+  }
+  case BinaryVecScalarLogicalXor: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = vecType + "(notEqual(notEqual(dataA[index], " + vecType +
+                       "(0.0)), bvec4(scalar != 0.0)))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_logical_xor";
+    break;
+  }
+  case BinaryVecScalarAtan2:
+    shaderSource = generateBinaryVecScalarFuncShader("atan", datatype);
+    shaderName = "binary_vec_scalar_atan2";
+    break;
+  case BinaryVecScalarHypot: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr =
+        "sqrt(dataA[index] * dataA[index] + " + vecType + "(scalar * scalar))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_hypot";
+    break;
+  }
+  case BinaryVecScalarCopysign: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = "sign(" + vecType + "(scalar)) * abs(dataA[index])";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_copysign";
+    break;
+  }
+  case BinaryVecScalarFmod:
+    shaderSource = generateBinaryVecScalarFuncShader("mod", datatype);
+    shaderName = "binary_vec_scalar_fmod";
+    break;
+  case BinaryVecScalarLeakyRelu: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = "mix(" + vecType +
+                       "(scalar) * dataA[index], dataA[index], " + vecType +
+                       "(greaterThan(dataA[index], " + vecType + "(0.0))))";
+    std::string s = assembleBinaryVecScalarShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "binary_vec_scalar_leaky_relu";
+    break;
+  }
+
+  // Ternary clamp operation
+  case TernaryClamp: {
+    std::string vecType = getGLSLType(datatype);
+    std::string expr = "clamp(dataIn[index], " + vecType + "(minVal), " +
+                       vecType + "(maxVal))";
+    std::string s = assembleTernaryClampShader(expr.c_str());
+    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    shaderName = "ternary_clamp";
+    break;
+  }
+
+  // Reduction operations
+  case ReduceSum: {
+    shaderSource = reductionShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
+                              "sharedData[tid] + sharedData[tid + stride]");
+    shaderName = "reduce_sum";
+    break;
+  }
+  case ReduceMean: {
+    // Mean uses sum reduction, division by count done on CPU
+    shaderSource = reductionShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
+                              "sharedData[tid] + sharedData[tid + stride]");
+    shaderName = "reduce_mean";
+    break;
+  }
+  case ReduceMin: {
+    std::string s = reductionShaderTemplate;
+    s = replaceAll(s, "%IDENTITY%", "3.402823466e+38"); // FLT_MAX
+    s = replaceAll(s, "%REDUCE_OP%",
+                   "min(sharedData[tid], sharedData[tid + stride])");
+    // Replace atomicAdd with atomicMin for min reduction
+    s = replaceAll(s, "atomicAdd(dataOut[0], sharedData[0])",
+                   "atomicMin(dataOut[0], floatBitsToInt(sharedData[0]))");
+    shaderSource = s;
+    shaderName = "reduce_min";
+    break;
+  }
+  case ReduceMax: {
+    std::string s = reductionShaderTemplate;
+    s = replaceAll(s, "%IDENTITY%", "-3.402823466e+38"); // -FLT_MAX
+    s = replaceAll(s, "%REDUCE_OP%",
+                   "max(sharedData[tid], sharedData[tid + stride])");
+    // Replace atomicAdd with atomicMax for max reduction
+    s = replaceAll(s, "atomicAdd(dataOut[0], sharedData[0])",
+                   "atomicMax(dataOut[0], floatBitsToInt(sharedData[0]))");
+    shaderSource = s;
+    shaderName = "reduce_max";
+    break;
+  }
+  case ReduceProd: {
+    shaderSource = reductionShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "1.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
+                              "sharedData[tid] * sharedData[tid + stride]");
+    // Product reduction needs special handling for atomics - use sum of logs
+    shaderName = "reduce_prod";
+    break;
+  }
+  case ReduceAny: {
+    shaderSource = reductionShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
+                              "((sharedData[tid] != 0.0 || sharedData[tid + "
+                              "stride] != 0.0) ? 1.0 : 0.0)");
+    shaderName = "reduce_any";
+    break;
+  }
+  case ReduceAll: {
+    shaderSource = reductionShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "1.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
+                              "((sharedData[tid] != 0.0 && sharedData[tid + "
+                              "stride] != 0.0) ? 1.0 : 0.0)");
+    shaderName = "reduce_all";
+    break;
+  }
+
+  // Matrix operations
+  case MatMul: {
+    shaderSource = matmulShaderTemplate;
+    shaderName = "matmul";
+    break;
+  }
+  case Transpose: {
+    shaderSource = transposeShaderTemplate;
+    shaderName = "transpose";
+    break;
+  }
+  case Dot: {
+    shaderSource = dotShaderTemplate;
+    shaderName = "dot";
+    break;
+  }
 
   default:
     return std::nullopt;

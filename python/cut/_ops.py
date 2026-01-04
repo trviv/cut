@@ -25,6 +25,19 @@ BINARY_VEC_VEC_OPS = {
     # Min/Max
     "minimum": "BinaryVecVecMin",
     "maximum": "BinaryVecVecMax",
+    # New binary vec-vec operations
+    "bitwise_and": "BinaryVecVecBitwiseAnd",
+    "bitwise_or": "BinaryVecVecBitwiseOr",
+    "bitwise_xor": "BinaryVecVecBitwiseXor",
+    "left_shift": "BinaryVecVecLeftShift",
+    "right_shift": "BinaryVecVecRightShift",
+    "logical_and": "BinaryVecVecLogicalAnd",
+    "logical_or": "BinaryVecVecLogicalOr",
+    "logical_xor": "BinaryVecVecLogicalXor",
+    "arctan2": "BinaryVecVecAtan2",
+    "hypot": "BinaryVecVecHypot",
+    "copysign": "BinaryVecVecCopysign",
+    "fmod": "BinaryVecVecFmod",
 }
 
 BINARY_VEC_SCALAR_OPS = {
@@ -46,6 +59,20 @@ BINARY_VEC_SCALAR_OPS = {
     # Min/Max
     "minimum_scalar": "BinaryVecScalarMin",
     "maximum_scalar": "BinaryVecScalarMax",
+    # New binary vec-scalar operations
+    "bitwise_and_scalar": "BinaryVecScalarBitwiseAnd",
+    "bitwise_or_scalar": "BinaryVecScalarBitwiseOr",
+    "bitwise_xor_scalar": "BinaryVecScalarBitwiseXor",
+    "left_shift_scalar": "BinaryVecScalarLeftShift",
+    "right_shift_scalar": "BinaryVecScalarRightShift",
+    "logical_and_scalar": "BinaryVecScalarLogicalAnd",
+    "logical_or_scalar": "BinaryVecScalarLogicalOr",
+    "logical_xor_scalar": "BinaryVecScalarLogicalXor",
+    "arctan2_scalar": "BinaryVecScalarAtan2",
+    "hypot_scalar": "BinaryVecScalarHypot",
+    "copysign_scalar": "BinaryVecScalarCopysign",
+    "fmod_scalar": "BinaryVecScalarFmod",
+    "leaky_relu": "BinaryVecScalarLeakyRelu",
 }
 
 UNARY_OPS = {
@@ -71,6 +98,22 @@ UNARY_OPS = {
     "sign": "UnarySign",
     "reciprocal": "UnaryReciprocal",
     "square": "UnarySquare",
+    # New unary operations
+    "expm1": "UnaryExpm1",
+    "log1p": "UnaryLog1p",
+    "cbrt": "UnaryCbrt",
+    "exp2": "UnaryExp2",
+    "degrees": "UnaryDegrees",
+    "radians": "UnaryRadians",
+    "logical_not": "UnaryLogicalNot",
+    "invert": "UnaryBitwiseNot",
+    "relu": "UnaryRelu",
+    "sigmoid": "UnarySigmoid",
+    "gelu": "UnaryGelu",
+    "silu": "UnarySilu",
+    "softplus": "UnarySoftplus",
+    "isnan": "UnaryIsNan",
+    "isinf": "UnaryIsInf",
 }
 
 # Docstrings for operations
@@ -90,6 +133,19 @@ BINARY_VEC_VEC_DOCS = {
     "greater_equal": "Element-wise greater-than-or-equal comparison. Returns 1.0 for True, 0.0 for False.",
     "minimum": "Element-wise minimum of two buffers.",
     "maximum": "Element-wise maximum of two buffers.",
+    # New binary vec-vec operations
+    "bitwise_and": "Bitwise AND of two buffers element-wise (integers).",
+    "bitwise_or": "Bitwise OR of two buffers element-wise (integers).",
+    "bitwise_xor": "Bitwise XOR of two buffers element-wise (integers).",
+    "left_shift": "Left shift elements of first buffer by second buffer (integers).",
+    "right_shift": "Right shift elements of first buffer by second buffer (integers).",
+    "logical_and": "Logical AND of two buffers element-wise. Returns 1.0 for True, 0.0 for False.",
+    "logical_or": "Logical OR of two buffers element-wise. Returns 1.0 for True, 0.0 for False.",
+    "logical_xor": "Logical XOR of two buffers element-wise. Returns 1.0 for True, 0.0 for False.",
+    "arctan2": "Element-wise arc tangent of a/b choosing the quadrant correctly.",
+    "hypot": "Element-wise hypotenuse: sqrt(a^2 + b^2).",
+    "copysign": "Element-wise copy sign of b to a.",
+    "fmod": "Element-wise floating-point remainder of a/b.",
 }
 
 BINARY_VEC_SCALAR_DOCS = {
@@ -108,6 +164,20 @@ BINARY_VEC_SCALAR_DOCS = {
     "greater_equal_scalar": "Element-wise greater-than-or-equal comparison with a scalar. Returns 1.0 for True, 0.0 for False.",
     "minimum_scalar": "Element-wise minimum of buffer elements and a scalar.",
     "maximum_scalar": "Element-wise maximum of buffer elements and a scalar.",
+    # New binary vec-scalar operations
+    "bitwise_and_scalar": "Bitwise AND of buffer elements with a scalar (integers).",
+    "bitwise_or_scalar": "Bitwise OR of buffer elements with a scalar (integers).",
+    "bitwise_xor_scalar": "Bitwise XOR of buffer elements with a scalar (integers).",
+    "left_shift_scalar": "Left shift buffer elements by a scalar amount (integers).",
+    "right_shift_scalar": "Right shift buffer elements by a scalar amount (integers).",
+    "logical_and_scalar": "Logical AND of buffer elements with a scalar. Returns 1.0 for True, 0.0 for False.",
+    "logical_or_scalar": "Logical OR of buffer elements with a scalar. Returns 1.0 for True, 0.0 for False.",
+    "logical_xor_scalar": "Logical XOR of buffer elements with a scalar. Returns 1.0 for True, 0.0 for False.",
+    "arctan2_scalar": "Element-wise arc tangent of buffer/scalar choosing the quadrant correctly.",
+    "hypot_scalar": "Element-wise hypotenuse: sqrt(x^2 + scalar^2).",
+    "copysign_scalar": "Element-wise copy sign of scalar to buffer elements.",
+    "fmod_scalar": "Element-wise floating-point remainder of buffer/scalar.",
+    "leaky_relu": "Leaky ReLU activation: x if x > 0 else alpha * x.",
 }
 
 UNARY_DOCS = {
@@ -133,6 +203,22 @@ UNARY_DOCS = {
     "sign": "Sign element-wise (-1, 0, or 1).",
     "reciprocal": "Reciprocal (1/x) element-wise.",
     "square": "Square (x*x) element-wise.",
+    # New unary operations
+    "expm1": "Compute exp(x) - 1 element-wise (more accurate for small x).",
+    "log1p": "Compute log(1 + x) element-wise (more accurate for small x).",
+    "cbrt": "Cube root element-wise.",
+    "exp2": "Compute 2^x element-wise.",
+    "degrees": "Convert radians to degrees element-wise.",
+    "radians": "Convert degrees to radians element-wise.",
+    "logical_not": "Logical NOT element-wise. Returns 1.0 for 0, 0.0 otherwise.",
+    "invert": "Bitwise NOT (invert) element-wise (integers).",
+    "relu": "ReLU activation: max(0, x) element-wise.",
+    "sigmoid": "Sigmoid activation: 1/(1+exp(-x)) element-wise.",
+    "gelu": "GELU activation element-wise.",
+    "silu": "SiLU/Swish activation: x * sigmoid(x) element-wise.",
+    "softplus": "Softplus activation: log(1 + exp(x)) element-wise.",
+    "isnan": "Check if NaN element-wise. Returns 1.0 for NaN, 0.0 otherwise.",
+    "isinf": "Check if infinite element-wise. Returns 1.0 for inf/-inf, 0.0 otherwise.",
 }
 
 # List of all operation names for __all__ exports
