@@ -33,31 +33,82 @@ constexpr std::array<uint32_t, 6> kTestDimSizes = {1, 3, 7, 9, 13, 17};
 constexpr std::array<DataType, 4> kAllDataTypes = {
     DataType::Float32, DataType::Float16, DataType::UInt32, DataType::Int32};
 
-// All binary vec-vec operators
-constexpr std::array<OperatorEnum, 15> kBinaryVecVecOps = {
-    BinaryVecVecAdd,          BinaryVecVecSub,       BinaryVecVecMul,
-    BinaryVecVecDiv,          BinaryVecVecMod,       BinaryVecVecPow,
-    BinaryVecVecFloorDiv,     BinaryVecVecEqual,     BinaryVecVecNotEqual,
-    BinaryVecVecLess,         BinaryVecVecLessEqual, BinaryVecVecGreater,
-    BinaryVecVecGreaterEqual, BinaryVecVecMin,       BinaryVecVecMax};
+// All binary vec-vec operators (including new ones)
+constexpr std::array<OperatorEnum, 27> kBinaryVecVecOps = {
+    // Arithmetic
+    BinaryVecVecAdd, BinaryVecVecSub, BinaryVecVecMul, BinaryVecVecDiv,
+    BinaryVecVecMod, BinaryVecVecPow, BinaryVecVecFloorDiv,
+    // Comparison
+    BinaryVecVecEqual, BinaryVecVecNotEqual, BinaryVecVecLess,
+    BinaryVecVecLessEqual, BinaryVecVecGreater, BinaryVecVecGreaterEqual,
+    // Min/Max
+    BinaryVecVecMin, BinaryVecVecMax,
+    // Bitwise (new)
+    BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
+    BinaryVecVecLeftShift, BinaryVecVecRightShift,
+    // Logical (new)
+    BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor,
+    // Math (new)
+    BinaryVecVecAtan2, BinaryVecVecHypot, BinaryVecVecCopysign,
+    BinaryVecVecFmod};
 
-// All binary vec-scalar operators
-constexpr std::array<OperatorEnum, 15> kBinaryVecScalarOps = {
-    BinaryVecScalarAdd,          BinaryVecScalarSub,
-    BinaryVecScalarMul,          BinaryVecScalarDiv,
-    BinaryVecScalarMod,          BinaryVecScalarPow,
-    BinaryVecScalarFloorDiv,     BinaryVecScalarEqual,
-    BinaryVecScalarNotEqual,     BinaryVecScalarLess,
-    BinaryVecScalarLessEqual,    BinaryVecScalarGreater,
-    BinaryVecScalarGreaterEqual, BinaryVecScalarMin,
-    BinaryVecScalarMax};
+// All binary vec-scalar operators (including new ones)
+constexpr std::array<OperatorEnum, 28> kBinaryVecScalarOps = {
+    // Arithmetic
+    BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
+    BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarPow,
+    BinaryVecScalarFloorDiv,
+    // Comparison
+    BinaryVecScalarEqual, BinaryVecScalarNotEqual, BinaryVecScalarLess,
+    BinaryVecScalarLessEqual, BinaryVecScalarGreater,
+    BinaryVecScalarGreaterEqual,
+    // Min/Max
+    BinaryVecScalarMin, BinaryVecScalarMax,
+    // Bitwise (new)
+    BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
+    BinaryVecScalarBitwiseXor, BinaryVecScalarLeftShift,
+    BinaryVecScalarRightShift,
+    // Logical (new)
+    BinaryVecScalarLogicalAnd, BinaryVecScalarLogicalOr,
+    BinaryVecScalarLogicalXor,
+    // Math (new)
+    BinaryVecScalarAtan2, BinaryVecScalarHypot, BinaryVecScalarCopysign,
+    BinaryVecScalarFmod,
+    // Activation (new)
+    BinaryVecScalarLeakyRelu};
 
-// All unary operators
-constexpr std::array<OperatorEnum, 22> kUnaryOps = {
-    UnaryNeg,   UnaryAbs,  UnarySqrt,       UnaryExp,   UnaryLog,   UnaryLog2,
-    UnaryLog10, UnarySin,  UnaryCos,        UnaryTan,   UnaryAsin,  UnaryAcos,
-    UnaryAtan,  UnarySinh, UnaryCosh,       UnaryTanh,  UnaryFloor, UnaryCeil,
-    UnaryRound, UnarySign, UnaryReciprocal, UnarySquare};
+// All unary operators (including new ones)
+constexpr std::array<OperatorEnum, 37> kUnaryOps = {
+    // Basic
+    UnaryNeg, UnaryAbs, UnarySqrt, UnarySquare, UnaryReciprocal, UnarySign,
+    // Exponential/Logarithmic
+    UnaryExp, UnaryExp2, UnaryExpm1, UnaryLog, UnaryLog2, UnaryLog10,
+    UnaryLog1p,
+    // Trigonometric
+    UnarySin, UnaryCos, UnaryTan, UnaryAsin, UnaryAcos, UnaryAtan,
+    // Hyperbolic
+    UnarySinh, UnaryCosh, UnaryTanh,
+    // Rounding
+    UnaryFloor, UnaryCeil, UnaryRound,
+    // Special Math (new)
+    UnaryCbrt, UnaryDegrees, UnaryRadians,
+    // Logical/Bitwise (new)
+    UnaryLogicalNot, UnaryBitwiseNot,
+    // Activation Functions (new)
+    UnaryRelu, UnarySigmoid, UnaryGelu, UnarySilu, UnarySoftplus,
+    // Check Operations (new)
+    UnaryIsNan, UnaryIsInf};
+
+// Ternary operators (new)
+constexpr std::array<OperatorEnum, 1> kTernaryOps = {TernaryClamp};
+
+// Reduction operators (new)
+constexpr std::array<OperatorEnum, 7> kReductionOps = {
+    ReduceSum,  ReduceMean, ReduceMin, ReduceMax,
+    ReduceProd, ReduceAny,  ReduceAll};
+
+// Matrix operators (new)
+constexpr std::array<OperatorEnum, 3> kMatrixOps = {MatMul, Transpose, Dot};
 
 // ============================================================================
 // Helper Functions
@@ -183,12 +234,184 @@ inline const char *operatorName(OperatorEnum op) {
     return "UnaryReciprocal";
   case UnarySquare:
     return "UnarySquare";
+  // New binary vec-vec operators
+  case BinaryVecVecBitwiseAnd:
+    return "BinaryVecVecBitwiseAnd";
+  case BinaryVecVecBitwiseOr:
+    return "BinaryVecVecBitwiseOr";
+  case BinaryVecVecBitwiseXor:
+    return "BinaryVecVecBitwiseXor";
+  case BinaryVecVecLeftShift:
+    return "BinaryVecVecLeftShift";
+  case BinaryVecVecRightShift:
+    return "BinaryVecVecRightShift";
+  case BinaryVecVecLogicalAnd:
+    return "BinaryVecVecLogicalAnd";
+  case BinaryVecVecLogicalOr:
+    return "BinaryVecVecLogicalOr";
+  case BinaryVecVecLogicalXor:
+    return "BinaryVecVecLogicalXor";
+  case BinaryVecVecAtan2:
+    return "BinaryVecVecAtan2";
+  case BinaryVecVecHypot:
+    return "BinaryVecVecHypot";
+  case BinaryVecVecCopysign:
+    return "BinaryVecVecCopysign";
+  case BinaryVecVecFmod:
+    return "BinaryVecVecFmod";
+  // New binary vec-scalar operators
+  case BinaryVecScalarBitwiseAnd:
+    return "BinaryVecScalarBitwiseAnd";
+  case BinaryVecScalarBitwiseOr:
+    return "BinaryVecScalarBitwiseOr";
+  case BinaryVecScalarBitwiseXor:
+    return "BinaryVecScalarBitwiseXor";
+  case BinaryVecScalarLeftShift:
+    return "BinaryVecScalarLeftShift";
+  case BinaryVecScalarRightShift:
+    return "BinaryVecScalarRightShift";
+  case BinaryVecScalarLogicalAnd:
+    return "BinaryVecScalarLogicalAnd";
+  case BinaryVecScalarLogicalOr:
+    return "BinaryVecScalarLogicalOr";
+  case BinaryVecScalarLogicalXor:
+    return "BinaryVecScalarLogicalXor";
+  case BinaryVecScalarAtan2:
+    return "BinaryVecScalarAtan2";
+  case BinaryVecScalarHypot:
+    return "BinaryVecScalarHypot";
+  case BinaryVecScalarCopysign:
+    return "BinaryVecScalarCopysign";
+  case BinaryVecScalarFmod:
+    return "BinaryVecScalarFmod";
+  case BinaryVecScalarLeakyRelu:
+    return "BinaryVecScalarLeakyRelu";
+  // New unary operators
+  case UnaryExp2:
+    return "UnaryExp2";
+  case UnaryExpm1:
+    return "UnaryExpm1";
+  case UnaryLog1p:
+    return "UnaryLog1p";
+  case UnaryCbrt:
+    return "UnaryCbrt";
+  case UnaryDegrees:
+    return "UnaryDegrees";
+  case UnaryRadians:
+    return "UnaryRadians";
+  case UnaryLogicalNot:
+    return "UnaryLogicalNot";
+  case UnaryBitwiseNot:
+    return "UnaryBitwiseNot";
+  case UnaryRelu:
+    return "UnaryRelu";
+  case UnarySigmoid:
+    return "UnarySigmoid";
+  case UnaryGelu:
+    return "UnaryGelu";
+  case UnarySilu:
+    return "UnarySilu";
+  case UnarySoftplus:
+    return "UnarySoftplus";
+  case UnaryIsNan:
+    return "UnaryIsNan";
+  case UnaryIsInf:
+    return "UnaryIsInf";
+  // Ternary operators
+  case TernaryClamp:
+    return "TernaryClamp";
+  // Reduction operators
+  case ReduceSum:
+    return "ReduceSum";
+  case ReduceMean:
+    return "ReduceMean";
+  case ReduceMin:
+    return "ReduceMin";
+  case ReduceMax:
+    return "ReduceMax";
+  case ReduceProd:
+    return "ReduceProd";
+  case ReduceAny:
+    return "ReduceAny";
+  case ReduceAll:
+    return "ReduceAll";
+  // Matrix operators
+  case MatMul:
+    return "MatMul";
+  case Transpose:
+    return "Transpose";
+  case Dot:
+    return "Dot";
   }
   return "Unknown";
 }
 
 inline const char *backendName(BackendType backend) {
   return backend == BackendType::Vulkan ? "Vulkan" : "CPU";
+}
+
+// Helper to check if a binary vec-vec operator has Vulkan shader support
+// (New operators not yet implemented in shaders)
+inline bool hasVulkanShaderSupport(OperatorEnum op) {
+  switch (op) {
+  // Original operators with shader support
+  case BinaryVecVecAdd:
+  case BinaryVecVecSub:
+  case BinaryVecVecMul:
+  case BinaryVecVecDiv:
+  case BinaryVecVecMod:
+  case BinaryVecVecPow:
+  case BinaryVecVecFloorDiv:
+  case BinaryVecVecEqual:
+  case BinaryVecVecNotEqual:
+  case BinaryVecVecLess:
+  case BinaryVecVecLessEqual:
+  case BinaryVecVecGreater:
+  case BinaryVecVecGreaterEqual:
+  case BinaryVecVecMin:
+  case BinaryVecVecMax:
+  case BinaryVecScalarAdd:
+  case BinaryVecScalarSub:
+  case BinaryVecScalarMul:
+  case BinaryVecScalarDiv:
+  case BinaryVecScalarMod:
+  case BinaryVecScalarPow:
+  case BinaryVecScalarFloorDiv:
+  case BinaryVecScalarEqual:
+  case BinaryVecScalarNotEqual:
+  case BinaryVecScalarLess:
+  case BinaryVecScalarLessEqual:
+  case BinaryVecScalarGreater:
+  case BinaryVecScalarGreaterEqual:
+  case BinaryVecScalarMin:
+  case BinaryVecScalarMax:
+  case UnaryNeg:
+  case UnaryAbs:
+  case UnarySqrt:
+  case UnarySquare:
+  case UnaryReciprocal:
+  case UnarySign:
+  case UnaryExp:
+  case UnaryLog:
+  case UnaryLog2:
+  case UnaryLog10:
+  case UnarySin:
+  case UnaryCos:
+  case UnaryTan:
+  case UnaryAsin:
+  case UnaryAcos:
+  case UnaryAtan:
+  case UnarySinh:
+  case UnaryCosh:
+  case UnaryTanh:
+  case UnaryFloor:
+  case UnaryCeil:
+  case UnaryRound:
+    return true;
+  // New operators without shader support yet
+  default:
+    return false;
+  }
 }
 
 // Generate shapes for testing given dimension count
@@ -305,6 +528,71 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
     return std::min(a, b);
   case BinaryVecVecMax:
     return std::max(a, b);
+  // Bitwise operations
+  case BinaryVecVecBitwiseAnd:
+    if constexpr (std::is_integral_v<T>) {
+      return a & b;
+    } else {
+      return static_cast<T>(static_cast<int>(a) & static_cast<int>(b));
+    }
+  case BinaryVecVecBitwiseOr:
+    if constexpr (std::is_integral_v<T>) {
+      return a | b;
+    } else {
+      return static_cast<T>(static_cast<int>(a) | static_cast<int>(b));
+    }
+  case BinaryVecVecBitwiseXor:
+    if constexpr (std::is_integral_v<T>) {
+      return a ^ b;
+    } else {
+      return static_cast<T>(static_cast<int>(a) ^ static_cast<int>(b));
+    }
+  case BinaryVecVecLeftShift:
+    if constexpr (std::is_integral_v<T>) {
+      return a << static_cast<int>(b);
+    } else {
+      return static_cast<T>(static_cast<int>(a) << static_cast<int>(b));
+    }
+  case BinaryVecVecRightShift:
+    if constexpr (std::is_integral_v<T>) {
+      return a >> static_cast<int>(b);
+    } else {
+      return static_cast<T>(static_cast<int>(a) >> static_cast<int>(b));
+    }
+  // Logical operations
+  case BinaryVecVecLogicalAnd:
+    return static_cast<T>((a != T{0} && b != T{0}) ? 1 : 0);
+  case BinaryVecVecLogicalOr:
+    return static_cast<T>((a != T{0} || b != T{0}) ? 1 : 0);
+  case BinaryVecVecLogicalXor:
+    return static_cast<T>((a != T{0}) != (b != T{0}) ? 1 : 0);
+  // Math operations
+  case BinaryVecVecAtan2:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::atan2(a, b);
+    } else {
+      return static_cast<T>(
+          std::atan2(static_cast<double>(a), static_cast<double>(b)));
+    }
+  case BinaryVecVecHypot:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::hypot(a, b);
+    } else {
+      return static_cast<T>(
+          std::hypot(static_cast<double>(a), static_cast<double>(b)));
+    }
+  case BinaryVecVecCopysign:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::copysign(a, b);
+    } else {
+      return b >= T{0} ? std::abs(a) : -std::abs(a);
+    }
+  case BinaryVecVecFmod:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::fmod(a, b);
+    } else {
+      return a % b;
+    }
   default:
     return T{};
   }
@@ -358,6 +646,74 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
     return std::min(a, scalar);
   case BinaryVecScalarMax:
     return std::max(a, scalar);
+  // Bitwise operations
+  case BinaryVecScalarBitwiseAnd:
+    if constexpr (std::is_integral_v<T>) {
+      return a & static_cast<T>(scalar);
+    } else {
+      return static_cast<T>(static_cast<int>(a) & static_cast<int>(scalar));
+    }
+  case BinaryVecScalarBitwiseOr:
+    if constexpr (std::is_integral_v<T>) {
+      return a | static_cast<T>(scalar);
+    } else {
+      return static_cast<T>(static_cast<int>(a) | static_cast<int>(scalar));
+    }
+  case BinaryVecScalarBitwiseXor:
+    if constexpr (std::is_integral_v<T>) {
+      return a ^ static_cast<T>(scalar);
+    } else {
+      return static_cast<T>(static_cast<int>(a) ^ static_cast<int>(scalar));
+    }
+  case BinaryVecScalarLeftShift:
+    if constexpr (std::is_integral_v<T>) {
+      return a << static_cast<int>(scalar);
+    } else {
+      return static_cast<T>(static_cast<int>(a) << static_cast<int>(scalar));
+    }
+  case BinaryVecScalarRightShift:
+    if constexpr (std::is_integral_v<T>) {
+      return a >> static_cast<int>(scalar);
+    } else {
+      return static_cast<T>(static_cast<int>(a) >> static_cast<int>(scalar));
+    }
+  // Logical operations
+  case BinaryVecScalarLogicalAnd:
+    return static_cast<T>((a != T{0} && scalar != T{0}) ? 1 : 0);
+  case BinaryVecScalarLogicalOr:
+    return static_cast<T>((a != T{0} || scalar != T{0}) ? 1 : 0);
+  case BinaryVecScalarLogicalXor:
+    return static_cast<T>((a != T{0}) != (scalar != T{0}) ? 1 : 0);
+  // Math operations
+  case BinaryVecScalarAtan2:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::atan2(a, scalar);
+    } else {
+      return static_cast<T>(
+          std::atan2(static_cast<double>(a), static_cast<double>(scalar)));
+    }
+  case BinaryVecScalarHypot:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::hypot(a, scalar);
+    } else {
+      return static_cast<T>(
+          std::hypot(static_cast<double>(a), static_cast<double>(scalar)));
+    }
+  case BinaryVecScalarCopysign:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::copysign(a, scalar);
+    } else {
+      return scalar >= T{0} ? std::abs(a) : -std::abs(a);
+    }
+  case BinaryVecScalarFmod:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::fmod(a, scalar);
+    } else {
+      return a % static_cast<T>(scalar);
+    }
+  // Activation
+  case BinaryVecScalarLeakyRelu:
+    return a > T{0} ? a : a * scalar;
   default:
     return T{};
   }
@@ -493,8 +849,169 @@ T unaryRef(OperatorEnum op, T a) {
     }
   case UnarySquare:
     return a * a;
+  // New unary operators
+  case UnaryExp2:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::exp2(a);
+    } else {
+      return static_cast<T>(std::exp2(static_cast<double>(a)));
+    }
+  case UnaryExpm1:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::expm1(a);
+    } else {
+      return static_cast<T>(std::expm1(static_cast<double>(a)));
+    }
+  case UnaryLog1p:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::log1p(a);
+    } else {
+      return static_cast<T>(std::log1p(static_cast<double>(a)));
+    }
+  case UnaryCbrt:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::cbrt(a);
+    } else {
+      return static_cast<T>(std::cbrt(static_cast<double>(a)));
+    }
+  case UnaryDegrees:
+    if constexpr (std::is_floating_point_v<T>) {
+      return a * T{180.0} / T{M_PI};
+    } else {
+      return static_cast<T>(static_cast<double>(a) * 180.0 / M_PI);
+    }
+  case UnaryRadians:
+    if constexpr (std::is_floating_point_v<T>) {
+      return a * T{M_PI} / T{180.0};
+    } else {
+      return static_cast<T>(static_cast<double>(a) * M_PI / 180.0);
+    }
+  case UnaryLogicalNot:
+    return static_cast<T>(a == T{0} ? 1 : 0);
+  case UnaryBitwiseNot:
+    if constexpr (std::is_integral_v<T>) {
+      return ~a;
+    } else {
+      return static_cast<T>(~static_cast<int>(a));
+    }
+  case UnaryRelu:
+    return a > T{0} ? a : T{0};
+  case UnarySigmoid:
+    if constexpr (std::is_floating_point_v<T>) {
+      return T{1} / (T{1} + std::exp(-a));
+    } else {
+      return static_cast<T>(1.0 / (1.0 + std::exp(-static_cast<double>(a))));
+    }
+  case UnaryGelu: {
+    // GELU approximation: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 *
+    // x^3)))
+    if constexpr (std::is_floating_point_v<T>) {
+      const T sqrt2pi = T{0.7978845608028654}; // sqrt(2/pi)
+      const T coeff = T{0.044715};
+      return T{0.5} * a * (T{1} + std::tanh(sqrt2pi * (a + coeff * a * a * a)));
+    } else {
+      double x = static_cast<double>(a);
+      const double sqrt2pi = 0.7978845608028654;
+      const double coeff = 0.044715;
+      return static_cast<T>(
+          0.5 * x * (1.0 + std::tanh(sqrt2pi * (x + coeff * x * x * x))));
+    }
+  }
+  case UnarySilu:
+    // SiLU/Swish: x * sigmoid(x)
+    if constexpr (std::is_floating_point_v<T>) {
+      return a / (T{1} + std::exp(-a));
+    } else {
+      double x = static_cast<double>(a);
+      return static_cast<T>(x / (1.0 + std::exp(-x)));
+    }
+  case UnarySoftplus:
+    // Softplus: log(1 + exp(x))
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::log(T{1} + std::exp(a));
+    } else {
+      return static_cast<T>(std::log(1.0 + std::exp(static_cast<double>(a))));
+    }
+  case UnaryIsNan:
+    if constexpr (std::is_floating_point_v<T>) {
+      return static_cast<T>(std::isnan(a) ? 1 : 0);
+    } else {
+      return T{0}; // Integers are never NaN
+    }
+  case UnaryIsInf:
+    if constexpr (std::is_floating_point_v<T>) {
+      return static_cast<T>(std::isinf(a) ? 1 : 0);
+    } else {
+      return T{0}; // Integers are never Inf
+    }
   default:
     return T{};
+  }
+}
+
+// Ternary clamp reference
+template <typename T>
+T ternaryClampRef(T a, T minVal, T maxVal) {
+  return std::clamp(a, minVal, maxVal);
+}
+
+// Reduction references
+template <typename T>
+T reduceRef(OperatorEnum op, const std::vector<T> &data) {
+  if (data.empty())
+    return T{0};
+
+  switch (op) {
+  case ReduceSum: {
+    T sum = T{0};
+    for (const auto &v : data)
+      sum += v;
+    return sum;
+  }
+  case ReduceMean: {
+    T sum = T{0};
+    for (const auto &v : data)
+      sum += v;
+    if constexpr (std::is_floating_point_v<T>) {
+      return sum / static_cast<T>(data.size());
+    } else {
+      return sum / static_cast<T>(data.size());
+    }
+  }
+  case ReduceMin: {
+    T minVal = data[0];
+    for (const auto &v : data)
+      if (v < minVal)
+        minVal = v;
+    return minVal;
+  }
+  case ReduceMax: {
+    T maxVal = data[0];
+    for (const auto &v : data)
+      if (v > maxVal)
+        maxVal = v;
+    return maxVal;
+  }
+  case ReduceProd: {
+    T prod = T{1};
+    for (const auto &v : data)
+      prod *= v;
+    return prod;
+  }
+  case ReduceAny: {
+    for (const auto &v : data)
+      if (v != T{0})
+        return T{1};
+    return T{0};
+  }
+  case ReduceAll: {
+    for (const auto &v : data)
+      if (v == T{0})
+        return T{0};
+    return T{1};
+  }
+  default:
+    return T{0};
   }
 }
 
@@ -741,8 +1258,9 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Float32) {
       auto dataB = generateTestData<float>(elements, 123);
 
       for (OperatorEnum op : kBinaryVecVecOps) {
-        if (op == BinaryVecVecMod || op == BinaryVecVecPow ||
-            op == BinaryVecVecFloorDiv) {
+        // Skip operators without shader support or problematic ones
+        if (!hasVulkanShaderSupport(op) || op == BinaryVecVecMod ||
+            op == BinaryVecVecPow || op == BinaryVecVecFloorDiv) {
           continue;
         }
 
@@ -795,9 +1313,11 @@ TEST_F(VulkanBackendTest, UnaryOperators_Float32) {
       }
 
       for (OperatorEnum op : kUnaryOps) {
-        if (op == UnaryLog || op == UnaryLog2 || op == UnaryLog10 ||
-            op == UnaryAsin || op == UnaryAcos || op == UnaryTan ||
-            op == UnarySinh || op == UnaryCosh || op == UnaryExp) {
+        // Skip operators without shader support or problematic ones
+        if (!hasVulkanShaderSupport(op) || op == UnaryLog || op == UnaryLog2 ||
+            op == UnaryLog10 || op == UnaryAsin || op == UnaryAcos ||
+            op == UnaryTan || op == UnarySinh || op == UnaryCosh ||
+            op == UnaryExp) {
           continue;
         }
 
@@ -843,8 +1363,9 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
       auto dataA = generateTestData<float>(elements, 42);
 
       for (OperatorEnum op : kBinaryVecScalarOps) {
-        if (op == BinaryVecScalarMod || op == BinaryVecScalarPow ||
-            op == BinaryVecScalarFloorDiv) {
+        // Skip operators without shader support or problematic ones
+        if (!hasVulkanShaderSupport(op) || op == BinaryVecScalarMod ||
+            op == BinaryVecScalarPow || op == BinaryVecScalarFloorDiv) {
           continue;
         }
 
@@ -926,8 +1447,9 @@ TEST_F(CrossBackendTest, BinaryVecVecConsistency_Float32) {
     auto dataB = generateTestData<float>(elements, 123);
 
     for (OperatorEnum op : kBinaryVecVecOps) {
-      if (op == BinaryVecVecMod || op == BinaryVecVecPow ||
-          op == BinaryVecVecFloorDiv) {
+      // Skip operators without shader support or problematic ones
+      if (!hasVulkanShaderSupport(op) || op == BinaryVecVecMod ||
+          op == BinaryVecVecPow || op == BinaryVecVecFloorDiv) {
         continue;
       }
 
@@ -987,9 +1509,11 @@ TEST_F(CrossBackendTest, UnaryConsistency_Float32) {
     }
 
     for (OperatorEnum op : kUnaryOps) {
-      if (op == UnaryLog || op == UnaryLog2 || op == UnaryLog10 ||
-          op == UnaryAsin || op == UnaryAcos || op == UnaryTan ||
-          op == UnarySinh || op == UnaryCosh || op == UnaryExp) {
+      // Skip operators without shader support or problematic ones
+      if (!hasVulkanShaderSupport(op) || op == UnaryLog || op == UnaryLog2 ||
+          op == UnaryLog10 || op == UnaryAsin || op == UnaryAcos ||
+          op == UnaryTan || op == UnarySinh || op == UnaryCosh ||
+          op == UnaryExp) {
         continue;
       }
 
@@ -1658,6 +2182,608 @@ TEST_F(VulkanNonAlignedInnermostTest, Unary_NonAlignedInnermost) {
       float expected = dataIn[i] * dataIn[i];
       EXPECT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+// ============================================================================
+// Tests for ALL New Operators with Non-Aligned Dimensions
+// ============================================================================
+
+// CPU backend tests for all new operators
+class CPUNewOperatorsTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::CPU);
+  }
+};
+
+// Test all new binary vec-vec operators (bitwise, logical, math)
+TEST_F(CPUNewOperatorsTest, NewBinaryVecVecOperators_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  // Test with non-aligned 1D shapes
+  for (uint32_t size : {1u, 3u, 5u, 11u, 13u, 17u}) {
+    std::vector<uint32_t> shape = {size};
+    const uint32_t elements = size;
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    // Test each new binary vec-vec operator
+    for (OperatorEnum op :
+         {BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
+          BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor,
+          BinaryVecVecAtan2, BinaryVecVecHypot, BinaryVecVecCopysign,
+          BinaryVecVecFmod}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+      auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                    ComputeBinding(1, bufferB),
+                                    ComputeBinding(2, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
+        if (std::isfinite(expected)) {
+          EXPECT_NEAR(output[i], expected, 1e-4f)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test all new binary vec-scalar operators (bitwise, logical, math, activation)
+TEST_F(CPUNewOperatorsTest, NewBinaryVecScalarOperators_Float32) {
+  const DataType dtype = DataType::Float32;
+  const float scalar = 2.5f;
+
+  // Test with non-aligned 1D shapes
+  for (uint32_t size : {1u, 3u, 5u, 11u, 13u, 17u}) {
+    std::vector<uint32_t> shape = {size};
+    const uint32_t elements = size;
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataA = generateTestData<float>(elements, 42);
+
+    // Test each new binary vec-scalar operator
+    for (OperatorEnum op :
+         {BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
+          BinaryVecScalarBitwiseXor, BinaryVecScalarLogicalAnd,
+          BinaryVecScalarLogicalOr, BinaryVecScalarLogicalXor,
+          BinaryVecScalarAtan2, BinaryVecScalarHypot, BinaryVecScalarCopysign,
+          BinaryVecScalarFmod, BinaryVecScalarLeakyRelu}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                    ComputeBinding(1, bufferOut),
+                                    ComputeBinding(2, DataReference(scalar))});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = binaryVecScalarRef(op, dataA[i], scalar);
+        if (std::isfinite(expected)) {
+          EXPECT_NEAR(output[i], expected, 1e-4f)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test all new unary operators (special math, activation, check)
+TEST_F(CPUNewOperatorsTest, NewUnaryOperators_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  // Test with non-aligned 1D shapes
+  for (uint32_t size : {1u, 3u, 5u, 11u, 13u, 17u}) {
+    std::vector<uint32_t> shape = {size};
+    const uint32_t elements = size;
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataIn = generateTestData<float>(elements, 42);
+    // Clamp values for stable activation functions
+    for (auto &v : dataIn) {
+      v = std::clamp(v, -3.0f, 3.0f);
+    }
+
+    // Test each new unary operator
+    for (OperatorEnum op : {UnaryExp2, UnaryExpm1, UnaryLog1p, UnaryCbrt,
+                            UnaryDegrees, UnaryRadians, UnaryLogicalNot,
+                            UnaryBitwiseNot, UnaryRelu, UnarySigmoid, UnaryGelu,
+                            UnarySilu, UnarySoftplus, UnaryIsNan, UnaryIsInf}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(
+          op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = unaryRef(op, dataIn[i]);
+        if (std::isfinite(expected)) {
+          // Use larger tolerance for activation functions
+          float tolerance = (op == UnaryGelu || op == UnarySilu ||
+                             op == UnarySigmoid || op == UnarySoftplus)
+                                ? 1e-3f
+                                : 1e-4f;
+          EXPECT_NEAR(output[i], expected, tolerance)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test new operators with 2D non-aligned innermost dimension
+TEST_F(CPUNewOperatorsTest, NewBinaryVecVec_2D_NonAligned) {
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    for (OperatorEnum op :
+         {BinaryVecVecLogicalAnd, BinaryVecVecHypot, BinaryVecVecAtan2}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+      auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                    ComputeBinding(1, bufferB),
+                                    ComputeBinding(2, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
+        if (std::isfinite(expected)) {
+          EXPECT_NEAR(output[i], expected, 1e-4f)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test new operators with 3D non-aligned innermost dimension
+TEST_F(CPUNewOperatorsTest, NewUnary_3D_NonAligned) {
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {2, 3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataIn = generateTestData<float>(elements, 42);
+    for (auto &v : dataIn) {
+      v = std::clamp(v, -2.0f, 2.0f);
+    }
+
+    for (OperatorEnum op : {UnaryRelu, UnarySigmoid, UnaryGelu, UnarySilu}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(
+          op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = unaryRef(op, dataIn[i]);
+        if (std::isfinite(expected)) {
+          EXPECT_NEAR(output[i], expected, 1e-3f)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Vulkan backend tests for all new operators
+// NOTE: These tests are placeholders for when Vulkan shaders are implemented
+// for the new operators. Currently they skip because shaders aren't ready.
+class VulkanNewOperatorsTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+// Test all new binary vec-vec operators on Vulkan
+TEST_F(VulkanNewOperatorsTest, NewBinaryVecVecOperators_Float32) {
+  GTEST_SKIP() << "Vulkan shaders for new operators not yet implemented";
+  const DataType dtype = DataType::Float32;
+
+  // Test with non-aligned 1D shapes
+  for (uint32_t size : {1u, 3u, 5u, 11u, 13u, 17u}) {
+    std::vector<uint32_t> shape = {size};
+    const uint32_t elements = size;
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    for (OperatorEnum op :
+         {BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
+          BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor,
+          BinaryVecVecAtan2, BinaryVecVecHypot, BinaryVecVecCopysign,
+          BinaryVecVecFmod}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+      auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                    ComputeBinding(1, bufferB),
+                                    ComputeBinding(2, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
+        if (std::isfinite(expected)) {
+          EXPECT_NEAR(output[i], expected, 1e-4f)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test all new binary vec-scalar operators on Vulkan
+TEST_F(VulkanNewOperatorsTest, NewBinaryVecScalarOperators_Float32) {
+  GTEST_SKIP() << "Vulkan shaders for new operators not yet implemented";
+  const DataType dtype = DataType::Float32;
+  const float scalar = 2.5f;
+
+  for (uint32_t size : {1u, 3u, 5u, 11u, 13u, 17u}) {
+    std::vector<uint32_t> shape = {size};
+    const uint32_t elements = size;
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataA = generateTestData<float>(elements, 42);
+
+    for (OperatorEnum op :
+         {BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
+          BinaryVecScalarBitwiseXor, BinaryVecScalarLogicalAnd,
+          BinaryVecScalarLogicalOr, BinaryVecScalarLogicalXor,
+          BinaryVecScalarAtan2, BinaryVecScalarHypot, BinaryVecScalarCopysign,
+          BinaryVecScalarFmod, BinaryVecScalarLeakyRelu}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                    ComputeBinding(1, bufferOut),
+                                    ComputeBinding(2, DataReference(scalar))});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = binaryVecScalarRef(op, dataA[i], scalar);
+        if (std::isfinite(expected)) {
+          EXPECT_NEAR(output[i], expected, 1e-4f)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test all new unary operators on Vulkan
+TEST_F(VulkanNewOperatorsTest, NewUnaryOperators_Float32) {
+  GTEST_SKIP() << "Vulkan shaders for new operators not yet implemented";
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t size : {1u, 3u, 5u, 11u, 13u, 17u}) {
+    std::vector<uint32_t> shape = {size};
+    const uint32_t elements = size;
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataIn = generateTestData<float>(elements, 42);
+    for (auto &v : dataIn) {
+      v = std::clamp(v, -3.0f, 3.0f);
+    }
+
+    for (OperatorEnum op : {UnaryExp2, UnaryExpm1, UnaryLog1p, UnaryCbrt,
+                            UnaryDegrees, UnaryRadians, UnaryLogicalNot,
+                            UnaryBitwiseNot, UnaryRelu, UnarySigmoid, UnaryGelu,
+                            UnarySilu, UnarySoftplus, UnaryIsNan, UnaryIsInf}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(
+          op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = unaryRef(op, dataIn[i]);
+        if (std::isfinite(expected)) {
+          float tolerance = (op == UnaryGelu || op == UnarySilu ||
+                             op == UnarySigmoid || op == UnarySoftplus)
+                                ? 1e-3f
+                                : 1e-4f;
+          EXPECT_NEAR(output[i], expected, tolerance)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test new operators with 2D non-aligned innermost dimension on Vulkan
+TEST_F(VulkanNewOperatorsTest, NewBinaryVecVec_2D_NonAligned) {
+  GTEST_SKIP() << "Vulkan shaders for new operators not yet implemented";
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    for (uint32_t outer : {2u, 3u, 5u}) {
+      std::vector<uint32_t> shape = {outer, innerDim};
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(float);
+
+      auto dataA = generateTestData<float>(elements, 42);
+      auto dataB = generateTestData<float>(elements, 123);
+
+      for (OperatorEnum op : {BinaryVecVecLogicalAnd, BinaryVecVecHypot,
+                              BinaryVecVecAtan2, BinaryVecVecCopysign}) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+        auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+        runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                      ComputeBinding(1, bufferB),
+                                      ComputeBinding(2, bufferOut)});
+
+        std::vector<float> output(elements);
+        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+        for (uint32_t i = 0; i < elements; ++i) {
+          float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
+          if (std::isfinite(expected)) {
+            EXPECT_NEAR(output[i], expected, 1e-4f)
+                << "Mismatch at index " << i << " for " << operatorName(op);
+          }
+        }
+      }
+    }
+  }
+}
+
+// Test new operators with 3D non-aligned innermost dimension on Vulkan
+TEST_F(VulkanNewOperatorsTest, NewUnary_3D_NonAligned) {
+  GTEST_SKIP() << "Vulkan shaders for new operators not yet implemented";
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {2, 3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataIn = generateTestData<float>(elements, 42);
+    for (auto &v : dataIn) {
+      v = std::clamp(v, -2.0f, 2.0f);
+    }
+
+    for (OperatorEnum op : {UnaryRelu, UnarySigmoid, UnaryGelu, UnarySilu,
+                            UnarySoftplus, UnaryCbrt, UnaryExp2}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(
+          op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = unaryRef(op, dataIn[i]);
+        if (std::isfinite(expected)) {
+          EXPECT_NEAR(output[i], expected, 1e-3f)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test new operators with 4D non-aligned innermost dimension on Vulkan
+TEST_F(VulkanNewOperatorsTest, NewBinaryVecScalar_4D_NonAligned) {
+  GTEST_SKIP() << "Vulkan shaders for new operators not yet implemented";
+  const DataType dtype = DataType::Float32;
+  const float scalar = 0.1f; // Small alpha for leaky relu
+
+  for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {2, 2, 3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    // Generate data with some negative values for LeakyRelu test
+    auto dataA = generateTestData<float>(elements, 42);
+    for (size_t i = 0; i < dataA.size(); i += 2) {
+      dataA[i] = -dataA[i];
+    }
+
+    for (OperatorEnum op : {BinaryVecScalarLeakyRelu, BinaryVecScalarHypot,
+                            BinaryVecScalarCopysign}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+      runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                    ComputeBinding(1, bufferOut),
+                                    ComputeBinding(2, DataReference(scalar))});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = binaryVecScalarRef(op, dataA[i], scalar);
+        if (std::isfinite(expected)) {
+          EXPECT_NEAR(output[i], expected, 1e-4f)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Cross-backend consistency tests for new operators
+// NOTE: Skipped until Vulkan shaders for new operators are implemented
+TEST_F(CrossBackendTest, NewBinaryVecVecConsistency_Float32) {
+  GTEST_SKIP() << "Vulkan shaders for new operators not yet implemented";
+  if (!vulkanAvailable_) {
+    GTEST_SKIP() << "Vulkan not available";
+  }
+
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t size : {5u, 13u}) {
+    std::vector<uint32_t> shape = {size};
+    const uint32_t elements = size;
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    for (OperatorEnum op :
+         {BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecHypot,
+          BinaryVecVecAtan2, BinaryVecVecCopysign}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      // CPU execution
+      auto cpuBufA = cpuRuntime_->createBuffer(shape, dtype, dataA.data());
+      auto cpuBufB = cpuRuntime_->createBuffer(shape, dtype, dataB.data());
+      auto cpuBufOut = cpuRuntime_->createBufferEmpty(shape, dtype);
+      cpuRuntime_->encodeOperator(op, {ComputeBinding(0, cpuBufA),
+                                       ComputeBinding(1, cpuBufB),
+                                       ComputeBinding(2, cpuBufOut)});
+      std::vector<float> cpuOutput(elements);
+      cpuRuntime_->copyFromBuffer(cpuBufOut, cpuOutput.data(), bufferSize);
+
+      // Vulkan execution
+      auto vkBufA = vulkanRuntime_->createBuffer(shape, dtype, dataA.data());
+      auto vkBufB = vulkanRuntime_->createBuffer(shape, dtype, dataB.data());
+      auto vkBufOut = vulkanRuntime_->createBufferEmpty(shape, dtype);
+      vulkanRuntime_->encodeOperator(op, {ComputeBinding(0, vkBufA),
+                                          ComputeBinding(1, vkBufB),
+                                          ComputeBinding(2, vkBufOut)});
+      std::vector<float> vkOutput(elements);
+      vulkanRuntime_->copyFromBuffer(vkBufOut, vkOutput.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        if (std::isfinite(cpuOutput[i]) && std::isfinite(vkOutput[i])) {
+          EXPECT_NEAR(cpuOutput[i], vkOutput[i], 1e-4f)
+              << "CPU/Vulkan mismatch at index " << i << " for "
+              << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// NOTE: Skipped until Vulkan shaders for new operators are implemented
+TEST_F(CrossBackendTest, NewUnaryConsistency_Float32) {
+  GTEST_SKIP() << "Vulkan shaders for new operators not yet implemented";
+  if (!vulkanAvailable_) {
+    GTEST_SKIP() << "Vulkan not available";
+  }
+
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t size : {5u, 13u}) {
+    std::vector<uint32_t> shape = {size};
+    const uint32_t elements = size;
+    const size_t bufferSize = elements * sizeof(float);
+
+    auto dataIn = generateTestData<float>(elements, 42);
+    for (auto &v : dataIn) {
+      v = std::clamp(v, -2.0f, 2.0f);
+    }
+
+    for (OperatorEnum op : {UnaryRelu, UnarySigmoid, UnaryGelu, UnarySilu,
+                            UnarySoftplus, UnaryCbrt, UnaryExp2, UnaryExpm1}) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                   " Shape: " + shapeToString(shape));
+
+      // CPU execution
+      auto cpuBufIn = cpuRuntime_->createBuffer(shape, dtype, dataIn.data());
+      auto cpuBufOut = cpuRuntime_->createBufferEmpty(shape, dtype);
+      cpuRuntime_->encodeOperator(
+          op, {ComputeBinding(0, cpuBufIn), ComputeBinding(1, cpuBufOut)});
+      std::vector<float> cpuOutput(elements);
+      cpuRuntime_->copyFromBuffer(cpuBufOut, cpuOutput.data(), bufferSize);
+
+      // Vulkan execution
+      auto vkBufIn = vulkanRuntime_->createBuffer(shape, dtype, dataIn.data());
+      auto vkBufOut = vulkanRuntime_->createBufferEmpty(shape, dtype);
+      vulkanRuntime_->encodeOperator(
+          op, {ComputeBinding(0, vkBufIn), ComputeBinding(1, vkBufOut)});
+      std::vector<float> vkOutput(elements);
+      vulkanRuntime_->copyFromBuffer(vkBufOut, vkOutput.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        if (std::isfinite(cpuOutput[i]) && std::isfinite(vkOutput[i])) {
+          EXPECT_NEAR(cpuOutput[i], vkOutput[i], 1e-3f)
+              << "CPU/Vulkan mismatch at index " << i << " for "
+              << operatorName(op);
+        }
+      }
     }
   }
 }
