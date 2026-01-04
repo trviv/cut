@@ -4,3 +4,4 @@
 /python/.pytest_cache
 /python/venv/
 /python/build
+/models

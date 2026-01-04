@@ -201,6 +201,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_VALIDATION_LAYERS)
 endif()
 
+add_subdirectory(interface)
 add_subdirectory(tests)
 
 if(TARGET benchmarks)
