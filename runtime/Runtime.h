@@ -199,14 +199,6 @@ private:
   ComputeHandle getOrCreateShader(OperatorEnum op, DataType dtype);
 
   /**
-   * Infers the data type from compute bindings.
-   * Looks for the first buffer binding and returns its dtype.
-   * @param bindings Vector of compute bindings.
-   * @return The inferred data type, or Float32 if no buffer bindings found.
-   */
-  DataType inferDataType(const std::vector<ComputeBinding> &bindings) const;
-
-  /**
    * Computes the execution size for an operator based on its bindings.
    * Validates that all buffer bindings have matching execution sizes.
    * For current operators (unary, binary vec-vec, binary vec-scalar),

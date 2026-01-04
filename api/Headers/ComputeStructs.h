@@ -2,6 +2,8 @@
 
 #include <ComputeCommon.h>
 
+#include <stdexcept>
+#include <string>
 #include <string_view>
 
 namespace cut {
@@ -164,12 +166,54 @@ struct ComputeBuffer {
    */
   static size_t calculateAlignedElements(const std::vector<uint32_t> &shape);
 
+  /**
+   * Infers the data type from compute bindings.
+   * Looks for the first buffer binding and returns its dtype.
+   * Validates that all buffer bindings have the same dtype.
+   * @tparam F Callable type that takes ComputeHandle and returns const
+   * ComputeBuffer&.
+   * @param bindings Vector of compute bindings.
+   * @param getBuffer Function to get a ComputeBuffer reference from a handle.
+   * @return The inferred data type, or Float32 if no buffer bindings found.
+   * @throws std::runtime_error if buffer dtypes don't match.
+   */
+  template <typename F>
+  static DataType inferDataType(const std::vector<ComputeBinding> &bindings,
+                                F &&getBuffer);
+
 private:
   std::vector<uint32_t> shape_; ///< Dimension-wise sizes (always size 4).
   DataType dtype_ = DataType::Float32; ///< Element data type.
   size_t size_ = 0;                    ///< Size in bytes.
   size_t executionElementCount_ = 0;
 };
+
+template <typename F>
+DataType
+ComputeBuffer::inferDataType(const std::vector<ComputeBinding> &bindings,
+                             F &&getBuffer) {
+  DataType inferredDtype = DataType::Float32;
+  bool dtypeSet = false;
+
+  for (const auto &binding : bindings) {
+    if (!binding.isHandle()) {
+      continue;
+    }
+
+    const ComputeBuffer &buffer = getBuffer(binding.getHandle());
+
+    if (!dtypeSet) {
+      inferredDtype = buffer.getDtype();
+      dtypeSet = true;
+    } else if (buffer.getDtype() != inferredDtype) {
+      throw std::runtime_error(std::string("Buffer dtype mismatch: expected ") +
+                               dataTypeName(inferredDtype) + " but got " +
+                               dataTypeName(buffer.getDtype()));
+    }
+  }
+
+  return inferredDtype;
+}
 
 /**
  * Represents a single compute dispatch operation.

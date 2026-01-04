@@ -32,24 +32,23 @@ void CPUCommandBuffer::submit() {
     // Get bindings - sort by index
     const auto &bindings = dispatch.bindings();
 
-    // Extract buffer pointers from bindings and determine dtype
+    // Infer dtype from buffer bindings
+    DataType dtype = ComputeBuffer::inferDataType(
+        bindings, [this](const ComputeHandle &h) -> const ComputeBuffer & {
+          return containers_.bufferContainer.getBuffer(h);
+        });
+
+    // Extract buffer pointers from bindings
     std::vector<void *> bufferPtrs;
     uint32_t numElements = 0;
     float scalar = 0.0f;
     int32_t scalarInt = 0;
-    DataType dtype = DataType::Float32; // Default to float
-    bool dtypeSet = false;
 
     for (const auto &binding : bindings) {
       if (binding.isHandle()) {
         const auto &buffer =
             containers_.bufferContainer.getBuffer(binding.getHandle());
         bufferPtrs.push_back(buffer.data);
-        // Get dtype from first buffer
-        if (!dtypeSet) {
-          dtype = buffer.getDtype();
-          dtypeSet = true;
-        }
       } else if (binding.isData()) {
         // Push constant data
         const auto &data = binding.getData();

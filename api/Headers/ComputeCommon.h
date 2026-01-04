@@ -112,6 +112,25 @@ inline constexpr size_t dataTypeSize(DataType dtype) {
 }
 
 /**
+ * Returns a string name for a given DataType.
+ * @param dtype The data type.
+ * @return String representation of the data type.
+ */
+inline constexpr const char *dataTypeName(DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return "Float32";
+  case DataType::Float16:
+    return "Float16";
+  case DataType::UInt32:
+    return "UInt32";
+  case DataType::Int32:
+    return "Int32";
+  }
+  return "Unknown";
+}
+
+/**
  * A lightweight wrapper for referencing raw data with size information.
  * Used to pass data to compute operations without copying.
  */

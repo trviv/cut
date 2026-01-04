@@ -9,22 +9,6 @@
 
 namespace cut {
 
-/// Returns a string representation of DataType for error messages.
-static const char *dataTypeName(DataType dtype) {
-  switch (dtype) {
-  case DataType::Float32:
-    return "Float32";
-  case DataType::Float16:
-    return "Float16";
-  case DataType::UInt32:
-    return "UInt32";
-  case DataType::Int32:
-    return "Int32";
-  default:
-    return "Unknown";
-  }
-}
-
 Runtime::Runtime() = default;
 
 Runtime::~Runtime() {
@@ -217,31 +201,6 @@ ComputeHandle Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
   return shader;
 }
 
-DataType
-Runtime::inferDataType(const std::vector<ComputeBinding> &bindings) const {
-  DataType inferredDtype = DataType::Float32;
-  bool dtypeSet = false;
-
-  for (const auto &binding : bindings) {
-    if (!binding.isHandle()) {
-      continue;
-    }
-
-    const ComputeBuffer &buffer = interface_->getBuffer(binding.getHandle());
-
-    if (!dtypeSet) {
-      inferredDtype = buffer.getDtype();
-      dtypeSet = true;
-    } else if (buffer.getDtype() != inferredDtype) {
-      throw std::runtime_error(std::string("Buffer dtype mismatch: expected ") +
-                               dataTypeName(inferredDtype) + " but got " +
-                               dataTypeName(buffer.getDtype()));
-    }
-  }
-
-  return inferredDtype;
-}
-
 size_t
 Runtime::getExecutionSize(OperatorEnum op,
                           const std::vector<ComputeBinding> &bindings) const {
@@ -288,7 +247,10 @@ void Runtime::encodeOperator(OperatorEnum op,
   }
 
   // Infer dtype from buffer bindings (also validates dtype consistency)
-  DataType dtype = inferDataType(bindings);
+  DataType dtype = ComputeBuffer::inferDataType(
+      bindings, [this](const ComputeHandle &h) -> const ComputeBuffer & {
+        return interface_->getBuffer(h);
+      });
 
   // Get execution size for this operator
   size_t executionSize = getExecutionSize(op, bindings);
