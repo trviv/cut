@@ -1032,7 +1032,7 @@ class DimensionSizeRangeTest : public RuntimeOperatorTest {
 protected:
   void SetUp() override {
     RuntimeOperatorTest::SetUp();
-    initBackend(BackendType::CPU);
+    initBackend(BackendType::Vulkan);
   }
 };
 
@@ -1211,7 +1211,7 @@ class NonAlignedInnermostTest : public RuntimeOperatorTest {
 protected:
   void SetUp() override {
     RuntimeOperatorTest::SetUp();
-    initBackend(BackendType::CPU);
+    initBackend(BackendType::Vulkan);
   }
 };
 
