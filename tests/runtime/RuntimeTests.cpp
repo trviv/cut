@@ -1125,9 +1125,70 @@ TEST_F(CPUBackendTest, BinaryVecVecOperators_Float32) {
   }
 }
 
-// Note: CPU kernels currently only support Float32, so Int32 tests are skipped
+// Test binary vec-vec operators with Int32
 TEST_F(CPUBackendTest, BinaryVecVecOperators_Int32) {
-  GTEST_SKIP() << "CPU backend kernels only support Float32";
+  const DataType dtype = DataType::Int32;
+
+  // Int32-supported binary vec-vec operators
+  constexpr std::array<OperatorEnum, 22> kInt32BinaryVecVecOps = {
+      // Arithmetic
+      BinaryVecVecAdd, BinaryVecVecSub, BinaryVecVecMul, BinaryVecVecDiv,
+      BinaryVecVecMod, BinaryVecVecFloorDiv,
+      // Comparison
+      BinaryVecVecEqual, BinaryVecVecNotEqual, BinaryVecVecLess,
+      BinaryVecVecLessEqual, BinaryVecVecGreater, BinaryVecVecGreaterEqual,
+      // Min/Max
+      BinaryVecVecMin, BinaryVecVecMax,
+      // Bitwise
+      BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
+      BinaryVecVecLeftShift, BinaryVecVecRightShift,
+      // Logical
+      BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(int32_t);
+
+      auto dataA = generateTestData<int32_t>(elements, 42);
+      auto dataB = generateTestData<int32_t>(elements, 123);
+
+      // Ensure dataB has no zeros for division/mod operations
+      for (auto &v : dataB) {
+        if (v == 0)
+          v = 1;
+      }
+      // Limit shift amounts to avoid undefined behavior
+      for (auto &v : dataB) {
+        v = std::abs(v) % 16; // Shift by 0-15 bits
+        if (v == 0)
+          v = 1;
+      }
+
+      for (OperatorEnum op : kInt32BinaryVecVecOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+        auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
+        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+        runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                      ComputeBinding(1, bufferB),
+                                      ComputeBinding(2, bufferOut)});
+
+        std::vector<int32_t> output(elements);
+        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+        // Verify results
+        for (uint32_t i = 0; i < elements; ++i) {
+          int32_t expected = binaryVecVecRef(op, dataA[i], dataB[i]);
+          EXPECT_EQ(output[i], expected)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
 }
 
 // Note: CPU kernels currently only support Float32, so UInt32 tests are skipped
@@ -1185,9 +1246,44 @@ TEST_F(CPUBackendTest, UnaryOperators_Float32) {
   }
 }
 
-// Note: CPU kernels currently only support Float32, so Int32 tests are skipped
+// Test unary operators with Int32
 TEST_F(CPUBackendTest, UnaryOperators_Int32) {
-  GTEST_SKIP() << "CPU backend kernels only support Float32";
+  const DataType dtype = DataType::Int32;
+
+  // Int32-supported unary operators
+  constexpr std::array<OperatorEnum, 6> kInt32UnaryOps = {
+      UnaryNeg,    UnaryAbs,        UnarySign,
+      UnarySquare, UnaryBitwiseNot, UnaryLogicalNot};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(int32_t);
+
+      auto dataIn = generateTestData<int32_t>(elements, 42);
+
+      for (OperatorEnum op : kInt32UnaryOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+        std::vector<int32_t> output(elements);
+        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+        // Verify results
+        for (uint32_t i = 0; i < elements; ++i) {
+          int32_t expected = unaryRef(op, dataIn[i]);
+          EXPECT_EQ(output[i], expected)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
 }
 
 // Test binary vec-scalar operators with Float32
@@ -1226,6 +1322,62 @@ TEST_F(CPUBackendTest, BinaryVecScalarOperators_Float32) {
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = binaryVecScalarRef(op, dataA[i], scalar);
           EXPECT_NEAR(output[i], expected, 1e-5f)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test binary vec-scalar operators with Int32
+TEST_F(CPUBackendTest, BinaryVecScalarOperators_Int32) {
+  const DataType dtype = DataType::Int32;
+  const int32_t scalar = 3;
+
+  // Int32-supported binary vec-scalar operators
+  constexpr std::array<OperatorEnum, 22> kInt32BinaryVecScalarOps = {
+      // Arithmetic
+      BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
+      BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarFloorDiv,
+      // Comparison
+      BinaryVecScalarEqual, BinaryVecScalarNotEqual, BinaryVecScalarLess,
+      BinaryVecScalarLessEqual, BinaryVecScalarGreater,
+      BinaryVecScalarGreaterEqual,
+      // Min/Max
+      BinaryVecScalarMin, BinaryVecScalarMax,
+      // Bitwise
+      BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
+      BinaryVecScalarBitwiseXor, BinaryVecScalarLeftShift,
+      BinaryVecScalarRightShift,
+      // Logical
+      BinaryVecScalarLogicalAnd, BinaryVecScalarLogicalOr,
+      BinaryVecScalarLogicalXor};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(int32_t);
+
+      auto dataA = generateTestData<int32_t>(elements, 42);
+
+      for (OperatorEnum op : kInt32BinaryVecScalarOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
+        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
+                 ComputeBinding(2, DataReference(scalar))});
+
+        std::vector<int32_t> output(elements);
+        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+
+        // Verify results
+        for (uint32_t i = 0; i < elements; ++i) {
+          int32_t expected = binaryVecScalarRef(op, dataA[i], scalar);
+          EXPECT_EQ(output[i], expected)
               << "Mismatch at index " << i << " for " << operatorName(op);
         }
       }

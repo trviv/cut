@@ -18,8 +18,14 @@ enum class SIMDMode : uint32_t {
   Auto = 3,   ///< Auto-detect best available (default)
 };
 
+// =============================================================================
+// Templated Kernel Functions
+// =============================================================================
+
 /**
  * Execute a binary operation kernel on a range of elements.
+ * Supported types: float, int32_t
+ * @tparam T Element type (float or int32_t).
  * @param op The operator type for the binary operation.
  * @param a Input buffer A.
  * @param b Input buffer B.
@@ -28,16 +34,19 @@ enum class SIMDMode : uint32_t {
  * @param end End index (exclusive).
  * @param simdMode SIMD execution mode (default: Auto).
  */
+template <typename T>
 void executeBinaryKernel(OperatorEnum op,
-                         const float *a,
-                         const float *b,
-                         float *out,
+                         const T *a,
+                         const T *b,
+                         T *out,
                          size_t start,
                          size_t end,
                          SIMDMode simdMode = SIMDMode::Auto);
 
 /**
  * Execute a binary vec-scalar operation kernel on a range of elements.
+ * Supported types: float, int32_t
+ * @tparam T Element type (float or int32_t).
  * @param op The operator type for the binary operation.
  * @param a Input buffer A (vector).
  * @param scalar Scalar value to apply to each element.
@@ -46,16 +55,19 @@ void executeBinaryKernel(OperatorEnum op,
  * @param end End index (exclusive).
  * @param simdMode SIMD execution mode (default: Auto).
  */
+template <typename T>
 void executeBinaryVecScalarKernel(OperatorEnum op,
-                                  const float *a,
-                                  float scalar,
-                                  float *out,
+                                  const T *a,
+                                  T scalar,
+                                  T *out,
                                   size_t start,
                                   size_t end,
                                   SIMDMode simdMode = SIMDMode::Auto);
 
 /**
  * Execute a unary operation kernel on a range of elements.
+ * Supported types: float, int32_t
+ * @tparam T Element type (float or int32_t).
  * @param op The operator type for the unary operation.
  * @param in Input buffer.
  * @param out Output buffer.
@@ -63,12 +75,64 @@ void executeBinaryVecScalarKernel(OperatorEnum op,
  * @param end End index (exclusive).
  * @param simdMode SIMD execution mode (default: Auto).
  */
+template <typename T>
 void executeUnaryKernel(OperatorEnum op,
-                        const float *in,
-                        float *out,
+                        const T *in,
+                        T *out,
                         size_t start,
                         size_t end,
                         SIMDMode simdMode = SIMDMode::Auto);
+
+// Explicit template instantiation declarations (defined in CPUKernels.cpp)
+extern template void executeBinaryKernel<float>(OperatorEnum op,
+                                                const float *a,
+                                                const float *b,
+                                                float *out,
+                                                size_t start,
+                                                size_t end,
+                                                SIMDMode simdMode);
+
+extern template void executeBinaryKernel<int32_t>(OperatorEnum op,
+                                                  const int32_t *a,
+                                                  const int32_t *b,
+                                                  int32_t *out,
+                                                  size_t start,
+                                                  size_t end,
+                                                  SIMDMode simdMode);
+
+extern template void executeBinaryVecScalarKernel<float>(OperatorEnum op,
+                                                         const float *a,
+                                                         float scalar,
+                                                         float *out,
+                                                         size_t start,
+                                                         size_t end,
+                                                         SIMDMode simdMode);
+
+extern template void executeBinaryVecScalarKernel<int32_t>(OperatorEnum op,
+                                                           const int32_t *a,
+                                                           int32_t scalar,
+                                                           int32_t *out,
+                                                           size_t start,
+                                                           size_t end,
+                                                           SIMDMode simdMode);
+
+extern template void executeUnaryKernel<float>(OperatorEnum op,
+                                               const float *in,
+                                               float *out,
+                                               size_t start,
+                                               size_t end,
+                                               SIMDMode simdMode);
+
+extern template void executeUnaryKernel<int32_t>(OperatorEnum op,
+                                                 const int32_t *in,
+                                                 int32_t *out,
+                                                 size_t start,
+                                                 size_t end,
+                                                 SIMDMode simdMode);
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
 
 /**
  * Get the effective SIMD mode based on what's available at compile time.
