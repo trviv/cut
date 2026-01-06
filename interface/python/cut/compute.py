@@ -14,8 +14,8 @@ Example:
     cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
 
     # Use operations
-    a = cc.Buffer(np.array([1, 2, 3], dtype=np.float32))
-    b = cc.Buffer(np.array([4, 5, 6], dtype=np.float32))
+    a = cc.Tensor(np.array([1, 2, 3], dtype=np.float32))
+    b = cc.Tensor(np.array([4, 5, 6], dtype=np.float32))
     c = cc.add(a, b)
     result = c.numpy()
 """
@@ -56,7 +56,7 @@ ComputeDispatch = _cut_compute.ComputeDispatch
 
 # Module state
 _initialized = False
-_live_buffers: weakref.WeakSet = weakref.WeakSet()
+_live_tensors: weakref.WeakSet = weakref.WeakSet()
 
 
 def _atexit_shutdown():
@@ -68,9 +68,9 @@ def _atexit_shutdown():
         gc_module.collect()
         gc_module.collect()
 
-        for buf in list(_live_buffers):
-            if hasattr(buf, '_handle'):
-                buf._handle = None
+        for tensor in list(_live_tensors):
+            if hasattr(tensor, '_handle'):
+                tensor._handle = None
 
         try:
             _cut_compute.shutdown()
@@ -135,10 +135,10 @@ def init(
         >>> cc.init(cc.Backend.Vulkan)  # Initialize Vulkan
         >>> cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.AVX)  # CPU with AVX
     """
-    global _initialized, _live_buffers
+    global _initialized, _live_tensors
 
     # Skip re-initialization if already initialized with same backend
-    # This prevents destroying resources while buffers still exist
+    # This prevents destroying resources while tensors still exist
     if _initialized and not force:
         try:
             cur = current_backend()
@@ -149,11 +149,11 @@ def init(
 
     # If force reinitializing or switching backends, clean up first
     if _initialized and force:
-        # Clear all buffer references
-        for buf in list(_live_buffers):
-            if hasattr(buf, '_handle'):
-                buf._handle = None
-        _live_buffers = weakref.WeakSet()
+        # Clear all tensor references
+        for tensor in list(_live_tensors):
+            if hasattr(tensor, '_handle'):
+                tensor._handle = None
+        _live_tensors = weakref.WeakSet()
         # Shutdown the old backend
         _cut_compute.shutdown()
         _initialized = False
@@ -235,8 +235,8 @@ def shutdown():
 
     This function should be called before program exit when using the Vulkan
     backend to ensure proper cleanup. It:
-    - Forces garbage collection to release Python buffer references
-    - Clears all live buffer references
+    - Forces garbage collection to release Python tensor references
+    - Clears all live tensor references
     - Destroys the compute interface
     - Destroys the Vulkan instance (if using Vulkan)
 
@@ -249,17 +249,17 @@ def shutdown():
         >>> # ... use compute operations ...
         >>> cc.shutdown()  # Clean up before exit
     """
-    global _initialized, _live_buffers
+    global _initialized, _live_tensors
 
-    # Force garbage collection to release Python buffer references
+    # Force garbage collection to release Python tensor references
     gc.collect()
     gc.collect()
 
-    # Clear all buffer references first
-    for buf in list(_live_buffers):
-        if hasattr(buf, '_handle'):
-            buf._handle = None
-    _live_buffers = weakref.WeakSet()
+    # Clear all tensor references first
+    for tensor in list(_live_tensors):
+        if hasattr(tensor, '_handle'):
+            tensor._handle = None
+    _live_tensors = weakref.WeakSet()
 
     # Call C++ shutdown to properly destroy Vulkan resources
     _cut_compute.shutdown()
@@ -282,11 +282,11 @@ def _numpy_dtype_to_cut(dtype) -> DataType:
     return _DTYPE_MAP.get(dtype_type, DataType.Float32)
 
 
-class Buffer:
+class Tensor:
     """
-    Unified buffer class for all backends.
+    Unified tensor class for all backends.
 
-    Provides a consistent interface for GPU/CPU buffers regardless
+    Provides a consistent interface for GPU/CPU tensors regardless
     of which backend is being used.
     """
 
@@ -299,18 +299,18 @@ class Buffer:
         shape: Optional[tuple] = None
     ):
         """
-        Create a buffer.
+        Create a tensor.
 
         Args:
-            data: NumPy array to initialize buffer with (optional)
-            size: Buffer size in bytes (required if data is None)
+            data: NumPy array to initialize tensor with (optional)
+            size: Tensor size in bytes (required if data is None)
             is_uniform: If True, create a uniform buffer
-            dtype: Data type for the buffer (used when creating from size)
-            shape: Shape for the buffer (used when creating from size)
+            dtype: Data type for the tensor (used when creating from size)
+            shape: Shape for the tensor (used when creating from size)
 
         Example:
-            >>> a = Buffer(np.array([1.0, 2.0, 3.0], dtype=np.float32))
-            >>> b = Buffer(size=64, dtype=np.float32)
+            >>> a = Tensor(np.array([1.0, 2.0, 3.0], dtype=np.float32))
+            >>> b = Tensor(size=64, dtype=np.float32)
         """
         _ensure_initialized()
 
@@ -337,7 +337,7 @@ class Buffer:
         else:
             raise ValueError("Either data or size must be provided")
 
-        _live_buffers.add(self)
+        _live_tensors.add(self)
 
     def _get_module(self):
         """Get the module containing operation functions."""
@@ -347,7 +347,7 @@ class Buffer:
     # Operator overloading
     def __add__(self, other):
         mod = self._get_module()
-        if isinstance(other, Buffer):
+        if isinstance(other, Tensor):
             return mod.add(self, other)
         return mod.add_scalar(self, other)
 
@@ -356,7 +356,7 @@ class Buffer:
 
     def __sub__(self, other):
         mod = self._get_module()
-        if isinstance(other, Buffer):
+        if isinstance(other, Tensor):
             return mod.subtract(self, other)
         return mod.subtract_scalar(self, other)
 
@@ -369,7 +369,7 @@ class Buffer:
 
     def __mul__(self, other):
         mod = self._get_module()
-        if isinstance(other, Buffer):
+        if isinstance(other, Tensor):
             return mod.multiply(self, other)
         return mod.multiply_scalar(self, other)
 
@@ -378,7 +378,7 @@ class Buffer:
 
     def __truediv__(self, other):
         mod = self._get_module()
-        if isinstance(other, Buffer):
+        if isinstance(other, Tensor):
             return mod.divide(self, other)
         return mod.divide_scalar(self, other)
 
@@ -392,22 +392,22 @@ class Buffer:
 
     @property
     def size(self) -> int:
-        """Get buffer size in bytes."""
+        """Get tensor size in bytes."""
         return self._size
 
     @property
     def dtype(self) -> np.dtype:
-        """Get the buffer's dtype."""
+        """Get the tensor's dtype."""
         return self._dtype
 
     @property
     def shape(self) -> tuple:
-        """Get the buffer's shape."""
+        """Get the tensor's shape."""
         return self._shape
 
     def copy_from(self, data: np.ndarray):
         """
-        Copy data from numpy array to buffer.
+        Copy data from numpy array to tensor.
 
         Args:
             data: NumPy array with data to copy
@@ -417,13 +417,13 @@ class Buffer:
 
     def copy_to(self, out: Optional[np.ndarray] = None) -> np.ndarray:
         """
-        Copy data from buffer to numpy array.
+        Copy data from tensor to numpy array.
 
         Args:
             out: Output array (created if not provided)
 
         Returns:
-            NumPy array with buffer contents
+            NumPy array with tensor contents
         """
         if out is None:
             if self._dtype is not None and self._shape is not None:
@@ -435,7 +435,7 @@ class Buffer:
         return out
 
     def numpy(self) -> np.ndarray:
-        """Get buffer contents as numpy array."""
+        """Get tensor contents as numpy array."""
         return self.copy_to()
 
 
@@ -465,14 +465,14 @@ def _create_scalar_binding(index: int, scalar: Union[int, float], dtype):
 
 def _create_binary_op(op_enum: OperatorEnum):
     """Create a binary vec-vec operation function."""
-    def binary_op(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    def binary_op(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
         _ensure_initialized()
 
         if a.size != b.size:
             raise ValueError(f"Size mismatch: {a.size} vs {b.size}")
 
         if out is None:
-            out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
+            out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
 
         bindings = [
             ComputeBinding(0, a._handle),
@@ -487,11 +487,11 @@ def _create_binary_op(op_enum: OperatorEnum):
 
 def _create_unary_op(op_enum: OperatorEnum):
     """Create a unary operation function."""
-    def unary_op(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
+    def unary_op(a: Tensor, out: Optional[Tensor] = None) -> Tensor:
         _ensure_initialized()
 
         if out is None:
-            out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
+            out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
 
         bindings = [
             ComputeBinding(0, a._handle),
@@ -506,14 +506,14 @@ def _create_unary_op(op_enum: OperatorEnum):
 def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
     """Create a binary vec-scalar operation function."""
     def vec_scalar_op(
-        a: Buffer,
+        a: Tensor,
         scalar: Union[int, float],
-        out: Optional[Buffer] = None
-    ) -> Buffer:
+        out: Optional[Tensor] = None
+    ) -> Tensor:
         _ensure_initialized()
 
         if out is None:
-            out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
+            out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
 
         dtype = a._dtype if a._dtype is not None else np.float32
         bindings = [
@@ -565,24 +565,24 @@ _register_operations()
 # Special Operations (not auto-generated)
 # =============================================================================
 
-def reduce_sum(a: Buffer) -> float:
+def reduce_sum(a: Tensor) -> float:
     """
-    Compute the sum of all elements in the buffer.
+    Compute the sum of all elements in the tensor.
 
     Args:
-        a: Input buffer
+        a: Input tensor
 
     Returns:
         Sum of all elements
 
     Example:
-        >>> a = Buffer(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> a = Tensor(np.array([1, 2, 3, 4], dtype=np.float32))
         >>> result = reduce_sum(a)  # Returns 10.0
     """
     _ensure_initialized()
 
-    # Create output buffer for single result
-    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+    # Create output tensor for single result
+    out = Tensor(size=4, dtype=np.float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -593,24 +593,24 @@ def reduce_sum(a: Buffer) -> float:
     return float(out.numpy()[0])
 
 
-def reduce_mean(a: Buffer) -> float:
+def reduce_mean(a: Tensor) -> float:
     """
-    Compute the mean of all elements in the buffer.
+    Compute the mean of all elements in the tensor.
 
     Args:
-        a: Input buffer
+        a: Input tensor
 
     Returns:
         Mean of all elements
 
     Example:
-        >>> a = Buffer(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> a = Tensor(np.array([1, 2, 3, 4], dtype=np.float32))
         >>> result = reduce_mean(a)  # Returns 2.5
     """
     _ensure_initialized()
 
     # For mean, we compute sum on GPU and divide by count on CPU
-    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=np.float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -624,23 +624,23 @@ def reduce_mean(a: Buffer) -> float:
     return total / count
 
 
-def reduce_min(a: Buffer) -> float:
+def reduce_min(a: Tensor) -> float:
     """
-    Find the minimum element in the buffer.
+    Find the minimum element in the tensor.
 
     Args:
-        a: Input buffer
+        a: Input tensor
 
     Returns:
         Minimum element
 
     Example:
-        >>> a = Buffer(np.array([3, 1, 4, 1, 5], dtype=np.float32))
+        >>> a = Tensor(np.array([3, 1, 4, 1, 5], dtype=np.float32))
         >>> result = reduce_min(a)  # Returns 1.0
     """
     _ensure_initialized()
 
-    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=np.float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -651,23 +651,23 @@ def reduce_min(a: Buffer) -> float:
     return float(out.numpy()[0])
 
 
-def reduce_max(a: Buffer) -> float:
+def reduce_max(a: Tensor) -> float:
     """
-    Find the maximum element in the buffer.
+    Find the maximum element in the tensor.
 
     Args:
-        a: Input buffer
+        a: Input tensor
 
     Returns:
         Maximum element
 
     Example:
-        >>> a = Buffer(np.array([3, 1, 4, 1, 5], dtype=np.float32))
+        >>> a = Tensor(np.array([3, 1, 4, 1, 5], dtype=np.float32))
         >>> result = reduce_max(a)  # Returns 5.0
     """
     _ensure_initialized()
 
-    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=np.float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -678,23 +678,23 @@ def reduce_max(a: Buffer) -> float:
     return float(out.numpy()[0])
 
 
-def reduce_prod(a: Buffer) -> float:
+def reduce_prod(a: Tensor) -> float:
     """
-    Compute the product of all elements in the buffer.
+    Compute the product of all elements in the tensor.
 
     Args:
-        a: Input buffer
+        a: Input tensor
 
     Returns:
         Product of all elements
 
     Example:
-        >>> a = Buffer(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> a = Tensor(np.array([1, 2, 3, 4], dtype=np.float32))
         >>> result = reduce_prod(a)  # Returns 24.0
     """
     _ensure_initialized()
 
-    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=np.float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -705,23 +705,23 @@ def reduce_prod(a: Buffer) -> float:
     return float(out.numpy()[0])
 
 
-def reduce_any(a: Buffer) -> bool:
+def reduce_any(a: Tensor) -> bool:
     """
-    Check if any element in the buffer is non-zero (logical OR).
+    Check if any element in the tensor is non-zero (logical OR).
 
     Args:
-        a: Input buffer
+        a: Input tensor
 
     Returns:
         True if any element is non-zero
 
     Example:
-        >>> a = Buffer(np.array([0, 0, 1, 0], dtype=np.float32))
+        >>> a = Tensor(np.array([0, 0, 1, 0], dtype=np.float32))
         >>> result = reduce_any(a)  # Returns True
     """
     _ensure_initialized()
 
-    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=np.float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -732,23 +732,23 @@ def reduce_any(a: Buffer) -> bool:
     return bool(out.numpy()[0] != 0.0)
 
 
-def reduce_all(a: Buffer) -> bool:
+def reduce_all(a: Tensor) -> bool:
     """
-    Check if all elements in the buffer are non-zero (logical AND).
+    Check if all elements in the tensor are non-zero (logical AND).
 
     Args:
-        a: Input buffer
+        a: Input tensor
 
     Returns:
         True if all elements are non-zero
 
     Example:
-        >>> a = Buffer(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> a = Tensor(np.array([1, 2, 3, 4], dtype=np.float32))
         >>> result = reduce_all(a)  # Returns True
     """
     _ensure_initialized()
 
-    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=np.float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -759,21 +759,21 @@ def reduce_all(a: Buffer) -> bool:
     return bool(out.numpy()[0] != 0.0)
 
 
-def matmul(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
+def matmul(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
     """
     Matrix multiplication: C = A @ B
 
     Args:
         a: Input matrix A with shape (M, K)
         b: Input matrix B with shape (K, N)
-        out: Optional output buffer with shape (M, N)
+        out: Optional output tensor with shape (M, N)
 
     Returns:
-        Buffer with result of matrix multiplication
+        Tensor with result of matrix multiplication
 
     Example:
-        >>> a = Buffer(np.array([[1, 2], [3, 4]], dtype=np.float32))
-        >>> b = Buffer(np.array([[5, 6], [7, 8]], dtype=np.float32))
+        >>> a = Tensor(np.array([[1, 2], [3, 4]], dtype=np.float32))
+        >>> b = Tensor(np.array([[5, 6], [7, 8]], dtype=np.float32))
         >>> result = matmul(a, b)  # Returns [[19, 22], [43, 50]]
     """
     _ensure_initialized()
@@ -789,7 +789,7 @@ def matmul(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
         raise ValueError(f"Matrix dimension mismatch: A is {M}x{K}, B is {K2}x{N}")
 
     if out is None:
-        out = Buffer(size=M * N * 4, dtype=np.float32, shape=(M, N))
+        out = Tensor(size=M * N * 4, dtype=np.float32, shape=(M, N))
 
     # Create shape data binding
     shape_data = np.array([M, K, N], dtype=np.uint32)
@@ -804,19 +804,19 @@ def matmul(a: Buffer, b: Buffer, out: Optional[Buffer] = None) -> Buffer:
     return out
 
 
-def transpose(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
+def transpose(a: Tensor, out: Optional[Tensor] = None) -> Tensor:
     """
     Matrix transpose: B = A^T
 
     Args:
         a: Input matrix A with shape (M, N)
-        out: Optional output buffer with shape (N, M)
+        out: Optional output tensor with shape (N, M)
 
     Returns:
-        Buffer with transposed matrix
+        Tensor with transposed matrix
 
     Example:
-        >>> a = Buffer(np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32))
+        >>> a = Tensor(np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32))
         >>> result = transpose(a)  # Returns [[1, 4], [2, 5], [3, 6]]
     """
     _ensure_initialized()
@@ -827,7 +827,7 @@ def transpose(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     M, N = a.shape
 
     if out is None:
-        out = Buffer(size=M * N * 4, dtype=np.float32, shape=(N, M))
+        out = Tensor(size=M * N * 4, dtype=np.float32, shape=(N, M))
 
     # Create shape data binding
     shape_data = np.array([M, N], dtype=np.uint32)
@@ -841,7 +841,7 @@ def transpose(a: Buffer, out: Optional[Buffer] = None) -> Buffer:
     return out
 
 
-def dot(a: Buffer, b: Buffer) -> float:
+def dot(a: Tensor, b: Tensor) -> float:
     """
     Dot product of two vectors: result = sum(A * B)
 
@@ -853,8 +853,8 @@ def dot(a: Buffer, b: Buffer) -> float:
         Scalar dot product result
 
     Example:
-        >>> a = Buffer(np.array([1, 2, 3], dtype=np.float32))
-        >>> b = Buffer(np.array([4, 5, 6], dtype=np.float32))
+        >>> a = Tensor(np.array([1, 2, 3], dtype=np.float32))
+        >>> b = Tensor(np.array([4, 5, 6], dtype=np.float32))
         >>> result = dot(a, b)  # Returns 32.0 (1*4 + 2*5 + 3*6)
     """
     _ensure_initialized()
@@ -864,8 +864,8 @@ def dot(a: Buffer, b: Buffer) -> float:
 
     count = np.prod(a.shape)
 
-    # Create output buffer for single result
-    out = Buffer(size=4, dtype=np.float32, shape=(1,))
+    # Create output tensor for single result
+    out = Tensor(size=4, dtype=np.float32, shape=(1,))
 
     # Create count data binding
     count_data = np.array([count], dtype=np.uint32)
@@ -880,30 +880,30 @@ def dot(a: Buffer, b: Buffer) -> float:
     return float(out.numpy()[0])
 
 
-def clamp(a: Buffer, min_val: Union[int, float], max_val: Union[int, float],
-          out: Optional[Buffer] = None) -> Buffer:
+def clamp(a: Tensor, min_val: Union[int, float], max_val: Union[int, float],
+          out: Optional[Tensor] = None) -> Tensor:
     """
-    Clamp buffer values to a range.
+    Clamp tensor values to a range.
 
     Each element is clamped to be within [min_val, max_val].
 
     Args:
-        a: Input buffer
+        a: Input tensor
         min_val: Minimum value
         max_val: Maximum value
-        out: Optional output buffer
+        out: Optional output tensor
 
     Returns:
-        Buffer with clamped values
+        Tensor with clamped values
 
     Example:
-        >>> a = Buffer(np.array([-1, 0, 5, 10], dtype=np.float32))
+        >>> a = Tensor(np.array([-1, 0, 5, 10], dtype=np.float32))
         >>> result = clamp(a, 0, 5)  # Returns [0, 0, 5, 5]
     """
     _ensure_initialized()
 
     if out is None:
-        out = Buffer(size=a.size, dtype=a._dtype, shape=a._shape)
+        out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
 
     dtype = a._dtype if a._dtype is not None else np.float32
 
@@ -962,7 +962,7 @@ __all__ = [
     "OperatorEnum",
     "ShaderEnum",
     # Classes
-    "Buffer",
+    "Tensor",
     "ThreadSize",
     "ComputeHandle",
     "ComputeBinding",

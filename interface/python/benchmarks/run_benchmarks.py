@@ -156,7 +156,7 @@ class CUTRunner(BackendRunner):
         self.data = test_data
         self.backend_enum = backend_enum
         self.simd_mode = simd_mode
-        self._buffers = {}
+        self._tensors = {}
         self._current_backend = None
 
         cc = backends.cut_compute
@@ -168,7 +168,7 @@ class CUTRunner(BackendRunner):
             self._available = cc.is_cpu_available()
 
     def _ensure_backend_active(self):
-        """Ensure this runner's backend is active and buffers are ready."""
+        """Ensure this runner's backend is active and tensors are ready."""
         if not self._available:
             return False
 
@@ -180,7 +180,7 @@ class CUTRunner(BackendRunner):
         )
 
         if needs_switch:
-            self._buffers = {}
+            self._tensors = {}
             cc.shutdown()
 
             if self.backend_enum == cc.Backend.Vulkan:
@@ -191,16 +191,16 @@ class CUTRunner(BackendRunner):
 
             self._current_backend = self.backend_enum
 
-        if not self._buffers:
-            self._buffers = {
-                'a': cc.Buffer(self.data.a),
-                'b': cc.Buffer(self.data.b),
-                'a_pos': cc.Buffer(self.data.a_pos),
-                'b_pos': cc.Buffer(self.data.b_pos),
-                'a_unit': cc.Buffer(self.data.a_unit),
-                'b_small': cc.Buffer(self.data.b_small),
-                'a_div10': cc.Buffer(self.data.a_div10),
-                'a_tan_safe': cc.Buffer(self.data.a_tan_safe),
+        if not self._tensors:
+            self._tensors = {
+                'a': cc.Tensor(self.data.a),
+                'b': cc.Tensor(self.data.b),
+                'a_pos': cc.Tensor(self.data.a_pos),
+                'b_pos': cc.Tensor(self.data.b_pos),
+                'a_unit': cc.Tensor(self.data.a_unit),
+                'b_small': cc.Tensor(self.data.b_small),
+                'a_div10': cc.Tensor(self.data.a_div10),
+                'a_tan_safe': cc.Tensor(self.data.a_tan_safe),
             }
 
         return True
@@ -212,19 +212,19 @@ class CUTRunner(BackendRunner):
         """Map numpy arrays to CUT buffers, pass scalars through."""
         cc = backends.cut_compute
         mapping = {
-            id(self.data.a): self._buffers['a'],
-            id(self.data.b): self._buffers['b'],
-            id(self.data.a_pos): self._buffers['a_pos'],
-            id(self.data.b_pos): self._buffers['b_pos'],
-            id(self.data.a_unit): self._buffers['a_unit'],
-            id(self.data.b_small): self._buffers['b_small'],
-            id(self.data.a_div10): self._buffers['a_div10'],
-            id(self.data.a_tan_safe): self._buffers['a_tan_safe'],
+            id(self.data.a): self._tensors['a'],
+            id(self.data.b): self._tensors['b'],
+            id(self.data.a_pos): self._tensors['a_pos'],
+            id(self.data.b_pos): self._tensors['b_pos'],
+            id(self.data.a_unit): self._tensors['a_unit'],
+            id(self.data.b_small): self._tensors['b_small'],
+            id(self.data.a_div10): self._tensors['a_div10'],
+            id(self.data.a_tan_safe): self._tensors['a_tan_safe'],
         }
         result = []
         for arg in np_args:
             if isinstance(arg, np.ndarray):
-                result.append(mapping.get(id(arg), cc.Buffer(arg)))
+                result.append(mapping.get(id(arg), cc.Tensor(arg)))
             else:
                 result.append(float(arg))
         return tuple(result)

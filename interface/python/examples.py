@@ -22,9 +22,9 @@ def example_basic_operations():
     a = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
     b = np.array([10.0, 20.0, 30.0, 40.0, 50.0], dtype=np.float32)
 
-    # Create CUT buffers
-    buf_a = cc.Buffer(a)
-    buf_b = cc.Buffer(b)
+    # Create CUT tensors
+    buf_a = cc.Tensor(a)
+    buf_b = cc.Tensor(b)
 
     # Perform operations
     result_add = cc.add(buf_a, buf_b)
@@ -39,13 +39,13 @@ def example_basic_operations():
 
 
 def example_operator_overloading():
-    """Example 2: Using Python operators with CUT buffers."""
+    """Example 2: Using Python operators with CUT tensors."""
     print("\n" + "=" * 60)
     print("Example 2: Operator Overloading")
     print("=" * 60)
 
-    a = cc.Buffer(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-    b = cc.Buffer(np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32))
+    a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+    b = cc.Tensor(np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32))
 
     # Use Python operators directly
     c = a + b
@@ -75,7 +75,7 @@ def example_math_functions():
 
     # Create test data
     x = np.array([0.0, 0.5, 1.0, 1.5, 2.0], dtype=np.float32)
-    buf_x = cc.Buffer(x)
+    buf_x = cc.Tensor(x)
 
     # Trigonometric functions
     sin_x = cc.sin(buf_x)
@@ -87,9 +87,9 @@ def example_math_functions():
 
     # Exponential and logarithmic
     positive = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
-    buf_pos = cc.Buffer(positive)
+    buf_pos = cc.Tensor(positive)
 
-    exp_x = cc.exp(cc.Buffer(np.array([0.0, 0.5, 1.0, 1.5, 2.0], dtype=np.float32)))
+    exp_x = cc.exp(cc.Tensor(np.array([0.0, 0.5, 1.0, 1.5, 2.0], dtype=np.float32)))
     log_x = cc.log(buf_pos)
     sqrt_x = cc.sqrt(buf_pos)
 
@@ -108,8 +108,8 @@ def example_comparison_operations():
     a = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
     b = np.array([3.0, 2.0, 3.0, 2.0, 7.0], dtype=np.float32)
 
-    buf_a = cc.Buffer(a)
-    buf_b = cc.Buffer(b)
+    buf_a = cc.Tensor(a)
+    buf_b = cc.Tensor(b)
 
     # Comparisons return 1.0 for true, 0.0 for false
     eq = cc.equal(buf_a, buf_b)
@@ -147,7 +147,7 @@ def example_large_array_processing():
     np_time = (time.perf_counter() - start) * 1000
 
     # Time CUT
-    buf = cc.Buffer(data)
+    buf = cc.Tensor(data)
     start = time.perf_counter()
     cut_result = cc.tanh(buf)
     cut_time = (time.perf_counter() - start) * 1000
@@ -172,8 +172,8 @@ def example_chained_operations():
     a = np.array([3.0, 4.0, 5.0, 6.0], dtype=np.float32)
     b = np.array([4.0, 3.0, 12.0, 8.0], dtype=np.float32)
 
-    buf_a = cc.Buffer(a)
-    buf_b = cc.Buffer(b)
+    buf_a = cc.Tensor(a)
+    buf_b = cc.Tensor(b)
 
     # Chain operations
     a_squared = cc.square(buf_a)
@@ -194,11 +194,11 @@ def example_min_max_clamp():
     print("=" * 60)
 
     data = np.array([-2.0, -0.5, 0.3, 0.8, 1.5, 3.0], dtype=np.float32)
-    buf = cc.Buffer(data)
+    buf = cc.Tensor(data)
 
     # Clamp to [0, 1] range using min and max with scalars
     clamped_low = cc.maximum_scalar(buf, 0.0)  # max(data, 0) - clamp lower
-    buf_clamped_low = cc.Buffer(clamped_low.numpy())
+    buf_clamped_low = cc.Tensor(clamped_low.numpy())
     clamped = cc.minimum_scalar(buf_clamped_low, 1.0)  # min(result, 1) - clamp upper
 
     print(f"Original: {data}")
@@ -208,8 +208,8 @@ def example_min_max_clamp():
     a = np.array([1.0, 5.0, 3.0, 7.0], dtype=np.float32)
     b = np.array([2.0, 3.0, 4.0, 6.0], dtype=np.float32)
 
-    buf_a = cc.Buffer(a)
-    buf_b = cc.Buffer(b)
+    buf_a = cc.Tensor(a)
+    buf_b = cc.Tensor(b)
 
     min_ab = cc.minimum(buf_a, buf_b)
     max_ab = cc.maximum(buf_a, buf_b)
@@ -229,8 +229,8 @@ def example_integer_operations():
     a = np.array([10, 20, 30, 40, 50], dtype=np.int32)
     b = np.array([3, 7, 4, 8, 9], dtype=np.int32)
 
-    buf_a = cc.Buffer(a)
-    buf_b = cc.Buffer(b)
+    buf_a = cc.Tensor(a)
+    buf_b = cc.Tensor(b)
 
     result_add = cc.add(buf_a, buf_b)
     result_mul = cc.multiply(buf_a, buf_b)

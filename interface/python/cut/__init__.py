@@ -11,8 +11,8 @@ Example:
     cut.init(cut.Backend.CPU, simd_mode=cut.SIMDMode.Auto)  # CPU with SIMD
 
     # Use operations
-    a = cut.Buffer(np.array([1, 2, 3], dtype=np.float32))
-    b = cut.Buffer(np.array([4, 5, 6], dtype=np.float32))
+    a = cut.Tensor(np.array([1, 2, 3], dtype=np.float32))
+    b = cut.Tensor(np.array([4, 5, 6], dtype=np.float32))
     c = cut.add(a, b)
     result = c.numpy()
 """

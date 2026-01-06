@@ -59,23 +59,23 @@ def benchmark_numpy(func, *args, config: BenchmarkConfig = DEFAULT_CONFIG):
 
 def benchmark_cut(func, *args, config: BenchmarkConfig = DEFAULT_CONFIG):
     """Run a CUT function multiple times and return average time and result."""
-    # Convert numpy arrays to Buffers
-    buffer_args = []
+    # Convert numpy arrays to Tensors
+    tensor_args = []
     for arg in args:
         if isinstance(arg, np.ndarray):
-            buffer_args.append(cut.Buffer(arg))
+            tensor_args.append(cut.Tensor(arg))
         else:
-            buffer_args.append(arg)
+            tensor_args.append(arg)
 
     # Warmup
     for _ in range(config.warmup_iterations):
-        result = func(*buffer_args)
+        result = func(*tensor_args)
 
     # Timed runs
     times = []
     for _ in range(config.num_iterations):
         start = time.perf_counter()
-        result = func(*buffer_args)
+        result = func(*tensor_args)
         result = result.numpy() # do this so commands are flushed
         end = time.perf_counter()
         times.append(end - start)

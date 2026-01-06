@@ -110,7 +110,7 @@ def verify_results(cut_result: np.ndarray, np_result: np.ndarray,
 
 
 def _cleanup():
-    """Force cleanup of all buffers."""
+    """Force cleanup of all tensors."""
     gc.collect()
     gc.collect()
 
@@ -124,7 +124,7 @@ def chain_linear_3ops(a_np: np.ndarray, b_np: np.ndarray, c_np: np.ndarray):
     return (a_np + b_np) * c_np
 
 
-def chain_linear_3ops_cut(a: "cut.Buffer", b: "cut.Buffer", c: "cut.Buffer"):
+def chain_linear_3ops_cut(a: "cut.Tensor", b: "cut.Tensor", c: "cut.Tensor"):
     """CUT: (a + b) * c"""
     return (a + b) * c
 
@@ -134,7 +134,7 @@ def chain_linear_5ops(a_np: np.ndarray, b_np: np.ndarray, c_np: np.ndarray):
     return np.sqrt(np.abs((a_np + b_np) * c_np))
 
 
-def chain_linear_5ops_cut(a: "cut.Buffer", b: "cut.Buffer", c: "cut.Buffer"):
+def chain_linear_5ops_cut(a: "cut.Tensor", b: "cut.Tensor", c: "cut.Tensor"):
     """CUT: sqrt(abs((a + b) * c))"""
     return cut.sqrt(cut.abs((a + b) * c))
 
@@ -145,9 +145,9 @@ def chain_linear_7ops(a_np: np.ndarray, b_np: np.ndarray, c_np: np.ndarray):
     return np.floor(np.exp(np.log(t + 1)))
 
 
-def chain_linear_7ops_cut(a: "cut.Buffer", b: "cut.Buffer", c: "cut.Buffer"):
+def chain_linear_7ops_cut(a: "cut.Tensor", b: "cut.Tensor", c: "cut.Tensor"):
     """CUT: floor(exp(log(sqrt(abs((a + b) * c)) + 1)))"""
-    ones = cut.Buffer(np.ones(a._shape[0], dtype=np.float32))
+    ones = cut.Tensor(np.ones(a._shape[0], dtype=np.float32))
     t = cut.sqrt(cut.abs((a + b) * c))
     return cut.floor(cut.exp(cut.log(t + ones)))
 
@@ -157,7 +157,7 @@ def chain_diamond(a_np: np.ndarray):
     return np.sqrt(a_np) + (a_np ** 2)
 
 
-def chain_diamond_cut(a: "cut.Buffer"):
+def chain_diamond_cut(a: "cut.Tensor"):
     """CUT: sqrt(a) + square(a)"""
     return cut.sqrt(a) + cut.square(a)
 
@@ -169,7 +169,7 @@ def chain_diamond_complex(a_np: np.ndarray):
     return left + right
 
 
-def chain_diamond_complex_cut(a: "cut.Buffer"):
+def chain_diamond_complex_cut(a: "cut.Tensor"):
     """CUT: (sqrt(a) * log(a)) + (square(a) / exp(a))"""
     left = cut.sqrt(a) * cut.log(a)
     right = cut.square(a) / cut.exp(a)
@@ -181,7 +181,7 @@ def chain_trig_identity(x_np: np.ndarray):
     return np.sin(x_np)**2 + np.cos(x_np)**2
 
 
-def chain_trig_identity_cut(x: "cut.Buffer"):
+def chain_trig_identity_cut(x: "cut.Tensor"):
     """CUT: sin^2(x) + cos^2(x)"""
     return cut.square(cut.sin(x)) + cut.square(cut.cos(x))
 
@@ -191,9 +191,9 @@ def chain_sigmoid(x_np: np.ndarray):
     return 1.0 / (1.0 + np.exp(-x_np))
 
 
-def chain_sigmoid_cut(x: "cut.Buffer"):
+def chain_sigmoid_cut(x: "cut.Tensor"):
     """CUT: 1 / (1 + exp(-x))"""
-    ones = cut.Buffer(np.ones(x._shape[0], dtype=np.float32))
+    ones = cut.Tensor(np.ones(x._shape[0], dtype=np.float32))
     return ones / (ones + cut.exp(-x))
 
 
@@ -203,8 +203,8 @@ def chain_distance(x1_np: np.ndarray, y1_np: np.ndarray,
     return np.sqrt((x2_np - x1_np)**2 + (y2_np - y1_np)**2)
 
 
-def chain_distance_cut(x1: "cut.Buffer", y1: "cut.Buffer",
-                       x2: "cut.Buffer", y2: "cut.Buffer"):
+def chain_distance_cut(x1: "cut.Tensor", y1: "cut.Tensor",
+                       x2: "cut.Tensor", y2: "cut.Tensor"):
     """CUT: sqrt((x2-x1)^2 + (y2-y1)^2)"""
     dx = x2 - x1
     dy = y2 - y1
@@ -219,10 +219,10 @@ def chain_quadratic(a_np: np.ndarray, b_np: np.ndarray, c_np: np.ndarray):
     return (-b_np + np.sqrt(discriminant)) / (2*a_np)
 
 
-def chain_quadratic_cut(a: "cut.Buffer", b: "cut.Buffer", c: "cut.Buffer"):
+def chain_quadratic_cut(a: "cut.Tensor", b: "cut.Tensor", c: "cut.Tensor"):
     """CUT: (-b + sqrt(b^2 - 4ac)) / 2a"""
     n = a._shape[0]
-    zeros = cut.Buffer(np.zeros(n, dtype=np.float32))
+    zeros = cut.Tensor(np.zeros(n, dtype=np.float32))
 
     discriminant = cut.square(b) - a * c * 4.0
     # Clamp negative values
@@ -235,7 +235,7 @@ def chain_relu_leaky(x_np: np.ndarray, alpha: float = 0.01):
     return np.maximum(x_np, alpha * x_np)
 
 
-def chain_relu_leaky_cut(x: "cut.Buffer", alpha: float = 0.01):
+def chain_relu_leaky_cut(x: "cut.Tensor", alpha: float = 0.01):
     """CUT: max(x, alpha*x) - leaky ReLU"""
     return cut.maximum(x, x * alpha)
 
@@ -245,7 +245,7 @@ def chain_normalize(x_np: np.ndarray, min_val: float, max_val: float):
     return (x_np - min_val) / (max_val - min_val)
 
 
-def chain_normalize_cut(x: "cut.Buffer", min_val: float, max_val: float):
+def chain_normalize_cut(x: "cut.Tensor", min_val: float, max_val: float):
     """CUT: (x - min) / (max - min)"""
     return (x - min_val) / (max_val - min_val)
 
@@ -256,7 +256,7 @@ def chain_weighted_sum(a_np: np.ndarray, b_np: np.ndarray, c_np: np.ndarray,
     return w1 * a_np + w2 * b_np + w3 * c_np
 
 
-def chain_weighted_sum_cut(a: "cut.Buffer", b: "cut.Buffer", c: "cut.Buffer",
+def chain_weighted_sum_cut(a: "cut.Tensor", b: "cut.Tensor", c: "cut.Tensor",
                            w1: float, w2: float, w3: float):
     """CUT: w1*a + w2*b + w3*c"""
     return a * w1 + b * w2 + c * w3
@@ -417,15 +417,15 @@ def run_benchmarks(backend_name: str, size: int, include_jax: bool = False) -> L
     x2_np = np.random.randn(size).astype(np.float32)
     y2_np = np.random.randn(size).astype(np.float32)
 
-    # Create CUT buffers
-    a = cut.Buffer(a_np)
-    b = cut.Buffer(b_np)
-    c = cut.Buffer(c_np)
-    x = cut.Buffer(x_np)
-    x1 = cut.Buffer(x1_np)
-    y1 = cut.Buffer(y1_np)
-    x2 = cut.Buffer(x2_np)
-    y2 = cut.Buffer(y2_np)
+    # Create CUT tensors
+    a = cut.Tensor(a_np)
+    b = cut.Tensor(b_np)
+    c = cut.Tensor(c_np)
+    x = cut.Tensor(x_np)
+    x1 = cut.Tensor(x1_np)
+    y1 = cut.Tensor(y1_np)
+    x2 = cut.Tensor(x2_np)
+    y2 = cut.Tensor(y2_np)
 
     # Define benchmarks (JAX functions are conditionally added)
     benchmarks = [
