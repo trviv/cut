@@ -369,52 +369,52 @@ PYBIND11_MODULE(_cut_compute, m) {
       py::arg("mode"), "Set SIMD mode (CPU backend only)");
 
   // =========================================================================
-  // Buffer Operations
+  // Tensor Operations
   // =========================================================================
 
   m.def(
-      "create_buffer",
+      "create_tensor",
       [](py::array arr, bool is_uniform) {
         py::buffer_info info = arr.request();
         std::vector<uint32_t> shape(info.shape.begin(), info.shape.end());
         cut::DataType dtype = numpyFormatToDataType(info.format, info.itemsize);
 
-        return getRuntime().createBuffer(shape, dtype, info.ptr, is_uniform);
+        return getRuntime().createTensor(shape, dtype, info.ptr, is_uniform);
       },
       py::arg("data"), py::arg("is_uniform") = false,
-      "Create a buffer from numpy array");
+      "Create a tensor from numpy array");
 
   m.def(
-      "create_buffer_empty",
+      "create_tensor_empty",
       [](std::vector<uint32_t> shape, cut::DataType dtype, bool is_uniform) {
-        return getRuntime().createBufferEmpty(shape, dtype, is_uniform);
+        return getRuntime().createTensorEmpty(shape, dtype, is_uniform);
       },
       py::arg("shape"), py::arg("dtype"), py::arg("is_uniform") = false,
-      "Create an empty buffer");
+      "Create an empty tensor");
 
   m.def(
-      "copy_to_buffer",
+      "copy_to_tensor",
       [](cut::ComputeHandle handle, py::array arr, size_t src_offset,
          size_t dst_offset) {
         py::buffer_info info = arr.request();
         size_t size = info.size * info.itemsize;
-        getRuntime().copyToBuffer(handle, info.ptr, size, src_offset,
+        getRuntime().copyToTensor(handle, info.ptr, size, src_offset,
                                   dst_offset);
       },
       py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
-      py::arg("dst_offset") = 0, "Copy data to buffer");
+      py::arg("dst_offset") = 0, "Copy data to tensor");
 
   m.def(
-      "copy_from_buffer",
+      "copy_from_tensor",
       [](cut::ComputeHandle handle, py::array arr, size_t src_offset,
          size_t dst_offset) {
         py::buffer_info info = arr.request();
         size_t size = info.size * info.itemsize;
-        getRuntime().copyFromBuffer(handle, info.ptr, size, src_offset,
+        getRuntime().copyFromTensor(handle, info.ptr, size, src_offset,
                                     dst_offset);
       },
       py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
-      py::arg("dst_offset") = 0, "Copy data from buffer");
+      py::arg("dst_offset") = 0, "Copy data from tensor");
 
   // =========================================================================
   // Shutdown function for proper cleanup

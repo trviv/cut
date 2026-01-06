@@ -1103,16 +1103,16 @@ TEST_F(CPUBackendTest, BinaryVecVecOperators_Float32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-        auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                       ComputeBinding(1, bufferB),
                                       ComputeBinding(2, bufferOut)});
 
         std::vector<float> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         // Verify results
         for (uint32_t i = 0; i < elements; ++i) {
@@ -1169,16 +1169,16 @@ TEST_F(CPUBackendTest, BinaryVecVecOperators_Int32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-        auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                       ComputeBinding(1, bufferB),
                                       ComputeBinding(2, bufferOut)});
 
         std::vector<int32_t> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         // Verify results
         for (uint32_t i = 0; i < elements; ++i) {
@@ -1224,14 +1224,14 @@ TEST_F(CPUBackendTest, UnaryOperators_Float32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
 
         std::vector<float> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         // Verify results
         for (uint32_t i = 0; i < elements; ++i) {
@@ -1266,14 +1266,14 @@ TEST_F(CPUBackendTest, UnaryOperators_Int32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
 
         std::vector<int32_t> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         // Verify results
         for (uint32_t i = 0; i < elements; ++i) {
@@ -1308,15 +1308,15 @@ TEST_F(CPUBackendTest, BinaryVecScalarOperators_Float32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
                  ComputeBinding(2, DataReference(scalar))});
 
         std::vector<float> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         // Verify results
         for (uint32_t i = 0; i < elements; ++i) {
@@ -1364,15 +1364,15 @@ TEST_F(CPUBackendTest, BinaryVecScalarOperators_Int32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
                  ComputeBinding(2, DataReference(scalar))});
 
         std::vector<int32_t> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         // Verify results
         for (uint32_t i = 0; i < elements; ++i) {
@@ -1419,16 +1419,16 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Float32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-        auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                       ComputeBinding(1, bufferB),
                                       ComputeBinding(2, bufferOut)});
 
         std::vector<float> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
@@ -1476,14 +1476,14 @@ TEST_F(VulkanBackendTest, UnaryOperators_Float32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
 
         std::vector<float> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = unaryRef(op, dataIn[i]);
@@ -1524,15 +1524,15 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
                  ComputeBinding(2, DataReference(scalar))});
 
         std::vector<float> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = binaryVecScalarRef(op, dataA[i], scalar);
@@ -1609,24 +1609,24 @@ TEST_F(CrossBackendTest, BinaryVecVecConsistency_Float32) {
                    " Shape: " + shapeToString(shape));
 
       // CPU execution
-      auto cpuBufA = cpuRuntime_->createBuffer(shape, dtype, dataA.data());
-      auto cpuBufB = cpuRuntime_->createBuffer(shape, dtype, dataB.data());
-      auto cpuBufOut = cpuRuntime_->createBufferEmpty(shape, dtype);
+      auto cpuBufA = cpuRuntime_->createTensor(shape, dtype, dataA.data());
+      auto cpuBufB = cpuRuntime_->createTensor(shape, dtype, dataB.data());
+      auto cpuBufOut = cpuRuntime_->createTensorEmpty(shape, dtype);
       cpuRuntime_->encodeOperator(op, {ComputeBinding(0, cpuBufA),
                                        ComputeBinding(1, cpuBufB),
                                        ComputeBinding(2, cpuBufOut)});
       std::vector<float> cpuOutput(elements);
-      cpuRuntime_->copyFromBuffer(cpuBufOut, cpuOutput.data(), bufferSize);
+      cpuRuntime_->copyFromTensor(cpuBufOut, cpuOutput.data(), bufferSize);
 
       // Vulkan execution
-      auto vkBufA = vulkanRuntime_->createBuffer(shape, dtype, dataA.data());
-      auto vkBufB = vulkanRuntime_->createBuffer(shape, dtype, dataB.data());
-      auto vkBufOut = vulkanRuntime_->createBufferEmpty(shape, dtype);
+      auto vkBufA = vulkanRuntime_->createTensor(shape, dtype, dataA.data());
+      auto vkBufB = vulkanRuntime_->createTensor(shape, dtype, dataB.data());
+      auto vkBufOut = vulkanRuntime_->createTensorEmpty(shape, dtype);
       vulkanRuntime_->encodeOperator(op, {ComputeBinding(0, vkBufA),
                                           ComputeBinding(1, vkBufB),
                                           ComputeBinding(2, vkBufOut)});
       std::vector<float> vkOutput(elements);
-      vulkanRuntime_->copyFromBuffer(vkBufOut, vkOutput.data(), bufferSize);
+      vulkanRuntime_->copyFromTensor(vkBufOut, vkOutput.data(), bufferSize);
 
       // Compare results
       for (uint32_t i = 0; i < elements; ++i) {
@@ -1673,20 +1673,20 @@ TEST_F(CrossBackendTest, UnaryConsistency_Float32) {
                    " Shape: " + shapeToString(shape));
 
       // CPU execution
-      auto cpuBufIn = cpuRuntime_->createBuffer(shape, dtype, dataIn.data());
-      auto cpuBufOut = cpuRuntime_->createBufferEmpty(shape, dtype);
+      auto cpuBufIn = cpuRuntime_->createTensor(shape, dtype, dataIn.data());
+      auto cpuBufOut = cpuRuntime_->createTensorEmpty(shape, dtype);
       cpuRuntime_->encodeOperator(
           op, {ComputeBinding(0, cpuBufIn), ComputeBinding(1, cpuBufOut)});
       std::vector<float> cpuOutput(elements);
-      cpuRuntime_->copyFromBuffer(cpuBufOut, cpuOutput.data(), bufferSize);
+      cpuRuntime_->copyFromTensor(cpuBufOut, cpuOutput.data(), bufferSize);
 
       // Vulkan execution
-      auto vkBufIn = vulkanRuntime_->createBuffer(shape, dtype, dataIn.data());
-      auto vkBufOut = vulkanRuntime_->createBufferEmpty(shape, dtype);
+      auto vkBufIn = vulkanRuntime_->createTensor(shape, dtype, dataIn.data());
+      auto vkBufOut = vulkanRuntime_->createTensorEmpty(shape, dtype);
       vulkanRuntime_->encodeOperator(
           op, {ComputeBinding(0, vkBufIn), ComputeBinding(1, vkBufOut)});
       std::vector<float> vkOutput(elements);
-      vulkanRuntime_->copyFromBuffer(vkBufOut, vkOutput.data(), bufferSize);
+      vulkanRuntime_->copyFromTensor(vkBufOut, vkOutput.data(), bufferSize);
 
       // Compare results
       for (uint32_t i = 0; i < elements; ++i) {
@@ -1727,16 +1727,16 @@ TEST_F(DimensionSizeRangeTest, AllSizes_1D_Float32) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] + dataB[i];
@@ -1766,16 +1766,16 @@ TEST_F(DimensionSizeRangeTest, AllSizes_2D_Float32) {
       auto dataA = generateTestData<float>(elements, 42);
       auto dataB = generateTestData<float>(elements, 123);
 
-      auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-      auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+      auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
       runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                     ComputeBinding(1, bufferB),
                                     ComputeBinding(2, bufferOut)});
 
       std::vector<float> output(elements);
-      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
       for (uint32_t i = 0; i < elements; ++i) {
         float expected = dataA[i] * dataB[i];
@@ -1806,16 +1806,16 @@ TEST_F(DimensionSizeRangeTest, AllSizes_3D_Float32) {
         auto dataA = generateTestData<float>(elements, 42);
         auto dataB = generateTestData<float>(elements, 123);
 
-        auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-        auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-        auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                       ComputeBinding(1, bufferB),
                                       ComputeBinding(2, bufferOut)});
 
         std::vector<float> output(elements);
-        runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = dataA[i] - dataB[i];
@@ -1853,16 +1853,16 @@ TEST_F(DimensionSizeRangeTest, AllSizes_4D_Float32) {
               v = 0.1f;
           }
 
-          auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-          auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-          auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+          auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+          auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+          auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
           runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                         ComputeBinding(1, bufferB),
                                         ComputeBinding(2, bufferOut)});
 
           std::vector<float> output(elements);
-          runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+          runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
           for (uint32_t i = 0; i < elements; ++i) {
             float expected = dataA[i] / dataB[i];
@@ -1906,16 +1906,16 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim1) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] + dataB[i];
@@ -1939,16 +1939,16 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim3) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * dataB[i];
@@ -1972,16 +1972,16 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim5) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] - dataB[i];
@@ -2005,16 +2005,16 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim11) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] + dataB[i];
@@ -2038,16 +2038,16 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim13) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * dataB[i];
@@ -2073,16 +2073,16 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] + dataB[i];
@@ -2108,16 +2108,16 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_4D_NonAlignedInnermost) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * dataB[i];
@@ -2142,14 +2142,14 @@ TEST_F(NonAlignedInnermostTest, Unary_2D_NonAlignedInnermost) {
 
     auto dataIn = generateTestData<float>(elements, 42);
 
-    auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(
         op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = -dataIn[i];
@@ -2175,15 +2175,15 @@ TEST_F(NonAlignedInnermostTest, VecScalar_2D_NonAlignedInnermost) {
 
     auto dataA = generateTestData<float>(elements, 42);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferOut),
                                   ComputeBinding(2, DataReference(scalar))});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * scalar;
@@ -2218,16 +2218,16 @@ TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_2D_NonAlignedInnermost) {
       auto dataA = generateTestData<float>(elements, 42);
       auto dataB = generateTestData<float>(elements, 123);
 
-      auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-      auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-      auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+      auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
       runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                     ComputeBinding(1, bufferB),
                                     ComputeBinding(2, bufferOut)});
 
       std::vector<float> output(elements);
-      runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
       for (uint32_t i = 0; i < elements; ++i) {
         float expected = dataA[i] + dataB[i];
@@ -2254,16 +2254,16 @@ TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * dataB[i];
@@ -2288,16 +2288,16 @@ TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_4D_NonAlignedInnermost) {
     auto dataA = generateTestData<float>(elements, 42);
     auto dataB = generateTestData<float>(elements, 123);
 
-    auto bufferA = runtime_->createBuffer(shape, dtype, dataA.data());
-    auto bufferB = runtime_->createBuffer(shape, dtype, dataB.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                   ComputeBinding(1, bufferB),
                                   ComputeBinding(2, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] - dataB[i];
@@ -2321,14 +2321,14 @@ TEST_F(VulkanNonAlignedInnermostTest, Unary_NonAlignedInnermost) {
 
     auto dataIn = generateTestData<float>(elements, 42);
 
-    auto bufferIn = runtime_->createBuffer(shape, dtype, dataIn.data());
-    auto bufferOut = runtime_->createBufferEmpty(shape, dtype);
+    auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+    auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
     runtime_->encodeOperator(
         op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
 
     std::vector<float> output(elements);
-    runtime_->copyFromBuffer(bufferOut, output.data(), bufferSize);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataIn[i] * dataIn[i];
@@ -2373,7 +2373,7 @@ TEST_F(RuntimeLifecycleTest, MultipleInitShutdown) {
   // First cycle
   runtime.init(BackendType::CPU);
   {
-    auto buf1 = runtime.createBufferEmpty({16}, DataType::Float32);
+    auto buf1 = runtime.createTensorEmpty({16}, DataType::Float32);
     EXPECT_TRUE(buf1);
   } // buf1 goes out of scope here
   runtime.shutdown();
@@ -2381,7 +2381,7 @@ TEST_F(RuntimeLifecycleTest, MultipleInitShutdown) {
   // Second cycle
   runtime.init(BackendType::CPU);
   {
-    auto buf2 = runtime.createBufferEmpty({16}, DataType::Float32);
+    auto buf2 = runtime.createTensorEmpty({16}, DataType::Float32);
     EXPECT_TRUE(buf2);
   } // buf2 goes out of scope here
   runtime.shutdown();
@@ -2391,7 +2391,7 @@ TEST_F(RuntimeLifecycleTest, MoveSemantics) {
   Runtime runtime1;
   runtime1.init(BackendType::CPU);
   {
-    auto buf = runtime1.createBufferEmpty({16}, DataType::Float32);
+    auto buf = runtime1.createTensorEmpty({16}, DataType::Float32);
     EXPECT_TRUE(buf);
   } // buf goes out of scope here
 

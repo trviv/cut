@@ -96,57 +96,57 @@ public:
   void setSIMDMode(SIMDMode mode);
 
   // =========================================================================
-  // Buffer Operations
+  // Tensor Operations
   // =========================================================================
 
   /**
-   * Creates a buffer with the specified shape and data type.
+   * Creates a tensor with the specified shape and data type.
    * @param shape Tensor shape (e.g., {batch, height, width, channels}).
    * @param dtype Data type of elements.
    * @param srcPtr Optional source data pointer for initialization.
    * @param isUniform If true, creates a uniform buffer (Vulkan only).
-   * @return Handle to the created buffer.
+   * @return Handle to the created tensor.
    */
-  ComputeHandle createBuffer(const std::vector<uint32_t> &shape,
+  ComputeHandle createTensor(const std::vector<uint32_t> &shape,
                              DataType dtype,
                              const void *srcPtr = nullptr,
                              bool isUniform = false);
 
   /**
-   * Creates an empty buffer with the specified shape and data type.
+   * Creates an empty tensor with the specified shape and data type.
    * @param shape Tensor shape.
    * @param dtype Data type of elements.
    * @param isUniform If true, creates a uniform buffer (Vulkan only).
-   * @return Handle to the created buffer.
+   * @return Handle to the created tensor.
    */
-  ComputeHandle createBufferEmpty(const std::vector<uint32_t> &shape,
+  ComputeHandle createTensorEmpty(const std::vector<uint32_t> &shape,
                                   DataType dtype,
                                   bool isUniform = false);
 
   /**
-   * Copies data from host memory to a buffer.
-   * @param handle Buffer handle.
+   * Copies data from host memory to a tensor.
+   * @param handle Tensor handle.
    * @param srcPtr Source data pointer.
    * @param size Number of bytes to copy.
    * @param srcOffset Offset in source data.
-   * @param dstOffset Offset in destination buffer.
+   * @param dstOffset Offset in destination tensor.
    */
-  void copyToBuffer(ComputeHandle handle,
+  void copyToTensor(ComputeHandle handle,
                     const void *srcPtr,
                     size_t size,
                     size_t srcOffset = 0,
                     size_t dstOffset = 0);
 
   /**
-   * Copies data from a buffer to host memory.
+   * Copies data from a tensor to host memory.
    * Automatically flushes any pending GPU commands before reading.
-   * @param handle Buffer handle.
+   * @param handle Tensor handle.
    * @param dstPtr Destination data pointer.
    * @param size Number of bytes to copy.
-   * @param srcOffset Offset in source buffer.
+   * @param srcOffset Offset in source tensor.
    * @param dstOffset Offset in destination data.
    */
-  void copyFromBuffer(ComputeHandle handle,
+  void copyFromTensor(ComputeHandle handle,
                       void *dstPtr,
                       size_t size,
                       size_t srcOffset = 0,

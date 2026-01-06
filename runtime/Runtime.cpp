@@ -137,23 +137,23 @@ ComputeInterface *Runtime::getInterface() {
 }
 
 // =========================================================================
-// Buffer Operations
+// Tensor Operations
 // =========================================================================
 
-ComputeHandle Runtime::createBuffer(const std::vector<uint32_t> &shape,
+ComputeHandle Runtime::createTensor(const std::vector<uint32_t> &shape,
                                     DataType dtype,
                                     const void *srcPtr,
                                     bool isUniform) {
   return getInterface()->createBuffer(shape, dtype, srcPtr, isUniform);
 }
 
-ComputeHandle Runtime::createBufferEmpty(const std::vector<uint32_t> &shape,
+ComputeHandle Runtime::createTensorEmpty(const std::vector<uint32_t> &shape,
                                          DataType dtype,
                                          bool isUniform) {
   return getInterface()->createBuffer(shape, dtype, nullptr, isUniform);
 }
 
-void Runtime::copyToBuffer(ComputeHandle handle,
+void Runtime::copyToTensor(ComputeHandle handle,
                            const void *srcPtr,
                            size_t size,
                            size_t srcOffset,
@@ -162,7 +162,7 @@ void Runtime::copyToBuffer(ComputeHandle handle,
                                    false, true);
 }
 
-void Runtime::copyFromBuffer(ComputeHandle handle,
+void Runtime::copyFromTensor(ComputeHandle handle,
                              void *dstPtr,
                              size_t size,
                              size_t srcOffset,
