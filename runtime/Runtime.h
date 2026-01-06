@@ -7,7 +7,7 @@
 #include <ComputeStructs.h>
 
 // For SIMDMode enum
-#include "../backends/cpu/CPUKernels.h"
+#include "../core/backends/cpu/CPUKernels.h"
 
 #include <map>
 #include <memory>

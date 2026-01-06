@@ -71,9 +71,9 @@ add_executable(tests
 target_include_directories(tests PRIVATE
     ${Vulkan_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/shaders
-    ${CMAKE_SOURCE_DIR}/api/Headers
-    ${CMAKE_SOURCE_DIR}/backends/vulkan
-    ${CMAKE_SOURCE_DIR}/backends/cpu
+    ${CMAKE_SOURCE_DIR}/core/api/Headers
+    ${CMAKE_SOURCE_DIR}/core/backends/vulkan
+    ${CMAKE_SOURCE_DIR}/core/backends/cpu
     ${CMAKE_SOURCE_DIR}/runtime
     ${CMAKE_SOURCE_DIR}/tests
 )

@@ -85,24 +85,24 @@ if (OPENL_CL_WITH_VULKAN)
 endif()
 
 set(LIB_HEADERS
-    api/Headers/ComputeCommon.h
-    api/Headers/ComputeHandle.h
-    api/Headers/ComputeStructs.h
-    api/Headers/ComputeContainer.h
-    api/Headers/ComputeContainers.h
-    api/Headers/ComputeInterface.h
-    backends/vulkan/VulkanCommon.h
-    backends/vulkan/VulkanStructs.h
-    backends/vulkan/VulkanContainers.h
-    backends/vulkan/VulkanCompute.h
-    backends/vulkan/VulkanCommandBuffer.h
-    backends/cpu/ThreadPool.h
-    backends/cpu/CPUKernels.h
-    backends/cpu/CPUContainers.h
-    backends/cpu/CPUCommandBuffer.h
-    backends/cpu/CPUCompute.h
-    backends/cpu/CPUSIMDConfig.h
-    backends/cpu/CPUSIMDKernels.h
+    core/api/Headers/ComputeCommon.h
+    core/api/Headers/ComputeHandle.h
+    core/api/Headers/ComputeStructs.h
+    core/api/Headers/ComputeContainer.h
+    core/api/Headers/ComputeContainers.h
+    core/api/Headers/ComputeInterface.h
+    core/backends/vulkan/VulkanCommon.h
+    core/backends/vulkan/VulkanStructs.h
+    core/backends/vulkan/VulkanContainers.h
+    core/backends/vulkan/VulkanCompute.h
+    core/backends/vulkan/VulkanCommandBuffer.h
+    core/backends/cpu/ThreadPool.h
+    core/backends/cpu/CPUKernels.h
+    core/backends/cpu/CPUContainers.h
+    core/backends/cpu/CPUCommandBuffer.h
+    core/backends/cpu/CPUCompute.h
+    core/backends/cpu/CPUSIMDConfig.h
+    core/backends/cpu/CPUSIMDKernels.h
     shaders/Shaders.h
     runtime/Runtime.h
     runtime/Dispatcher.h
@@ -113,20 +113,20 @@ set(LIB_SOURCES
     shaders/Shaders.cpp
     shaders/ShadersGenerated.cpp
     shaders/CompiledShaders.cpp
-    api/src/ComputeCommon.cpp
-    api/src/ComputeHandle.cpp
-    api/src/ComputeStructs.cpp
-    api/src/ComputeContainer.cpp
-    api/src/ComputeInterface.cpp
-    backends/vulkan/VulkanCommon.cpp
-    backends/vulkan/VulkanContainers.cpp
-    backends/vulkan/VulkanCompute.cpp
-    backends/vulkan/VulkanCommandBuffer.cpp
-    backends/cpu/ThreadPool.cpp
-    backends/cpu/CPUKernels.cpp
-    backends/cpu/CPUContainers.cpp
-    backends/cpu/CPUCommandBuffer.cpp
-    backends/cpu/CPUCompute.cpp
+    core/api/src/ComputeCommon.cpp
+    core/api/src/ComputeHandle.cpp
+    core/api/src/ComputeStructs.cpp
+    core/api/src/ComputeContainer.cpp
+    core/api/src/ComputeInterface.cpp
+    core/backends/vulkan/VulkanCommon.cpp
+    core/backends/vulkan/VulkanContainers.cpp
+    core/backends/vulkan/VulkanCompute.cpp
+    core/backends/vulkan/VulkanCommandBuffer.cpp
+    core/backends/cpu/ThreadPool.cpp
+    core/backends/cpu/CPUKernels.cpp
+    core/backends/cpu/CPUContainers.cpp
+    core/backends/cpu/CPUCommandBuffer.cpp
+    core/backends/cpu/CPUCompute.cpp
     runtime/Runtime.cpp
     runtime/Dispatcher.cpp
 )
@@ -158,9 +158,9 @@ add_executable(${PROJECT_NAME} "main.cpp")
 # Include directories
 target_include_directories(CUTLib PRIVATE
     ${Vulkan_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/api/Headers
-    ${CMAKE_SOURCE_DIR}/backends/vulkan
-    ${CMAKE_SOURCE_DIR}/backends/cpu
+    ${CMAKE_SOURCE_DIR}/core/api/Headers
+    ${CMAKE_SOURCE_DIR}/core/backends/vulkan
+    ${CMAKE_SOURCE_DIR}/core/backends/cpu
     ${CMAKE_SOURCE_DIR}/shaders
     ${CMAKE_SOURCE_DIR}/runtime
 )
@@ -207,9 +207,9 @@ add_subdirectory(tests)
 if(TARGET benchmarks)
     target_include_directories(benchmarks PRIVATE
         ${Vulkan_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/api/Headers
-        ${CMAKE_SOURCE_DIR}/backends/vulkan
-        ${CMAKE_SOURCE_DIR}/backends/cpu
+        ${CMAKE_SOURCE_DIR}/core/api/Headers
+        ${CMAKE_SOURCE_DIR}/core/backends/vulkan
+        ${CMAKE_SOURCE_DIR}/core/backends/cpu
         ${CMAKE_SOURCE_DIR}/shaders
         ${CMAKE_SOURCE_DIR}/benchmarks
     )

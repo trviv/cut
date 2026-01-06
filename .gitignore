@@ -1,7 +1,7 @@
 /build/
 /shaders/CompiledShaders.cpp
 .DS_Store
-/python/.pytest_cache
-/python/venv/
-/python/build
+/interface/python/.pytest_cache
+/interface/python/venv/
+/interface/python/build
 /models
