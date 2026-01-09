@@ -47,6 +47,7 @@ class BackendRegistry:
         self.cupy = None
         self.jax = None
         self.jnp = None
+        self.torch = None
         self._vulkan_available = False
         self._cpu_available = False
         self._load_backends()
@@ -88,12 +89,22 @@ class BackendRegistry:
         except Exception as e:
             print(f"Note: JAX initialization failed: {e}")
 
+        # PyTorch backend
+        try:
+            import torch
+            self.torch = torch
+        except ImportError as e:
+            print(f"Note: PyTorch not available: {e}")
+        except Exception as e:
+            print(f"Note: PyTorch initialization failed: {e}")
+
         # Check if any backend is available
         any_available = (
             self._vulkan_available or
             self._cpu_available or
             self.cupy is not None or
-            self.jax is not None
+            self.jax is not None or
+            self.torch is not None
         )
         if not any_available:
             print("Warning: No GPU/accelerator backends available.")
@@ -115,6 +126,10 @@ class BackendRegistry:
     @property
     def jax_available(self) -> bool:
         return self.jax is not None
+
+    @property
+    def pytorch_available(self) -> bool:
+        return self.torch is not None
 
 
 # Global backend registry
@@ -459,6 +474,104 @@ class JAXRunner(BackendRunner):
             return BackendResult()
 
 
+class PyTorchRunner(BackendRunner):
+    """Runs benchmarks on PyTorch CPU backend."""
+
+    def __init__(self, test_data: TestData):
+        self.data = test_data
+        self._tensors = {}
+        if backends.pytorch_available:
+            self._create_tensors()
+
+    def _create_tensors(self):
+        torch = backends.torch
+        self._tensors = {
+            'a': torch.from_numpy(self.data.a),
+            'b': torch.from_numpy(self.data.b),
+            'a_pos': torch.from_numpy(self.data.a_pos),
+            'b_pos': torch.from_numpy(self.data.b_pos),
+            'a_unit': torch.from_numpy(self.data.a_unit),
+            'b_small': torch.from_numpy(self.data.b_small),
+            'a_div10': torch.from_numpy(self.data.a_div10),
+            'a_tan_safe': torch.from_numpy(self.data.a_tan_safe),
+        }
+
+    def is_available(self) -> bool:
+        return backends.pytorch_available
+
+    def _get_args(self, np_args: tuple) -> tuple:
+        torch = backends.torch
+        mapping = {
+            id(self.data.a): self._tensors['a'],
+            id(self.data.b): self._tensors['b'],
+            id(self.data.a_pos): self._tensors['a_pos'],
+            id(self.data.b_pos): self._tensors['b_pos'],
+            id(self.data.a_unit): self._tensors['a_unit'],
+            id(self.data.b_small): self._tensors['b_small'],
+            id(self.data.a_div10): self._tensors['a_div10'],
+            id(self.data.a_tan_safe): self._tensors['a_tan_safe'],
+        }
+        result = []
+        for arg in np_args:
+            if isinstance(arg, np.ndarray):
+                result.append(mapping.get(id(arg), torch.from_numpy(arg)))
+            else:
+                result.append(float(arg))
+        return tuple(result)
+
+    def run(self, op_name: str, np_func: Callable, np_args: tuple,
+            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+        if not self.is_available():
+            return BackendResult()
+
+        try:
+            torch = backends.torch
+            torch_args = self._get_args(np_args)
+
+            # Map numpy function names to torch equivalents
+            func_name = np_func.__name__
+            torch_func = getattr(torch, func_name, None)
+
+            # Handle special cases for comparison ops
+            if torch_func is None:
+                name_map = {
+                    'equal': 'eq',
+                    'not_equal': 'ne',
+                    'less': 'lt',
+                    'less_equal': 'le',
+                    'greater': 'gt',
+                    'greater_equal': 'ge',
+                }
+                if func_name in name_map:
+                    base_func = getattr(torch, name_map[func_name])
+                    torch_func = lambda *args: base_func(*args).float()
+                else:
+                    return BackendResult()
+
+            # Warmup
+            for _ in range(config.warmup_iterations):
+                torch_func(*torch_args)
+
+            # Timed runs
+            times = []
+            for _ in range(config.num_iterations):
+                start = time.perf_counter()
+                result = torch_func(*torch_args)
+                end = time.perf_counter()
+                times.append(end - start)
+
+            result_np = result.numpy().astype(np.float32)
+            valid = self._verify(np_result, result_np)
+
+            return BackendResult(
+                time_ms=np.mean(times) * 1000,
+                std_ms=np.std(times) * 1000,
+                valid=valid
+            )
+        except Exception:
+            return BackendResult()
+
+
 # =============================================================================
 # Extended Output Formatting
 # =============================================================================
@@ -470,9 +583,9 @@ class MultiBackendFormatter(OutputFormatter):
     def table_header():
         """Print the results table header."""
         cols = ['Operation', 'Vulkan (ms)', 'CPU (ms)', 'CPU+SIMD (ms)',
-                'CuPy (ms)', 'JAX (ms)', 'NumPy (ms)',
-                'Vulkan/NP', 'CPU/NP', 'SIMD/NP', 'CuPy/NP', 'JAX/NP', 'Status']
-        widths = [14, 16, 16, 16, 16, 16, 16, 10, 10, 10, 10, 10, 12]
+                'CuPy (ms)', 'JAX (ms)', 'PyTorch (ms)', 'NumPy (ms)',
+                'Vulkan/NP', 'CPU/NP', 'SIMD/NP', 'CuPy/NP', 'JAX/NP', 'Torch/NP', 'Status']
+        widths = [14, 14, 14, 14, 14, 14, 14, 14, 10, 10, 10, 10, 10, 10, 12]
 
         header = " | ".join(f"{c:<{w}}" for c, w in zip(cols, widths))
         separator = "-+-".join("-" * w for w in widths)
@@ -489,6 +602,7 @@ class MultiBackendFormatter(OutputFormatter):
         simd_time = fmt.format_time(result.cpu_simd.time_ms, result.cpu_simd.std_ms, backends.cpu_available)
         cupy_time = fmt.format_time(result.cupy.time_ms, result.cupy.std_ms, backends.cupy_available)
         jax_time = fmt.format_time(result.jax.time_ms, result.jax.std_ms, backends.jax_available)
+        pytorch_time = fmt.format_time(result.pytorch.time_ms, result.pytorch.std_ms, backends.pytorch_available)
         np_time = fmt.format_time(result.numpy.time_ms, result.numpy.std_ms)
 
         vk_spd = fmt.format_speedup(result.vulkan.speedup, backends.vulkan_available)
@@ -496,6 +610,7 @@ class MultiBackendFormatter(OutputFormatter):
         simd_spd = fmt.format_speedup(result.cpu_simd.speedup, backends.cpu_available)
         cupy_spd = fmt.format_speedup(result.cupy.speedup, backends.cupy_available)
         jax_spd = fmt.format_speedup(result.jax.speedup, backends.jax_available)
+        pytorch_spd = fmt.format_speedup(result.pytorch.speedup, backends.pytorch_available)
 
         status_parts = []
         if backends.vulkan_available:
@@ -507,19 +622,22 @@ class MultiBackendFormatter(OutputFormatter):
             status_parts.append('G:OK' if result.cupy.valid else 'G:FAIL')
         if backends.jax_available:
             status_parts.append('J:OK' if result.jax.valid else 'J:FAIL')
+        if backends.pytorch_available:
+            status_parts.append('T:OK' if result.pytorch.valid else 'T:FAIL')
 
         all_valid = all([
             not backends.vulkan_available or result.vulkan.valid,
             not backends.cpu_available or (result.cpu.valid and result.cpu_simd.valid),
             not backends.cupy_available or result.cupy.valid,
             not backends.jax_available or result.jax.valid,
+            not backends.pytorch_available or result.pytorch.valid,
         ])
         status_color = Colors.GREEN if all_valid else Colors.RED
         status = f"{status_color}{' '.join(status_parts)}{Colors.RESET}"
 
-        print(f"{result.name:<14} | {vk_time:<16} | {cpu_time:<16} | {simd_time:<16} | "
-              f"{cupy_time:<16} | {jax_time:<16} | {np_time:<16} | "
-              f"{vk_spd:<19} | {cpu_spd:<19} | {simd_spd:<19} | {cupy_spd:<19} | {jax_spd:<19} | {status}")
+        print(f"{result.name:<14} | {vk_time:<14} | {cpu_time:<14} | {simd_time:<14} | "
+              f"{cupy_time:<14} | {jax_time:<14} | {pytorch_time:<14} | {np_time:<14} | "
+              f"{vk_spd:<10} | {cpu_spd:<10} | {simd_spd:<10} | {cupy_spd:<10} | {jax_spd:<10} | {pytorch_spd:<10} | {status}")
 
 
 # =============================================================================
@@ -556,6 +674,10 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
             print(f"  - JAX:        Available (backend: {backends.jax.default_backend()})")
         else:
             print(f"  - JAX:        Not available")
+        if backends.pytorch_available:
+            print(f"  - PyTorch:    Available ({backends.torch.__version__})")
+        else:
+            print(f"  - PyTorch:    Not available")
         print(f"  - NumPy:      {np.__version__}")
 
     # Generate test data and create runners
@@ -566,6 +688,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     cpu_simd_runner = CPURunner(data, simd=True)
     cupy_runner = CuPyRunner(data)
     jax_runner = JAXRunner(data)
+    pytorch_runner = PyTorchRunner(data)
 
     operations = get_operations(data)
 
@@ -600,6 +723,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
             cpu_simd_result = cpu_simd_runner.run(op_name, np_func, np_args, np_result, config)
             cupy_result = cupy_runner.run(op_name, np_func, np_args, np_result, config)
             jax_result = jax_runner.run(op_name, np_func, np_args, np_result, config)
+            pytorch_result = pytorch_runner.run(op_name, np_func, np_args, np_result, config)
 
             # Calculate speedups
             np_time = numpy_result.time_ms
@@ -608,6 +732,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
             cpu_simd_result.speedup = np_time / cpu_simd_result.time_ms if cpu_simd_result.time_ms > 0 else float('nan')
             cupy_result.speedup = np_time / cupy_result.time_ms if cupy_result.time_ms > 0 else float('nan')
             jax_result.speedup = np_time / jax_result.time_ms if jax_result.time_ms > 0 else float('nan')
+            pytorch_result.speedup = np_time / pytorch_result.time_ms if pytorch_result.time_ms > 0 else float('nan')
 
             result = BenchmarkResult(
                 name=op_name,
@@ -618,6 +743,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
                 cpu_simd=cpu_simd_result,
                 cupy=cupy_result,
                 jax=jax_result,
+                pytorch=pytorch_result,
             )
             results.append(result)
 
@@ -672,6 +798,7 @@ def print_summary(results: List[BenchmarkResult]):
         'cpu_simd': compute_stats(results, 'cpu_simd') if backends.cpu_available else {'available': False},
         'cupy': compute_stats(results, 'cupy') if backends.cupy_available else {'available': False},
         'jax': compute_stats(results, 'jax') if backends.jax_available else {'available': False},
+        'pytorch': compute_stats(results, 'pytorch') if backends.pytorch_available else {'available': False},
     }
 
     print(f"\n{Colors.BOLD}Overall Statistics{Colors.RESET}")
@@ -679,20 +806,21 @@ def print_summary(results: List[BenchmarkResult]):
     print(f"  Total operations tested:    {len(results)}")
 
     for name, label in [('vulkan', 'Vulkan'), ('cpu', 'CPU (scalar)'),
-                        ('cpu_simd', 'CPU+SIMD'), ('cupy', 'CuPy'), ('jax', 'JAX')]:
+                        ('cpu_simd', 'CPU+SIMD'), ('cupy', 'CuPy'), ('jax', 'JAX'),
+                        ('pytorch', 'PyTorch')]:
         s = stats[name]
         if s['available']:
             print(f"  {label} validated:".ljust(30) + f"{s['valid']}/{s['total']}")
 
     print(f"\n{Colors.BOLD}Speedup Statistics (vs NumPy){Colors.RESET}")
-    print(f"{'─' * 105}")
+    print(f"{'─' * 120}")
 
     def fmt(s, key):
         return f"{s[key]:.3f}x" if s['available'] else "N/A"
 
     for metric in ['mean', 'median', 'min', 'max']:
         row = f"  {metric.capitalize() + ' speedup':<20}"
-        for name in ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax']:
+        for name in ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax', 'pytorch']:
             row += f" {fmt(stats[name], metric):<14}"
         print(row)
 
@@ -709,7 +837,7 @@ def print_summary(results: List[BenchmarkResult]):
         return f"{Colors.RED}POOR{Colors.RESET}"
 
     for name, label in [('vulkan', 'Vulkan'), ('cpu', 'CPU'), ('cpu_simd', 'CPU+SIMD'),
-                        ('cupy', 'CuPy'), ('jax', 'JAX')]:
+                        ('cupy', 'CuPy'), ('jax', 'JAX'), ('pytorch', 'PyTorch')]:
         s = stats[name]
         if s['available']:
             print(f"  {label}:".ljust(13) + f"{verdict(s['mean'])} ({s['mean']:.2f}x avg speedup)")
@@ -738,7 +866,7 @@ def export_csv(results: List[BenchmarkResult], filepath: Path):
     """Export results to CSV file."""
     with open(filepath, 'w', newline='') as f:
         writer = csv.writer(f)
-        backends_list = ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax', 'numpy']
+        backends_list = ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax', 'pytorch', 'numpy']
         header = ['operation', 'category']
         for b in backends_list:
             header.extend([f'{b}_ms', f'{b}_speedup', f'{b}_valid'])

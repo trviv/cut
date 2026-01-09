@@ -31,6 +31,7 @@ class BenchmarkResult:
     cpu_simd: BackendResult = field(default_factory=BackendResult)
     cupy: BackendResult = field(default_factory=BackendResult)
     jax: BackendResult = field(default_factory=BackendResult)
+    pytorch: BackendResult = field(default_factory=BackendResult)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for JSON export."""
@@ -51,4 +52,5 @@ class BenchmarkResult:
             'cpu_simd': backend_to_dict(self.cpu_simd),
             'cupy': backend_to_dict(self.cupy),
             'jax': backend_to_dict(self.jax),
+            'pytorch': backend_to_dict(self.pytorch),
         }
