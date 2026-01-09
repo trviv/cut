@@ -616,6 +616,174 @@ void executeBinaryKernel(OperatorEnum op,
     }
   }
 
+  // SIMD path for int32_t
+  if constexpr (std::is_same_v<T, int32_t>) {
+    const int32_t *aStart = a + start;
+    const int32_t *bStart = b + start;
+    int32_t *outStart = out + start;
+    size_t count = end - start;
+    SIMDMode effectiveMode = getEffectiveSIMDMode(simdMode);
+
+    switch (op) {
+    case BinaryVecVecAdd:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxAddInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseAddInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecSub:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxSubInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseSubInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecMul:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxMulInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE4_1
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseMulInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecMin:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxMinInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE4_1
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseMinInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecMax:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxMaxInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE4_1
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseMaxInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecEqual:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxEqualInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseEqualInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecLess:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxLessInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseLessInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecGreater:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxGreaterInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseGreaterInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecBitwiseAnd:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxBitwiseAndInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseBitwiseAndInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecBitwiseOr:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxBitwiseOrInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseBitwiseOrInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecVecBitwiseXor:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxBitwiseXorInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseBitwiseXorInt(aStart, bStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    default:
+      break;
+    }
+  }
+
   // Scalar fallback for all types
   switch (op) {
   // Arithmetic (all types)
@@ -735,8 +903,355 @@ void executeBinaryVecScalarKernel(OperatorEnum op,
                                   size_t start,
                                   size_t end,
                                   SIMDMode simdMode) {
-  (void)simdMode; // No SIMD for vec-scalar yet
+  // SIMD path only for float
+  if constexpr (std::is_same_v<T, float>) {
+    const float *aStart = a + start;
+    float *outStart = out + start;
+    size_t count = end - start;
+    SIMDMode effectiveMode = getEffectiveSIMDMode(simdMode);
 
+    switch (op) {
+    case BinaryVecScalarAdd:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxAddScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseAddScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarSub:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxSubScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseSubScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarMul:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxMulScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseMulScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarDiv:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxDivScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseDivScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarMin:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxMinScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseMinScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarMax:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxMaxScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseMaxScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarEqual:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxEqualScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseEqualScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarNotEqual:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxNotEqualScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseNotEqualScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarLess:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxLessScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseLessScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarLessEqual:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxLessEqualScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseLessEqualScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarGreater:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxGreaterScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseGreaterScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarGreaterEqual:
+#if CUT_SIMD_AVX
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxGreaterEqualScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseGreaterEqualScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    default:
+      break;
+    }
+  }
+
+  // SIMD path for int32_t
+  if constexpr (std::is_same_v<T, int32_t>) {
+    const int32_t *aStart = a + start;
+    int32_t *outStart = out + start;
+    size_t count = end - start;
+    SIMDMode effectiveMode = getEffectiveSIMDMode(simdMode);
+
+    switch (op) {
+    case BinaryVecScalarAdd:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxAddIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseAddIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarSub:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxSubIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseSubIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarMul:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxMulIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE4_1
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseMulIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarMin:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxMinIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE4_1
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseMinIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarMax:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxMaxIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE4_1
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseMaxIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarEqual:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxEqualIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseEqualIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarLess:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxLessIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseLessIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarGreater:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxGreaterIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseGreaterIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarBitwiseAnd:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxBitwiseAndIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseBitwiseAndIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarBitwiseOr:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxBitwiseOrIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseBitwiseOrIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case BinaryVecScalarBitwiseXor:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxBitwiseXorIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseBitwiseXorIntScalar(aStart, scalar, outStart, count);
+        return;
+      }
+#endif
+      break;
+    default:
+      break;
+    }
+  }
+
+  // Scalar fallback for all types
   switch (op) {
   // Arithmetic (all types)
   case BinaryVecScalarAdd:
@@ -974,6 +1489,74 @@ void executeUnaryKernel(OperatorEnum op,
 #if CUT_SIMD_SSE
       if (effectiveMode == SIMDMode::SSE) {
         simd::sseSquare(inStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    default:
+      break;
+    }
+  }
+  // SIMD path for int32
+  else if constexpr (std::is_same_v<T, int32_t>) {
+    const int32_t *inStart = in + start;
+    int32_t *outStart = out + start;
+    size_t count = end - start;
+    SIMDMode effectiveMode = getEffectiveSIMDMode(simdMode);
+
+    switch (op) {
+    case UnaryNeg:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxNegInt(inStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseNegInt(inStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case UnaryAbs:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxAbsInt(inStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSSE3
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseAbsInt(inStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case UnaryBitwiseNot:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxBitwiseNotInt(inStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE2
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseBitwiseNotInt(inStart, outStart, count);
+        return;
+      }
+#endif
+      break;
+    case UnarySquare:
+#if CUT_SIMD_AVX2
+      if (effectiveMode == SIMDMode::AVX) {
+        simd::avxSquareInt(inStart, outStart, count);
+        return;
+      }
+#endif
+#if CUT_SIMD_SSE4_1
+      if (effectiveMode == SIMDMode::SSE) {
+        simd::sseSquareInt(inStart, outStart, count);
         return;
       }
 #endif
