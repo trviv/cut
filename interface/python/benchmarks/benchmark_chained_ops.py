@@ -85,15 +85,15 @@ def benchmark_cut(func: Callable, *args, **kwargs) -> Tuple[float, np.ndarray]:
     for _ in range(NUM_ITERATIONS):
         start = time.perf_counter()
         result = func(*args)
-        result = result.numpy() # do this so commands are flushed
+        result_list = result.tolist() # do this so commands are flushed
         end = time.perf_counter()
         times.append(end - start)
 
     avg_time = np.mean(times) * 1000  # Convert to ms
 
     # Extract numpy array from result
-    if hasattr(result, 'numpy'):
-        result = result.numpy()
+    flat = result.copy_to()
+    result = np.array(list(flat), dtype=np.float32)
 
     return avg_time, result
 
@@ -147,7 +147,7 @@ def chain_linear_7ops(a_np: np.ndarray, b_np: np.ndarray, c_np: np.ndarray):
 
 def chain_linear_7ops_cut(a: "cut.Tensor", b: "cut.Tensor", c: "cut.Tensor"):
     """CUT: floor(exp(log(sqrt(abs((a + b) * c)) + 1)))"""
-    ones = cut.Tensor(np.ones(a._shape[0], dtype=np.float32))
+    ones = cut.Tensor([1.0] * a._shape[0])
     t = cut.sqrt(cut.abs((a + b) * c))
     return cut.floor(cut.exp(cut.log(t + ones)))
 
@@ -193,7 +193,7 @@ def chain_sigmoid(x_np: np.ndarray):
 
 def chain_sigmoid_cut(x: "cut.Tensor"):
     """CUT: 1 / (1 + exp(-x))"""
-    ones = cut.Tensor(np.ones(x._shape[0], dtype=np.float32))
+    ones = cut.Tensor([1.0] * x._shape[0])
     return ones / (ones + cut.exp(-x))
 
 
@@ -222,7 +222,7 @@ def chain_quadratic(a_np: np.ndarray, b_np: np.ndarray, c_np: np.ndarray):
 def chain_quadratic_cut(a: "cut.Tensor", b: "cut.Tensor", c: "cut.Tensor"):
     """CUT: (-b + sqrt(b^2 - 4ac)) / 2a"""
     n = a._shape[0]
-    zeros = cut.Tensor(np.zeros(n, dtype=np.float32))
+    zeros = cut.Tensor([0.0] * n)
 
     discriminant = cut.square(b) - a * c * 4.0
     # Clamp negative values

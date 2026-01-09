@@ -14,10 +14,10 @@ Example:
     cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
 
     # Use operations
-    a = cc.Tensor(np.array([1, 2, 3], dtype=np.float32))
-    b = cc.Tensor(np.array([4, 5, 6], dtype=np.float32))
+    a = cc.Tensor([1.0, 2.0, 3.0])  # float32 by default
+    b = cc.Tensor([4.0, 5.0, 6.0])
     c = cc.add(a, b)
-    result = c.numpy()
+    result = c.tolist()
 """
 
 from __future__ import annotations
@@ -25,8 +25,9 @@ from __future__ import annotations
 import atexit
 import gc
 import weakref
-import numpy as np
-from typing import Optional, Union, List
+import array
+from enum import Enum
+from typing import Optional, Union, List, Sequence
 
 # Import the unified C++ binding
 from . import _cut_compute
@@ -267,19 +268,58 @@ def shutdown():
     _initialized = False
 
 
-# Numpy dtype to DataType mapping
-_DTYPE_MAP = {
-    np.float32: DataType.Float32,
-    np.float16: DataType.Float16,
-    np.uint32: DataType.UInt32,
-    np.int32: DataType.Int32,
+# =============================================================================
+# DType - Native Python data type representation
+# =============================================================================
+
+class DType(Enum):
+    """
+    Data type enum for tensors.
+
+    Provides dtype information without numpy dependency.
+    Uses Python's array module typecodes for buffer protocol compatibility.
+    """
+    float32 = ('f', 4, 'float32')
+    float16 = ('e', 2, 'float16')  # Note: 'e' requires Python 3.6+
+    uint32 = ('I', 4, 'uint32')
+    int32 = ('i', 4, 'int32')
+
+    def __init__(self, typecode: str, itemsize: int, name: str):
+        self._typecode = typecode
+        self._itemsize = itemsize
+        self._name = name
+
+    @property
+    def itemsize(self) -> int:
+        """Size of one element in bytes."""
+        return self._itemsize
+
+    @property
+    def typecode(self) -> str:
+        """Array module typecode for this dtype."""
+        return self._typecode
+
+    def to_cut_dtype(self) -> DataType:
+        """Convert to CUT DataType enum."""
+        return _DTYPE_TO_CUT[self]
+
+    def __str__(self):
+        return self._name
+
+
+# Module-level dtype aliases for convenience
+float32 = DType.float32
+float16 = DType.float16
+uint32 = DType.uint32
+int32 = DType.int32
+
+# Mapping from DType to CUT DataType
+_DTYPE_TO_CUT = {
+    DType.float32: DataType.Float32,
+    DType.float16: DataType.Float16,
+    DType.uint32: DataType.UInt32,
+    DType.int32: DataType.Int32,
 }
-
-
-def _numpy_dtype_to_cut(dtype) -> DataType:
-    """Convert numpy dtype to CUT DataType."""
-    dtype_type = np.dtype(dtype).type
-    return _DTYPE_MAP.get(dtype_type, DataType.Float32)
 
 
 class Tensor:
@@ -287,103 +327,109 @@ class Tensor:
     Unified tensor class for all backends.
 
     Provides a consistent interface for GPU/CPU tensors regardless
-    of which backend is being used.
+    of which backend is being used. Uses native Python types instead of numpy.
     """
 
     def __init__(
         self,
-        data: Optional[np.ndarray] = None,
+        data: Optional[Union[Sequence, array.array]] = None,
         size: Optional[int] = None,
         is_uniform: bool = False,
-        dtype: Optional[np.dtype] = None,
+        dtype: Optional[DType] = None,
         shape: Optional[tuple] = None
     ):
         """
         Create a tensor.
 
         Args:
-            data: NumPy array to initialize tensor with (optional)
+            data: List, tuple, or array.array to initialize tensor with (optional)
             size: Tensor size in bytes (required if data is None)
             is_uniform: If True, create a uniform buffer
-            dtype: Data type for the tensor (used when creating from size)
+            dtype: Data type for the tensor (DType.float32, DType.float16, etc.)
             shape: Shape for the tensor (used when creating from size)
 
         Example:
-            >>> a = Tensor(np.array([1.0, 2.0, 3.0], dtype=np.float32))
-            >>> b = Tensor(size=64, dtype=np.float32)
+            >>> a = Tensor([1.0, 2.0, 3.0])  # float32 by default
+            >>> b = Tensor([[1, 2], [3, 4]], dtype=cc.int32)
+            >>> c = Tensor(size=64, dtype=cc.float32)
         """
         _ensure_initialized()
 
-        if data is not None:
-            data = np.ascontiguousarray(data)
-            self._handle = _cut_compute.create_buffer(data, is_uniform)
-            self._size = data.nbytes
-            self._dtype = data.dtype
-            self._shape = data.shape
-        elif size is not None:
-            if dtype is None:
-                dtype = np.float32
-            element_size = np.dtype(dtype).itemsize
-            num_elements = size // element_size
-            buffer_shape = list(shape) if shape is not None else [num_elements]
+        resolved_dtype = dtype if dtype is not None else float32
 
-            cut_dtype = _numpy_dtype_to_cut(dtype)
+        if data is not None:
+            # Handle array.array directly
+            if isinstance(data, array.array):
+                flat_data = list(data)
+                inferred_shape = (len(flat_data),) if shape is None else shape
+            elif hasattr(data, 'flatten') and hasattr(data, 'shape'):
+                # Handle numpy arrays - flatten and extract shape
+                inferred_shape = tuple(data.shape) if shape is None else shape
+                flat_data = data.flatten().tolist()
+            else:
+                # Flatten nested lists/tuples and infer shape (C++ implementation)
+                flat_data, inferred_shape = _cut_compute.flatten_nested(data)
+                if shape is not None:
+                    inferred_shape = shape
+
+            self._dtype = resolved_dtype
+            self._shape = inferred_shape
+
+            # Create array.array with contiguous memory
+            arr = array.array(resolved_dtype.typecode, flat_data)
+            self._handle = _cut_compute.create_buffer(arr, is_uniform)
+            self._size = len(arr) * resolved_dtype.itemsize
+
+        elif size is not None:
+            num_elements = size // resolved_dtype.itemsize
+            buffer_shape = tuple(shape) if shape is not None else (num_elements,)
+
             self._handle = _cut_compute.create_buffer_empty(
-                buffer_shape, cut_dtype, is_uniform
+                list(buffer_shape), resolved_dtype.to_cut_dtype(), is_uniform
             )
             self._size = size
-            self._dtype = np.dtype(dtype)
-            self._shape = tuple(buffer_shape)
+            self._dtype = resolved_dtype
+            self._shape = buffer_shape
         else:
             raise ValueError("Either data or size must be provided")
 
         _live_tensors.add(self)
 
-    def _get_module(self):
-        """Get the module containing operation functions."""
-        import sys
-        return sys.modules[__name__]
-
-    # Operator overloading
+    # Operator overloading - operations are looked up at call time to avoid circular imports
     def __add__(self, other):
-        mod = self._get_module()
         if isinstance(other, Tensor):
-            return mod.add(self, other)
-        return mod.add_scalar(self, other)
+            return globals()['add'](self, other)
+        return globals()['add_scalar'](self, other)
 
     def __radd__(self, other):
         return self.__add__(other)
 
     def __sub__(self, other):
-        mod = self._get_module()
         if isinstance(other, Tensor):
-            return mod.subtract(self, other)
-        return mod.subtract_scalar(self, other)
+            return globals()['subtract'](self, other)
+        return globals()['subtract_scalar'](self, other)
 
     def __rsub__(self, other):
-        mod = self._get_module()
-        result = mod.negative(self)
+        result = globals()['negative'](self)
         if isinstance(other, (int, float)):
-            return mod.add_scalar(result, other)
-        return mod.add(result, other)
+            return globals()['add_scalar'](result, other)
+        return globals()['add'](result, other)
 
     def __mul__(self, other):
-        mod = self._get_module()
         if isinstance(other, Tensor):
-            return mod.multiply(self, other)
-        return mod.multiply_scalar(self, other)
+            return globals()['multiply'](self, other)
+        return globals()['multiply_scalar'](self, other)
 
     def __rmul__(self, other):
         return self.__mul__(other)
 
     def __truediv__(self, other):
-        mod = self._get_module()
         if isinstance(other, Tensor):
-            return mod.divide(self, other)
-        return mod.divide_scalar(self, other)
+            return globals()['divide'](self, other)
+        return globals()['divide_scalar'](self, other)
 
     def __neg__(self):
-        return self._get_module().negative(self)
+        return globals()['negative'](self)
 
     @property
     def handle(self) -> ComputeHandle:
@@ -396,7 +442,7 @@ class Tensor:
         return self._size
 
     @property
-    def dtype(self) -> np.dtype:
+    def dtype(self) -> DType:
         """Get the tensor's dtype."""
         return self._dtype
 
@@ -405,63 +451,56 @@ class Tensor:
         """Get the tensor's shape."""
         return self._shape
 
-    def copy_from(self, data: np.ndarray):
+    def copy_from(self, data: Union[Sequence, array.array]):
         """
-        Copy data from numpy array to tensor.
+        Copy data from list/array to tensor.
 
         Args:
-            data: NumPy array with data to copy
+            data: List, tuple, or array.array with data to copy
         """
-        data = np.ascontiguousarray(data)
-        _cut_compute.copy_to_buffer(self._handle, data)
+        if isinstance(data, array.array):
+            arr = data
+        else:
+            flat_data, _ = _cut_compute.flatten_nested(data)
+            arr = array.array(self._dtype.typecode, flat_data)
+        _cut_compute.copy_to_buffer(self._handle, arr)
 
-    def copy_to(self, out: Optional[np.ndarray] = None) -> np.ndarray:
+    def copy_to(self, out: Optional[array.array] = None) -> array.array:
         """
-        Copy data from tensor to numpy array.
+        Copy data from tensor to array.
 
         Args:
             out: Output array (created if not provided)
 
         Returns:
-            NumPy array with tensor contents
+            array.array with tensor contents
         """
         if out is None:
-            if self._dtype is not None and self._shape is not None:
-                out = np.empty(self._shape, dtype=self._dtype)
-            else:
-                out = np.empty(self._size, dtype=np.uint8)
-        out = np.ascontiguousarray(out)
+            num_elements = _cut_compute.shape_product(list(self._shape)) if self._shape else self._size // self._dtype.itemsize
+            out = array.array(self._dtype.typecode, [0] * num_elements)
         _cut_compute.copy_from_buffer(self._handle, out)
         return out
 
-    def numpy(self) -> np.ndarray:
-        """Get tensor contents as numpy array."""
-        return self.copy_to()
+    def tolist(self) -> Union[List, float, int]:
+        """
+        Get tensor contents as a nested Python list matching the shape.
+        Uses native C++ implementation for better performance.
+
+        Returns:
+            Nested list with tensor contents, or scalar if shape is ()
+        """
+        arr = self.copy_to()
+
+        if not self._shape or self._shape == ():
+            return list(arr)[0] if arr else 0
+
+        # Use native C++ reshape for performance
+        return _cut_compute.reshape_to_nested(arr, self._dtype.to_cut_dtype(), list(self._shape))
 
 
 # =============================================================================
 # Operation Implementations
 # =============================================================================
-
-def _create_scalar_binding(index: int, scalar: Union[int, float], dtype):
-    """
-    Create a ComputeBinding for a scalar value based on the target dtype.
-
-    Args:
-        index: The binding index.
-        scalar: The scalar value to bind.
-        dtype: The target data type (determines how scalar is stored).
-
-    Returns:
-        A ComputeBinding with the scalar value in the appropriate format.
-    """
-    if dtype == np.int32:
-        return ComputeBinding.from_int(index, int(scalar))
-    elif dtype == np.uint32:
-        return ComputeBinding.from_uint(index, int(scalar))
-    else:
-        return ComputeBinding.from_float(index, float(scalar))
-
 
 def _create_binary_op(op_enum: OperatorEnum):
     """Create a binary vec-vec operation function."""
@@ -515,11 +554,19 @@ def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
         if out is None:
             out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
 
-        dtype = a._dtype if a._dtype is not None else np.float32
+        dtype = a._dtype if a._dtype is not None else float32
+        # Inline scalar binding creation
+        if dtype == int32:
+            scalar_binding = ComputeBinding.from_int(2, int(scalar))
+        elif dtype == uint32:
+            scalar_binding = ComputeBinding.from_uint(2, int(scalar))
+        else:
+            scalar_binding = ComputeBinding.from_float(2, float(scalar))
+
         bindings = [
             ComputeBinding(0, a._handle),
             ComputeBinding(1, out._handle),
-            _create_scalar_binding(2, scalar, dtype),
+            scalar_binding,
         ]
         _cut_compute.execute_operator(op_enum, bindings)
         return out
@@ -576,13 +623,13 @@ def reduce_sum(a: Tensor) -> float:
         Sum of all elements
 
     Example:
-        >>> a = Tensor(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> a = Tensor([1, 2, 3, 4])
         >>> result = reduce_sum(a)  # Returns 10.0
     """
     _ensure_initialized()
 
     # Create output tensor for single result
-    out = Tensor(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -590,7 +637,7 @@ def reduce_sum(a: Tensor) -> float:
     ]
     _cut_compute.execute_operator(OperatorEnum.ReduceSum, bindings)
 
-    return float(out.numpy()[0])
+    return float(out.copy_to()[0])
 
 
 def reduce_mean(a: Tensor) -> float:
@@ -604,13 +651,13 @@ def reduce_mean(a: Tensor) -> float:
         Mean of all elements
 
     Example:
-        >>> a = Tensor(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> a = Tensor([1, 2, 3, 4])
         >>> result = reduce_mean(a)  # Returns 2.5
     """
     _ensure_initialized()
 
     # For mean, we compute sum on GPU and divide by count on CPU
-    out = Tensor(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -619,8 +666,8 @@ def reduce_mean(a: Tensor) -> float:
     _cut_compute.execute_operator(OperatorEnum.ReduceMean, bindings)
 
     # GPU computes sum, we divide by count
-    total = float(out.numpy()[0])
-    count = np.prod(a.shape)
+    total = float(out.copy_to()[0])
+    count = _cut_compute.shape_product(list(a.shape))
     return total / count
 
 
@@ -635,12 +682,12 @@ def reduce_min(a: Tensor) -> float:
         Minimum element
 
     Example:
-        >>> a = Tensor(np.array([3, 1, 4, 1, 5], dtype=np.float32))
+        >>> a = Tensor([3, 1, 4, 1, 5])
         >>> result = reduce_min(a)  # Returns 1.0
     """
     _ensure_initialized()
 
-    out = Tensor(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -648,7 +695,7 @@ def reduce_min(a: Tensor) -> float:
     ]
     _cut_compute.execute_operator(OperatorEnum.ReduceMin, bindings)
 
-    return float(out.numpy()[0])
+    return float(out.copy_to()[0])
 
 
 def reduce_max(a: Tensor) -> float:
@@ -662,12 +709,12 @@ def reduce_max(a: Tensor) -> float:
         Maximum element
 
     Example:
-        >>> a = Tensor(np.array([3, 1, 4, 1, 5], dtype=np.float32))
+        >>> a = Tensor([3, 1, 4, 1, 5])
         >>> result = reduce_max(a)  # Returns 5.0
     """
     _ensure_initialized()
 
-    out = Tensor(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -675,7 +722,7 @@ def reduce_max(a: Tensor) -> float:
     ]
     _cut_compute.execute_operator(OperatorEnum.ReduceMax, bindings)
 
-    return float(out.numpy()[0])
+    return float(out.copy_to()[0])
 
 
 def reduce_prod(a: Tensor) -> float:
@@ -689,12 +736,12 @@ def reduce_prod(a: Tensor) -> float:
         Product of all elements
 
     Example:
-        >>> a = Tensor(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> a = Tensor([1, 2, 3, 4])
         >>> result = reduce_prod(a)  # Returns 24.0
     """
     _ensure_initialized()
 
-    out = Tensor(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -702,7 +749,7 @@ def reduce_prod(a: Tensor) -> float:
     ]
     _cut_compute.execute_operator(OperatorEnum.ReduceProd, bindings)
 
-    return float(out.numpy()[0])
+    return float(out.copy_to()[0])
 
 
 def reduce_any(a: Tensor) -> bool:
@@ -716,12 +763,12 @@ def reduce_any(a: Tensor) -> bool:
         True if any element is non-zero
 
     Example:
-        >>> a = Tensor(np.array([0, 0, 1, 0], dtype=np.float32))
+        >>> a = Tensor([0, 0, 1, 0])
         >>> result = reduce_any(a)  # Returns True
     """
     _ensure_initialized()
 
-    out = Tensor(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -729,7 +776,7 @@ def reduce_any(a: Tensor) -> bool:
     ]
     _cut_compute.execute_operator(OperatorEnum.ReduceAny, bindings)
 
-    return bool(out.numpy()[0] != 0.0)
+    return bool(out.copy_to()[0] != 0.0)
 
 
 def reduce_all(a: Tensor) -> bool:
@@ -743,12 +790,12 @@ def reduce_all(a: Tensor) -> bool:
         True if all elements are non-zero
 
     Example:
-        >>> a = Tensor(np.array([1, 2, 3, 4], dtype=np.float32))
+        >>> a = Tensor([1, 2, 3, 4])
         >>> result = reduce_all(a)  # Returns True
     """
     _ensure_initialized()
 
-    out = Tensor(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=float32, shape=(1,))
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -756,7 +803,7 @@ def reduce_all(a: Tensor) -> bool:
     ]
     _cut_compute.execute_operator(OperatorEnum.ReduceAll, bindings)
 
-    return bool(out.numpy()[0] != 0.0)
+    return bool(out.copy_to()[0] != 0.0)
 
 
 def matmul(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
@@ -772,8 +819,8 @@ def matmul(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
         Tensor with result of matrix multiplication
 
     Example:
-        >>> a = Tensor(np.array([[1, 2], [3, 4]], dtype=np.float32))
-        >>> b = Tensor(np.array([[5, 6], [7, 8]], dtype=np.float32))
+        >>> a = Tensor([[1, 2], [3, 4]])
+        >>> b = Tensor([[5, 6], [7, 8]])
         >>> result = matmul(a, b)  # Returns [[19, 22], [43, 50]]
     """
     _ensure_initialized()
@@ -789,10 +836,10 @@ def matmul(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
         raise ValueError(f"Matrix dimension mismatch: A is {M}x{K}, B is {K2}x{N}")
 
     if out is None:
-        out = Tensor(size=M * N * 4, dtype=np.float32, shape=(M, N))
+        out = Tensor(size=M * N * 4, dtype=float32, shape=(M, N))
 
     # Create shape data binding
-    shape_data = np.array([M, K, N], dtype=np.uint32)
+    shape_data = array.array('I', [M, K, N])
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -816,7 +863,7 @@ def transpose(a: Tensor, out: Optional[Tensor] = None) -> Tensor:
         Tensor with transposed matrix
 
     Example:
-        >>> a = Tensor(np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32))
+        >>> a = Tensor([[1, 2, 3], [4, 5, 6]])
         >>> result = transpose(a)  # Returns [[1, 4], [2, 5], [3, 6]]
     """
     _ensure_initialized()
@@ -827,10 +874,10 @@ def transpose(a: Tensor, out: Optional[Tensor] = None) -> Tensor:
     M, N = a.shape
 
     if out is None:
-        out = Tensor(size=M * N * 4, dtype=np.float32, shape=(N, M))
+        out = Tensor(size=M * N * 4, dtype=float32, shape=(N, M))
 
     # Create shape data binding
-    shape_data = np.array([M, N], dtype=np.uint32)
+    shape_data = array.array('I', [M, N])
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -853,8 +900,8 @@ def dot(a: Tensor, b: Tensor) -> float:
         Scalar dot product result
 
     Example:
-        >>> a = Tensor(np.array([1, 2, 3], dtype=np.float32))
-        >>> b = Tensor(np.array([4, 5, 6], dtype=np.float32))
+        >>> a = Tensor([1, 2, 3])
+        >>> b = Tensor([4, 5, 6])
         >>> result = dot(a, b)  # Returns 32.0 (1*4 + 2*5 + 3*6)
     """
     _ensure_initialized()
@@ -862,13 +909,13 @@ def dot(a: Tensor, b: Tensor) -> float:
     if a.size != b.size:
         raise ValueError(f"Vector size mismatch: {a.size} vs {b.size}")
 
-    count = np.prod(a.shape)
+    count = _cut_compute.shape_product(list(a.shape))
 
     # Create output tensor for single result
-    out = Tensor(size=4, dtype=np.float32, shape=(1,))
+    out = Tensor(size=4, dtype=float32, shape=(1,))
 
     # Create count data binding
-    count_data = np.array([count], dtype=np.uint32)
+    count_data = array.array('I', [count])
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -877,7 +924,7 @@ def dot(a: Tensor, b: Tensor) -> float:
         ComputeBinding.from_bytes(3, count_data),
     ]
     _cut_compute.execute_operator(OperatorEnum.Dot, bindings)
-    return float(out.numpy()[0])
+    return float(out.copy_to()[0])
 
 
 def clamp(a: Tensor, min_val: Union[int, float], max_val: Union[int, float],
@@ -897,7 +944,7 @@ def clamp(a: Tensor, min_val: Union[int, float], max_val: Union[int, float],
         Tensor with clamped values
 
     Example:
-        >>> a = Tensor(np.array([-1, 0, 5, 10], dtype=np.float32))
+        >>> a = Tensor([-1, 0, 5, 10])
         >>> result = clamp(a, 0, 5)  # Returns [0, 0, 5, 5]
     """
     _ensure_initialized()
@@ -905,15 +952,15 @@ def clamp(a: Tensor, min_val: Union[int, float], max_val: Union[int, float],
     if out is None:
         out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
 
-    dtype = a._dtype if a._dtype is not None else np.float32
+    dtype = a._dtype if a._dtype is not None else float32
 
-    # Create data binding with min and max values packed as numpy array
-    if dtype == np.int32:
-        clamp_data = np.array([int(min_val), int(max_val)], dtype=np.int32)
-    elif dtype == np.uint32:
-        clamp_data = np.array([int(min_val), int(max_val)], dtype=np.uint32)
+    # Create data binding with min and max values packed as array
+    if dtype == int32:
+        clamp_data = array.array('i', [int(min_val), int(max_val)])
+    elif dtype == uint32:
+        clamp_data = array.array('I', [int(min_val), int(max_val)])
     else:
-        clamp_data = np.array([float(min_val), float(max_val)], dtype=np.float32)
+        clamp_data = array.array('f', [float(min_val), float(max_val)])
 
     bindings = [
         ComputeBinding(0, a._handle),
@@ -959,6 +1006,11 @@ __all__ = [
     "set_simd_mode",
     # Data types
     "DataType",
+    "DType",
+    "float32",
+    "float16",
+    "uint32",
+    "int32",
     "OperatorEnum",
     "ShaderEnum",
     # Classes

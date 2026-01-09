@@ -51,6 +51,194 @@ cut::DataType numpyFormatToDataType(const std::string &format,
   return cut::DataType::Float32;
 }
 
+// =============================================================================
+// Native Python helpers for data manipulation
+// =============================================================================
+
+/**
+ * Recursively flatten a nested Python list/tuple and infer shape.
+ * Returns a tuple of (flat_list, shape_tuple).
+ */
+std::pair<py::list, std::vector<size_t>> flattenNested(py::object data) {
+  // Handle scalar (int or float)
+  if (py::isinstance<py::int_>(data) || py::isinstance<py::float_>(data)) {
+    py::list flat;
+    flat.append(data);
+    return {flat, {}}; // Empty shape for scalar
+  }
+
+  // Must be list or tuple
+  if (!py::isinstance<py::list>(data) && !py::isinstance<py::tuple>(data)) {
+    throw std::runtime_error("Expected list, tuple, or number");
+  }
+
+  py::sequence seq = data.cast<py::sequence>();
+  size_t len = seq.size();
+
+  // Empty sequence
+  if (len == 0) {
+    return {py::list(), {0}};
+  }
+
+  // Check first element to determine if this is the base case
+  py::object first = seq[0];
+  if (py::isinstance<py::int_>(first) || py::isinstance<py::float_>(first)) {
+    // Base case: list of numbers
+    py::list flat;
+    for (size_t i = 0; i < len; ++i) {
+      flat.append(seq[i]);
+    }
+    return {flat, {len}};
+  }
+
+  // Recursive case: nested structure
+  py::list flat;
+  std::vector<size_t> inner_shape;
+  bool shape_set = false;
+
+  for (size_t i = 0; i < len; ++i) {
+    auto [item_flat, item_shape] = flattenNested(seq[i]);
+
+    // Verify consistent shapes
+    if (!shape_set) {
+      inner_shape = item_shape;
+      shape_set = true;
+    } else if (item_shape != inner_shape) {
+      throw std::runtime_error("Inconsistent shapes in nested data");
+    }
+
+    // Extend flat list
+    for (auto item : item_flat) {
+      flat.append(item);
+    }
+  }
+
+  // Prepend current dimension to shape
+  std::vector<size_t> shape;
+  shape.push_back(len);
+  shape.insert(shape.end(), inner_shape.begin(), inner_shape.end());
+
+  return {flat, shape};
+}
+
+/**
+ * Compute product of shape dimensions.
+ */
+size_t shapeProduct(const std::vector<size_t> &shape) {
+  size_t prod = 1;
+  for (size_t dim : shape) {
+    prod *= dim;
+  }
+  return prod;
+}
+
+/**
+ * Reshape flat data into nested Python list matching the given shape.
+ * This is the inverse of flattenNested.
+ */
+py::object reshapeToNested(const void *data,
+                           cut::DataType dtype,
+                           const std::vector<size_t> &shape,
+                           size_t &offset) {
+  if (shape.empty()) {
+    // Scalar case
+    switch (dtype) {
+    case cut::DataType::Float32:
+      return py::float_(static_cast<const float *>(data)[offset++]);
+    case cut::DataType::Float16: {
+      // float16 needs conversion - stored as uint16_t
+      uint16_t bits = static_cast<const uint16_t *>(data)[offset++];
+      // Simple half-to-float conversion
+      uint32_t sign = (bits & 0x8000) << 16;
+      uint32_t exp = (bits & 0x7C00) >> 10;
+      uint32_t mant = (bits & 0x03FF);
+      uint32_t f32;
+      if (exp == 0) {
+        f32 = sign; // Zero or subnormal (treat as zero)
+      } else if (exp == 31) {
+        f32 = sign | 0x7F800000 | (mant << 13); // Inf or NaN
+      } else {
+        f32 = sign | ((exp + 112) << 23) | (mant << 13);
+      }
+      float result;
+      memcpy(&result, &f32, sizeof(float));
+      return py::float_(result);
+    }
+    case cut::DataType::UInt32:
+      return py::int_(static_cast<const uint32_t *>(data)[offset++]);
+    case cut::DataType::Int32:
+      return py::int_(static_cast<const int32_t *>(data)[offset++]);
+    default:
+      return py::float_(static_cast<const float *>(data)[offset++]);
+    }
+  }
+
+  if (shape.size() == 1) {
+    // 1D case - return flat list
+    py::list result;
+    size_t n = shape[0];
+    for (size_t i = 0; i < n; ++i) {
+      switch (dtype) {
+      case cut::DataType::Float32:
+        result.append(py::float_(static_cast<const float *>(data)[offset++]));
+        break;
+      case cut::DataType::Float16: {
+        uint16_t bits = static_cast<const uint16_t *>(data)[offset++];
+        uint32_t sign = (bits & 0x8000) << 16;
+        uint32_t exp = (bits & 0x7C00) >> 10;
+        uint32_t mant = (bits & 0x03FF);
+        uint32_t f32;
+        if (exp == 0)
+          f32 = sign;
+        else if (exp == 31)
+          f32 = sign | 0x7F800000 | (mant << 13);
+        else
+          f32 = sign | ((exp + 112) << 23) | (mant << 13);
+        float val;
+        memcpy(&val, &f32, sizeof(float));
+        result.append(py::float_(val));
+        break;
+      }
+      case cut::DataType::UInt32:
+        result.append(py::int_(static_cast<const uint32_t *>(data)[offset++]));
+        break;
+      case cut::DataType::Int32:
+        result.append(py::int_(static_cast<const int32_t *>(data)[offset++]));
+        break;
+      default:
+        result.append(py::float_(static_cast<const float *>(data)[offset++]));
+      }
+    }
+    return result;
+  }
+
+  // Multi-dimensional case - recurse
+  py::list result;
+  std::vector<size_t> inner_shape(shape.begin() + 1, shape.end());
+  for (size_t i = 0; i < shape[0]; ++i) {
+    result.append(reshapeToNested(data, dtype, inner_shape, offset));
+  }
+  return result;
+}
+
+/**
+ * Get item size for a data type.
+ */
+size_t dtypeItemSize(cut::DataType dtype) {
+  switch (dtype) {
+  case cut::DataType::Float32:
+    return 4;
+  case cut::DataType::Float16:
+    return 2;
+  case cut::DataType::UInt32:
+    return 4;
+  case cut::DataType::Int32:
+    return 4;
+  default:
+    return 4;
+  }
+}
+
 } // namespace
 
 PYBIND11_MODULE(_cut_compute, m) {
@@ -415,6 +603,92 @@ PYBIND11_MODULE(_cut_compute, m) {
       },
       py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
       py::arg("dst_offset") = 0, "Copy data from tensor");
+
+  // =========================================================================
+  // Native Python Buffer Operations (no numpy dependency)
+  // =========================================================================
+
+  // Create buffer from Python buffer protocol object (array.array, etc.)
+  m.def(
+      "create_buffer",
+      [](py::buffer data, bool is_uniform) {
+        py::buffer_info info = data.request();
+        std::vector<uint32_t> shape(info.shape.begin(), info.shape.end());
+        cut::DataType dtype = numpyFormatToDataType(info.format, info.itemsize);
+        return getRuntime().createTensor(shape, dtype, info.ptr, is_uniform);
+      },
+      py::arg("data"), py::arg("is_uniform") = false,
+      "Create a buffer from Python buffer protocol object (array.array, etc.)");
+
+  // Create empty buffer with shape and dtype
+  m.def(
+      "create_buffer_empty",
+      [](std::vector<uint32_t> shape, cut::DataType dtype, bool is_uniform) {
+        return getRuntime().createTensorEmpty(shape, dtype, is_uniform);
+      },
+      py::arg("shape"), py::arg("dtype"), py::arg("is_uniform") = false,
+      "Create an empty buffer");
+
+  // Copy to buffer using buffer protocol
+  m.def(
+      "copy_to_buffer",
+      [](cut::ComputeHandle handle, py::buffer data) {
+        py::buffer_info info = data.request();
+        size_t size = info.size * info.itemsize;
+        getRuntime().copyToTensor(handle, info.ptr, size, 0, 0);
+      },
+      py::arg("handle"), py::arg("data"), "Copy data to buffer");
+
+  // Copy from buffer using buffer protocol
+  m.def(
+      "copy_from_buffer",
+      [](cut::ComputeHandle handle, py::buffer data) {
+        py::buffer_info info = data.request();
+        size_t size = info.size * info.itemsize;
+        getRuntime().copyFromTensor(handle, info.ptr, size, 0, 0);
+      },
+      py::arg("handle"), py::arg("data"), "Copy data from buffer");
+
+  // =========================================================================
+  // Native Python Helper Functions
+  // =========================================================================
+
+  // Flatten nested Python list and infer shape (native C++ implementation)
+  m.def(
+      "flatten_nested",
+      [](py::object data) {
+        auto [flat, shape] = flattenNested(data);
+        py::tuple shape_tuple(shape.size());
+        for (size_t i = 0; i < shape.size(); ++i) {
+          shape_tuple[i] = py::int_(shape[i]);
+        }
+        return py::make_tuple(flat, shape_tuple);
+      },
+      py::arg("data"),
+      "Flatten nested Python list/tuple and return (flat_list, shape_tuple)");
+
+  // Reshape flat buffer to nested Python list
+  m.def(
+      "reshape_to_nested",
+      [](py::buffer data, cut::DataType dtype, std::vector<size_t> shape) {
+        py::buffer_info info = data.request();
+        size_t offset = 0;
+        return reshapeToNested(info.ptr, dtype, shape, offset);
+      },
+      py::arg("data"), py::arg("dtype"), py::arg("shape"),
+      "Reshape flat buffer to nested Python list matching shape");
+
+  // Compute product of shape dimensions
+  m.def(
+      "shape_product",
+      [](std::vector<size_t> shape) { return shapeProduct(shape); },
+      py::arg("shape"), "Compute product of shape dimensions");
+
+  // Get item size for dtype
+  m.def(
+      "dtype_itemsize",
+      [](cut::DataType dtype) { return dtypeItemSize(dtype); },
+      py::arg("dtype"), "Get item size in bytes for a data type");
 
   // =========================================================================
   // Shutdown function for proper cleanup

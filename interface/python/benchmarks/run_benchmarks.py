@@ -257,7 +257,8 @@ class CUTRunner(BackendRunner):
                 end = time.perf_counter()
                 times.append(end - start)
 
-            result = result_buf.numpy()
+            flat = result_buf.copy_to()
+            result = np.array(list(flat), dtype=np.float32)
             valid = self._verify(np_result, result)
 
             return BackendResult(

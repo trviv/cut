@@ -76,15 +76,15 @@ def benchmark_cut(func, *args, config: BenchmarkConfig = DEFAULT_CONFIG):
     for _ in range(config.num_iterations):
         start = time.perf_counter()
         result = func(*tensor_args)
-        result = result.numpy() # do this so commands are flushed
+        result_list = result.tolist() # do this so commands are flushed
         end = time.perf_counter()
         times.append(end - start)
 
     avg_time = np.mean(times) * 1000  # Convert to ms
 
     # Extract numpy array from result
-    if hasattr(result, 'numpy'):
-        result = result.numpy()
+    flat = result.copy_to()
+    result = np.array(list(flat), dtype=np.float32)
 
     return avg_time, result
 

@@ -3,6 +3,9 @@ Tests for the unified CUT compute interface.
 
 These tests verify that all operations work correctly across different backends
 (Vulkan and CPU) using the unified cut.compute module.
+
+Note: numpy is used for verification/reference calculations only.
+The cut library itself does not depend on numpy.
 """
 
 import numpy as np
@@ -13,6 +16,26 @@ import cut.compute as cc
 # =============================================================================
 # Test Utilities
 # =============================================================================
+
+def to_numpy(tensor):
+    """Convert a Tensor to numpy array for verification."""
+    flat = tensor.copy_to()
+    arr = np.array(list(flat), dtype=_dtype_to_numpy(tensor.dtype))
+    if len(tensor.shape) > 1:
+        arr = arr.reshape(tensor.shape)
+    return arr
+
+
+def _dtype_to_numpy(dtype):
+    """Convert cut DType to numpy dtype."""
+    mapping = {
+        'float32': np.float32,
+        'float16': np.float16,
+        'uint32': np.uint32,
+        'int32': np.int32,
+    }
+    return mapping.get(str(dtype), np.float32)
+
 
 def get_available_backends():
     """Get list of available backends as pytest parameters."""
@@ -104,6 +127,13 @@ class TestModuleBasics:
         """Test CPU is always available."""
         assert cc.is_cpu_available() is True
 
+    def test_dtype_exports(self):
+        """Test DType instances are exported."""
+        assert cc.float32 is not None
+        assert cc.float16 is not None
+        assert cc.int32 is not None
+        assert cc.uint32 is not None
+
 
 # =============================================================================
 # Backend Initialization Tests
@@ -160,11 +190,18 @@ class TestBackendInit:
 class TestTensor:
     """Test Tensor class functionality."""
 
-    def test_create_from_array(self, backend):
-        """Test creating a tensor from numpy array."""
-        data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    def test_create_from_list(self, backend):
+        """Test creating a tensor from Python list."""
+        data = [1.0, 2.0, 3.0, 4.0]
         buf = cc.Tensor(data)
-        assert buf.size == data.nbytes
+        assert buf.size == 16  # 4 floats * 4 bytes
+        assert buf.handle.valid()
+
+    def test_create_from_nested_list(self, backend):
+        """Test creating a tensor from nested list."""
+        data = [[1.0, 2.0], [3.0, 4.0]]
+        buf = cc.Tensor(data)
+        assert buf.shape == (2, 2)
         assert buf.handle.valid()
 
     def test_create_empty(self, backend):
@@ -180,35 +217,43 @@ class TestTensor:
 
     def test_roundtrip_float32(self, backend):
         """Test data roundtrip with float32."""
-        data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        data = [1.0, 2.0, 3.0, 4.0]
         buf = cc.Tensor(data)
-        result = buf.numpy()
-        np.testing.assert_array_equal(result, data)
+        result = buf.tolist()
+        assert result == data
 
     def test_roundtrip_int32(self, backend):
         """Test data roundtrip with int32."""
-        data = np.array([1, 2, 3, 4, 5], dtype=np.int32)
-        buf = cc.Tensor(data)
-        result = buf.numpy()
-        np.testing.assert_array_equal(result, data)
+        data = [1, 2, 3, 4, 5]
+        buf = cc.Tensor(data, dtype=cc.int32)
+        result = buf.tolist()
+        assert result == data
 
     def test_roundtrip_2d_array(self, backend):
         """Test data roundtrip with 2D array."""
-        data = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+        data = [[1.0, 2.0], [3.0, 4.0]]
         buf = cc.Tensor(data)
-        result = buf.numpy()
-        np.testing.assert_array_equal(result, data)
+        result = buf.tolist()
+        assert result == data
 
     def test_copy_from(self, backend):
         """Test copying new data to existing tensor."""
-        initial = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        initial = [1.0, 2.0, 3.0, 4.0]
         buf = cc.Tensor(initial)
 
-        new_data = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+        new_data = [5.0, 6.0, 7.0, 8.0]
         buf.copy_from(new_data)
 
-        result = buf.numpy()
-        np.testing.assert_array_equal(result, new_data)
+        result = buf.tolist()
+        assert result == new_data
+
+    def test_dtype_property(self, backend):
+        """Test dtype property."""
+        buf = cc.Tensor([1.0, 2.0, 3.0])
+        assert buf.dtype == cc.float32
+
+        buf_int = cc.Tensor([1, 2, 3], dtype=cc.int32)
+        assert buf_int.dtype == cc.int32
 
 
 # =============================================================================
@@ -227,23 +272,24 @@ class TestBinaryVecVecFloat32:
     ])
     def test_binary_op(self, backend, op_name, np_func):
         """Test binary operations."""
-        a_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-        b_data = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+        a_data = [1.0, 2.0, 3.0, 4.0]
+        b_data = [5.0, 6.0, 7.0, 8.0]
         a = cc.Tensor(a_data)
         b = cc.Tensor(b_data)
         result = getattr(cc, op_name)(a, b)
-        expected = np_func(a_data, b_data)
-        np.testing.assert_allclose(result.numpy(), expected)
+        expected = np_func(np.array(a_data, dtype=np.float32),
+                          np.array(b_data, dtype=np.float32))
+        np.testing.assert_allclose(to_numpy(result), expected)
 
     def test_divide(self, backend):
         """Test divide operation."""
-        a_data = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32)
-        b_data = np.array([2.0, 4.0, 5.0, 8.0], dtype=np.float32)
+        a_data = [10.0, 20.0, 30.0, 40.0]
+        b_data = [2.0, 4.0, 5.0, 8.0]
         a = cc.Tensor(a_data)
         b = cc.Tensor(b_data)
         result = cc.divide(a, b)
-        expected = a_data / b_data
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        expected = np.array(a_data) / np.array(b_data)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
 
 # =============================================================================
@@ -262,13 +308,14 @@ class TestBinaryVecVecInt32:
     ])
     def test_binary_op_int32(self, backend, op_name, np_func):
         """Test binary operations with int32."""
-        a_data = np.array([1, 2, 3, 4], dtype=np.int32)
-        b_data = np.array([5, 6, 7, 8], dtype=np.int32)
-        a = cc.Tensor(a_data)
-        b = cc.Tensor(b_data)
+        a_data = [1, 2, 3, 4]
+        b_data = [5, 6, 7, 8]
+        a = cc.Tensor(a_data, dtype=cc.int32)
+        b = cc.Tensor(b_data, dtype=cc.int32)
         result = getattr(cc, op_name)(a, b)
-        expected = np_func(a_data, b_data)
-        np.testing.assert_array_equal(result.numpy(), expected)
+        expected = np_func(np.array(a_data, dtype=np.int32),
+                          np.array(b_data, dtype=np.int32))
+        np.testing.assert_array_equal(to_numpy(result), expected)
 
 
 # =============================================================================
@@ -287,29 +334,29 @@ class TestBinaryVecScalar:
     ])
     def test_vec_scalar_op(self, backend, op_name, scalar, np_op):
         """Test vector-scalar operations."""
-        a_data = np.array([1.0, 5.0, 3.0, 8.0], dtype=np.float32)
+        a_data = [1.0, 5.0, 3.0, 8.0]
         a = cc.Tensor(a_data)
         result = getattr(cc, op_name)(a, scalar)
-        expected = np_op(a_data, scalar)
-        np.testing.assert_allclose(result.numpy(), expected)
+        expected = np_op(np.array(a_data, dtype=np.float32), scalar)
+        np.testing.assert_allclose(to_numpy(result), expected)
 
     def test_divide_scalar(self, backend):
         """Test divide_scalar operation."""
-        a_data = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32)
+        a_data = [10.0, 20.0, 30.0, 40.0]
         a = cc.Tensor(a_data)
         scalar = 5.0
         result = cc.divide_scalar(a, scalar)
-        expected = a_data / scalar
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        expected = np.array(a_data) / scalar
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_add_scalar_int32(self, backend):
         """Test add_scalar with int32."""
-        a_data = np.array([1, 2, 3, 4], dtype=np.int32)
-        a = cc.Tensor(a_data)
+        a_data = [1, 2, 3, 4]
+        a = cc.Tensor(a_data, dtype=cc.int32)
         scalar = 10
         result = cc.add_scalar(a, scalar)
-        expected = a_data + scalar
-        np.testing.assert_array_equal(result.numpy(), expected)
+        expected = np.array(a_data, dtype=np.int32) + scalar
+        np.testing.assert_array_equal(to_numpy(result), expected)
 
 
 # =============================================================================
@@ -329,22 +376,22 @@ class TestComparisonOps:
     ])
     def test_comparison_op(self, backend, op_name, np_func):
         """Test comparison operations."""
-        a_data = np.array([1.0, 5.0, 3.0, 4.0], dtype=np.float32)
-        b_data = np.array([2.0, 4.0, 3.0, 5.0], dtype=np.float32)
+        a_data = [1.0, 5.0, 3.0, 4.0]
+        b_data = [2.0, 4.0, 3.0, 5.0]
         a = cc.Tensor(a_data)
         b = cc.Tensor(b_data)
         result = getattr(cc, op_name)(a, b)
-        expected = np_func(a_data, b_data).astype(np.float32)
-        np.testing.assert_array_equal(result.numpy(), expected)
+        expected = np_func(np.array(a_data), np.array(b_data)).astype(np.float32)
+        np.testing.assert_array_equal(to_numpy(result), expected)
 
     def test_equal_scalar(self, backend):
         """Test equal_scalar comparison."""
-        a_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        a_data = [1.0, 2.0, 3.0, 4.0]
         a = cc.Tensor(a_data)
         scalar = 3.0
         result = cc.equal_scalar(a, scalar)
-        expected = np.equal(a_data, scalar).astype(np.float32)
-        np.testing.assert_array_equal(result.numpy(), expected)
+        expected = np.equal(np.array(a_data), scalar).astype(np.float32)
+        np.testing.assert_array_equal(to_numpy(result), expected)
 
 
 # =============================================================================
@@ -355,50 +402,50 @@ class TestUnaryOps:
     """Test unary operations."""
 
     @pytest.mark.parametrize("op_name,np_func,test_data", [
-        ("negative", np.negative, np.array([1.0, -2.0, 3.0, -4.0], dtype=np.float32)),
-        ("abs", np.abs, np.array([-1.0, 2.0, -3.0, 4.0], dtype=np.float32)),
-        ("floor", np.floor, np.array([1.5, 2.7, -1.5, -2.7], dtype=np.float32)),
-        ("ceil", np.ceil, np.array([1.5, 2.7, -1.5, -2.7], dtype=np.float32)),
-        ("round", np.round, np.array([1.4, 1.5, 2.5, -1.5], dtype=np.float32)),
-        ("sign", np.sign, np.array([-5.0, 0.0, 5.0, -0.0], dtype=np.float32)),
+        ("negative", np.negative, [1.0, -2.0, 3.0, -4.0]),
+        ("abs", np.abs, [-1.0, 2.0, -3.0, 4.0]),
+        ("floor", np.floor, [1.5, 2.7, -1.5, -2.7]),
+        ("ceil", np.ceil, [1.5, 2.7, -1.5, -2.7]),
+        ("round", np.round, [1.4, 1.5, 2.5, -1.5]),
+        ("sign", np.sign, [-5.0, 0.0, 5.0, -0.0]),
     ])
     def test_unary_exact(self, backend, op_name, np_func, test_data):
         """Test unary operations with exact comparison."""
         a = cc.Tensor(test_data)
         result = getattr(cc, op_name)(a)
-        expected = np_func(test_data)
-        np.testing.assert_allclose(result.numpy(), expected)
+        expected = np_func(np.array(test_data, dtype=np.float32))
+        np.testing.assert_allclose(to_numpy(result), expected)
 
     @pytest.mark.parametrize("op_name,np_func,test_data", [
-        ("sqrt", np.sqrt, np.array([1.0, 4.0, 9.0, 16.0], dtype=np.float32)),
-        ("exp", np.exp, np.array([0.0, 1.0, 2.0, -1.0], dtype=np.float32)),
-        ("log", np.log, np.array([1.0, 2.718281828, 10.0, 100.0], dtype=np.float32)),
-        ("tanh", np.tanh, np.array([-2.0, -1.0, 0.0, 1.0, 2.0], dtype=np.float32)),
-        ("reciprocal", np.reciprocal, np.array([1.0, 2.0, 4.0, 0.5], dtype=np.float32)),
-        ("square", np.square, np.array([1.0, 2.0, 3.0, -4.0], dtype=np.float32)),
+        ("sqrt", np.sqrt, [1.0, 4.0, 9.0, 16.0]),
+        ("exp", np.exp, [0.0, 1.0, 2.0, -1.0]),
+        ("log", np.log, [1.0, 2.718281828, 10.0, 100.0]),
+        ("tanh", np.tanh, [-2.0, -1.0, 0.0, 1.0, 2.0]),
+        ("reciprocal", np.reciprocal, [1.0, 2.0, 4.0, 0.5]),
+        ("square", np.square, [1.0, 2.0, 3.0, -4.0]),
     ])
     def test_unary_approx(self, backend, op_name, np_func, test_data):
         """Test unary operations with approximate comparison."""
         a = cc.Tensor(test_data)
         result = getattr(cc, op_name)(a)
-        expected = np_func(test_data)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        expected = np_func(np.array(test_data, dtype=np.float32))
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_sin(self, backend):
         """Test sin operation."""
-        a_data = np.array([0.0, np.pi/2, np.pi, 3*np.pi/2], dtype=np.float32)
+        a_data = [0.0, np.pi/2, np.pi, 3*np.pi/2]
         a = cc.Tensor(a_data)
         result = cc.sin(a)
-        expected = np.sin(a_data)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5, atol=1e-5)
+        expected = np.sin(np.array(a_data, dtype=np.float32))
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5, atol=1e-5)
 
     def test_cos(self, backend):
         """Test cos operation."""
-        a_data = np.array([0.0, np.pi/2, np.pi, 3*np.pi/2], dtype=np.float32)
+        a_data = [0.0, np.pi/2, np.pi, 3*np.pi/2]
         a = cc.Tensor(a_data)
         result = cc.cos(a)
-        expected = np.cos(a_data)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5, atol=1e-5)
+        expected = np.cos(np.array(a_data, dtype=np.float32))
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5, atol=1e-5)
 
 
 # =============================================================================
@@ -410,66 +457,66 @@ class TestOperatorOverloading:
 
     def test_add_operator(self, backend):
         """Test + operator."""
-        a_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-        b_data = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+        a_data = [1.0, 2.0, 3.0, 4.0]
+        b_data = [5.0, 6.0, 7.0, 8.0]
         a = cc.Tensor(a_data)
         b = cc.Tensor(b_data)
-        result = (a + b).numpy()
-        expected = a_data + b_data
+        result = to_numpy(a + b)
+        expected = np.array(a_data) + np.array(b_data)
         np.testing.assert_allclose(result, expected)
 
     def test_sub_operator(self, backend):
         """Test - operator."""
-        a_data = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32)
-        b_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        a_data = [10.0, 20.0, 30.0, 40.0]
+        b_data = [1.0, 2.0, 3.0, 4.0]
         a = cc.Tensor(a_data)
         b = cc.Tensor(b_data)
-        result = (a - b).numpy()
-        expected = a_data - b_data
+        result = to_numpy(a - b)
+        expected = np.array(a_data) - np.array(b_data)
         np.testing.assert_allclose(result, expected)
 
     def test_mul_operator(self, backend):
         """Test * operator."""
-        a_data = np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32)
-        b_data = np.array([3.0, 4.0, 5.0, 6.0], dtype=np.float32)
+        a_data = [2.0, 3.0, 4.0, 5.0]
+        b_data = [3.0, 4.0, 5.0, 6.0]
         a = cc.Tensor(a_data)
         b = cc.Tensor(b_data)
-        result = (a * b).numpy()
-        expected = a_data * b_data
+        result = to_numpy(a * b)
+        expected = np.array(a_data) * np.array(b_data)
         np.testing.assert_allclose(result, expected)
 
     def test_truediv_operator(self, backend):
         """Test / operator."""
-        a_data = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32)
-        b_data = np.array([2.0, 4.0, 5.0, 8.0], dtype=np.float32)
+        a_data = [10.0, 20.0, 30.0, 40.0]
+        b_data = [2.0, 4.0, 5.0, 8.0]
         a = cc.Tensor(a_data)
         b = cc.Tensor(b_data)
-        result = (a / b).numpy()
-        expected = a_data / b_data
+        result = to_numpy(a / b)
+        expected = np.array(a_data) / np.array(b_data)
         np.testing.assert_allclose(result, expected, rtol=1e-5)
 
     def test_neg_operator(self, backend):
         """Test unary - operator."""
-        a_data = np.array([1.0, -2.0, 3.0, -4.0], dtype=np.float32)
+        a_data = [1.0, -2.0, 3.0, -4.0]
         a = cc.Tensor(a_data)
-        result = (-a).numpy()
-        expected = -a_data
+        result = to_numpy(-a)
+        expected = -np.array(a_data)
         np.testing.assert_allclose(result, expected)
 
     def test_scalar_add(self, backend):
         """Test + operator with scalar."""
-        a_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        a_data = [1.0, 2.0, 3.0, 4.0]
         a = cc.Tensor(a_data)
-        result = (a + 10.0).numpy()
-        expected = a_data + 10.0
+        result = to_numpy(a + 10.0)
+        expected = np.array(a_data) + 10.0
         np.testing.assert_allclose(result, expected)
 
     def test_scalar_mul(self, backend):
         """Test * operator with scalar."""
-        a_data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        a_data = [1.0, 2.0, 3.0, 4.0]
         a = cc.Tensor(a_data)
-        result = (a * 3.0).numpy()
-        expected = a_data * 3.0
+        result = to_numpy(a * 3.0)
+        expected = np.array(a_data) * 3.0
         np.testing.assert_allclose(result, expected)
 
 
@@ -485,31 +532,31 @@ class TestLargeArrays:
         n = 100000
         a_data = np.random.randn(n).astype(np.float32)
         b_data = np.random.randn(n).astype(np.float32)
-        a = cc.Tensor(a_data)
-        b = cc.Tensor(b_data)
+        a = cc.Tensor(a_data.tolist())
+        b = cc.Tensor(b_data.tolist())
         result = cc.add(a, b)
         expected = a_data + b_data
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_large_multiply(self, backend):
         """Test multiply with large arrays."""
         n = 100000
         a_data = np.random.randn(n).astype(np.float32)
         b_data = np.random.randn(n).astype(np.float32)
-        a = cc.Tensor(a_data)
-        b = cc.Tensor(b_data)
+        a = cc.Tensor(a_data.tolist())
+        b = cc.Tensor(b_data.tolist())
         result = cc.multiply(a, b)
         expected = a_data * b_data
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_large_exp(self, backend):
         """Test exp with large arrays (using safe values to avoid overflow)."""
         n = 100000
         a_data = np.random.uniform(-5, 5, n).astype(np.float32)
-        a = cc.Tensor(a_data)
+        a = cc.Tensor(a_data.tolist())
         result = cc.exp(a)
         expected = np.exp(a_data)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4, atol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4, atol=1e-5)
 
 
 # =============================================================================
@@ -525,9 +572,9 @@ class TestBackendSwitching:
             cc.init(cc.Backend.CPU)
             assert cc.current_backend() == cc.Backend.CPU
 
-            data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+            data = [1.0, 2.0, 3.0, 4.0]
             cpu_buf = cc.Tensor(data)
-            cpu_result = cc.add(cpu_buf, cpu_buf).numpy()
+            cpu_result = to_numpy(cc.add(cpu_buf, cpu_buf))
 
             del cpu_buf
             cc.shutdown()
@@ -537,7 +584,7 @@ class TestBackendSwitching:
                 assert cc.current_backend() == cc.Backend.Vulkan
 
                 vk_buf = cc.Tensor(data)
-                vk_result = cc.add(vk_buf, vk_buf).numpy()
+                vk_result = to_numpy(cc.add(vk_buf, vk_buf))
 
                 np.testing.assert_allclose(cpu_result, vk_result)
 
@@ -546,14 +593,14 @@ class TestBackendSwitching:
 
     def test_simd_mode_switching(self, cpu_backend):
         """Test switching SIMD modes on CPU backend."""
-        data = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        data = [1.0, 2.0, 3.0, 4.0]
 
         cc.set_simd_mode(cc.SIMDMode.Scalar)
         buf1 = cc.Tensor(data)
-        result1 = cc.add(buf1, buf1).numpy()
+        result1 = to_numpy(cc.add(buf1, buf1))
 
         cc.set_simd_mode(cc.SIMDMode.Auto)
         buf2 = cc.Tensor(data)
-        result2 = cc.add(buf2, buf2).numpy()
+        result2 = to_numpy(cc.add(buf2, buf2))
 
         np.testing.assert_allclose(result1, result2)

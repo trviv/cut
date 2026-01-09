@@ -2,6 +2,7 @@
 CUT (Compute Unified Toolkit) - GPU/CPU Compute Library
 
 A Python library for compute operations using Vulkan or CPU backends.
+Uses native Python types (no numpy dependency).
 
 Example:
     import cut
@@ -11,10 +12,10 @@ Example:
     cut.init(cut.Backend.CPU, simd_mode=cut.SIMDMode.Auto)  # CPU with SIMD
 
     # Use operations
-    a = cut.Tensor(np.array([1, 2, 3], dtype=np.float32))
-    b = cut.Tensor(np.array([4, 5, 6], dtype=np.float32))
+    a = cut.Tensor([1.0, 2.0, 3.0])  # float32 by default
+    b = cut.Tensor([4.0, 5.0, 6.0])
     c = cut.add(a, b)
-    result = c.numpy()
+    result = c.tolist()
 """
 
 # Re-export everything from compute module

@@ -18,6 +18,26 @@ import cut.compute as cc
 import gc
 
 
+def _dtype_to_numpy(dtype):
+    """Convert CUT dtype to numpy dtype."""
+    dtype_map = {
+        cc.float32: np.float32,
+        cc.float16: np.float16,
+        cc.int32: np.int32,
+        cc.uint32: np.uint32,
+    }
+    return dtype_map.get(dtype, np.float32)
+
+
+def to_numpy(tensor):
+    """Convert a Tensor to numpy array for verification."""
+    flat = tensor.copy_to()
+    arr = np.array(list(flat), dtype=_dtype_to_numpy(tensor.dtype))
+    if len(tensor.shape) > 1:
+        arr = arr.reshape(tensor.shape)
+    return arr
+
+
 def _cleanup():
     """Force cleanup of all buffers."""
     gc.collect()
@@ -56,48 +76,48 @@ class TestLinearChains:
 
     def test_two_op_chain_add_multiply(self, backend):
         """Test: result = (a + b) * c"""
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-        b = cc.Tensor(np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32))
-        c = cc.Tensor(np.array([2.0, 2.0, 2.0, 2.0], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        b = cc.Tensor([0.5, 0.5, 0.5, 0.5])
+        c = cc.Tensor([2.0, 2.0, 2.0, 2.0])
 
         # Chain: add -> multiply
         result = (a + b) * c
 
         expected = (np.array([1.0, 2.0, 3.0, 4.0]) + 0.5) * 2.0
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_three_op_chain_arithmetic(self, backend):
         """Test: result = ((a + b) * c) - d"""
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-        b = cc.Tensor(np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32))
-        c = cc.Tensor(np.array([2.0, 2.0, 2.0, 2.0], dtype=np.float32))
-        d = cc.Tensor(np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        b = cc.Tensor([1.0, 1.0, 1.0, 1.0])
+        c = cc.Tensor([2.0, 2.0, 2.0, 2.0])
+        d = cc.Tensor([0.5, 0.5, 0.5, 0.5])
 
         result = ((a + b) * c) - d
 
         expected = ((np.array([1.0, 2.0, 3.0, 4.0]) + 1.0) * 2.0) - 0.5
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_four_op_chain_with_unary(self, backend):
         """Test: result = sqrt(abs(a - b) + c)"""
-        a = cc.Tensor(np.array([1.0, 4.0, 9.0, 16.0], dtype=np.float32))
-        b = cc.Tensor(np.array([5.0, 2.0, 10.0, 12.0], dtype=np.float32))
-        c = cc.Tensor(np.array([3.0, 0.0, 0.0, 0.0], dtype=np.float32))
+        a = cc.Tensor([1.0, 4.0, 9.0, 16.0])
+        b = cc.Tensor([5.0, 2.0, 10.0, 12.0])
+        c = cc.Tensor([3.0, 0.0, 0.0, 0.0])
 
         result = cc.sqrt(cc.abs(a - b) + c)
 
         expected = np.sqrt(np.abs(np.array([1.0, 4.0, 9.0, 16.0]) -
                                    np.array([5.0, 2.0, 10.0, 12.0])) +
                           np.array([3.0, 0.0, 0.0, 0.0]))
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_long_chain_five_ops(self, backend):
         """Test: result = floor((((a + b) * c) / d) - e)"""
-        a = cc.Tensor(np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32))
-        b = cc.Tensor(np.array([5.0, 5.0, 5.0, 5.0], dtype=np.float32))
-        c = cc.Tensor(np.array([2.0, 2.0, 2.0, 2.0], dtype=np.float32))
-        d = cc.Tensor(np.array([3.0, 3.0, 3.0, 3.0], dtype=np.float32))
-        e = cc.Tensor(np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32))
+        a = cc.Tensor([10.0, 20.0, 30.0, 40.0])
+        b = cc.Tensor([5.0, 5.0, 5.0, 5.0])
+        c = cc.Tensor([2.0, 2.0, 2.0, 2.0])
+        d = cc.Tensor([3.0, 3.0, 3.0, 3.0])
+        e = cc.Tensor([0.1, 0.2, 0.3, 0.4])
 
         result = cc.floor((((a + b) * c) / d) - e)
 
@@ -107,20 +127,20 @@ class TestLinearChains:
         d_np = np.array([3.0, 3.0, 3.0, 3.0])
         e_np = np.array([0.1, 0.2, 0.3, 0.4])
         expected = np.floor((((a_np + b_np) * c_np) / d_np) - e_np)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_operator_overload_chain(self, backend):
         """Test chaining with Python operator overloading."""
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-        b = cc.Tensor(np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32))
-        c = cc.Tensor(np.array([2.0, 2.0, 2.0, 2.0], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        b = cc.Tensor([0.5, 0.5, 0.5, 0.5])
+        c = cc.Tensor([2.0, 2.0, 2.0, 2.0])
 
         # Using operator overloading
         result = (a + b) * c - a
 
         a_np = np.array([1.0, 2.0, 3.0, 4.0])
         expected = (a_np + 0.5) * 2.0 - a_np
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
 
 # =============================================================================
@@ -139,7 +159,7 @@ class TestDiamondPatterns:
            \ /
             d     (d = b + c)
         """
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
 
         b = a + 1.0       # a + 1
         c = a * 2.0       # a * 2
@@ -147,7 +167,7 @@ class TestDiamondPatterns:
 
         a_np = np.array([1.0, 2.0, 3.0, 4.0])
         expected = (a_np + 1) + (a_np * 2)  # 3a + 1
-        np.testing.assert_allclose(d.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(d), expected, rtol=1e-5)
 
     def test_diamond_with_unary_branches(self, backend):
         """
@@ -158,13 +178,13 @@ class TestDiamondPatterns:
            \ /
             *
         """
-        a = cc.Tensor(np.array([4.0, 9.0, 16.0, 25.0], dtype=np.float32))
+        a = cc.Tensor([4.0, 9.0, 16.0, 25.0])
 
         result = cc.sqrt(a) * cc.square(a)
 
         a_np = np.array([4.0, 9.0, 16.0, 25.0])
         expected = np.sqrt(a_np) * (a_np ** 2)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
     def test_nested_diamond(self, backend):
         """
@@ -180,7 +200,7 @@ class TestDiamondPatterns:
               j
         Where operations chain through multiple levels.
         """
-        a = cc.Tensor(np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32))
+        a = cc.Tensor([2.0, 3.0, 4.0, 5.0])
 
         # First split
         b = a + 1.0      # a + 1
@@ -211,7 +231,7 @@ class TestDiamondPatterns:
         h_np = d_np + e_np
         i_np = f_np + g_np
         expected = h_np * i_np
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
 
 # =============================================================================
@@ -223,31 +243,31 @@ class TestFanOutPatterns:
 
     def test_triple_fan_out(self, backend):
         """Test one input feeding three independent operations."""
-        a = cc.Tensor(np.array([4.0, 9.0, 16.0, 25.0], dtype=np.float32))
+        a = cc.Tensor([4.0, 9.0, 16.0, 25.0])
 
         b = cc.sqrt(a)
         c = cc.square(a)
         d = cc.negative(a)
 
         a_np = np.array([4.0, 9.0, 16.0, 25.0])
-        np.testing.assert_allclose(b.numpy(), np.sqrt(a_np), rtol=1e-5)
-        np.testing.assert_allclose(c.numpy(), a_np ** 2, rtol=1e-5)
-        np.testing.assert_allclose(d.numpy(), -a_np, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(b), np.sqrt(a_np), rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(c), a_np ** 2, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(d), -a_np, rtol=1e-5)
 
     def test_fan_out_with_merge(self, backend):
         """Fan-out that eventually merges: result = sqrt(a) + square(a) + abs(a)"""
-        a = cc.Tensor(np.array([4.0, 9.0, 16.0, 25.0], dtype=np.float32))
+        a = cc.Tensor([4.0, 9.0, 16.0, 25.0])
 
         result = cc.sqrt(a) + cc.square(a) + cc.abs(a)
 
         a_np = np.array([4.0, 9.0, 16.0, 25.0])
         expected = np.sqrt(a_np) + (a_np ** 2) + np.abs(a_np)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
     def test_fan_out_reuse_intermediate(self, backend):
         """Test reusing an intermediate result in multiple places."""
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-        b = cc.Tensor(np.array([2.0, 2.0, 2.0, 2.0], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        b = cc.Tensor([2.0, 2.0, 2.0, 2.0])
 
         # intermediate is used twice
         intermediate = a + b
@@ -257,7 +277,7 @@ class TestFanOutPatterns:
         b_np = np.array([2.0, 2.0, 2.0, 2.0])
         inter_np = a_np + b_np
         expected = (inter_np * a_np) + (inter_np * b_np)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
 
 # =============================================================================
@@ -269,21 +289,21 @@ class TestFanInPatterns:
 
     def test_three_input_fan_in(self, backend):
         """Test combining three independent inputs."""
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-        b = cc.Tensor(np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32))
-        c = cc.Tensor(np.array([2.0, 2.0, 2.0, 2.0], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        b = cc.Tensor([0.5, 0.5, 0.5, 0.5])
+        c = cc.Tensor([2.0, 2.0, 2.0, 2.0])
 
         # Combine a, b, c into one result
         result = (a + b) * c
 
         expected = (np.array([1.0, 2.0, 3.0, 4.0]) + 0.5) * 2.0
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_weighted_sum_pattern(self, backend):
         """Test weighted sum: w1*a + w2*b + w3*c"""
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-        b = cc.Tensor(np.array([4.0, 3.0, 2.0, 1.0], dtype=np.float32))
-        c = cc.Tensor(np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        b = cc.Tensor([4.0, 3.0, 2.0, 1.0])
+        c = cc.Tensor([1.0, 1.0, 1.0, 1.0])
 
         result = a * 0.5 + b * 0.3 + c * 0.2
 
@@ -291,7 +311,7 @@ class TestFanInPatterns:
         b_np = np.array([4.0, 3.0, 2.0, 1.0])
         c_np = np.array([1.0, 1.0, 1.0, 1.0])
         expected = 0.5 * a_np + 0.3 * b_np + 0.2 * c_np
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
 
 # =============================================================================
@@ -303,36 +323,36 @@ class TestMixedScalarVectorChains:
 
     def test_chain_with_scalar_ops(self, backend):
         """Test chain mixing vector-vector and vector-scalar ops."""
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-        b = cc.Tensor(np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        b = cc.Tensor([0.5, 0.5, 0.5, 0.5])
 
         # (a + b) * 2 + 1
         result = (a + b) * 2.0 + 1.0
 
         expected = (np.array([1.0, 2.0, 3.0, 4.0]) + 0.5) * 2.0 + 1.0
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_normalization_chain(self, backend):
         """Test normalize-like chain: (x - min) / (max - min)"""
-        x = cc.Tensor(np.array([2.0, 4.0, 6.0, 8.0], dtype=np.float32))
+        x = cc.Tensor([2.0, 4.0, 6.0, 8.0])
 
         result = (x - 2.0) / (8.0 - 2.0)
 
         x_np = np.array([2.0, 4.0, 6.0, 8.0])
         expected = (x_np - 2.0) / (8.0 - 2.0)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_power_chain_with_scalars(self, backend):
         """Test chain: (a^2 + b^2)^0.5 using power ops"""
-        a = cc.Tensor(np.array([3.0, 4.0, 5.0, 12.0], dtype=np.float32))
-        b = cc.Tensor(np.array([4.0, 3.0, 12.0, 5.0], dtype=np.float32))
+        a = cc.Tensor([3.0, 4.0, 5.0, 12.0])
+        b = cc.Tensor([4.0, 3.0, 12.0, 5.0])
 
         result = cc.sqrt(cc.square(a) + cc.square(b))
 
         a_np = np.array([3.0, 4.0, 5.0, 12.0])
         b_np = np.array([4.0, 3.0, 12.0, 5.0])
         expected = np.sqrt(a_np**2 + b_np**2)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
 
 # =============================================================================
@@ -344,31 +364,31 @@ class TestTranscendentalChains:
 
     def test_trig_identity_chain(self, backend):
         """Test sin^2 + cos^2 = 1"""
-        x = cc.Tensor(np.array([0.0, 0.5, 1.0, 1.5], dtype=np.float32))
+        x = cc.Tensor([0.0, 0.5, 1.0, 1.5])
 
         result = cc.square(cc.sin(x)) + cc.square(cc.cos(x))
 
         expected = np.ones(4, dtype=np.float32)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4, atol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4, atol=1e-5)
 
     def test_exp_log_inverse(self, backend):
         """Test exp(log(x)) = x"""
-        x = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+        x = cc.Tensor([1.0, 2.0, 3.0, 4.0])
 
         result = cc.exp(cc.log(x))
 
         expected = np.array([1.0, 2.0, 3.0, 4.0])
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
     def test_softmax_like_chain(self, backend):
         """Test softmax-like chain: exp(x) / sum(exp(x)) approximation."""
-        x = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+        x = cc.Tensor([1.0, 2.0, 3.0, 4.0])
 
         result = cc.exp(x) / 84.79
 
         x_np = np.array([1.0, 2.0, 3.0, 4.0])
         expected = np.exp(x_np) / 84.79
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
 
 # =============================================================================
@@ -384,9 +404,9 @@ class TestComplexDAGs:
         Using a=1, b=-5, c=6 -> roots at 2 and 3
         """
         # Broadcast to vectors for testing
-        a = cc.Tensor(np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32))
-        b = cc.Tensor(np.array([-5.0, -6.0, -7.0, -8.0], dtype=np.float32))
-        c = cc.Tensor(np.array([6.0, 8.0, 10.0, 12.0], dtype=np.float32))
+        a = cc.Tensor([1.0, 1.0, 1.0, 1.0])
+        b = cc.Tensor([-5.0, -6.0, -7.0, -8.0])
+        c = cc.Tensor([6.0, 8.0, 10.0, 12.0])
 
         # (-b + sqrt(b^2 - 4ac)) / (2a)
         discriminant = cc.square(b) - a * c * 4.0
@@ -396,14 +416,14 @@ class TestComplexDAGs:
         b_np = np.array([-5.0, -6.0, -7.0, -8.0])
         c_np = np.array([6.0, 8.0, 10.0, 12.0])
         expected = (-b_np + np.sqrt(b_np**2 - 4*a_np*c_np)) / (2*a_np)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
     def test_distance_formula(self, backend):
         """Test Euclidean distance: sqrt((x2-x1)^2 + (y2-y1)^2)"""
-        x1 = cc.Tensor(np.array([0.0, 0.0, 1.0, 2.0], dtype=np.float32))
-        y1 = cc.Tensor(np.array([0.0, 0.0, 1.0, 2.0], dtype=np.float32))
-        x2 = cc.Tensor(np.array([3.0, 4.0, 4.0, 6.0], dtype=np.float32))
-        y2 = cc.Tensor(np.array([4.0, 3.0, 5.0, 6.0], dtype=np.float32))
+        x1 = cc.Tensor([0.0, 0.0, 1.0, 2.0])
+        y1 = cc.Tensor([0.0, 0.0, 1.0, 2.0])
+        x2 = cc.Tensor([3.0, 4.0, 4.0, 6.0])
+        y2 = cc.Tensor([4.0, 3.0, 5.0, 6.0])
 
         dx = x2 - x1
         dy = y2 - y1
@@ -414,29 +434,29 @@ class TestComplexDAGs:
         x2_np = np.array([3.0, 4.0, 4.0, 6.0])
         y2_np = np.array([4.0, 3.0, 5.0, 6.0])
         expected = np.sqrt((x2_np - x1_np)**2 + (y2_np - y1_np)**2)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
     def test_sigmoid_approximation(self, backend):
         """Test sigmoid-like computation: 1 / (1 + exp(-x))"""
-        x = cc.Tensor(np.array([-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32))
-        ones = cc.Tensor(np.ones(8, dtype=np.float32))
+        x = cc.Tensor([-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+        ones = cc.Tensor([1.0] * 8)
 
         result = ones / (ones + cc.exp(-x))
 
         x_np = np.array([-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
         expected = 1.0 / (1.0 + np.exp(-x_np))
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
     def test_relu_like_chain(self, backend):
         """Test ReLU-like: max(0, x)"""
-        x = cc.Tensor(np.array([-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, -0.5, 0.5], dtype=np.float32))
-        zeros = cc.Tensor(np.zeros(8, dtype=np.float32))
+        x = cc.Tensor([-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, -0.5, 0.5])
+        zeros = cc.Tensor([0.0] * 8)
 
         result = cc.maximum(x, zeros)
 
         x_np = np.array([-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, -0.5, 0.5])
         expected = np.maximum(0, x_np)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
 
 # =============================================================================
@@ -460,7 +480,7 @@ class TestLargeChains:
         result = cc.sqrt(cc.abs((a + b) * c))
 
         expected = np.sqrt(np.abs((a_np + b_np) * c_np))
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-4, atol=1e-6)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4, atol=1e-6)
 
     def test_large_diamond_chain(self, backend):
         """Test diamond pattern with 100K elements."""
@@ -472,7 +492,7 @@ class TestLargeChains:
         result = cc.sqrt(a) + cc.log(a)
 
         expected = np.sqrt(a_np) + np.log(a_np)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-3, atol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-3, atol=1e-5)
 
     def test_ten_op_chain(self, backend):
         """Test a 10-operation chain."""
@@ -502,7 +522,7 @@ class TestLargeChains:
         t8_np = np.exp(t7_np)
         t9_np = t8_np + 1
         expected = np.floor(t9_np)
-        np.testing.assert_allclose(result.numpy(), expected, rtol=1e-3, atol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-3, atol=1e-4)
 
 
 # =============================================================================
@@ -518,9 +538,9 @@ class TestIntegerChains:
         if backend == cc.Backend.CPU:
             pytest.skip("int32 multiply not fully supported on CPU backend")
 
-        a = cc.Tensor(np.array([1, 2, 3, 4], dtype=np.int32))
-        b = cc.Tensor(np.array([5, 6, 7, 8], dtype=np.int32))
-        c = cc.Tensor(np.array([2, 2, 2, 2], dtype=np.int32))
+        a = cc.Tensor([1, 2, 3, 4], dtype=cc.int32)
+        b = cc.Tensor([5, 6, 7, 8], dtype=cc.int32)
+        c = cc.Tensor([2, 2, 2, 2], dtype=cc.int32)
 
         result = ((a + b) * c) - a
 
@@ -528,7 +548,7 @@ class TestIntegerChains:
         b_np = np.array([5, 6, 7, 8], dtype=np.int32)
         c_np = np.array([2, 2, 2, 2], dtype=np.int32)
         expected = ((a_np + b_np) * c_np) - a_np
-        np.testing.assert_array_equal(result.numpy(), expected)
+        np.testing.assert_array_equal(to_numpy(result), expected)
 
     def test_int32_modulo_chain(self, backend):
         """Test chain with modulo operation."""
@@ -536,16 +556,16 @@ class TestIntegerChains:
         if backend == cc.Backend.Vulkan:
             pytest.skip("int32 mod shader compilation issue on Vulkan")
 
-        a = cc.Tensor(np.array([10, 20, 30, 40], dtype=np.int32))
-        b = cc.Tensor(np.array([3, 7, 8, 9], dtype=np.int32))
-        c = cc.Tensor(np.array([2, 2, 2, 2], dtype=np.int32))
+        a = cc.Tensor([10, 20, 30, 40], dtype=cc.int32)
+        b = cc.Tensor([3, 7, 8, 9], dtype=cc.int32)
+        c = cc.Tensor([2, 2, 2, 2], dtype=cc.int32)
 
         result = cc.mod(a + b, c)
 
         a_np = np.array([10, 20, 30, 40], dtype=np.int32)
         b_np = np.array([3, 7, 8, 9], dtype=np.int32)
         expected = (a_np + b_np) % 2
-        np.testing.assert_array_equal(result.numpy(), expected)
+        np.testing.assert_array_equal(to_numpy(result), expected)
 
 
 # =============================================================================
@@ -557,25 +577,25 @@ class TestOutputTensorReuse:
 
     def test_explicit_output_chain(self, backend):
         """Test chain with explicit output tensor allocation."""
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-        b = cc.Tensor(np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        b = cc.Tensor([0.5, 0.5, 0.5, 0.5])
 
         # Pre-allocate output tensors (size is in bytes: 4 elements * 4 bytes = 16)
-        out1 = cc.Tensor(size=16, dtype=np.float32)
-        out2 = cc.Tensor(size=16, dtype=np.float32)
+        out1 = cc.Tensor(size=16, dtype=cc.float32)
+        out2 = cc.Tensor(size=16, dtype=cc.float32)
 
         cc.add(a, b, out=out1)
         cc.multiply(out1, b, out=out2)
 
         expected = (np.array([1.0, 2.0, 3.0, 4.0]) + 0.5) * 0.5
-        np.testing.assert_allclose(out2.numpy(), expected, rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(out2), expected, rtol=1e-5)
 
     def test_tensor_identity_in_chain(self, backend):
         """Verify that output tensor is the same object when passed explicitly."""
-        a = cc.Tensor(np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
-        b = cc.Tensor(np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32))
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        b = cc.Tensor([1.0, 1.0, 1.0, 1.0])
         # size is in bytes: 4 elements * 4 bytes = 16
-        out = cc.Tensor(size=16, dtype=np.float32)
+        out = cc.Tensor(size=16, dtype=cc.float32)
 
         result = cc.add(a, b, out=out)
         assert result is out
