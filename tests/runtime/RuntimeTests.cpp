@@ -407,6 +407,72 @@ inline bool hasVulkanShaderSupport(OperatorEnum op) {
   case UnaryFloor:
   case UnaryCeil:
   case UnaryRound:
+  // Extended binary vec-vec operators (bitwise, logical, special math)
+  case BinaryVecVecBitwiseAnd:
+  case BinaryVecVecBitwiseOr:
+  case BinaryVecVecBitwiseXor:
+  case BinaryVecVecLeftShift:
+  case BinaryVecVecRightShift:
+  case BinaryVecVecLogicalAnd:
+  case BinaryVecVecLogicalOr:
+  case BinaryVecVecLogicalXor:
+  case BinaryVecVecAtan2:
+  case BinaryVecVecHypot:
+  case BinaryVecVecCopysign:
+  case BinaryVecVecFmod:
+  // Extended binary vec-scalar operators (bitwise, logical, special math)
+  case BinaryVecScalarBitwiseAnd:
+  case BinaryVecScalarBitwiseOr:
+  case BinaryVecScalarBitwiseXor:
+  case BinaryVecScalarLeftShift:
+  case BinaryVecScalarRightShift:
+  case BinaryVecScalarLogicalAnd:
+  case BinaryVecScalarLogicalOr:
+  case BinaryVecScalarLogicalXor:
+  case BinaryVecScalarAtan2:
+  case BinaryVecScalarHypot:
+  case BinaryVecScalarCopysign:
+  case BinaryVecScalarFmod:
+  case BinaryVecScalarLeakyRelu:
+  // Extended unary operators
+  case UnaryExpm1:
+  case UnaryExp2:
+  case UnaryLog1p:
+  case UnaryCbrt:
+  case UnaryDegrees:
+  case UnaryRadians:
+  case UnaryLogicalNot:
+  case UnaryBitwiseNot:
+  case UnaryRelu:
+  case UnarySigmoid:
+  case UnaryGelu:
+  case UnarySilu:
+  case UnarySoftplus:
+  case UnaryIsNan:
+  case UnaryIsInf:
+  // Ternary operators
+  case TernaryClamp:
+  case TernarySelect:
+  // Reduction operations
+  case ReduceSum:
+  case ReduceMean:
+  case ReduceMin:
+  case ReduceMax:
+  case ReduceProd:
+  case ReduceAny:
+  case ReduceAll:
+  // Matrix operations
+  case MatMul:
+  case Transpose:
+  case Dot:
+  // Tensor creation operations
+  case Arange:
+  case Linspace:
+  case Zeros:
+  case Ones:
+  case Full:
+  // Norm operations
+  case Norm:
     return true;
   // Operators without shader support yet
   default:

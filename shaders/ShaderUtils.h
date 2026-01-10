@@ -6,6 +6,15 @@
 namespace cut {
 
 // =============================================================================
+// Shader Templates
+// =============================================================================
+
+extern const char *matmulShaderTemplate;
+extern const char *transposeShaderTemplate;
+extern const char *dotShaderTemplate;
+extern const char *reductionShaderTemplate;
+
+// =============================================================================
 // Utility Functions
 // =============================================================================
 

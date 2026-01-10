@@ -112,6 +112,7 @@ set(LIB_HEADERS
 # Source files
 set(LIB_SOURCES
     shaders/Shaders.cpp
+    shaders/ShaderUtils.cpp
     shaders/ShadersGenerated.cpp
     shaders/ShadersBasicOps.cpp
     shaders/ShadersAdvancedOps.cpp
