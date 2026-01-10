@@ -971,6 +971,481 @@ def clamp(a: Tensor, min_val: Union[int, float], max_val: Union[int, float],
     return out
 
 
+def where(condition: Tensor, x: Tensor, y: Tensor, out: Optional[Tensor] = None) -> Tensor:
+    """
+    Select elements from x or y depending on condition.
+
+    Returns elements from x where condition is non-zero, otherwise from y.
+    This is equivalent to PyTorch's torch.where(condition, x, y).
+
+    Args:
+        condition: Condition tensor (non-zero means True)
+        x: Values to select when condition is True
+        y: Values to select when condition is False
+        out: Optional output tensor
+
+    Returns:
+        Tensor with selected values
+
+    Example:
+        >>> cond = Tensor([1, 0, 1, 0])
+        >>> x = Tensor([10, 20, 30, 40])
+        >>> y = Tensor([1, 2, 3, 4])
+        >>> result = where(cond, x, y)  # Returns [10, 2, 30, 4]
+    """
+    _ensure_initialized()
+
+    # Check shapes match
+    if condition.size != x.size or condition.size != y.size:
+        raise ValueError("condition, x, and y must have the same size")
+
+    if out is None:
+        out = Tensor(size=x.size, dtype=x._dtype, shape=x._shape)
+
+    bindings = [
+        ComputeBinding(0, condition._handle),
+        ComputeBinding(1, x._handle),
+        ComputeBinding(2, y._handle),
+        ComputeBinding(3, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.TernarySelect, bindings)
+    return out
+
+
+def concat(tensors: List[Tensor], axis: int = 0, out: Optional[Tensor] = None) -> Tensor:
+    """
+    Concatenate tensors along an axis.
+
+    Similar to PyTorch's torch.cat() and NumPy's concatenate().
+
+    Args:
+        tensors: List of tensors to concatenate
+        axis: Axis along which to concatenate (default: 0)
+        out: Optional output tensor
+
+    Returns:
+        Concatenated tensor
+
+    Example:
+        >>> a = Tensor([[1, 2], [3, 4]])
+        >>> b = Tensor([[5, 6]])
+        >>> result = concat([a, b], axis=0)  # Shape: (3, 2)
+    """
+    _ensure_initialized()
+
+    if not tensors:
+        raise ValueError("Need at least one tensor to concatenate")
+
+    if len(tensors) == 1:
+        return tensors[0]
+
+    # For now, implement a simple version that works with flattened tensors
+    # Full implementation would need backend support for arbitrary axis
+    if axis != 0:
+        raise NotImplementedError("Only axis=0 concatenation is currently supported")
+
+    # Calculate total size
+    total_size = sum(t.size for t in tensors)
+    dtype = tensors[0]._dtype if tensors[0]._dtype is not None else float32
+
+    if out is None:
+        out = Tensor(size=total_size, dtype=dtype)
+
+    # Copy each tensor into output
+    offset = 0
+    for t in tensors:
+        data = t.tolist()
+        out_data = out.tolist()
+        out_data[offset:offset+t.size] = data
+        out.from_list(out_data)
+        offset += t.size
+
+    return out
+
+
+def stack(tensors: List[Tensor], axis: int = 0, out: Optional[Tensor] = None) -> Tensor:
+    """
+    Stack tensors along a new axis.
+
+    Similar to PyTorch's torch.stack() and NumPy's stack().
+    Unlike concat, this creates a new dimension.
+
+    Args:
+        tensors: List of tensors to stack (must have same shape)
+        axis: Axis along which to stack (default: 0)
+        out: Optional output tensor
+
+    Returns:
+        Stacked tensor
+
+    Example:
+        >>> a = Tensor([1, 2, 3])
+        >>> b = Tensor([4, 5, 6])
+        >>> result = stack([a, b], axis=0)  # Shape: (2, 3)
+    """
+    _ensure_initialized()
+
+    if not tensors:
+        raise ValueError("Need at least one tensor to stack")
+
+    if len(tensors) == 1:
+        # Add new dimension
+        t = tensors[0]
+        return Tensor(data=t.tolist(), shape=[1] + list(t._shape))
+
+    # Check all tensors have the same shape
+    first_shape = tensors[0]._shape
+    for t in tensors[1:]:
+        if t._shape != first_shape:
+            raise ValueError("All tensors must have the same shape for stacking")
+
+    # For now, support axis=0 only
+    if axis != 0:
+        raise NotImplementedError("Only axis=0 stacking is currently supported")
+
+    # Create output shape
+    new_shape = [len(tensors)] + list(first_shape)
+    total_size = len(tensors) * tensors[0].size
+    dtype = tensors[0]._dtype if tensors[0]._dtype is not None else float32
+
+    if out is None:
+        out = Tensor(size=total_size, dtype=dtype, shape=new_shape)
+
+    # Copy each tensor into output
+    all_data = []
+    for t in tensors:
+        all_data.extend(t.tolist())
+
+    out.from_list(all_data)
+    return out
+
+
+def flatten(input: Tensor, start_dim: int = 0, end_dim: int = -1, out: Optional[Tensor] = None) -> Tensor:
+    """
+    Flatten tensor dimensions.
+
+    Similar to PyTorch's torch.flatten().
+
+    Args:
+        input: Input tensor
+        start_dim: First dimension to flatten (default: 0)
+        end_dim: Last dimension to flatten (default: -1, meaning last dim)
+        out: Optional output tensor
+
+    Returns:
+        Flattened tensor
+
+    Example:
+        >>> a = Tensor(shape=(2, 3, 4), data=list(range(24)))
+        >>> result = flatten(a)  # Shape: (24,)
+        >>> result = flatten(a, start_dim=1)  # Shape: (2, 12)
+    """
+    _ensure_initialized()
+
+    if input._shape is None or len(input._shape) == 0:
+        # Already flat
+        return input
+
+    shape = list(input._shape)
+    ndim = len(shape)
+
+    # Handle negative indices
+    if end_dim < 0:
+        end_dim = ndim + end_dim
+
+    if start_dim < 0:
+        start_dim = ndim + start_dim
+
+    # Validate
+    if start_dim < 0 or start_dim >= ndim:
+        raise ValueError(f"start_dim {start_dim} out of range for {ndim}D tensor")
+    if end_dim < 0 or end_dim >= ndim:
+        raise ValueError(f"end_dim {end_dim} out of range for {ndim}D tensor")
+    if start_dim > end_dim:
+        raise ValueError(f"start_dim {start_dim} must be <= end_dim {end_dim}")
+
+    # Calculate new shape
+    if start_dim == 0 and end_dim == ndim - 1:
+        # Flatten everything
+        new_shape = [input.size]
+    else:
+        # Flatten only the specified dimensions
+        new_shape = shape[:start_dim]
+        flattened_size = 1
+        for i in range(start_dim, end_dim + 1):
+            flattened_size *= shape[i]
+        new_shape.append(flattened_size)
+        new_shape.extend(shape[end_dim + 1:])
+
+    if out is None:
+        out = Tensor(size=input.size, dtype=input._dtype, shape=new_shape)
+
+    # Copy data
+    out.from_list(input.tolist())
+    return out
+
+
+def norm(input: Tensor, p: Union[float, str] = 2, dim: Optional[int] = None,
+         keepdim: bool = False, out: Optional[Tensor] = None) -> Tensor:
+    """
+    Calculate vector or matrix norm.
+
+    Similar to PyTorch's torch.norm().
+
+    Args:
+        input: Input tensor
+        p: Norm order. Can be:
+           - float: p-norm (1, 2, inf, -inf, etc.)
+           - 'fro': Frobenius norm (for matrices)
+        dim: Dimension along which to compute norm (None = entire tensor)
+        keepdim: Whether to keep reduced dimensions
+        out: Optional output tensor
+
+    Returns:
+        Norm value(s)
+
+    Example:
+        >>> a = Tensor([3, 4])
+        >>> result = norm(a)  # L2 norm: 5.0
+        >>> result = norm(a, p=1)  # L1 norm: 7.0
+    """
+    _ensure_initialized()
+
+    # For now, implement basic functionality
+    if dim is not None:
+        raise NotImplementedError("Per-dimension norm not yet implemented")
+
+    data = input.tolist()
+
+    if p == 'fro' or p == 2:
+        # Frobenius / L2 norm
+        sum_sq = sum(x * x for x in data)
+        result = sum_sq ** 0.5
+    elif p == 1:
+        # L1 norm
+        result = sum(abs(x) for x in data)
+    elif p == float('inf'):
+        # Infinity norm (max absolute value)
+        result = max(abs(x) for x in data)
+    elif p == float('-inf'):
+        # Negative infinity norm (min absolute value)
+        result = min(abs(x) for x in data)
+    else:
+        # General p-norm
+        result = sum(abs(x) ** p for x in data) ** (1.0 / p)
+
+    # Return scalar tensor
+    if out is None:
+        out = Tensor([result], dtype=input._dtype)
+    else:
+        out.from_list([result])
+
+    return out
+
+
+def arange(start: Union[int, float], end: Optional[Union[int, float]] = None,
+           step: Union[int, float] = 1, dtype: Optional[DataType] = None) -> Tensor:
+    """
+    Create a tensor with evenly spaced values in a range.
+
+    Similar to PyTorch's torch.arange() and NumPy's arange().
+
+    Args:
+        start: Starting value (or end if 'end' is None)
+        end: End value (exclusive)
+        step: Step between values
+        dtype: Data type (default: float32)
+
+    Returns:
+        Tensor with range values
+
+    Example:
+        >>> result = arange(5)  # [0, 1, 2, 3, 4]
+        >>> result = arange(2, 10, 2)  # [2, 4, 6, 8]
+        >>> result = arange(0, 1, 0.1)  # [0.0, 0.1, 0.2, ..., 0.9]
+    """
+    _ensure_initialized()
+
+    # Handle single argument case
+    if end is None:
+        end = start
+        start = 0
+
+    # Calculate number of elements
+    if step == 0:
+        raise ValueError("step cannot be zero")
+
+    n = int((end - start) / step)
+    if n < 0:
+        n = 0
+
+    # Generate values
+    values = [start + i * step for i in range(n)]
+
+    if dtype is None:
+        dtype = float32
+
+    return Tensor(values, dtype=dtype)
+
+
+def linspace(start: Union[int, float], end: Union[int, float], steps: int = 100,
+             dtype: Optional[DataType] = None) -> Tensor:
+    """
+    Create a tensor with evenly spaced values between start and end.
+
+    Similar to PyTorch's torch.linspace() and NumPy's linspace().
+
+    Args:
+        start: Starting value
+        end: End value (inclusive)
+        steps: Number of values to generate
+        dtype: Data type (default: float32)
+
+    Returns:
+        Tensor with linearly spaced values
+
+    Example:
+        >>> result = linspace(0, 10, 5)  # [0.0, 2.5, 5.0, 7.5, 10.0]
+        >>> result = linspace(1, 2, 3)  # [1.0, 1.5, 2.0]
+    """
+    _ensure_initialized()
+
+    if steps < 1:
+        raise ValueError("steps must be at least 1")
+
+    if steps == 1:
+        values = [start]
+    else:
+        step_size = (end - start) / (steps - 1)
+        values = [start + i * step_size for i in range(steps)]
+
+    if dtype is None:
+        dtype = float32
+
+    return Tensor(values, dtype=dtype)
+
+
+def zeros(*size, dtype: Optional[DataType] = None, shape: Optional[List[int]] = None) -> Tensor:
+    """
+    Create a tensor filled with zeros.
+
+    Similar to PyTorch's torch.zeros() and NumPy's zeros().
+
+    Args:
+        *size: Size specification (can be single int or multiple ints for shape)
+        dtype: Data type (default: float32)
+        shape: Alternative way to specify shape
+
+    Returns:
+        Tensor filled with zeros
+
+    Example:
+        >>> result = zeros(5)  # [0, 0, 0, 0, 0]
+        >>> result = zeros(2, 3)  # [[0, 0, 0], [0, 0, 0]]
+        >>> result = zeros(shape=(2, 3))
+    """
+    _ensure_initialized()
+
+    if shape is None:
+        if len(size) == 0:
+            raise ValueError("Must specify size or shape")
+        elif len(size) == 1 and isinstance(size[0], (list, tuple)):
+            shape = list(size[0])
+        else:
+            shape = list(size)
+
+    # Calculate total size
+    total_size = 1
+    for dim in shape:
+        total_size *= dim
+
+    if dtype is None:
+        dtype = float32
+
+    return Tensor([0] * total_size, dtype=dtype, shape=shape)
+
+
+def ones(*size, dtype: Optional[DataType] = None, shape: Optional[List[int]] = None) -> Tensor:
+    """
+    Create a tensor filled with ones.
+
+    Similar to PyTorch's torch.ones() and NumPy's ones().
+
+    Args:
+        *size: Size specification (can be single int or multiple ints for shape)
+        dtype: Data type (default: float32)
+        shape: Alternative way to specify shape
+
+    Returns:
+        Tensor filled with ones
+
+    Example:
+        >>> result = ones(5)  # [1, 1, 1, 1, 1]
+        >>> result = ones(2, 3)  # [[1, 1, 1], [1, 1, 1]]
+        >>> result = ones(shape=(2, 3))
+    """
+    _ensure_initialized()
+
+    if shape is None:
+        if len(size) == 0:
+            raise ValueError("Must specify size or shape")
+        elif len(size) == 1 and isinstance(size[0], (list, tuple)):
+            shape = list(size[0])
+        else:
+            shape = list(size)
+
+    # Calculate total size
+    total_size = 1
+    for dim in shape:
+        total_size *= dim
+
+    if dtype is None:
+        dtype = float32
+
+    return Tensor([1] * total_size, dtype=dtype, shape=shape)
+
+
+def full(*size, fill_value: Union[int, float] = 0, dtype: Optional[DataType] = None,
+         shape: Optional[List[int]] = None) -> Tensor:
+    """
+    Create a tensor filled with a specific value.
+
+    Similar to PyTorch's torch.full() and NumPy's full().
+
+    Args:
+        *size: Size specification (can be single int or multiple ints for shape)
+        fill_value: Value to fill the tensor with
+        dtype: Data type (default: float32)
+        shape: Alternative way to specify shape
+
+    Returns:
+        Tensor filled with fill_value
+
+    Example:
+        >>> result = full(5, fill_value=3.14)  # [3.14, 3.14, 3.14, 3.14, 3.14]
+        >>> result = full(2, 3, fill_value=7)  # [[7, 7, 7], [7, 7, 7]]
+    """
+    _ensure_initialized()
+
+    if shape is None:
+        if len(size) == 0:
+            raise ValueError("Must specify size or shape")
+        elif len(size) == 1 and isinstance(size[0], (list, tuple)):
+            shape = list(size[0])
+        else:
+            shape = list(size)
+
+    # Calculate total size
+    total_size = 1
+    for dim in shape:
+        total_size *= dim
+
+    if dtype is None:
+        dtype = float32
+
+    return Tensor([fill_value] * total_size, dtype=dtype, shape=shape)
+
+
 # Helper function to get SPIR-V shaders
 def get_shader(op: OperatorEnum, dtype: DataType = DataType.Float32):
     """
@@ -1023,6 +1498,7 @@ __all__ = [
     "get_shader",
     # Special operations
     "clamp",
+    "where",
     # Reduction operations
     "reduce_sum",
     "reduce_mean",
@@ -1035,4 +1511,16 @@ __all__ = [
     "matmul",
     "transpose",
     "dot",
+    # Tensor manipulation
+    "concat",
+    "stack",
+    "flatten",
+    # Norms
+    "norm",
+    # Tensor creation
+    "arange",
+    "linspace",
+    "zeros",
+    "ones",
+    "full",
 ] + ALL_OPERATION_NAMES

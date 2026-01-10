@@ -166,6 +166,7 @@ enum OperatorEnum {
   // ===========================================================================
 
   TernaryClamp = OP_TERNARY_CLAMP,
+  TernarySelect = OP_TERNARY_SELECT,
 
   // ===========================================================================
   // Reduction operations (110-119)
@@ -186,6 +187,30 @@ enum OperatorEnum {
   MatMul = OP_MATMUL,
   Transpose = OP_TRANSPOSE,
   Dot = OP_DOT,
+
+  // ===========================================================================
+  // Tensor manipulation operations (130-139)
+  // ===========================================================================
+
+  Concat = OP_CONCAT,
+  Stack = OP_STACK,
+  Flatten = OP_FLATTEN,
+
+  // ===========================================================================
+  // Norm operations (140-149)
+  // ===========================================================================
+
+  Norm = OP_NORM,
+
+  // ===========================================================================
+  // Tensor creation operations (150-159)
+  // ===========================================================================
+
+  Arange = OP_ARANGE,
+  Linspace = OP_LINSPACE,
+  Zeros = OP_ZEROS,
+  Ones = OP_ONES,
+  Full = OP_FULL,
 };
 
 } // namespace cut

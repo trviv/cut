@@ -94,6 +94,26 @@ VEC_SCALAR_MINMAX_OPS: List[Tuple[str, str, float]] = [
     ("maximum_scalar", "a", -0.5),
 ]
 
+# New PyTorch-like operations
+TENSOR_CREATION_OPS: List[Tuple[str, int]] = [
+    ("arange", 1000),  # (name, num_elements)
+    ("linspace", 1000),
+    ("zeros", 10000),
+    ("ones", 10000),
+    ("full", 10000),
+]
+
+# Conditional selection operations
+CONDITIONAL_OPS: List[Tuple[str, str, str, str]] = [
+    ("where", "a_pos", "a", "b"),  # (name, condition_array, x_array, y_array)
+]
+
+# Norm operations
+NORM_OPS: List[Tuple[str, str, int]] = [
+    ("norm_l2", "a", 2),  # (name, input_array, p)
+    ("norm_l1", "a", 1),
+]
+
 
 def _make_comparison_func(op_name: str) -> Callable:
     """Create a comparison function that returns float32."""
@@ -157,6 +177,48 @@ def get_operations(data: TestData) -> Dict[str, List[Tuple[str, Callable, tuple]
          (getattr(data, arr_name), scalar))
         for name, arr_name, scalar in VEC_SCALAR_MINMAX_OPS
     ]
+
+    # Tensor Creation Operations
+    operations["Tensor Creation"] = []
+    for name, size in TENSOR_CREATION_OPS:
+        if name == "arange":
+            operations["Tensor Creation"].append(
+                (name, np.arange, (0, size, 1))
+            )
+        elif name == "linspace":
+            operations["Tensor Creation"].append(
+                (name, np.linspace, (0, size-1, size))
+            )
+        elif name == "zeros":
+            operations["Tensor Creation"].append(
+                (name, np.zeros, (size,))
+            )
+        elif name == "ones":
+            operations["Tensor Creation"].append(
+                (name, np.ones, (size,))
+            )
+        elif name == "full":
+            operations["Tensor Creation"].append(
+                (name, lambda size, val=3.14: np.full(size, val), (size,))
+            )
+
+    # Conditional Selection
+    operations["Conditional Selection"] = [
+        (name, np.where, (getattr(data, cond_arr), getattr(data, x_arr), getattr(data, y_arr)))
+        for name, cond_arr, x_arr, y_arr in CONDITIONAL_OPS
+    ]
+
+    # Norm Operations
+    operations["Norm Operations"] = []
+    for name, arr_name, p in NORM_OPS:
+        if name == "norm_l2":
+            operations["Norm Operations"].append(
+                ("norm", lambda x: np.array([np.linalg.norm(x, ord=2)], dtype=np.float32), (getattr(data, arr_name),))
+            )
+        elif name == "norm_l1":
+            operations["Norm Operations"].append(
+                ("norm", lambda x: np.array([np.linalg.norm(x, ord=1)], dtype=np.float32), (getattr(data, arr_name),))
+            )
 
     return operations
 

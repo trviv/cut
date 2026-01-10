@@ -1127,6 +1127,278 @@ getGeneratedShader(const OperatorEnum shader, const DataType datatype) {
     break;
   }
 
+  // Ternary select/where operation
+  case TernarySelect: {
+    // Select: condition ? x : y
+    // Uses 4 bindings: condition (0), x (1), y (2), output (3)
+    std::string selectShader = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint dtype_vec_size = 4;
+
+layout(push_constant) uniform PushConstants {
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferCond {
+    %VEC_DTYPE% dataCond[];
+};
+
+layout(set = 0, binding = 1, std430) restrict readonly buffer BufferX {
+    %VEC_DTYPE% dataX[];
+};
+
+layout(set = 0, binding = 2, std430) restrict readonly buffer BufferY {
+    %VEC_DTYPE% dataY[];
+};
+
+layout(set = 0, binding = 3, std430) restrict writeonly buffer BufferOut {
+    %VEC_DTYPE% dataOut[];
+};
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index * dtype_vec_size >= numElements) {
+        return;
+    }
+
+    // Select from X where condition is non-zero, otherwise from Y
+    %VEC_DTYPE% cond = dataCond[index];
+    dataOut[index] = mix(dataY[index], dataX[index], notEqual(cond, %VEC_DTYPE%(0.0)));
+}
+)";
+    shaderSource = applyDatatypeSubstitutions(selectShader, datatype);
+    shaderName = "ternary_select";
+    break;
+  }
+
+  // Tensor creation operations
+  case Arange: {
+    // Arange: create range [start, start+step, start+2*step, ...]
+    // Push constants: start (float), step (float), numElements (uint)
+    std::string arangeShader = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint dtype_vec_size = 4;
+
+layout(push_constant) uniform PushConstants {
+    %SCALAR_DTYPE% start;
+    %SCALAR_DTYPE% step;
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict writeonly buffer BufferOut {
+    %VEC_DTYPE% dataOut[];
+};
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    uint baseIdx = index * dtype_vec_size;
+    if (baseIdx >= numElements) {
+        return;
+    }
+
+    // Generate 4 consecutive values
+    %VEC_DTYPE% result;
+    for (uint i = 0; i < dtype_vec_size && (baseIdx + i) < numElements; i++) {
+        result[i] = start + %SCALAR_DTYPE%(baseIdx + i) * step;
+    }
+    dataOut[index] = result;
+}
+)";
+    shaderSource = applyDatatypeSubstitutions(arangeShader, datatype);
+    shaderName = "arange";
+    break;
+  }
+
+  case Linspace: {
+    // Linspace: create evenly spaced values [start, ..., end]
+    // Push constants: start (float), step (float), numElements (uint)
+    // Note: step is pre-calculated as (end - start) / (steps - 1)
+    std::string linspaceShader = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint dtype_vec_size = 4;
+
+layout(push_constant) uniform PushConstants {
+    %SCALAR_DTYPE% start;
+    %SCALAR_DTYPE% step;
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict writeonly buffer BufferOut {
+    %VEC_DTYPE% dataOut[];
+};
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    uint baseIdx = index * dtype_vec_size;
+    if (baseIdx >= numElements) {
+        return;
+    }
+
+    // Generate 4 consecutive values
+    %VEC_DTYPE% result;
+    for (uint i = 0; i < dtype_vec_size && (baseIdx + i) < numElements; i++) {
+        result[i] = start + %SCALAR_DTYPE%(baseIdx + i) * step;
+    }
+    dataOut[index] = result;
+}
+)";
+    shaderSource = applyDatatypeSubstitutions(linspaceShader, datatype);
+    shaderName = "linspace";
+    break;
+  }
+
+  case Zeros: {
+    // Zeros: fill with 0
+    std::string zerosShader = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint dtype_vec_size = 4;
+
+layout(push_constant) uniform PushConstants {
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict writeonly buffer BufferOut {
+    %VEC_DTYPE% dataOut[];
+};
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index * dtype_vec_size >= numElements) {
+        return;
+    }
+
+    dataOut[index] = %VEC_DTYPE%(0.0);
+}
+)";
+    shaderSource = applyDatatypeSubstitutions(zerosShader, datatype);
+    shaderName = "zeros";
+    break;
+  }
+
+  case Ones: {
+    // Ones: fill with 1
+    std::string onesShader = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint dtype_vec_size = 4;
+
+layout(push_constant) uniform PushConstants {
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict writeonly buffer BufferOut {
+    %VEC_DTYPE% dataOut[];
+};
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index * dtype_vec_size >= numElements) {
+        return;
+    }
+
+    dataOut[index] = %VEC_DTYPE%(1.0);
+}
+)";
+    shaderSource = applyDatatypeSubstitutions(onesShader, datatype);
+    shaderName = "ones";
+    break;
+  }
+
+  case Full: {
+    // Full: fill with scalar value
+    std::string fullShader = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(constant_id = 0) const uint dtype_vec_size = 4;
+
+layout(push_constant) uniform PushConstants {
+    %SCALAR_DTYPE% fillValue;
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict writeonly buffer BufferOut {
+    %VEC_DTYPE% dataOut[];
+};
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index * dtype_vec_size >= numElements) {
+        return;
+    }
+
+    dataOut[index] = %VEC_DTYPE%(fillValue);
+}
+)";
+    shaderSource = applyDatatypeSubstitutions(fullShader, datatype);
+    shaderName = "full";
+    break;
+  }
+
+  // Norm operation (single-pass parallel reduction for L2 norm)
+  case Norm: {
+    // L2 norm: sqrt(sum of squares)
+    // This is a reduction operation similar to ReduceSum but with squares
+    std::string normShader = R"(#version 450
+
+#define WORKGROUP_SIZE 256
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    float dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict buffer BufferOut {
+    float dataOut[];
+};
+
+shared float sharedData[WORKGROUP_SIZE];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint gid = gl_GlobalInvocationID.x;
+
+    // Load and square
+    float value = 0.0;
+    if (gid < numElements) {
+        value = dataIn[gid];
+        value = value * value;  // Square for L2 norm
+    }
+    sharedData[tid] = value;
+    barrier();
+
+    // Parallel reduction in shared memory
+    for (uint stride = WORKGROUP_SIZE / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            sharedData[tid] += sharedData[tid + stride];
+        }
+        barrier();
+    }
+
+    // Write result from first thread
+    if (tid == 0) {
+        atomicAdd(dataOut[0], sharedData[0]);
+    }
+}
+)";
+    shaderSource = normShader;
+    shaderName = "norm";
+    break;
+  }
+
   default:
     return std::nullopt;
   }
