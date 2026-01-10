@@ -543,4 +543,36 @@ std::string generateTernaryClampShader(DataType datatype) {
   return assembleTernaryClampShader(opFunc, datatype);
 }
 
+// =============================================================================
+// Simplified Helper Functions - Reduce boilerplate
+// =============================================================================
+
+std::string generateBinaryVecVecCustom(const char *expr, DataType datatype) {
+  std::string vecType = getGLSLType(datatype);
+  std::string opFuncCode = std::string(vecType) + " opFunc(" + vecType +
+                           " a, " + vecType + " b) {\n    return " + expr +
+                           ";\n}\n";
+  return assembleBinaryVecVecShader(opFuncCode, datatype);
+}
+
+std::string generateBinaryVecScalarCustom(const char *expr, DataType datatype) {
+  std::string vecType = getGLSLType(datatype);
+  std::string opFuncCode = std::string(vecType) + " opFunc(" + vecType +
+                           " a, " + vecType + " b) {\n    return " + expr +
+                           ";\n}\n";
+  return assembleBinaryVecScalarShader(opFuncCode, datatype);
+}
+
+std::string generateBitwiseVecVec(const char *op, DataType datatype) {
+  std::string expr = "intBitsToFloat(floatBitsToInt(a) " + std::string(op) +
+                     " floatBitsToInt(b))";
+  return generateBinaryVecVecCustom(expr.c_str(), datatype);
+}
+
+std::string generateBitwiseVecScalar(const char *op, DataType datatype) {
+  std::string expr =
+      "intBitsToFloat(floatBitsToInt(a) " + std::string(op) + " int(b.x))";
+  return generateBinaryVecScalarCustom(expr.c_str(), datatype);
+}
+
 } // namespace cut

@@ -63,4 +63,20 @@ std::string generateBinaryVecScalarCompareShader(const char *compareFunc,
 std::string generateUnaryShader(const char *expr, DataType datatype);
 std::string generateTernaryClampShader(DataType datatype);
 
+// =============================================================================
+// Simplified Helper Functions - Reduce boilerplate
+// =============================================================================
+
+// Generate shader with custom opFunc expression for binary vec-vec
+std::string generateBinaryVecVecCustom(const char *expr, DataType datatype);
+
+// Generate shader with custom opFunc expression for binary vec-scalar
+std::string generateBinaryVecScalarCustom(const char *expr, DataType datatype);
+
+// Helper for bitwise operations (vec-vec)
+std::string generateBitwiseVecVec(const char *op, DataType datatype);
+
+// Helper for bitwise operations (vec-scalar)
+std::string generateBitwiseVecScalar(const char *op, DataType datatype);
+
 } // namespace cut
