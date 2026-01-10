@@ -104,6 +104,7 @@ set(LIB_HEADERS
     core/backends/cpu/CPUSIMDConfig.h
     core/backends/cpu/CPUSIMDKernels.h
     shaders/Shaders.h
+    shaders/ShaderUtils.h
     runtime/Runtime.h
     runtime/Dispatcher.h
 )
@@ -112,6 +113,8 @@ set(LIB_HEADERS
 set(LIB_SOURCES
     shaders/Shaders.cpp
     shaders/ShadersGenerated.cpp
+    shaders/ShadersBasicOps.cpp
+    shaders/ShadersAdvancedOps.cpp
     shaders/CompiledShaders.cpp
     core/api/src/ComputeCommon.cpp
     core/api/src/ComputeHandle.cpp
