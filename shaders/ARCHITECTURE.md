@@ -37,14 +37,23 @@
         │         │
         ▼         ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     ShaderUtils.h                               │
-│                (Reusable Components Library)                    │
+│                ShaderUtils.h / ShaderUtils.cpp                  │
+│           (Template-based Shader Generation System)             │
 │  ┌───────────────────────────────────────────────────────────┐ │
-│  │ GLSL Templates                                            │ │
-│  │  • shaderHeader         • pushConstantsNumElements       │ │
-│  │  • pushConstantsScalar  • buffersVecVec                  │ │
-│  │  • buffersUnary         • mainWithExpression             │ │
+│  │ GLSL Shader Templates                                     │ │
+│  │  • shaderHeader         • pushConstants templates        │ │
+│  │  • templateBinaryVecVec • templateBinaryVecScalar        │ │
+│  │  • templateUnary        • templateTernaryClamp           │ │
 │  │  • matmulShaderTemplate • reductionShaderTemplate        │ │
+│  │  Each template reads data and calls opFunc()             │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────┐ │
+│  │ Operation Function Templates (opFunc)                     │ │
+│  │  • opFuncBinaryOp       → "return a %OP% b"              │ │
+│  │  • opFuncBinaryFunc     → "return %FUNC%(a, b)"          │ │
+│  │  • opFuncBinaryCompare  → "return %VEC_DTYPE%(%FUNC%())" │ │
+│  │  • opFuncUnary          → "return %EXPR%"                │ │
+│  │  • opFuncTernaryClamp   → "return clamp(a, minV, maxV)"  │ │
 │  └───────────────────────────────────────────────────────────┘ │
 │  ┌───────────────────────────────────────────────────────────┐ │
 │  │ Utility Functions                                         │ │
@@ -52,21 +61,35 @@
 │  │  • getGLSLScalarType()  • applyDatatypeSubstitutions()   │ │
 │  └───────────────────────────────────────────────────────────┘ │
 │  ┌───────────────────────────────────────────────────────────┐ │
-│  │ Assembly Functions                                        │ │
+│  │ opFunc Generators                                         │ │
+│  │  • getOpFuncBinaryOp()        • getOpFuncBinaryFunc()    │ │
+│  │  • getOpFuncBinaryCompare()   • getOpFuncUnary()         │ │
+│  │  • getOpFuncTernaryClamp()                               │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────┐ │
+│  │ Shader Assembly Functions                                 │ │
+│  │  • assembleShader()           → Compose complete shader  │ │
 │  │  • assembleBinaryVecVecShader()                          │ │
 │  │  • assembleBinaryVecScalarShader()                       │ │
-│  │  • assembleUnaryShader()                                 │ │
-│  │  • assembleTernaryClampShader()                          │ │
+│  │  • assembleUnaryShader()      • assembleTernaryClamp()   │ │
 │  └───────────────────────────────────────────────────────────┘ │
 │  ┌───────────────────────────────────────────────────────────┐ │
 │  │ High-Level Generators                                     │ │
-│  │  • generateBinaryVecVecOpShader()                        │ │
-│  │  • generateBinaryVecVecFuncShader()                      │ │
-│  │  • generateBinaryVecVecCompareShader()                   │ │
-│  │  • generateBinaryVecScalarOpShader()                     │ │
-│  │  • generateUnaryShader()                                 │ │
+│  │  • generateBinaryVecVecOpShader()   (arithmetic)         │ │
+│  │  • generateBinaryVecVecFuncShader() (GLSL funcs)         │ │
+│  │  • generateBinaryVecVecCompareShader() (comparisons)     │ │
+│  │  • generateBinaryVecScalar*Shader() (scalar variants)    │ │
+│  │  • generateUnaryShader()      • generateTernaryClamp()   │ │
 │  └───────────────────────────────────────────────────────────┘ │
-│  (481 lines)                                                    │
+│  ┌───────────────────────────────────────────────────────────┐ │
+│  │ Helper Functions (Reduce Boilerplate)                     │ │
+│  │  • generateBinaryVecVecCustom()   → Custom expressions   │ │
+│  │  • generateBinaryVecScalarCustom() → Custom expressions  │ │
+│  │  • generateBitwiseVecVec()    → Bitwise operations       │ │
+│  │  • generateBitwiseVecScalar() → Bitwise operations       │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│  ShaderUtils.h: 83 lines (declarations only)                   │
+│  ShaderUtils.cpp: 578 lines (all implementations)              │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
                           ▼
@@ -93,7 +116,7 @@ Python API: cut.compute.add(a, b)
 C++ Runtime: execute_operator(BinaryVecVecAdd, ...)
 ```
 
-### Step 2: Shader Lookup/Generation
+### Step 2: Shader Lookup/Generation (Template-based)
 ```
 getGeneratedShader(BinaryVecVecAdd, Float32)
     ↓
@@ -109,15 +132,62 @@ Check cache with key: makeCacheKey(op, dtype)
         ↓
     generateBinaryVecVecOpShader("+", Float32)
         ↓
-    assembleBinaryVecVecShader("dataA[index] + dataB[index]")
+    Step 2a: Generate opFunc
+        getOpFuncBinaryOp("+", Float32)
+            ↓
+        Start with template: "vec4 opFunc(vec4 a, vec4 b) { return a %OP% b; }"
+            ↓
+        Replace %OP% → "+"
+            ↓
+        Return: "vec4 opFunc(vec4 a, vec4 b) { return a + b; }"
         ↓
-    Combine: shaderHeader + pushConstants + buffers + main
-        ↓
-    applyDatatypeSubstitutions(shader, Float32)
-        ↓
-    Replace: %VEC_DTYPE% → vec4, %SCALAR_DTYPE% → float
-        ↓
-    Return GLSL source code
+    Step 2b: Assemble complete shader
+        assembleBinaryVecVecShader(opFunc, Float32)
+            ↓
+        assembleShader(header, pushConstants, opFunc, templateBinaryVecVec)
+            ↓
+        Combine: shaderHeader
+                + pushConstantsNumElements
+                + opFunc definition
+                + templateBinaryVecVec (reads data, calls opFunc, writes result)
+            ↓
+    Step 2c: Apply datatype substitutions
+        applyDatatypeSubstitutions(shader, Float32)
+            ↓
+        Replace: %VEC_DTYPE% → vec4, %SCALAR_DTYPE% → float
+            ↓
+    Return complete GLSL source code
+```
+
+### Architecture Pattern: opFunc Abstraction
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Complete Shader Structure                                    │
+├──────────────────────────────────────────────────────────────┤
+│ #version 450                                (shaderHeader)   │
+│ layout(local_size_x = 256, ...) in;                          │
+│ layout(constant_id = 0) const uint dtype_vec_size = 4;       │
+├──────────────────────────────────────────────────────────────┤
+│ layout(push_constant) uniform PushConstants {               │
+│     uint numElements;                    (pushConstants)     │
+│ };                                                           │
+├──────────────────────────────────────────────────────────────┤
+│ vec4 opFunc(vec4 a, vec4 b) {          (Operation Function) │
+│     return a + b;                      ← Customized per op   │
+│ }                                                            │
+├──────────────────────────────────────────────────────────────┤
+│ layout(...) buffer BufferA { vec4 dataA[]; };  (Buffers)    │
+│ layout(...) buffer BufferB { vec4 dataB[]; };               │
+│ layout(...) buffer BufferOut { vec4 dataOut[]; };           │
+│                                                              │
+│ void main() {                            (Main Template)     │
+│     uint index = gl_GlobalInvocationID.x;                   │
+│     if (index * dtype_vec_size >= numElements) return;      │
+│     vec4 a = dataA[index];              ← Read inputs       │
+│     vec4 b = dataB[index];                                  │
+│     dataOut[index] = opFunc(a, b);      ← Call operation    │
+│ }                                                            │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### Step 3: SPIR-V Compilation
@@ -254,24 +324,39 @@ ShadersGenerated.cpp     1,414    Everything
                                  (Monolithic)
 ```
 
-### After Refactoring
+### After Refactoring (Template-based Architecture)
 ```
 File                     Lines    Purpose
 ───────────────────────────────────────────────────────
-ShaderUtils.h              481    Reusable components
-ShadersGenerated.cpp        81    Coordination
-ShadersBasicOps.cpp        441    Basic operations
-ShadersAdvancedOps.cpp     672    Advanced operations
+ShaderUtils.h               83    Public API (declarations only)
+ShaderUtils.cpp            578    Template-based generation system
+ShadersGenerated.cpp        81    Coordination & caching
+ShadersBasicOps.cpp        391    Basic operations (simplified)
+ShadersAdvancedOps.cpp     560    Advanced operations (simplified)
 ───────────────────────────────────────────────────────
-Total                    1,675    All shader generation
-                                 (Modular + 18% more comments/docs)
+Total                    1,693    All shader generation
+                                 (Modular, template-based, cleaner)
 ```
 
-### Size Reduction in Main File
+### Code Improvement Metrics
 ```
-Before: 1,414 lines (monolithic)
-After:     81 lines (coordinator only)
-Reduction: 94%
+Before Refactoring:
+  - ShadersGenerated.cpp: 1,414 lines (monolithic)
+  - Repetitive code throughout
+  - Hard to maintain
+
+After First Refactoring:
+  - Split into 4 files: 1,675 total lines
+  - Main coordinator: 81 lines (94% reduction)
+  - But still had code duplication in BasicOps/AdvancedOps
+
+After Template-based Rewrite:
+  - ShaderUtils split: 83 (header) + 578 (impl) = 661 lines
+  - BasicOps: 391 lines (50 lines saved via helpers)
+  - AdvancedOps: 560 lines (90 lines saved via helpers)
+  - Clean opFunc abstraction pattern
+  - Minimal code duplication
+  - Easy to add new operations
 ```
 
 ## Performance Characteristics
