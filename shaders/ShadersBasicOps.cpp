@@ -59,9 +59,10 @@ bool generateBasicOpShader(const OperatorEnum shader,
     shaderName = "binary_vec_vec_pow";
     return true;
   case BinaryVecVecFloorDiv: {
-    std::string expr = "floor(dataA[index] / dataB[index])";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string vecType = getGLSLType(datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return floor(a / b);\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_floor_div";
     return true;
   }
@@ -136,9 +137,9 @@ bool generateBasicOpShader(const OperatorEnum shader,
     return true;
   case BinaryVecScalarFloorDiv: {
     std::string vecType = getGLSLType(datatype);
-    std::string expr = "floor(dataA[index] / " + vecType + "(scalar))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return floor(a / b);\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_floor_div";
     return true;
   }
@@ -190,42 +191,40 @@ bool generateBasicOpShader(const OperatorEnum shader,
   // Unary operations - Basic math
   // =============================================================================
   case UnaryNeg:
-    shaderSource = generateUnaryShader("-dataIn[index]", datatype);
+    shaderSource = generateUnaryShader("-a", datatype);
     shaderName = "unary_neg";
     return true;
   case UnaryAbs:
-    shaderSource = generateUnaryShader("abs(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("abs(a)", datatype);
     shaderName = "unary_abs";
     return true;
   case UnarySqrt:
-    shaderSource = generateUnaryShader("sqrt(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("sqrt(a)", datatype);
     shaderName = "unary_sqrt";
     return true;
   case UnaryExp:
-    shaderSource = generateUnaryShader("exp(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("exp(a)", datatype);
     shaderName = "unary_exp";
     return true;
   case UnaryLog:
-    shaderSource = generateUnaryShader("log(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("log(a)", datatype);
     shaderName = "unary_log";
     return true;
   case UnaryLog2:
-    shaderSource = generateUnaryShader("log2(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("log2(a)", datatype);
     shaderName = "unary_log2";
     return true;
   case UnaryLog10:
     // GLSL doesn't have log10, use log(x) / log(10) = log(x) * 0.4342944819
-    shaderSource =
-        generateUnaryShader("log(dataIn[index]) * 0.4342944819", datatype);
+    shaderSource = generateUnaryShader("log(a) * 0.4342944819", datatype);
     shaderName = "unary_log10";
     return true;
   case UnaryReciprocal:
-    shaderSource = generateUnaryShader("1.0 / dataIn[index]", datatype);
+    shaderSource = generateUnaryShader("1.0 / a", datatype);
     shaderName = "unary_reciprocal";
     return true;
   case UnarySquare:
-    shaderSource =
-        generateUnaryShader("dataIn[index] * dataIn[index]", datatype);
+    shaderSource = generateUnaryShader("a * a", datatype);
     shaderName = "unary_square";
     return true;
 
@@ -233,39 +232,39 @@ bool generateBasicOpShader(const OperatorEnum shader,
   // Unary operations - Trigonometric
   // =============================================================================
   case UnarySin:
-    shaderSource = generateUnaryShader("sin(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("sin(a)", datatype);
     shaderName = "unary_sin";
     return true;
   case UnaryCos:
-    shaderSource = generateUnaryShader("cos(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("cos(a)", datatype);
     shaderName = "unary_cos";
     return true;
   case UnaryTan:
-    shaderSource = generateUnaryShader("tan(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("tan(a)", datatype);
     shaderName = "unary_tan";
     return true;
   case UnaryAsin:
-    shaderSource = generateUnaryShader("asin(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("asin(a)", datatype);
     shaderName = "unary_asin";
     return true;
   case UnaryAcos:
-    shaderSource = generateUnaryShader("acos(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("acos(a)", datatype);
     shaderName = "unary_acos";
     return true;
   case UnaryAtan:
-    shaderSource = generateUnaryShader("atan(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("atan(a)", datatype);
     shaderName = "unary_atan";
     return true;
   case UnarySinh:
-    shaderSource = generateUnaryShader("sinh(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("sinh(a)", datatype);
     shaderName = "unary_sinh";
     return true;
   case UnaryCosh:
-    shaderSource = generateUnaryShader("cosh(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("cosh(a)", datatype);
     shaderName = "unary_cosh";
     return true;
   case UnaryTanh:
-    shaderSource = generateUnaryShader("tanh(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("tanh(a)", datatype);
     shaderName = "unary_tanh";
     return true;
 
@@ -273,19 +272,19 @@ bool generateBasicOpShader(const OperatorEnum shader,
   // Unary operations - Rounding
   // =============================================================================
   case UnaryFloor:
-    shaderSource = generateUnaryShader("floor(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("floor(a)", datatype);
     shaderName = "unary_floor";
     return true;
   case UnaryCeil:
-    shaderSource = generateUnaryShader("ceil(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("ceil(a)", datatype);
     shaderName = "unary_ceil";
     return true;
   case UnaryRound:
-    shaderSource = generateUnaryShader("round(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("round(a)", datatype);
     shaderName = "unary_round";
     return true;
   case UnarySign:
-    shaderSource = generateUnaryShader("sign(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("sign(a)", datatype);
     shaderName = "unary_sign";
     return true;
 
@@ -294,33 +293,33 @@ bool generateBasicOpShader(const OperatorEnum shader,
   // =============================================================================
   case UnaryExpm1:
     // expm1(x) = exp(x) - 1
-    shaderSource = generateUnaryShader("exp(dataIn[index]) - 1.0", datatype);
+    shaderSource = generateUnaryShader("exp(a) - 1.0", datatype);
     shaderName = "unary_expm1";
     return true;
   case UnaryLog1p:
     // log1p(x) = log(1 + x)
-    shaderSource = generateUnaryShader("log(1.0 + dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("log(1.0 + a)", datatype);
     shaderName = "unary_log1p";
     return true;
   case UnaryCbrt: {
     // cbrt(x) = sign(x) * pow(abs(x), 1/3)
     std::string vecType = getGLSLType(datatype);
-    std::string expr = "sign(dataIn[index]) * pow(abs(dataIn[index]), " +
-                       vecType + "(0.333333333333333))";
+    std::string expr =
+        "sign(a) * pow(abs(a), " + vecType + "(0.333333333333333))";
     shaderSource = generateUnaryShader(expr.c_str(), datatype);
     shaderName = "unary_cbrt";
     return true;
   }
   case UnaryExp2:
-    shaderSource = generateUnaryShader("exp2(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("exp2(a)", datatype);
     shaderName = "unary_exp2";
     return true;
   case UnaryDegrees:
-    shaderSource = generateUnaryShader("degrees(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("degrees(a)", datatype);
     shaderName = "unary_degrees";
     return true;
   case UnaryRadians:
-    shaderSource = generateUnaryShader("radians(dataIn[index])", datatype);
+    shaderSource = generateUnaryShader("radians(a)", datatype);
     shaderName = "unary_radians";
     return true;
 
@@ -329,14 +328,14 @@ bool generateBasicOpShader(const OperatorEnum shader,
   // =============================================================================
   case UnaryLogicalNot: {
     std::string vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(equal(dataIn[index], " + vecType + "(0.0)))";
+    std::string expr = vecType + "(equal(a, " + vecType + "(0.0)))";
     shaderSource = generateUnaryShader(expr.c_str(), datatype);
     shaderName = "unary_logical_not";
     return true;
   }
   case UnaryBitwiseNot: {
     // Bitwise NOT on integer representation
-    std::string expr = "intBitsToFloat(~floatBitsToInt(dataIn[index]))";
+    std::string expr = "intBitsToFloat(~floatBitsToInt(a))";
     shaderSource = generateUnaryShader(expr.c_str(), datatype);
     shaderName = "unary_bitwise_not";
     return true;
@@ -346,35 +345,30 @@ bool generateBasicOpShader(const OperatorEnum shader,
   // Unary operations - Activation functions
   // =============================================================================
   case UnaryRelu:
-    shaderSource = generateUnaryShader("max(dataIn[index], 0.0)", datatype);
+    shaderSource = generateUnaryShader("max(a, 0.0)", datatype);
     shaderName = "unary_relu";
     return true;
   case UnarySigmoid:
-    shaderSource =
-        generateUnaryShader("1.0 / (1.0 + exp(-dataIn[index]))", datatype);
+    shaderSource = generateUnaryShader("1.0 / (1.0 + exp(-a))", datatype);
     shaderName = "unary_sigmoid";
     return true;
   case UnaryGelu: {
     // GELU approximation: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 *
     // x^3)))
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = "0.5 * dataIn[index] * (1.0 + tanh(0.797884560802865 * "
-                       "(dataIn[index] + 0.044715 * dataIn[index] * "
-                       "dataIn[index] * dataIn[index])))";
+    std::string expr = "0.5 * a * (1.0 + tanh(0.797884560802865 * "
+                       "(a + 0.044715 * a * a * a)))";
     shaderSource = generateUnaryShader(expr.c_str(), datatype);
     shaderName = "unary_gelu";
     return true;
   }
   case UnarySilu:
     // SiLU/Swish: x * sigmoid(x) = x / (1 + exp(-x))
-    shaderSource = generateUnaryShader(
-        "dataIn[index] / (1.0 + exp(-dataIn[index]))", datatype);
+    shaderSource = generateUnaryShader("a / (1.0 + exp(-a))", datatype);
     shaderName = "unary_silu";
     return true;
   case UnarySoftplus:
     // Softplus: log(1 + exp(x))
-    shaderSource =
-        generateUnaryShader("log(1.0 + exp(dataIn[index]))", datatype);
+    shaderSource = generateUnaryShader("log(1.0 + exp(a))", datatype);
     shaderName = "unary_softplus";
     return true;
 
@@ -382,9 +376,7 @@ bool generateBasicOpShader(const OperatorEnum shader,
   // Ternary clamp operation
   // =============================================================================
   case TernaryClamp: {
-    std::string expr = "clamp(dataIn[index], minVal, maxVal)";
-    std::string shader = assembleTernaryClampShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(shader, datatype);
+    shaderSource = generateTernaryClampShader(datatype);
     shaderName = "ternary_clamp";
     return true;
   }

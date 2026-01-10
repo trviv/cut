@@ -35,20 +35,20 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
                               const DataType datatype,
                               std::string &shaderSource,
                               std::string &shaderName) {
+  std::string vecType = getGLSLType(datatype);
+
   switch (shader) {
   // =============================================================================
   // Extended unary operations
   // =============================================================================
   case UnaryIsNan: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(isnan(dataIn[index]))";
+    std::string expr = vecType + "(isnan(a))";
     shaderSource = generateUnaryShader(expr.c_str(), datatype);
     shaderName = "unary_isnan";
     return true;
   }
   case UnaryIsInf: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(isinf(dataIn[index]))";
+    std::string expr = vecType + "(isinf(a))";
     shaderSource = generateUnaryShader(expr.c_str(), datatype);
     shaderName = "unary_isinf";
     return true;
@@ -58,42 +58,47 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   // Extended binary vec-vec operations - Bitwise
   // =============================================================================
   case BinaryVecVecBitwiseAnd: {
-    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) & "
-                       "floatBitsToInt(dataB[index]))";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) & "
+        "floatBitsToInt(b));\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_bitwise_and";
     return true;
   }
   case BinaryVecVecBitwiseOr: {
-    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) | "
-                       "floatBitsToInt(dataB[index]))";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) | "
+        "floatBitsToInt(b));\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_bitwise_or";
     return true;
   }
   case BinaryVecVecBitwiseXor: {
-    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) ^ "
-                       "floatBitsToInt(dataB[index]))";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) ^ "
+        "floatBitsToInt(b));\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_bitwise_xor";
     return true;
   }
   case BinaryVecVecLeftShift: {
-    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) << "
-                       "floatBitsToInt(dataB[index]))";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) << "
+        "floatBitsToInt(b));\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_left_shift";
     return true;
   }
   case BinaryVecVecRightShift: {
-    std::string expr = "intBitsToFloat(floatBitsToInt(dataA[index]) >> "
-                       "floatBitsToInt(dataB[index]))";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) >> "
+        "floatBitsToInt(b));\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_right_shift";
     return true;
   }
@@ -102,31 +107,29 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   // Extended binary vec-vec operations - Logical
   // =============================================================================
   case BinaryVecVecLogicalAnd: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(notEqual(dataA[index], " + vecType +
-                       "(0.0)) && notEqual(dataB[index], " + vecType +
-                       "(0.0)))";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return " + vecType + "(notEqual(a, " +
+                             vecType + "(0.0)) && notEqual(b, " + vecType +
+                             "(0.0)));\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_logical_and";
     return true;
   }
   case BinaryVecVecLogicalOr: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(notEqual(dataA[index], " + vecType +
-                       "(0.0)) || notEqual(dataB[index], " + vecType +
-                       "(0.0)))";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return " + vecType + "(notEqual(a, " +
+                             vecType + "(0.0)) || notEqual(b, " + vecType +
+                             "(0.0)));\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_logical_or";
     return true;
   }
   case BinaryVecVecLogicalXor: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(notEqual(notEqual(dataA[index], " + vecType +
-                       "(0.0)), notEqual(dataB[index], " + vecType + "(0.0))))";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return " + vecType + "(notEqual(notEqual(a, " + vecType +
+        "(0.0)), notEqual(b, " + vecType + "(0.0))));\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_logical_xor";
     return true;
   }
@@ -139,17 +142,16 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
     shaderName = "binary_vec_vec_atan2";
     return true;
   case BinaryVecVecHypot: {
-    std::string expr =
-        "sqrt(dataA[index] * dataA[index] + dataB[index] * dataB[index])";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return sqrt(a * a + b * b);\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_hypot";
     return true;
   }
   case BinaryVecVecCopysign: {
-    std::string expr = "sign(dataB[index]) * abs(dataA[index])";
-    std::string s = assembleBinaryVecVecShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return sign(b) * abs(a);\n}\n";
+    shaderSource = assembleBinaryVecVecShader(opFuncCode, datatype);
     shaderName = "binary_vec_vec_copysign";
     return true;
   }
@@ -162,42 +164,47 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   // Extended binary vec-scalar operations - Bitwise
   // =============================================================================
   case BinaryVecScalarBitwiseAnd: {
-    std::string expr =
-        "intBitsToFloat(floatBitsToInt(dataA[index]) & int(scalar))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) & "
+        "int(b.x));\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_bitwise_and";
     return true;
   }
   case BinaryVecScalarBitwiseOr: {
-    std::string expr =
-        "intBitsToFloat(floatBitsToInt(dataA[index]) | int(scalar))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) | "
+        "int(b.x));\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_bitwise_or";
     return true;
   }
   case BinaryVecScalarBitwiseXor: {
-    std::string expr =
-        "intBitsToFloat(floatBitsToInt(dataA[index]) ^ int(scalar))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) ^ "
+        "int(b.x));\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_bitwise_xor";
     return true;
   }
   case BinaryVecScalarLeftShift: {
-    std::string expr =
-        "intBitsToFloat(floatBitsToInt(dataA[index]) << int(scalar))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) << "
+        "int(b.x));\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_left_shift";
     return true;
   }
   case BinaryVecScalarRightShift: {
-    std::string expr =
-        "intBitsToFloat(floatBitsToInt(dataA[index]) >> int(scalar))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode =
+        vecType + " opFunc(" + vecType + " a, " + vecType +
+        " b) {\n    return intBitsToFloat(floatBitsToInt(a) >> "
+        "int(b.x));\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_right_shift";
     return true;
   }
@@ -206,29 +213,27 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   // Extended binary vec-scalar operations - Logical
   // =============================================================================
   case BinaryVecScalarLogicalAnd: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(notEqual(dataA[index], " + vecType +
-                       "(0.0)) && (scalar != 0.0))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return " + vecType + "(notEqual(a, " +
+                             vecType + "(0.0)) && (b.x != 0.0));\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_logical_and";
     return true;
   }
   case BinaryVecScalarLogicalOr: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(notEqual(dataA[index], " + vecType +
-                       "(0.0)) || (scalar != 0.0))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return " + vecType + "(notEqual(a, " +
+                             vecType + "(0.0)) || (b.x != 0.0));\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_logical_or";
     return true;
   }
   case BinaryVecScalarLogicalXor: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(notEqual(notEqual(dataA[index], " + vecType +
-                       "(0.0)), bvec4(scalar != 0.0)))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return " + vecType +
+                             "(notEqual(notEqual(a, " + vecType +
+                             "(0.0)), bvec4(b.x != 0.0)));\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_logical_xor";
     return true;
   }
@@ -241,19 +246,16 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
     shaderName = "binary_vec_scalar_atan2";
     return true;
   case BinaryVecScalarHypot: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr =
-        "sqrt(dataA[index] * dataA[index] + " + vecType + "(scalar * scalar))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return sqrt(a * a + b * b);\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_hypot";
     return true;
   }
   case BinaryVecScalarCopysign: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = "sign(" + vecType + "(scalar)) * abs(dataA[index])";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return sign(b) * abs(a);\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_copysign";
     return true;
   }
@@ -262,12 +264,10 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
     shaderName = "binary_vec_scalar_fmod";
     return true;
   case BinaryVecScalarLeakyRelu: {
-    std::string vecType = getGLSLType(datatype);
-    std::string expr = "mix(" + vecType +
-                       "(scalar) * dataA[index], dataA[index], " + vecType +
-                       "(greaterThan(dataA[index], " + vecType + "(0.0))))";
-    std::string s = assembleBinaryVecScalarShader(expr.c_str());
-    shaderSource = applyDatatypeSubstitutions(s, datatype);
+    std::string opFuncCode = vecType + " opFunc(" + vecType + " a, " + vecType +
+                             " b) {\n    return mix(b * a, a, " + vecType +
+                             "(greaterThan(a, " + vecType + "(0.0))));\n}\n";
+    shaderSource = assembleBinaryVecScalarShader(opFuncCode, datatype);
     shaderName = "binary_vec_scalar_leaky_relu";
     return true;
   }
