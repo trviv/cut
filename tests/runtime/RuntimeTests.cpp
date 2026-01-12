@@ -100,7 +100,8 @@ constexpr std::array<OperatorEnum, 37> kUnaryOps = {
     UnaryIsNan, UnaryIsInf};
 
 // Ternary operators
-constexpr std::array<OperatorEnum, 1> kTernaryOps = {TernaryClamp};
+constexpr std::array<OperatorEnum, 2> kTernaryOps = {TernaryClamp,
+                                                     TernarySelect};
 
 // Reduction operators
 constexpr std::array<OperatorEnum, 7> kReductionOps = {
@@ -320,6 +321,8 @@ inline const char *operatorName(OperatorEnum op) {
   // Ternary operators
   case TernaryClamp:
     return "TernaryClamp";
+  case TernarySelect:
+    return "TernarySelect";
   // Reduction operators
   case ReduceSum:
     return "ReduceSum";
@@ -1019,6 +1022,12 @@ T unaryRef(OperatorEnum op, T a) {
 template <typename T>
 T ternaryClampRef(T a, T minVal, T maxVal) {
   return std::clamp(a, minVal, maxVal);
+}
+
+// Ternary select reference (condition ? x : y)
+template <typename T>
+T ternarySelectRef(T cond, T x, T y) {
+  return (cond != T{0}) ? x : y;
 }
 
 // Reduction references
@@ -2400,6 +2409,320 @@ TEST_F(VulkanNonAlignedInnermostTest, Unary_NonAlignedInnermost) {
       float expected = dataIn[i] * dataIn[i];
       EXPECT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+// ============================================================================
+// Reduction and Ternary Operator Tests
+// ============================================================================
+
+// Test reduction operators with Float32 on CPU
+TEST_F(CPUBackendTest, ReductionOperators_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(float);
+
+      auto dataIn = generateTestData<float>(elements, 42);
+
+      for (OperatorEnum op : kReductionOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+        // Initialize output to identity element
+        float initVal = 0.0f;
+        if (op == ReduceProd)
+          initVal = 1.0f;
+        else if (op == ReduceMin)
+          initVal = std::numeric_limits<float>::max();
+        else if (op == ReduceMax)
+          initVal = std::numeric_limits<float>::lowest();
+        else if (op == ReduceAll)
+          initVal = 1.0f;
+        runtime_->copyToTensor(bufferOut, &initVal, sizeof(float));
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+        float output = 0.0f;
+        runtime_->copyFromTensor(bufferOut, &output, sizeof(float));
+
+        // Verify result
+        float expected = reduceRef(op, dataIn);
+        if (op == ReduceMean || op == ReduceSum || op == ReduceProd) {
+          EXPECT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f)
+              << "Mismatch for " << operatorName(op);
+        } else {
+          EXPECT_NEAR(output, expected, 1e-5f)
+              << "Mismatch for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test reduction operators with Int32 on CPU
+TEST_F(CPUBackendTest, ReductionOperators_Int32) {
+  const DataType dtype = DataType::Int32;
+
+  // Int32-supported reduction operators (no ReduceMean for integer types)
+  constexpr std::array<OperatorEnum, 6> kInt32ReductionOps = {
+      ReduceSum, ReduceMin, ReduceMax, ReduceProd, ReduceAny, ReduceAll};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(int32_t);
+
+      auto dataIn = generateTestData<int32_t>(elements, 42);
+      // Use smaller values to avoid overflow in product
+      for (auto &v : dataIn) {
+        v = (v % 10) + 1; // Values 1-10
+      }
+
+      for (OperatorEnum op : kInt32ReductionOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+        // Initialize output to identity element
+        int32_t initVal = 0;
+        if (op == ReduceProd)
+          initVal = 1;
+        else if (op == ReduceMin)
+          initVal = std::numeric_limits<int32_t>::max();
+        else if (op == ReduceMax)
+          initVal = std::numeric_limits<int32_t>::lowest();
+        else if (op == ReduceAll)
+          initVal = 1;
+        runtime_->copyToTensor(bufferOut, &initVal, sizeof(int32_t));
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+        int32_t output = 0;
+        runtime_->copyFromTensor(bufferOut, &output, sizeof(int32_t));
+
+        // Verify result
+        int32_t expected = reduceRef(op, dataIn);
+        EXPECT_EQ(output, expected) << "Mismatch for " << operatorName(op);
+      }
+    }
+  }
+}
+
+// Test ternary clamp operator with Float32 on CPU
+TEST_F(CPUBackendTest, TernaryClamp_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(float);
+
+      auto dataIn = generateTestData<float>(elements, 42);
+      float minVal = 2.0f;
+      float maxVal = 8.0f;
+
+      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
+
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+      // For TernaryClamp, min and max are passed as data binding
+      float clampVals[2] = {minVal, maxVal};
+      runtime_->encodeOperator(
+          TernaryClamp,
+          {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+           ComputeBinding(2, DataReference(clampVals, sizeof(clampVals)))});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+      // Verify results
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = ternaryClampRef(dataIn[i], minVal, maxVal);
+        EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+      }
+    }
+  }
+}
+
+// Test ternary select operator with Float32 on CPU
+TEST_F(CPUBackendTest, TernarySelect_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(float);
+
+      auto dataCond = generateTestData<float>(elements, 42);
+      auto dataX = generateTestData<float>(elements, 123);
+      auto dataY = generateTestData<float>(elements, 456);
+
+      // Make condition more varied (some zeros, some non-zeros)
+      for (size_t i = 0; i < dataCond.size(); ++i) {
+        dataCond[i] = (i % 3 == 0) ? 0.0f : dataCond[i];
+      }
+
+      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
+
+      auto bufferCond = runtime_->createTensor(shape, dtype, dataCond.data());
+      auto bufferX = runtime_->createTensor(shape, dtype, dataX.data());
+      auto bufferY = runtime_->createTensor(shape, dtype, dataY.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+      runtime_->encodeOperator(TernarySelect, {ComputeBinding(0, bufferCond),
+                                               ComputeBinding(1, bufferX),
+                                               ComputeBinding(2, bufferY),
+                                               ComputeBinding(3, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+      // Verify results
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
+        EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+      }
+    }
+  }
+}
+
+// Test reduction operators with Float32 on Vulkan
+TEST_F(VulkanBackendTest, ReductionOperators_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(float);
+
+      auto dataIn = generateTestData<float>(elements, 42);
+
+      for (OperatorEnum op : kReductionOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+        // Initialize output to identity element
+        float initVal = 0.0f;
+        if (op == ReduceProd)
+          initVal = 1.0f;
+        else if (op == ReduceMin)
+          initVal = std::numeric_limits<float>::max();
+        else if (op == ReduceMax)
+          initVal = std::numeric_limits<float>::lowest();
+        else if (op == ReduceAll)
+          initVal = 1.0f;
+        runtime_->copyToTensor(bufferOut, &initVal, sizeof(float));
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+        float output = 0.0f;
+        runtime_->copyFromTensor(bufferOut, &output, sizeof(float));
+
+        // Verify result
+        float expected = reduceRef(op, dataIn);
+        if (op == ReduceMean || op == ReduceSum || op == ReduceProd) {
+          EXPECT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f)
+              << "Mismatch for " << operatorName(op);
+        } else {
+          EXPECT_NEAR(output, expected, 1e-5f)
+              << "Mismatch for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// Test ternary clamp operator with Float32 on Vulkan
+TEST_F(VulkanBackendTest, TernaryClamp_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(float);
+
+      auto dataIn = generateTestData<float>(elements, 42);
+      float minVal = 2.0f;
+      float maxVal = 8.0f;
+
+      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
+
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+      // For TernaryClamp, min and max are passed as data binding
+      float clampVals[2] = {minVal, maxVal};
+      runtime_->encodeOperator(
+          TernaryClamp,
+          {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+           ComputeBinding(2, DataReference(clampVals, sizeof(clampVals)))});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+      // Verify results
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = ternaryClampRef(dataIn[i], minVal, maxVal);
+        EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+      }
+    }
+  }
+}
+
+// Test ternary select operator with Float32 on Vulkan
+TEST_F(VulkanBackendTest, TernarySelect_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(float);
+
+      auto dataCond = generateTestData<float>(elements, 42);
+      auto dataX = generateTestData<float>(elements, 123);
+      auto dataY = generateTestData<float>(elements, 456);
+
+      // Make condition more varied (some zeros, some non-zeros)
+      for (size_t i = 0; i < dataCond.size(); ++i) {
+        dataCond[i] = (i % 3 == 0) ? 0.0f : dataCond[i];
+      }
+
+      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
+
+      auto bufferCond = runtime_->createTensor(shape, dtype, dataCond.data());
+      auto bufferX = runtime_->createTensor(shape, dtype, dataX.data());
+      auto bufferY = runtime_->createTensor(shape, dtype, dataY.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+      runtime_->encodeOperator(TernarySelect, {ComputeBinding(0, bufferCond),
+                                               ComputeBinding(1, bufferX),
+                                               ComputeBinding(2, bufferY),
+                                               ComputeBinding(3, bufferOut)});
+
+      std::vector<float> output(elements);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+      // Verify results
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
+        EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+      }
     }
   }
 }
