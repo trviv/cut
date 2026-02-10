@@ -27,8 +27,6 @@ class BenchmarkResult:
     category: str
     numpy: BackendResult
     vulkan: BackendResult = field(default_factory=BackendResult)
-    cpu: BackendResult = field(default_factory=BackendResult)
-    cpu_simd: BackendResult = field(default_factory=BackendResult)
     cupy: BackendResult = field(default_factory=BackendResult)
     jax: BackendResult = field(default_factory=BackendResult)
     pytorch: BackendResult = field(default_factory=BackendResult)
@@ -48,8 +46,6 @@ class BenchmarkResult:
             'category': self.category,
             'numpy': backend_to_dict(self.numpy),
             'vulkan': backend_to_dict(self.vulkan),
-            'cpu': backend_to_dict(self.cpu),
-            'cpu_simd': backend_to_dict(self.cpu_simd),
             'cupy': backend_to_dict(self.cupy),
             'jax': backend_to_dict(self.jax),
             'pytorch': backend_to_dict(self.pytorch),

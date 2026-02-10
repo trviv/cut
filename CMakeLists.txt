@@ -19,20 +19,6 @@ endif()
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
-# SIMD configuration - use -march=native for best performance
-# The CPU backend supports runtime SIMD mode selection (Scalar, SSE, AVX, Auto)
-# Compile with native CPU features so all SIMD paths are available at runtime
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    set(CUT_SIMD_FLAGS "-march=native")
-    message(STATUS "CPU backend: Using native CPU features (-march=native) with runtime SIMD selection")
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    # MSVC: Enable AVX2 for best coverage (SSE is always available on x64)
-    set(CUT_SIMD_FLAGS "/arch:AVX2")
-    message(STATUS "CPU backend: Using AVX2 with runtime SIMD selection")
-else()
-    set(CUT_SIMD_FLAGS "")
-endif()
-
 # macOS specific settings
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15")
@@ -96,13 +82,6 @@ set(LIB_HEADERS
     core/backends/vulkan/VulkanContainers.h
     core/backends/vulkan/VulkanCompute.h
     core/backends/vulkan/VulkanCommandBuffer.h
-    core/backends/cpu/ThreadPool.h
-    core/backends/cpu/CPUKernels.h
-    core/backends/cpu/CPUContainers.h
-    core/backends/cpu/CPUCommandBuffer.h
-    core/backends/cpu/CPUCompute.h
-    core/backends/cpu/CPUSIMDConfig.h
-    core/backends/cpu/CPUSIMDKernels.h
     shaders/Shaders.h
     shaders/ShaderUtils.h
     runtime/Runtime.h
@@ -126,11 +105,6 @@ set(LIB_SOURCES
     core/backends/vulkan/VulkanContainers.cpp
     core/backends/vulkan/VulkanCompute.cpp
     core/backends/vulkan/VulkanCommandBuffer.cpp
-    core/backends/cpu/ThreadPool.cpp
-    core/backends/cpu/CPUKernels.cpp
-    core/backends/cpu/CPUContainers.cpp
-    core/backends/cpu/CPUCommandBuffer.cpp
-    core/backends/cpu/CPUCompute.cpp
     runtime/Runtime.cpp
     runtime/Dispatcher.cpp
 )
@@ -164,7 +138,6 @@ target_include_directories(CUTLib PRIVATE
     ${Vulkan_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/core/api/Headers
     ${CMAKE_SOURCE_DIR}/core/backends/vulkan
-    ${CMAKE_SOURCE_DIR}/core/backends/cpu
     ${CMAKE_SOURCE_DIR}/shaders
     ${CMAKE_SOURCE_DIR}/runtime
 )
@@ -189,11 +162,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra)
 endif()
 
-# Apply SIMD flags to CUTLib for CPU backend vectorization
-if(CUT_SIMD_FLAGS)
-    target_compile_options(CUTLib PRIVATE ${CUT_SIMD_FLAGS})
-endif()
-
 # Include the generated header directory
 # target_include_directories(CUTLib PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
@@ -213,7 +181,6 @@ if(TARGET benchmarks)
         ${Vulkan_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/core/api/Headers
         ${CMAKE_SOURCE_DIR}/core/backends/vulkan
-        ${CMAKE_SOURCE_DIR}/core/backends/cpu
         ${CMAKE_SOURCE_DIR}/shaders
         ${CMAKE_SOURCE_DIR}/benchmarks
     )

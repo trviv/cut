@@ -47,8 +47,6 @@ def _cleanup():
 def get_available_backends():
     """Get list of available backends as pytest parameters."""
     backends = []
-    if cc.is_cpu_available():
-        backends.append(pytest.param(cc.Backend.CPU, id="cpu"))
     if cc.is_vulkan_available():
         backends.append(pytest.param(cc.Backend.Vulkan, id="vulkan"))
     return backends
@@ -58,10 +56,7 @@ def get_available_backends():
 def backend(request):
     """Fixture that yields each available backend."""
     backend_type = request.param
-    if backend_type == cc.Backend.Vulkan:
-        cc.init(backend_type)
-    else:
-        cc.init(backend_type, simd_mode=cc.SIMDMode.Auto)
+    cc.init(backend_type)
     yield backend_type
     _cleanup()
     cc.shutdown()
@@ -535,13 +530,9 @@ class TestIntegerChains:
     def test_int32_linear_chain(self, backend):
         """Test linear chain with int32 data."""
         # Note: int32 operations may have limited support on some backends
-        if backend == cc.Backend.CPU:
-            pytest.skip("int32 multiply not fully supported on CPU backend")
 
         a = cc.Tensor([1, 2, 3, 4], dtype=cc.int32)
         b = cc.Tensor([5, 6, 7, 8], dtype=cc.int32)
-        c = cc.Tensor([2, 2, 2, 2], dtype=cc.int32)
-
         result = ((a + b) * c) - a
 
         a_np = np.array([1, 2, 3, 4], dtype=np.int32)

@@ -1,6 +1,5 @@
 #include "Runtime.h"
 
-#include "CPUCompute.h"
 #include "Dispatcher.h"
 #include "Shaders.h"
 #include "VulkanCompute.h"
@@ -18,14 +17,12 @@ Runtime::~Runtime() {
 Runtime::Runtime(Runtime &&other) noexcept
     : backendType_(other.backendType_),
       vulkanInstance_(std::move(other.vulkanInstance_)),
-      interface_(std::move(other.interface_)), simdMode_(other.simdMode_),
-      numThreads_(other.numThreads_), vulkanAvailable_(other.vulkanAvailable_),
+      interface_(std::move(other.interface_)),
+      vulkanAvailable_(other.vulkanAvailable_),
       vulkanChecked_(other.vulkanChecked_),
       pendingCommands_(other.pendingCommands_),
       dispatcher_(std::move(other.dispatcher_)) {
-  other.backendType_ = BackendType::CPU;
-  other.simdMode_ = SIMDMode::Auto;
-  other.numThreads_ = 0;
+  other.backendType_ = BackendType::Vulkan;
   other.vulkanAvailable_ = false;
   other.vulkanChecked_ = false;
   other.pendingCommands_ = false;
@@ -38,16 +35,12 @@ Runtime &Runtime::operator=(Runtime &&other) noexcept {
     backendType_ = other.backendType_;
     vulkanInstance_ = std::move(other.vulkanInstance_);
     interface_ = std::move(other.interface_);
-    simdMode_ = other.simdMode_;
-    numThreads_ = other.numThreads_;
     vulkanAvailable_ = other.vulkanAvailable_;
     vulkanChecked_ = other.vulkanChecked_;
     pendingCommands_ = other.pendingCommands_;
     dispatcher_ = std::move(other.dispatcher_);
 
-    other.backendType_ = BackendType::CPU;
-    other.simdMode_ = SIMDMode::Auto;
-    other.numThreads_ = 0;
+    other.backendType_ = BackendType::Vulkan;
     other.vulkanAvailable_ = false;
     other.vulkanChecked_ = false;
     other.pendingCommands_ = false;
@@ -68,7 +61,7 @@ bool Runtime::isVulkanAvailable() {
   return vulkanAvailable_;
 }
 
-void Runtime::init(BackendType backend, size_t numThreads, SIMDMode simdMode) {
+void Runtime::init(BackendType backend) {
   if (backend == BackendType::Vulkan) {
     if (!isVulkanAvailable()) {
       throw std::runtime_error("Vulkan backend is not available");
@@ -76,12 +69,7 @@ void Runtime::init(BackendType backend, size_t numThreads, SIMDMode simdMode) {
     interface_ = vulkanInstance_->createInterface();
     backendType_ = BackendType::Vulkan;
   } else {
-    // CPU backend
-    auto cpu = std::make_unique<CPUCompute>(numThreads, simdMode);
-    numThreads_ = cpu->numThreads();
-    simdMode_ = cpu->simdMode();
-    interface_ = std::move(cpu);
-    backendType_ = BackendType::CPU;
+    throw std::runtime_error("Invalid backend type");
   }
 
   // Create dispatcher with the initialized interface
@@ -102,30 +90,8 @@ void Runtime::shutdown() {
   // Reset state flags
   vulkanAvailable_ = false;
   vulkanChecked_ = false;
-  backendType_ = BackendType::CPU;
-  simdMode_ = SIMDMode::Auto;
-  numThreads_ = 0;
+  backendType_ = BackendType::Vulkan;
   pendingCommands_ = false;
-}
-
-size_t Runtime::numThreads() const {
-  if (backendType_ == BackendType::CPU && interface_) {
-    return static_cast<CPUCompute *>(interface_.get())->numThreads();
-  }
-  return 0;
-}
-
-SIMDMode Runtime::simdMode() const {
-  if (backendType_ == BackendType::CPU && interface_) {
-    return static_cast<CPUCompute *>(interface_.get())->simdMode();
-  }
-  return SIMDMode::Scalar;
-}
-
-void Runtime::setSIMDMode(SIMDMode mode) {
-  if (backendType_ == BackendType::CPU && interface_) {
-    static_cast<CPUCompute *>(interface_.get())->setSIMDMode(mode);
-  }
 }
 
 ComputeInterface *Runtime::getInterface() {
@@ -180,14 +146,9 @@ void Runtime::copyFromTensor(ComputeHandle handle,
 ComputeHandle Runtime::createShader(OperatorEnum op, DataType dtype) {
   auto *iface = getInterface();
 
-  if (backendType_ == BackendType::Vulkan) {
-    // Get SPIR-V and create shader module
-    std::vector<uint32_t> spirv = getShader(op, dtype);
-    return iface->createShaderModule(spirv);
-  } else {
-    // CPU backend - create kernel handle
-    return static_cast<CPUCompute *>(iface)->createKernel(op);
-  }
+  // Get SPIR-V and create shader module for Vulkan backend
+  std::vector<uint32_t> spirv = getShader(op, dtype);
+  return iface->createShaderModule(spirv);
 }
 
 ComputeHandle Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {

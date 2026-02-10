@@ -1,7 +1,7 @@
 """
 CUT Unified Compute Interface
 
-This module provides a single interface for all CUT backends (Vulkan, CPU).
+This module provides a unified interface for CUT Vulkan backend.
 Initialize with the desired backend using `init()`, then use operations directly.
 
 Example:
@@ -9,9 +9,6 @@ Example:
 
     # Initialize with Vulkan backend
     cc.init(cc.Backend.Vulkan)
-
-    # Or use CPU with SIMD
-    cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
 
     # Use operations
     a = cc.Tensor([1.0, 2.0, 3.0])  # float32 by default
@@ -43,9 +40,21 @@ from ._ops import (
 )
 
 
-# Re-export Backend and SIMDMode from C++ binding
+# Re-export Backend from C++ binding
 Backend = _cut_compute.BackendType
-SIMDMode = _cut_compute.SIMDMode
+# Add CPU for backward compatibility (CPU backend was removed)
+Backend.CPU = -1  # Dummy value for compatibility
+
+# SIMDMode is no longer supported (CPU backend removed)
+# Create a stub enum for backward compatibility
+class SIMDMode:
+    """Deprecated: SIMD mode selection (CPU backend removed)."""
+    Auto = 0
+    Scalar = 1
+    SSE = 2
+    AVX = 3
+    AVX2 = 4
+
 DataType = _cut_compute.DataType
 OperatorEnum = _cut_compute.OperatorEnum
 ShaderEnum = _cut_compute.OperatorEnum  # Alias for backward compatibility
@@ -92,9 +101,9 @@ def available_backends() -> List[str]:
         List of backend names that can be initialized
     """
     available = []
-    if _cut_compute.is_vulkan_available():
+    if is_vulkan_available():
         available.append("vulkan")
-    if _cut_compute.is_cpu_available():
+    if is_cpu_available():
         available.append("cpu")
     return available
 
@@ -105,12 +114,12 @@ def is_vulkan_available() -> bool:
 
 
 def is_cpu_available() -> bool:
-    """Check if CPU backend is available."""
-    return _cut_compute.is_cpu_available()
+    """Check if CPU backend is available (always False - CPU backend removed)."""
+    return False
 
 
 def init(
-    backend: Backend = Backend.CPU,
+    backend: Backend = Backend.Vulkan,
     *,
     num_threads: int = 0,
     simd_mode: SIMDMode = SIMDMode.Auto,
@@ -120,9 +129,9 @@ def init(
     Initialize a compute backend.
 
     Args:
-        backend: Backend to use (Backend.Vulkan or Backend.CPU)
-        num_threads: Number of worker threads for CPU backend (0 = auto)
-        simd_mode: SIMD mode for CPU backend (Scalar, SSE, AVX, Auto)
+        backend: Backend to use (Backend.Vulkan)
+        num_threads: Deprecated (CPU backend removed)
+        simd_mode: Deprecated (CPU backend removed)
         force: If True, re-initialize even if already initialized with same backend
 
     Returns:
@@ -134,7 +143,6 @@ def init(
     Example:
         >>> import cut.compute as cc
         >>> cc.init(cc.Backend.Vulkan)  # Initialize Vulkan
-        >>> cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.AVX)  # CPU with AVX
     """
     global _initialized, _live_tensors
 
@@ -159,10 +167,15 @@ def init(
         _cut_compute.shutdown()
         _initialized = False
 
+    if backend == Backend.CPU:
+        raise RuntimeError("CPU backend is no longer supported (removed)")
+
     if backend == Backend.Vulkan and not is_vulkan_available():
         raise RuntimeError("Vulkan backend is not available")
 
-    _cut_compute.init(backend, num_threads, simd_mode)
+    # Note: num_threads and simd_mode parameters are deprecated (CPU backend removed)
+    # They are kept in the function signature for backward compatibility
+    _cut_compute.init(backend)
     _initialized = True
 
     return current_backend()
@@ -172,9 +185,8 @@ def _ensure_initialized():
     """Ensure a backend is initialized."""
     global _initialized
     if not _initialized:
-        # Auto-initialize with CPU backend (safer default)
-        # Users can explicitly call init(Backend.Vulkan) if they want GPU
-        init(Backend.CPU, simd_mode=SIMDMode.Auto)
+        # Auto-initialize with Vulkan backend (CPU backend removed)
+        init(Backend.Vulkan)
 
 
 def current_backend() -> Backend:
@@ -192,17 +204,17 @@ def is_gpu() -> bool:
     Check if the current backend is a GPU backend.
 
     Returns:
-        True if using GPU backend (Vulkan), False otherwise (CPU)
+        True if using GPU backend (Vulkan), False otherwise
     """
     return current_backend() == Backend.Vulkan
 
 
 def num_threads() -> int:
     """
-    Get number of worker threads (CPU backend only).
+    Get number of worker threads (deprecated - CPU backend removed).
 
     Returns:
-        Number of threads, or 0 for Vulkan backend
+        Always returns 0
     """
     _ensure_initialized()
     return _cut_compute.num_threads()
@@ -210,7 +222,7 @@ def num_threads() -> int:
 
 def simd_mode() -> SIMDMode:
     """
-    Get current SIMD mode (CPU backend only).
+    Get current SIMD mode (deprecated - CPU backend removed).
 
     Returns:
         Current SIMD mode
@@ -221,7 +233,7 @@ def simd_mode() -> SIMDMode:
 
 def set_simd_mode(mode: SIMDMode):
     """
-    Set SIMD mode (CPU backend only).
+    Set SIMD mode (deprecated - CPU backend removed).
 
     Args:
         mode: SIMD mode to set

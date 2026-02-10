@@ -181,7 +181,7 @@ def main():
     )
     parser.add_argument(
         '--backend', '-b',
-        choices=['auto', 'vulkan', 'cpu', 'cpu_simd'],
+        choices=['auto', 'vulkan', 'cpu_simd'],
         default='auto',
         help='Backend to use (default: auto)'
     )

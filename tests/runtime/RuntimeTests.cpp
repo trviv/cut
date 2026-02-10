@@ -350,7 +350,7 @@ inline const char *operatorName(OperatorEnum op) {
 }
 
 inline const char *backendName(BackendType backend) {
-  return backend == BackendType::Vulkan ? "Vulkan" : "CPU";
+  return backend == BackendType::Vulkan ? "Vulkan" : "Unknown";
 }
 
 // Helper to check if a binary vec-vec operator has Vulkan shader support
@@ -1144,321 +1144,6 @@ protected:
   std::unique_ptr<Runtime> runtime_;
 };
 
-// ============================================================================
-// CPU Backend Tests - All Operators
-// ============================================================================
-
-class CPUBackendTest : public RuntimeOperatorTest {
-protected:
-  void SetUp() override {
-    RuntimeOperatorTest::SetUp();
-    initBackend(BackendType::CPU);
-  }
-};
-
-// Test binary vec-vec operators with Float32
-TEST_F(CPUBackendTest, BinaryVecVecOperators_Float32) {
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataA = generateTestData<float>(elements, 42);
-      auto dataB = generateTestData<float>(elements, 123);
-
-      for (OperatorEnum op : kBinaryVecVecOps) {
-        // Skip problematic operators for now (mod, pow with certain values)
-        if (op == BinaryVecVecMod || op == BinaryVecVecPow ||
-            op == BinaryVecVecFloorDiv) {
-          continue;
-        }
-
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
-
-        runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
-                                      ComputeBinding(1, bufferB),
-                                      ComputeBinding(2, bufferOut)});
-
-        std::vector<float> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        // Verify results
-        for (uint32_t i = 0; i < elements; ++i) {
-          float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
-          EXPECT_NEAR(output[i], expected, 1e-5f)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
-  }
-}
-
-// Test binary vec-vec operators with Int32
-TEST_F(CPUBackendTest, BinaryVecVecOperators_Int32) {
-  const DataType dtype = DataType::Int32;
-
-  // Int32-supported binary vec-vec operators
-  constexpr std::array<OperatorEnum, 22> kInt32BinaryVecVecOps = {
-      // Arithmetic
-      BinaryVecVecAdd, BinaryVecVecSub, BinaryVecVecMul, BinaryVecVecDiv,
-      BinaryVecVecMod, BinaryVecVecFloorDiv,
-      // Comparison
-      BinaryVecVecEqual, BinaryVecVecNotEqual, BinaryVecVecLess,
-      BinaryVecVecLessEqual, BinaryVecVecGreater, BinaryVecVecGreaterEqual,
-      // Min/Max
-      BinaryVecVecMin, BinaryVecVecMax,
-      // Bitwise
-      BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
-      BinaryVecVecLeftShift, BinaryVecVecRightShift,
-      // Logical
-      BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(int32_t);
-
-      auto dataA = generateTestData<int32_t>(elements, 42);
-      auto dataB = generateTestData<int32_t>(elements, 123);
-
-      // Ensure dataB has no zeros for division/mod operations
-      for (auto &v : dataB) {
-        if (v == 0)
-          v = 1;
-      }
-      // Limit shift amounts to avoid undefined behavior
-      for (auto &v : dataB) {
-        v = std::abs(v) % 16; // Shift by 0-15 bits
-        if (v == 0)
-          v = 1;
-      }
-
-      for (OperatorEnum op : kInt32BinaryVecVecOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
-
-        runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
-                                      ComputeBinding(1, bufferB),
-                                      ComputeBinding(2, bufferOut)});
-
-        std::vector<int32_t> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        // Verify results
-        for (uint32_t i = 0; i < elements; ++i) {
-          int32_t expected = binaryVecVecRef(op, dataA[i], dataB[i]);
-          EXPECT_EQ(output[i], expected)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
-  }
-}
-
-// Note: CPU kernels currently only support Float32, so UInt32 tests are skipped
-TEST_F(CPUBackendTest, BinaryVecVecOperators_UInt32) {
-  GTEST_SKIP() << "CPU backend kernels only support Float32";
-}
-
-// Test unary operators with Float32
-TEST_F(CPUBackendTest, UnaryOperators_Float32) {
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      // Generate data appropriate for unary ops (positive values for sqrt,
-      // log, etc.)
-      auto dataIn = generateTestData<float>(elements, 42);
-      // Clamp for asin/acos
-      for (auto &v : dataIn) {
-        v = std::clamp(v, 0.1f, 0.9f);
-      }
-
-      for (OperatorEnum op : kUnaryOps) {
-        // Skip problematic operators
-        if (op == UnaryLog || op == UnaryLog2 || op == UnaryLog10 ||
-            op == UnaryAsin || op == UnaryAcos || op == UnaryTan ||
-            op == UnarySinh || op == UnaryCosh || op == UnaryExp) {
-          continue; // These need special input ranges
-        }
-
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
-
-        runtime_->encodeOperator(
-            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
-
-        std::vector<float> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        // Verify results
-        for (uint32_t i = 0; i < elements; ++i) {
-          float expected = unaryRef(op, dataIn[i]);
-          if (std::isfinite(expected)) {
-            EXPECT_NEAR(output[i], expected, 1e-4f)
-                << "Mismatch at index " << i << " for " << operatorName(op);
-          }
-        }
-      }
-    }
-  }
-}
-
-// Test unary operators with Int32
-TEST_F(CPUBackendTest, UnaryOperators_Int32) {
-  const DataType dtype = DataType::Int32;
-
-  // Int32-supported unary operators
-  constexpr std::array<OperatorEnum, 6> kInt32UnaryOps = {
-      UnaryNeg,    UnaryAbs,        UnarySign,
-      UnarySquare, UnaryBitwiseNot, UnaryLogicalNot};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(int32_t);
-
-      auto dataIn = generateTestData<int32_t>(elements, 42);
-
-      for (OperatorEnum op : kInt32UnaryOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
-
-        runtime_->encodeOperator(
-            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
-
-        std::vector<int32_t> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        // Verify results
-        for (uint32_t i = 0; i < elements; ++i) {
-          int32_t expected = unaryRef(op, dataIn[i]);
-          EXPECT_EQ(output[i], expected)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
-  }
-}
-
-// Test binary vec-scalar operators with Float32
-TEST_F(CPUBackendTest, BinaryVecScalarOperators_Float32) {
-  const DataType dtype = DataType::Float32;
-  const float scalar = 2.5f;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataA = generateTestData<float>(elements, 42);
-
-      for (OperatorEnum op : kBinaryVecScalarOps) {
-        // Skip problematic operators
-        if (op == BinaryVecScalarMod || op == BinaryVecScalarPow ||
-            op == BinaryVecScalarFloorDiv) {
-          continue;
-        }
-
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
-
-        runtime_->encodeOperator(
-            op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
-                 ComputeBinding(2, DataReference(scalar))});
-
-        std::vector<float> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        // Verify results
-        for (uint32_t i = 0; i < elements; ++i) {
-          float expected = binaryVecScalarRef(op, dataA[i], scalar);
-          EXPECT_NEAR(output[i], expected, 1e-5f)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
-  }
-}
-
-// Test binary vec-scalar operators with Int32
-TEST_F(CPUBackendTest, BinaryVecScalarOperators_Int32) {
-  const DataType dtype = DataType::Int32;
-  const int32_t scalar = 3;
-
-  // Int32-supported binary vec-scalar operators
-  constexpr std::array<OperatorEnum, 22> kInt32BinaryVecScalarOps = {
-      // Arithmetic
-      BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
-      BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarFloorDiv,
-      // Comparison
-      BinaryVecScalarEqual, BinaryVecScalarNotEqual, BinaryVecScalarLess,
-      BinaryVecScalarLessEqual, BinaryVecScalarGreater,
-      BinaryVecScalarGreaterEqual,
-      // Min/Max
-      BinaryVecScalarMin, BinaryVecScalarMax,
-      // Bitwise
-      BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
-      BinaryVecScalarBitwiseXor, BinaryVecScalarLeftShift,
-      BinaryVecScalarRightShift,
-      // Logical
-      BinaryVecScalarLogicalAnd, BinaryVecScalarLogicalOr,
-      BinaryVecScalarLogicalXor};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(int32_t);
-
-      auto dataA = generateTestData<int32_t>(elements, 42);
-
-      for (OperatorEnum op : kInt32BinaryVecScalarOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
-
-        runtime_->encodeOperator(
-            op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
-                 ComputeBinding(2, DataReference(scalar))});
-
-        std::vector<int32_t> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        // Verify results
-        for (uint32_t i = 0; i < elements; ++i) {
-          int32_t expected = binaryVecScalarRef(op, dataA[i], scalar);
-          EXPECT_EQ(output[i], expected)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
-  }
-}
 
 // ============================================================================
 // Vulkan Backend Tests - All Operators
@@ -1623,162 +1308,6 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
 // Cross-Backend Consistency Tests
 // ============================================================================
 
-class CrossBackendTest : public ::testing::Test {
-protected:
-  void SetUp() override {
-    cpuRuntime_ = std::make_unique<Runtime>();
-    cpuRuntime_->init(BackendType::CPU);
-
-    vulkanRuntime_ = std::make_unique<Runtime>();
-    if (vulkanRuntime_->isVulkanAvailable()) {
-      vulkanRuntime_->init(BackendType::Vulkan);
-      vulkanAvailable_ = true;
-    } else {
-      vulkanAvailable_ = false;
-    }
-  }
-
-  void TearDown() override {
-    cpuRuntime_->shutdown();
-    cpuRuntime_.reset();
-    if (vulkanAvailable_) {
-      vulkanRuntime_->shutdown();
-    }
-    vulkanRuntime_.reset();
-  }
-
-  std::unique_ptr<Runtime> cpuRuntime_;
-  std::unique_ptr<Runtime> vulkanRuntime_;
-  bool vulkanAvailable_ = false;
-};
-
-// Test that CPU and Vulkan produce identical results for binary vec-vec ops
-TEST_F(CrossBackendTest, BinaryVecVecConsistency_Float32) {
-  if (!vulkanAvailable_) {
-    GTEST_SKIP() << "Vulkan not available";
-  }
-
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    auto shapes = generateShapes(numDims);
-    // Use only first shape to reduce test time
-    if (shapes.empty())
-      continue;
-    const auto &shape = shapes[0];
-
-    const uint32_t elements = totalElements(shape);
-    const size_t bufferSize = elements * sizeof(float);
-
-    auto dataA = generateTestData<float>(elements, 42);
-    auto dataB = generateTestData<float>(elements, 123);
-
-    for (OperatorEnum op : kBinaryVecVecOps) {
-      // Skip operators without shader support or problematic ones
-      if (!hasVulkanShaderSupport(op) || op == BinaryVecVecMod ||
-          op == BinaryVecVecPow || op == BinaryVecVecFloorDiv) {
-        continue;
-      }
-
-      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                   " Shape: " + shapeToString(shape));
-
-      // CPU execution
-      auto cpuBufA = cpuRuntime_->createTensor(shape, dtype, dataA.data());
-      auto cpuBufB = cpuRuntime_->createTensor(shape, dtype, dataB.data());
-      auto cpuBufOut = cpuRuntime_->createTensorEmpty(shape, dtype);
-      cpuRuntime_->encodeOperator(op, {ComputeBinding(0, cpuBufA),
-                                       ComputeBinding(1, cpuBufB),
-                                       ComputeBinding(2, cpuBufOut)});
-      std::vector<float> cpuOutput(elements);
-      cpuRuntime_->copyFromTensor(cpuBufOut, cpuOutput.data(), bufferSize);
-
-      // Vulkan execution
-      auto vkBufA = vulkanRuntime_->createTensor(shape, dtype, dataA.data());
-      auto vkBufB = vulkanRuntime_->createTensor(shape, dtype, dataB.data());
-      auto vkBufOut = vulkanRuntime_->createTensorEmpty(shape, dtype);
-      vulkanRuntime_->encodeOperator(op, {ComputeBinding(0, vkBufA),
-                                          ComputeBinding(1, vkBufB),
-                                          ComputeBinding(2, vkBufOut)});
-      std::vector<float> vkOutput(elements);
-      vulkanRuntime_->copyFromTensor(vkBufOut, vkOutput.data(), bufferSize);
-
-      // Compare results
-      for (uint32_t i = 0; i < elements; ++i) {
-        EXPECT_NEAR(cpuOutput[i], vkOutput[i], 1e-5f)
-            << "CPU/Vulkan mismatch at index " << i << " for "
-            << operatorName(op);
-      }
-    }
-  }
-}
-
-// Test that CPU and Vulkan produce identical results for unary ops
-TEST_F(CrossBackendTest, UnaryConsistency_Float32) {
-  if (!vulkanAvailable_) {
-    GTEST_SKIP() << "Vulkan not available";
-  }
-
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    auto shapes = generateShapes(numDims);
-    if (shapes.empty())
-      continue;
-    const auto &shape = shapes[0];
-
-    const uint32_t elements = totalElements(shape);
-    const size_t bufferSize = elements * sizeof(float);
-
-    auto dataIn = generateTestData<float>(elements, 42);
-    for (auto &v : dataIn) {
-      v = std::clamp(v, 0.1f, 0.9f);
-    }
-
-    for (OperatorEnum op : kUnaryOps) {
-      // Skip operators without shader support or problematic ones
-      if (!hasVulkanShaderSupport(op) || op == UnaryLog || op == UnaryLog2 ||
-          op == UnaryLog10 || op == UnaryAsin || op == UnaryAcos ||
-          op == UnaryTan || op == UnarySinh || op == UnaryCosh ||
-          op == UnaryExp) {
-        continue;
-      }
-
-      SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                   " Shape: " + shapeToString(shape));
-
-      // CPU execution
-      auto cpuBufIn = cpuRuntime_->createTensor(shape, dtype, dataIn.data());
-      auto cpuBufOut = cpuRuntime_->createTensorEmpty(shape, dtype);
-      cpuRuntime_->encodeOperator(
-          op, {ComputeBinding(0, cpuBufIn), ComputeBinding(1, cpuBufOut)});
-      std::vector<float> cpuOutput(elements);
-      cpuRuntime_->copyFromTensor(cpuBufOut, cpuOutput.data(), bufferSize);
-
-      // Vulkan execution
-      auto vkBufIn = vulkanRuntime_->createTensor(shape, dtype, dataIn.data());
-      auto vkBufOut = vulkanRuntime_->createTensorEmpty(shape, dtype);
-      vulkanRuntime_->encodeOperator(
-          op, {ComputeBinding(0, vkBufIn), ComputeBinding(1, vkBufOut)});
-      std::vector<float> vkOutput(elements);
-      vulkanRuntime_->copyFromTensor(vkBufOut, vkOutput.data(), bufferSize);
-
-      // Compare results
-      for (uint32_t i = 0; i < elements; ++i) {
-        if (std::isfinite(cpuOutput[i]) && std::isfinite(vkOutput[i])) {
-          EXPECT_NEAR(cpuOutput[i], vkOutput[i], 1e-4f)
-              << "CPU/Vulkan mismatch at index " << i << " for "
-              << operatorName(op);
-        }
-      }
-    }
-  }
-}
-
-// ============================================================================
-// Dimension Size Range Tests (1-16)
-// ============================================================================
-
 class DimensionSizeRangeTest : public RuntimeOperatorTest {
 protected:
   void SetUp() override {
@@ -1787,7 +1316,6 @@ protected:
   }
 };
 
-// Test all dimension sizes from 1 to 16 for 1D shapes
 TEST_F(DimensionSizeRangeTest, AllSizes_1D_Float32) {
   const DataType dtype = DataType::Float32;
   const OperatorEnum op = BinaryVecVecAdd;
@@ -2413,191 +1941,6 @@ TEST_F(VulkanNonAlignedInnermostTest, Unary_NonAlignedInnermost) {
   }
 }
 
-// ============================================================================
-// Reduction and Ternary Operator Tests
-// ============================================================================
-
-// Test reduction operators with Float32 on CPU
-TEST_F(CPUBackendTest, ReductionOperators_Float32) {
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataIn = generateTestData<float>(elements, 42);
-
-      for (OperatorEnum op : kReductionOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
-
-        // Initialize output to identity element
-        float initVal = 0.0f;
-        if (op == ReduceProd)
-          initVal = 1.0f;
-        else if (op == ReduceMin)
-          initVal = std::numeric_limits<float>::max();
-        else if (op == ReduceMax)
-          initVal = std::numeric_limits<float>::lowest();
-        else if (op == ReduceAll)
-          initVal = 1.0f;
-        runtime_->copyToTensor(bufferOut, &initVal, sizeof(float));
-
-        runtime_->encodeOperator(
-            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
-
-        float output = 0.0f;
-        runtime_->copyFromTensor(bufferOut, &output, sizeof(float));
-
-        // Verify result
-        float expected = reduceRef(op, dataIn);
-        if (op == ReduceMean || op == ReduceSum || op == ReduceProd) {
-          EXPECT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f)
-              << "Mismatch for " << operatorName(op);
-        } else {
-          EXPECT_NEAR(output, expected, 1e-5f)
-              << "Mismatch for " << operatorName(op);
-        }
-      }
-    }
-  }
-}
-
-// Test reduction operators with Int32 on CPU
-TEST_F(CPUBackendTest, ReductionOperators_Int32) {
-  const DataType dtype = DataType::Int32;
-
-  // Int32-supported reduction operators (no ReduceMean for integer types)
-  constexpr std::array<OperatorEnum, 6> kInt32ReductionOps = {
-      ReduceSum, ReduceMin, ReduceMax, ReduceProd, ReduceAny, ReduceAll};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(int32_t);
-
-      auto dataIn = generateTestData<int32_t>(elements, 42);
-      // Use smaller values to avoid overflow in product
-      for (auto &v : dataIn) {
-        v = (v % 10) + 1; // Values 1-10
-      }
-
-      for (OperatorEnum op : kInt32ReductionOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
-
-        // Initialize output to identity element
-        int32_t initVal = 0;
-        if (op == ReduceProd)
-          initVal = 1;
-        else if (op == ReduceMin)
-          initVal = std::numeric_limits<int32_t>::max();
-        else if (op == ReduceMax)
-          initVal = std::numeric_limits<int32_t>::lowest();
-        else if (op == ReduceAll)
-          initVal = 1;
-        runtime_->copyToTensor(bufferOut, &initVal, sizeof(int32_t));
-
-        runtime_->encodeOperator(
-            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
-
-        int32_t output = 0;
-        runtime_->copyFromTensor(bufferOut, &output, sizeof(int32_t));
-
-        // Verify result
-        int32_t expected = reduceRef(op, dataIn);
-        EXPECT_EQ(output, expected) << "Mismatch for " << operatorName(op);
-      }
-    }
-  }
-}
-
-// Test ternary clamp operator with Float32 on CPU
-TEST_F(CPUBackendTest, TernaryClamp_Float32) {
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataIn = generateTestData<float>(elements, 42);
-      float minVal = 2.0f;
-      float maxVal = 8.0f;
-
-      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
-
-      // For TernaryClamp, min and max are passed as data binding
-      float clampVals[2] = {minVal, maxVal};
-      runtime_->encodeOperator(
-          TernaryClamp,
-          {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
-           ComputeBinding(2, DataReference(clampVals, sizeof(clampVals)))});
-
-      std::vector<float> output(elements);
-      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-      // Verify results
-      for (uint32_t i = 0; i < elements; ++i) {
-        float expected = ternaryClampRef(dataIn[i], minVal, maxVal);
-        EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
-      }
-    }
-  }
-}
-
-// Test ternary select operator with Float32 on CPU
-TEST_F(CPUBackendTest, TernarySelect_Float32) {
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataCond = generateTestData<float>(elements, 42);
-      auto dataX = generateTestData<float>(elements, 123);
-      auto dataY = generateTestData<float>(elements, 456);
-
-      // Make condition more varied (some zeros, some non-zeros)
-      for (size_t i = 0; i < dataCond.size(); ++i) {
-        dataCond[i] = (i % 3 == 0) ? 0.0f : dataCond[i];
-      }
-
-      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
-
-      auto bufferCond = runtime_->createTensor(shape, dtype, dataCond.data());
-      auto bufferX = runtime_->createTensor(shape, dtype, dataX.data());
-      auto bufferY = runtime_->createTensor(shape, dtype, dataY.data());
-      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
-
-      runtime_->encodeOperator(TernarySelect, {ComputeBinding(0, bufferCond),
-                                               ComputeBinding(1, bufferX),
-                                               ComputeBinding(2, bufferY),
-                                               ComputeBinding(3, bufferOut)});
-
-      std::vector<float> output(elements);
-      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-      // Verify results
-      for (uint32_t i = 0; i < elements; ++i) {
-        float expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
-        EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
-      }
-    }
-  }
-}
-
 // Test reduction operators with Float32 on Vulkan
 TEST_F(VulkanBackendTest, ReductionOperators_Float32) {
   const DataType dtype = DataType::Float32;
@@ -2735,14 +2078,7 @@ class RuntimeLifecycleTest : public ::testing::Test {};
 
 TEST_F(RuntimeLifecycleTest, DefaultConstruction) {
   Runtime runtime;
-  EXPECT_EQ(runtime.currentBackend(), BackendType::CPU);
-}
-
-TEST_F(RuntimeLifecycleTest, CPUInitialization) {
-  Runtime runtime;
-  EXPECT_NO_THROW(runtime.init(BackendType::CPU));
-  EXPECT_EQ(runtime.currentBackend(), BackendType::CPU);
-  runtime.shutdown();
+  EXPECT_EQ(runtime.currentBackend(), BackendType::Vulkan);
 }
 
 TEST_F(RuntimeLifecycleTest, VulkanInitialization) {
@@ -2759,8 +2095,12 @@ TEST_F(RuntimeLifecycleTest, VulkanInitialization) {
 TEST_F(RuntimeLifecycleTest, MultipleInitShutdown) {
   Runtime runtime;
 
+  if (!runtime.isVulkanAvailable()) {
+    GTEST_SKIP() << "Vulkan not available";
+  }
+
   // First cycle
-  runtime.init(BackendType::CPU);
+  runtime.init(BackendType::Vulkan);
   {
     auto buf1 = runtime.createTensorEmpty({16}, DataType::Float32);
     EXPECT_TRUE(buf1);
@@ -2768,7 +2108,7 @@ TEST_F(RuntimeLifecycleTest, MultipleInitShutdown) {
   runtime.shutdown();
 
   // Second cycle
-  runtime.init(BackendType::CPU);
+  runtime.init(BackendType::Vulkan);
   {
     auto buf2 = runtime.createTensorEmpty({16}, DataType::Float32);
     EXPECT_TRUE(buf2);
@@ -2778,7 +2118,12 @@ TEST_F(RuntimeLifecycleTest, MultipleInitShutdown) {
 
 TEST_F(RuntimeLifecycleTest, MoveSemantics) {
   Runtime runtime1;
-  runtime1.init(BackendType::CPU);
+
+  if (!runtime1.isVulkanAvailable()) {
+    GTEST_SKIP() << "Vulkan not available";
+  }
+
+  runtime1.init(BackendType::Vulkan);
   {
     auto buf = runtime1.createTensorEmpty({16}, DataType::Float32);
     EXPECT_TRUE(buf);
@@ -2786,12 +2131,12 @@ TEST_F(RuntimeLifecycleTest, MoveSemantics) {
 
   // Move construct
   Runtime runtime2 = std::move(runtime1);
-  EXPECT_EQ(runtime2.currentBackend(), BackendType::CPU);
+  EXPECT_EQ(runtime2.currentBackend(), BackendType::Vulkan);
 
   // Move assign
   Runtime runtime3;
   runtime3 = std::move(runtime2);
-  EXPECT_EQ(runtime3.currentBackend(), BackendType::CPU);
+  EXPECT_EQ(runtime3.currentBackend(), BackendType::Vulkan);
 
   runtime3.shutdown();
 }

@@ -369,8 +369,6 @@ def run_benchmarks(backend_name: str, size: int, include_jax: bool = False) -> L
     # Initialize backend
     backend_map = {
         'vulkan': cut.Backend.Vulkan,
-        'cpu': cut.Backend.CPU,
-        'cpu_simd': cut.Backend.CPU,
     }
 
     if backend_name not in backend_map:
@@ -380,15 +378,10 @@ def run_benchmarks(backend_name: str, size: int, include_jax: bool = False) -> L
     backend_type = backend_map[backend_name]
 
     if backend_type == cut.Backend.Vulkan and not cut.is_vulkan_available():
-        print("Vulkan backend not available, falling back to CPU")
-        backend_type = cut.Backend.CPU
-        backend_name = 'cpu_simd'
+        print("Vulkan backend not available")
+        return []
 
-    if backend_type == cut.Backend.Vulkan:
-        cut.init(backend_type)
-    else:
-        simd_mode = cut.SIMDMode.Auto if backend_name == 'cpu_simd' else cut.SIMDMode.Scalar
-        cut.init(backend_type, simd_mode=simd_mode)
+    cut.init(backend_type)
 
     jax_enabled = include_jax and JAX_AVAILABLE
     if include_jax and not JAX_AVAILABLE:
@@ -642,9 +635,6 @@ def run_all_backends_comparison(size: int, include_jax: bool = False):
     """Run benchmarks on all available backends and compare."""
     backends_to_test = []
 
-    if cut.is_cpu_available():
-        backends_to_test.append('cpu')
-        backends_to_test.append('cpu_simd')
     if cut.is_vulkan_available():
         backends_to_test.append('vulkan')
 
@@ -713,7 +703,7 @@ def main():
         '--backend',
         type=str,
         default='cpu_simd',
-        choices=['vulkan', 'cpu', 'cpu_simd'],
+        choices=['vulkan'],
         help='Backend to use (default: cpu_simd)'
     )
     parser.add_argument(

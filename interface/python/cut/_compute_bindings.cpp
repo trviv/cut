@@ -249,20 +249,6 @@ PYBIND11_MODULE(_cut_compute, m) {
   // =========================================================================
   py::enum_<cut::BackendType>(m, "BackendType", "Available compute backends")
       .value("Vulkan", cut::BackendType::Vulkan, "Vulkan GPU backend")
-      .value("CPU", cut::BackendType::CPU, "CPU backend with optional SIMD")
-      .export_values();
-
-  // =========================================================================
-  // SIMD Mode Enum (for CPU backend)
-  // =========================================================================
-  py::enum_<cut::SIMDMode>(m, "SIMDMode",
-                           "SIMD execution modes for CPU backend")
-      .value("Scalar", cut::SIMDMode::Scalar,
-             "Plain scalar operations (no SIMD)")
-      .value("SSE", cut::SIMDMode::SSE, "SSE instructions (128-bit, 4 floats)")
-      .value("AVX", cut::SIMDMode::AVX, "AVX instructions (256-bit, 8 floats)")
-      .value("Auto", cut::SIMDMode::Auto,
-             "Auto-detect best available (default)")
       .export_values();
 
   // =========================================================================
@@ -526,35 +512,16 @@ PYBIND11_MODULE(_cut_compute, m) {
       "Check if Vulkan backend is available");
 
   m.def(
-      "is_cpu_available", []() { return true; }, // CPU is always available
-      "Check if CPU backend is available");
-
-  m.def(
       "init",
-      [](cut::BackendType backend, size_t num_threads,
-         cut::SIMDMode simd_mode) {
-        getRuntime().init(backend, num_threads, simd_mode);
+      [](cut::BackendType backend) {
+        getRuntime().init(backend);
       },
-      py::arg("backend") = cut::BackendType::CPU, py::arg("num_threads") = 0,
-      py::arg("simd_mode") = cut::SIMDMode::Auto,
+      py::arg("backend") = cut::BackendType::Vulkan,
       "Initialize the compute backend");
 
   m.def(
       "current_backend", []() { return getRuntime().currentBackend(); },
       "Get the current backend type");
-
-  m.def(
-      "num_threads", []() { return getRuntime().numThreads(); },
-      "Get number of worker threads (CPU backend only)");
-
-  m.def(
-      "simd_mode", []() { return getRuntime().simdMode(); },
-      "Get current SIMD mode (CPU backend only)");
-
-  m.def(
-      "set_simd_mode",
-      [](cut::SIMDMode mode) { getRuntime().setSIMDMode(mode); },
-      py::arg("mode"), "Set SIMD mode (CPU backend only)");
 
   // =========================================================================
   // Tensor Operations

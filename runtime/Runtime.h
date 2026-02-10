@@ -6,9 +6,6 @@
 #include <ComputeOps.h>
 #include <ComputeStructs.h>
 
-// For SIMDMode enum
-#include "../core/backends/cpu/CPUKernels.h"
-
 #include <map>
 #include <memory>
 #include <vector>
@@ -18,18 +15,16 @@ namespace cut {
 // Forward declarations
 class VulkanInstance;
 class VulkanCompute;
-class CPUCompute;
 class Dispatcher;
 
 /**
  * Backend type enum for runtime selection.
  */
-enum class BackendType { Vulkan, CPU };
+enum class BackendType { Vulkan };
 
 /**
  * Runtime class that manages compute backend lifecycle and operator execution.
- * Provides a unified interface for executing compute operations across
- * different backends (Vulkan GPU, CPU with SIMD).
+ * Provides a unified interface for executing compute operations on Vulkan GPU.
  */
 class Runtime {
 public:
@@ -61,13 +56,9 @@ public:
 
   /**
    * Initializes the compute backend.
-   * @param backend The backend type to use (Vulkan or CPU).
-   * @param numThreads Number of worker threads for CPU backend (0 = auto).
-   * @param simdMode SIMD execution mode for CPU backend.
+   * @param backend The backend type to use (Vulkan).
    */
-  void init(BackendType backend = BackendType::CPU,
-            size_t numThreads = 0,
-            SIMDMode simdMode = SIMDMode::Auto);
+  void init(BackendType backend = BackendType::Vulkan);
 
   /**
    * Shuts down the runtime and releases all resources.
@@ -78,22 +69,6 @@ public:
    * Returns the current backend type.
    */
   BackendType currentBackend() const { return backendType_; }
-
-  /**
-   * Returns the number of worker threads (CPU backend only).
-   */
-  size_t numThreads() const;
-
-  /**
-   * Returns the current SIMD mode (CPU backend only).
-   */
-  SIMDMode simdMode() const;
-
-  /**
-   * Sets the SIMD mode for CPU backend.
-   * @param mode The SIMD mode to use.
-   */
-  void setSIMDMode(SIMDMode mode);
 
   // =========================================================================
   // Tensor Operations
@@ -167,11 +142,9 @@ public:
                       const std::vector<ComputeBinding> &bindings);
 
 private:
-  BackendType backendType_ = BackendType::CPU;
+  BackendType backendType_ = BackendType::Vulkan;
   std::shared_ptr<VulkanInstance> vulkanInstance_;
   std::unique_ptr<ComputeInterface> interface_;
-  SIMDMode simdMode_ = SIMDMode::Auto;
-  size_t numThreads_ = 0;
   bool vulkanAvailable_ = false;
   bool vulkanChecked_ = false;
   bool pendingCommands_ = false;

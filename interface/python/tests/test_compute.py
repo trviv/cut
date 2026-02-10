@@ -40,8 +40,6 @@ def _dtype_to_numpy(dtype):
 def get_available_backends():
     """Get list of available backends as pytest parameters."""
     backends = []
-    if cc.is_cpu_available():
-        backends.append(pytest.param(cc.Backend.CPU, id="cpu"))
     if cc.is_vulkan_available():
         backends.append(pytest.param(cc.Backend.Vulkan, id="vulkan"))
     return backends
@@ -55,21 +53,8 @@ def get_available_backends():
 def backend(request):
     """Fixture that yields each available backend."""
     backend_type = request.param
-    if backend_type == cc.Backend.Vulkan:
-        cc.init(backend_type)
-    else:
-        cc.init(backend_type, simd_mode=cc.SIMDMode.Auto)
+    cc.init(backend_type)
     yield backend_type
-    cc.shutdown()
-
-
-@pytest.fixture
-def cpu_backend():
-    """Fixture for CPU backend only."""
-    if not cc.is_cpu_available():
-        pytest.skip("CPU backend not available")
-    cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
-    yield cc.Backend.CPU
     cc.shutdown()
 
 
@@ -93,19 +78,10 @@ class TestModuleBasics:
     def test_import(self):
         """Test that the module can be imported."""
         assert cc.Backend is not None
-        assert cc.SIMDMode is not None
 
     def test_backend_enum(self):
         """Test Backend enum values."""
         assert hasattr(cc.Backend, "Vulkan")
-        assert hasattr(cc.Backend, "CPU")
-
-    def test_simd_enum(self):
-        """Test SIMDMode enum values."""
-        assert hasattr(cc.SIMDMode, "Scalar")
-        assert hasattr(cc.SIMDMode, "SSE")
-        assert hasattr(cc.SIMDMode, "AVX")
-        assert hasattr(cc.SIMDMode, "Auto")
 
     def test_operator_enum(self):
         """Test OperatorEnum is accessible."""
@@ -123,9 +99,6 @@ class TestModuleBasics:
         assert isinstance(available, list)
         assert len(available) > 0
 
-    def test_cpu_available(self):
-        """Test CPU is always available."""
-        assert cc.is_cpu_available() is True
 
     def test_dtype_exports(self):
         """Test DType instances are exported."""
@@ -142,25 +115,6 @@ class TestModuleBasics:
 class TestBackendInit:
     """Test backend initialization."""
 
-    def test_init_cpu(self):
-        """Test CPU backend initialization."""
-        if not cc.is_cpu_available():
-            pytest.skip("CPU backend not available")
-
-        backend = cc.init(cc.Backend.CPU)
-        assert backend == cc.Backend.CPU
-        assert cc.current_backend() == cc.Backend.CPU
-
-    def test_init_cpu_with_simd(self):
-        """Test CPU backend with SIMD mode."""
-        if not cc.is_cpu_available():
-            pytest.skip("CPU backend not available")
-
-        cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
-        assert cc.current_backend() == cc.Backend.CPU
-        mode = cc.simd_mode()
-        assert mode in (cc.SIMDMode.Scalar, cc.SIMDMode.SSE,
-                       cc.SIMDMode.AVX, cc.SIMDMode.Auto)
 
     def test_init_vulkan(self):
         """Test Vulkan backend initialization."""
@@ -172,15 +126,6 @@ class TestBackendInit:
         assert cc.current_backend() == cc.Backend.Vulkan
         cc.shutdown()
 
-    def test_num_threads_cpu(self, cpu_backend):
-        """Test num_threads returns positive value for CPU."""
-        threads = cc.num_threads()
-        assert threads > 0
-
-    def test_num_threads_vulkan(self, vulkan_backend):
-        """Test num_threads returns 0 for Vulkan."""
-        threads = cc.num_threads()
-        assert threads == 0
 
 
 # =============================================================================
@@ -568,39 +513,22 @@ class TestBackendSwitching:
 
     def test_switch_backends(self):
         """Test switching between CPU and Vulkan backends."""
-        if cc.is_cpu_available():
-            cc.init(cc.Backend.CPU)
-            assert cc.current_backend() == cc.Backend.CPU
+        data = [1.0, 2.0, 3.0, 4.0]
+        cpu_buf = cc.Tensor(data)
+        cpu_result = to_numpy(cc.add(cpu_buf, cpu_buf))
 
-            data = [1.0, 2.0, 3.0, 4.0]
-            cpu_buf = cc.Tensor(data)
-            cpu_result = to_numpy(cc.add(cpu_buf, cpu_buf))
+        del cpu_buf
+        cc.shutdown()
 
-            del cpu_buf
+        if cc.is_vulkan_available():
+            cc.init(cc.Backend.Vulkan)
+            assert cc.current_backend() == cc.Backend.Vulkan
+
+            vk_buf = cc.Tensor(data)
+            vk_result = to_numpy(cc.add(vk_buf, vk_buf))
+
+            np.testing.assert_allclose(cpu_result, vk_result)
+
+            del vk_buf
             cc.shutdown()
 
-            if cc.is_vulkan_available():
-                cc.init(cc.Backend.Vulkan)
-                assert cc.current_backend() == cc.Backend.Vulkan
-
-                vk_buf = cc.Tensor(data)
-                vk_result = to_numpy(cc.add(vk_buf, vk_buf))
-
-                np.testing.assert_allclose(cpu_result, vk_result)
-
-                del vk_buf
-                cc.shutdown()
-
-    def test_simd_mode_switching(self, cpu_backend):
-        """Test switching SIMD modes on CPU backend."""
-        data = [1.0, 2.0, 3.0, 4.0]
-
-        cc.set_simd_mode(cc.SIMDMode.Scalar)
-        buf1 = cc.Tensor(data)
-        result1 = to_numpy(cc.add(buf1, buf1))
-
-        cc.set_simd_mode(cc.SIMDMode.Auto)
-        buf2 = cc.Tensor(data)
-        result2 = to_numpy(cc.add(buf2, buf2))
-
-        np.testing.assert_allclose(result1, result2)

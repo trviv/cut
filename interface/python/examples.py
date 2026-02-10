@@ -252,11 +252,10 @@ def example_backend_switching():
     print(f"Available backends: {cc.available_backends()}")
     print(f"Current backend: {cc.current_backend()}")
 
-    if cc.current_backend() == cc.Backend.CPU:
-        print(f"CPU threads: {cc.num_threads()}")
-        print(f"SIMD mode: {cc.simd_mode()}")
-    else:
+    if cc.current_backend() == cc.Backend.Vulkan:
         print("Running on Vulkan GPU")
+    else:
+        print("Running on unknown backend")
 
 
 def main():
@@ -266,10 +265,9 @@ def main():
     print("=" * 60)
 
     # Initialize backend
-    print(f"\nInitializing CUT with CPU backend...")
-    cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Auto)
+    print(f"\nInitializing CUT with Vulkan backend...")
+    cc.init(cc.Backend.Vulkan)
     print(f"Backend: {cc.current_backend()}")
-    print(f"Threads: {cc.num_threads()}")
 
     # Run examples
     example_basic_operations()

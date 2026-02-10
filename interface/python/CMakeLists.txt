@@ -39,14 +39,12 @@ message(STATUS "CUT_ROOT: ${CUT_ROOT}")
 include_directories(${CUT_ROOT})
 include_directories(${CUT_ROOT}/core/api/Headers)
 include_directories(${CUT_ROOT}/core/backends/vulkan)
-include_directories(${CUT_ROOT}/core/backends/cpu)
 include_directories(${CUT_ROOT}/runtime)
 include_directories(${CUT_ROOT}/shaders)
 
 # Collect CUT library sources
 file(GLOB API_SOURCES ${CUT_ROOT}/core/api/src/*.cpp)
 file(GLOB VULKAN_SOURCES ${CUT_ROOT}/core/backends/vulkan/*.cpp)
-file(GLOB CPU_SOURCES ${CUT_ROOT}/core/backends/cpu/*.cpp)
 file(GLOB RUNTIME_SOURCES ${CUT_ROOT}/runtime/*.cpp)
 file(GLOB SHADER_SOURCES ${CUT_ROOT}/shaders/*.cpp)
 
@@ -57,7 +55,6 @@ pybind11_add_module(_cut_compute
     cut/_compute_bindings.cpp
     ${API_SOURCES}
     ${VULKAN_SOURCES}
-    ${CPU_SOURCES}
     ${RUNTIME_SOURCES}
     ${SHADER_SOURCES}
 )
@@ -79,15 +76,6 @@ if(APPLE)
         "-framework Foundation"
         "-framework QuartzCore"
     )
-endif()
-
-# SIMD configuration - use -march=native for best performance
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(_cut_compute PRIVATE -march=native)
-    message(STATUS "Using native CPU features (-march=native) with runtime SIMD selection")
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    target_compile_options(_cut_compute PRIVATE /arch:AVX2)
-    message(STATUS "Using AVX2 with runtime SIMD selection")
 endif()
 
 # Install module to the cut package directory

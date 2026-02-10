@@ -49,7 +49,6 @@ class BackendRegistry:
         self.jnp = None
         self.torch = None
         self._vulkan_available = False
-        self._cpu_available = False
         self._load_backends()
 
     def _load_backends(self):
@@ -59,12 +58,9 @@ class BackendRegistry:
             import cut.compute as cut_compute_module
             self.cut_compute = cut_compute_module
             self._vulkan_available = cut_compute_module.is_vulkan_available()
-            self._cpu_available = cut_compute_module.is_cpu_available()
 
             if not self._vulkan_available:
                 print("Note: Vulkan backend not available")
-            if not self._cpu_available:
-                print("Note: CPU backend not available")
         except ImportError as e:
             print(f"Warning: cut.compute module not available: {e}")
 
@@ -101,7 +97,6 @@ class BackendRegistry:
         # Check if any backend is available
         any_available = (
             self._vulkan_available or
-            self._cpu_available or
             self.cupy is not None or
             self.jax is not None or
             self.torch is not None
@@ -114,10 +109,6 @@ class BackendRegistry:
     @property
     def vulkan_available(self) -> bool:
         return self._vulkan_available
-
-    @property
-    def cpu_available(self) -> bool:
-        return self._cpu_available
 
     @property
     def cupy_available(self) -> bool:
@@ -180,7 +171,7 @@ class CUTRunner(BackendRunner):
         elif backend_enum == cc.Backend.Vulkan:
             self._available = cc.is_vulkan_available()
         else:
-            self._available = cc.is_cpu_available()
+            self._available = False
 
     def _ensure_backend_active(self):
         """Ensure this runner's backend is active and tensors are ready."""
@@ -200,9 +191,6 @@ class CUTRunner(BackendRunner):
 
             if self.backend_enum == cc.Backend.Vulkan:
                 cc.init(cc.Backend.Vulkan, force=True)
-            else:
-                simd = self.simd_mode if self.simd_mode else cc.SIMDMode.Scalar
-                cc.init(cc.Backend.CPU, simd_mode=simd, force=True)
 
             self._current_backend = self.backend_enum
 
@@ -291,17 +279,6 @@ class VulkanRunner(CUTRunner):
         cc = backends.cut_compute
         if cc is not None:
             super().__init__(test_data, cc.Backend.Vulkan)
-        else:
-            self._available = False
-
-
-class CPURunner(CUTRunner):
-    """Runs benchmarks on CPU backend (scalar or SIMD mode)."""
-    def __init__(self, test_data: TestData, simd: bool = False):
-        cc = backends.cut_compute
-        if cc is not None:
-            simd_mode = cc.SIMDMode.Auto if simd else cc.SIMDMode.Scalar
-            super().__init__(test_data, cc.Backend.CPU, simd_mode=simd_mode)
         else:
             self._available = False
 
@@ -582,9 +559,8 @@ class MultiBackendFormatter(OutputFormatter):
     @staticmethod
     def table_header():
         """Print the results table header."""
-        cols = ['Operation', 'Vulkan (ms)', 'CPU (ms)', 'CPU+SIMD (ms)',
-                'CuPy (ms)', 'JAX (ms)', 'PyTorch (ms)', 'NumPy (ms)',
-                'Vulkan/NP', 'CPU/NP', 'SIMD/NP', 'CuPy/NP', 'JAX/NP', 'Torch/NP', 'Status']
+        cols = ['Operation', 'Vulkan (ms)', 'CuPy (ms)', 'JAX (ms)', 'PyTorch (ms)', 'NumPy (ms)',
+                'Vulkan/NP', 'CuPy/NP', 'JAX/NP', 'Torch/NP', 'Status']
         widths = [14, 14, 14, 14, 14, 14, 14, 14, 10, 10, 10, 10, 10, 10, 12]
 
         header = " | ".join(f"{c:<{w}}" for c, w in zip(cols, widths))
@@ -598,16 +574,12 @@ class MultiBackendFormatter(OutputFormatter):
         fmt = OutputFormatter
 
         vk_time = fmt.format_time(result.vulkan.time_ms, result.vulkan.std_ms, backends.vulkan_available)
-        cpu_time = fmt.format_time(result.cpu.time_ms, result.cpu.std_ms, backends.cpu_available)
-        simd_time = fmt.format_time(result.cpu_simd.time_ms, result.cpu_simd.std_ms, backends.cpu_available)
         cupy_time = fmt.format_time(result.cupy.time_ms, result.cupy.std_ms, backends.cupy_available)
         jax_time = fmt.format_time(result.jax.time_ms, result.jax.std_ms, backends.jax_available)
         pytorch_time = fmt.format_time(result.pytorch.time_ms, result.pytorch.std_ms, backends.pytorch_available)
         np_time = fmt.format_time(result.numpy.time_ms, result.numpy.std_ms)
 
         vk_spd = fmt.format_speedup(result.vulkan.speedup, backends.vulkan_available)
-        cpu_spd = fmt.format_speedup(result.cpu.speedup, backends.cpu_available)
-        simd_spd = fmt.format_speedup(result.cpu_simd.speedup, backends.cpu_available)
         cupy_spd = fmt.format_speedup(result.cupy.speedup, backends.cupy_available)
         jax_spd = fmt.format_speedup(result.jax.speedup, backends.jax_available)
         pytorch_spd = fmt.format_speedup(result.pytorch.speedup, backends.pytorch_available)
@@ -615,9 +587,6 @@ class MultiBackendFormatter(OutputFormatter):
         status_parts = []
         if backends.vulkan_available:
             status_parts.append('V:OK' if result.vulkan.valid else 'V:FAIL')
-        if backends.cpu_available:
-            status_parts.append('C:OK' if result.cpu.valid else 'C:FAIL')
-            status_parts.append('S:OK' if result.cpu_simd.valid else 'S:FAIL')
         if backends.cupy_available:
             status_parts.append('G:OK' if result.cupy.valid else 'G:FAIL')
         if backends.jax_available:
@@ -627,7 +596,6 @@ class MultiBackendFormatter(OutputFormatter):
 
         all_valid = all([
             not backends.vulkan_available or result.vulkan.valid,
-            not backends.cpu_available or (result.cpu.valid and result.cpu_simd.valid),
             not backends.cupy_available or result.cupy.valid,
             not backends.jax_available or result.jax.valid,
             not backends.pytorch_available or result.pytorch.valid,
@@ -635,9 +603,8 @@ class MultiBackendFormatter(OutputFormatter):
         status_color = Colors.GREEN if all_valid else Colors.RED
         status = f"{status_color}{' '.join(status_parts)}{Colors.RESET}"
 
-        print(f"{result.name:<14} | {vk_time:<14} | {cpu_time:<14} | {simd_time:<14} | "
-              f"{cupy_time:<14} | {jax_time:<14} | {pytorch_time:<14} | {np_time:<14} | "
-              f"{vk_spd:<10} | {cpu_spd:<10} | {simd_spd:<10} | {cupy_spd:<10} | {jax_spd:<10} | {pytorch_spd:<10} | {status}")
+        print(f"{result.name:<14} | {vk_time:<14} | {cupy_time:<14} | {jax_time:<14} | {pytorch_time:<14} | {np_time:<14} | "
+              f"{vk_spd:<10} | {cupy_spd:<10} | {jax_spd:<10} | {pytorch_spd:<10} | {status}")
 
 
 # =============================================================================
@@ -649,7 +616,7 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     results: List[BenchmarkResult] = []
 
     if verbose:
-        OutputFormatter.header("CUT Benchmark Suite: Vulkan vs CPU vs CPU+SIMD vs NumPy", width=120)
+        OutputFormatter.header("CUT Benchmark Suite: Vulkan vs NumPy", width=120)
         print(f"\n{Colors.DIM}Configuration:{Colors.RESET}")
         print(f"  - Elements:   {config.num_elements:,}")
         print(f"  - Iterations: {config.num_iterations}")
@@ -659,13 +626,6 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
 
         print(f"\n{Colors.DIM}Backends:{Colors.RESET}")
         print(f"  - Vulkan:     {'Available' if backends.vulkan_available else 'Not available'}")
-        if backends.cpu_available and backends.cut_compute is not None:
-            cc = backends.cut_compute
-            cc.init(cc.Backend.CPU, simd_mode=cc.SIMDMode.Scalar)
-            print(f"  - CPU:        Available ({cc.num_threads()} threads)")
-            print(f"  - CPU+SIMD:   Available (Auto-detected SIMD)")
-        else:
-            print(f"  - CPU:        Not available")
         if backends.cupy_available:
             print(f"  - CuPy:       Available (CUDA {backends.cupy.cuda.runtime.runtimeGetVersion()})")
         else:
@@ -684,8 +644,6 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
     data = TestData.generate(config.num_elements, config.seed)
 
     vulkan_runner = VulkanRunner(data)
-    cpu_runner = CPURunner(data, simd=False)
-    cpu_simd_runner = CPURunner(data, simd=True)
     cupy_runner = CuPyRunner(data)
     jax_runner = JAXRunner(data)
     pytorch_runner = PyTorchRunner(data)
@@ -719,8 +677,6 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
 
             # Run other backends
             vulkan_result = vulkan_runner.run(op_name, np_func, np_args, np_result, config)
-            cpu_result = cpu_runner.run(op_name, np_func, np_args, np_result, config)
-            cpu_simd_result = cpu_simd_runner.run(op_name, np_func, np_args, np_result, config)
             cupy_result = cupy_runner.run(op_name, np_func, np_args, np_result, config)
             jax_result = jax_runner.run(op_name, np_func, np_args, np_result, config)
             pytorch_result = pytorch_runner.run(op_name, np_func, np_args, np_result, config)
@@ -728,8 +684,6 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
             # Calculate speedups
             np_time = numpy_result.time_ms
             vulkan_result.speedup = np_time / vulkan_result.time_ms if vulkan_result.time_ms > 0 else float('nan')
-            cpu_result.speedup = np_time / cpu_result.time_ms if cpu_result.time_ms > 0 else float('nan')
-            cpu_simd_result.speedup = np_time / cpu_simd_result.time_ms if cpu_simd_result.time_ms > 0 else float('nan')
             cupy_result.speedup = np_time / cupy_result.time_ms if cupy_result.time_ms > 0 else float('nan')
             jax_result.speedup = np_time / jax_result.time_ms if jax_result.time_ms > 0 else float('nan')
             pytorch_result.speedup = np_time / pytorch_result.time_ms if pytorch_result.time_ms > 0 else float('nan')
@@ -739,8 +693,6 @@ def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[Benchm
                 category=category,
                 numpy=numpy_result,
                 vulkan=vulkan_result,
-                cpu=cpu_result,
-                cpu_simd=cpu_simd_result,
                 cupy=cupy_result,
                 jax=jax_result,
                 pytorch=pytorch_result,
@@ -794,8 +746,6 @@ def print_summary(results: List[BenchmarkResult]):
 
     stats = {
         'vulkan': compute_stats(results, 'vulkan') if backends.vulkan_available else {'available': False},
-        'cpu': compute_stats(results, 'cpu') if backends.cpu_available else {'available': False},
-        'cpu_simd': compute_stats(results, 'cpu_simd') if backends.cpu_available else {'available': False},
         'cupy': compute_stats(results, 'cupy') if backends.cupy_available else {'available': False},
         'jax': compute_stats(results, 'jax') if backends.jax_available else {'available': False},
         'pytorch': compute_stats(results, 'pytorch') if backends.pytorch_available else {'available': False},
@@ -805,8 +755,7 @@ def print_summary(results: List[BenchmarkResult]):
     print(f"{'─' * 60}")
     print(f"  Total operations tested:    {len(results)}")
 
-    for name, label in [('vulkan', 'Vulkan'), ('cpu', 'CPU (scalar)'),
-                        ('cpu_simd', 'CPU+SIMD'), ('cupy', 'CuPy'), ('jax', 'JAX'),
+    for name, label in [('vulkan', 'Vulkan'), ('cupy', 'CuPy'), ('jax', 'JAX'),
                         ('pytorch', 'PyTorch')]:
         s = stats[name]
         if s['available']:
@@ -820,7 +769,7 @@ def print_summary(results: List[BenchmarkResult]):
 
     for metric in ['mean', 'median', 'min', 'max']:
         row = f"  {metric.capitalize() + ' speedup':<20}"
-        for name in ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax', 'pytorch']:
+        for name in ['vulkan', 'cupy', 'jax', 'pytorch']:
             row += f" {fmt(stats[name], metric):<14}"
         print(row)
 
@@ -836,8 +785,7 @@ def print_summary(results: List[BenchmarkResult]):
             return f"{Colors.YELLOW}MIXED{Colors.RESET}"
         return f"{Colors.RED}POOR{Colors.RESET}"
 
-    for name, label in [('vulkan', 'Vulkan'), ('cpu', 'CPU'), ('cpu_simd', 'CPU+SIMD'),
-                        ('cupy', 'CuPy'), ('jax', 'JAX'), ('pytorch', 'PyTorch')]:
+    for name, label in [('vulkan', 'Vulkan'), ('cupy', 'CuPy'), ('jax', 'JAX'), ('pytorch', 'PyTorch')]:
         s = stats[name]
         if s['available']:
             print(f"  {label}:".ljust(13) + f"{verdict(s['mean'])} ({s['mean']:.2f}x avg speedup)")
@@ -851,8 +799,6 @@ def export_json(results: List[BenchmarkResult], filepath: Path, config: Benchmar
         "config": asdict(config),
         "backends": {
             "vulkan_available": backends.vulkan_available,
-            "cpu_available": backends.cpu_available,
-            "cpu_threads": cc.num_threads() if (backends.cpu_available and cc) else 0,
         },
         "results": [r.to_dict() for r in results]
     }
@@ -866,7 +812,7 @@ def export_csv(results: List[BenchmarkResult], filepath: Path):
     """Export results to CSV file."""
     with open(filepath, 'w', newline='') as f:
         writer = csv.writer(f)
-        backends_list = ['vulkan', 'cpu', 'cpu_simd', 'cupy', 'jax', 'pytorch', 'numpy']
+        backends_list = ['vulkan', 'cupy', 'jax', 'pytorch', 'numpy']
         header = ['operation', 'category']
         for b in backends_list:
             header.extend([f'{b}_ms', f'{b}_speedup', f'{b}_valid'])
@@ -888,7 +834,7 @@ def export_csv(results: List[BenchmarkResult], filepath: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="CUT Benchmark Suite: Compare Vulkan, CPU, CuPy, JAX vs NumPy",
+        description="CUT Benchmark Suite: Compare Vulkan, CuPy, JAX, PyTorch vs NumPy",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -942,8 +888,7 @@ Examples:
         backends.cut_compute.shutdown()
 
     all_valid = all(
-        (not backends.vulkan_available or r.vulkan.valid or np.isnan(r.vulkan.time_ms)) and
-        (not backends.cpu_available or r.cpu.valid or np.isnan(r.cpu.time_ms))
+        (not backends.vulkan_available or r.vulkan.valid or np.isnan(r.vulkan.time_ms))
         for r in results
     )
     return 0 if all_valid else 1

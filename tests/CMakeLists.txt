@@ -47,11 +47,6 @@ set(COMBINED_TEST_SOURCES
     combined/GeneratedShadersTests.cpp
 )
 
-# CPU test sources
-set(CPU_TEST_SOURCES
-    cpu/CPUComputeTests.cpp
-)
-
 # Runtime test sources
 set(RUNTIME_TEST_SOURCES
     runtime/RuntimeTests.cpp
@@ -63,7 +58,6 @@ add_executable(tests
     ${API_TEST_SOURCES}
     ${VULKAN_TEST_SOURCES}
     ${COMBINED_TEST_SOURCES}
-    ${CPU_TEST_SOURCES}
     ${RUNTIME_TEST_SOURCES}
 )
 
@@ -73,7 +67,6 @@ target_include_directories(tests PRIVATE
     ${CMAKE_SOURCE_DIR}/shaders
     ${CMAKE_SOURCE_DIR}/core/api/Headers
     ${CMAKE_SOURCE_DIR}/core/backends/vulkan
-    ${CMAKE_SOURCE_DIR}/core/backends/cpu
     ${CMAKE_SOURCE_DIR}/runtime
     ${CMAKE_SOURCE_DIR}/tests
 )

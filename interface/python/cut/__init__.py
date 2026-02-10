@@ -1,7 +1,7 @@
 """
-CUT (Compute Unified Toolkit) - GPU/CPU Compute Library
+CUT (Compute Unified Toolkit) - GPU Compute Library
 
-A Python library for compute operations using Vulkan or CPU backends.
+A Python library for compute operations using Vulkan backend.
 Uses native Python types (no numpy dependency).
 
 Example:
@@ -9,7 +9,6 @@ Example:
 
     # Initialize with backend
     cut.init(cut.Backend.Vulkan)  # GPU
-    cut.init(cut.Backend.CPU, simd_mode=cut.SIMDMode.Auto)  # CPU with SIMD
 
     # Use operations
     a = cut.Tensor([1.0, 2.0, 3.0])  # float32 by default
