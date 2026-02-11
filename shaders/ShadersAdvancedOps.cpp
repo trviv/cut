@@ -15,12 +15,52 @@
 
 #include "ShaderUtils.h"
 #include <Shaders.h>
-#include <optional>
 
 namespace cut {
 
 // Forward declaration from ShadersGenerated.cpp
 extern std::unordered_map<uint64_t, std::vector<uint32_t>> shaderCache;
+
+using ShaderGenFn = std::string (*)(const char *, DataType);
+
+struct AdvOpEntry {
+  ShaderGenFn generator;
+  const char *arg;
+  const char *name;
+};
+
+static constexpr int kAdvOpTableSize = OP_BINARY_VEC_SCALAR_LEAKY_RELU + 1;
+
+// clang-format off
+static const AdvOpEntry advOpTable[kAdvOpTableSize] = {
+    // 15-19: Binary vec-vec bitwise
+    [BinaryVecVecBitwiseAnd]      = {generateBitwiseVecVec,             "&",                      "binary_vec_vec_bitwise_and"},
+    [BinaryVecVecBitwiseOr]       = {generateBitwiseVecVec,             "|",                      "binary_vec_vec_bitwise_or"},
+    [BinaryVecVecBitwiseXor]      = {generateBitwiseVecVec,             "^",                      "binary_vec_vec_bitwise_xor"},
+    [BinaryVecVecLeftShift]       = {generateBitwiseVecVec,             "<<",                     "binary_vec_vec_left_shift"},
+    [BinaryVecVecRightShift]      = {generateBitwiseVecVec,             ">>",                     "binary_vec_vec_right_shift"},
+    // 20-22: Binary vec-vec logical -> special case (switch)
+    // 23-26: Binary vec-vec special math
+    [BinaryVecVecAtan2]           = {generateBinaryVecVecFuncShader,    "atan",                   "binary_vec_vec_atan2"},
+    [BinaryVecVecHypot]           = {generateBinaryVecVecCustom,        "sqrt(a * a + b * b)",    "binary_vec_vec_hypot"},
+    [BinaryVecVecCopysign]        = {generateBinaryVecVecCustom,        "sign(b) * abs(a)",       "binary_vec_vec_copysign"},
+    [BinaryVecVecFmod]            = {generateBinaryVecVecFuncShader,    "mod",                    "binary_vec_vec_fmod"},
+    // 27-29: gap
+    // 30-44: handled by ShadersBasicOps
+    // 45-49: Binary vec-scalar bitwise
+    [BinaryVecScalarBitwiseAnd]   = {generateBitwiseVecScalar,          "&",                      "binary_vec_scalar_bitwise_and"},
+    [BinaryVecScalarBitwiseOr]    = {generateBitwiseVecScalar,          "|",                      "binary_vec_scalar_bitwise_or"},
+    [BinaryVecScalarBitwiseXor]   = {generateBitwiseVecScalar,          "^",                      "binary_vec_scalar_bitwise_xor"},
+    [BinaryVecScalarLeftShift]    = {generateBitwiseVecScalar,          "<<",                     "binary_vec_scalar_left_shift"},
+    [BinaryVecScalarRightShift]   = {generateBitwiseVecScalar,          ">>",                     "binary_vec_scalar_right_shift"},
+    // 50-52: Binary vec-scalar logical -> special case (switch)
+    // 53-56: Binary vec-scalar special math
+    [BinaryVecScalarAtan2]        = {generateBinaryVecScalarFuncShader, "atan",                   "binary_vec_scalar_atan2"},
+    [BinaryVecScalarHypot]        = {generateBinaryVecScalarCustom,     "sqrt(a * a + b * b)",    "binary_vec_scalar_hypot"},
+    [BinaryVecScalarCopysign]     = {generateBinaryVecScalarCustom,     "sign(b) * abs(a)",       "binary_vec_scalar_copysign"},
+    [BinaryVecScalarFmod]         = {generateBinaryVecScalarFuncShader, "mod",                    "binary_vec_scalar_fmod"},
+};
+// clang-format on
 
 /**
  * Generate shader code for advanced operations.
@@ -35,6 +75,15 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
                               const DataType datatype,
                               std::string &shaderSource,
                               std::string &shaderName) {
+  // Fast path: direct array lookup for simple ops
+  if (shader < kAdvOpTableSize && advOpTable[shader].generator) {
+    const auto &entry = advOpTable[shader];
+    shaderSource = entry.generator(entry.arg, datatype);
+    shaderName = entry.name;
+    return true;
+  }
+
+  // Special cases that need custom logic
   std::string vecType = getGLSLType(datatype);
 
   switch (shader) {
@@ -53,30 +102,6 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
     shaderName = "unary_isinf";
     return true;
   }
-
-  // =============================================================================
-  // Extended binary vec-vec operations - Bitwise
-  // =============================================================================
-  case BinaryVecVecBitwiseAnd:
-    shaderSource = generateBitwiseVecVec("&", datatype);
-    shaderName = "binary_vec_vec_bitwise_and";
-    return true;
-  case BinaryVecVecBitwiseOr:
-    shaderSource = generateBitwiseVecVec("|", datatype);
-    shaderName = "binary_vec_vec_bitwise_or";
-    return true;
-  case BinaryVecVecBitwiseXor:
-    shaderSource = generateBitwiseVecVec("^", datatype);
-    shaderName = "binary_vec_vec_bitwise_xor";
-    return true;
-  case BinaryVecVecLeftShift:
-    shaderSource = generateBitwiseVecVec("<<", datatype);
-    shaderName = "binary_vec_vec_left_shift";
-    return true;
-  case BinaryVecVecRightShift:
-    shaderSource = generateBitwiseVecVec(">>", datatype);
-    shaderName = "binary_vec_vec_right_shift";
-    return true;
 
   // =============================================================================
   // Extended binary vec-vec operations - Logical
@@ -104,50 +129,6 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   }
 
   // =============================================================================
-  // Extended binary vec-vec operations - Special math
-  // =============================================================================
-  case BinaryVecVecAtan2:
-    shaderSource = generateBinaryVecVecFuncShader("atan", datatype);
-    shaderName = "binary_vec_vec_atan2";
-    return true;
-  case BinaryVecVecHypot:
-    shaderSource = generateBinaryVecVecCustom("sqrt(a * a + b * b)", datatype);
-    shaderName = "binary_vec_vec_hypot";
-    return true;
-  case BinaryVecVecCopysign:
-    shaderSource = generateBinaryVecVecCustom("sign(b) * abs(a)", datatype);
-    shaderName = "binary_vec_vec_copysign";
-    return true;
-  case BinaryVecVecFmod:
-    shaderSource = generateBinaryVecVecFuncShader("mod", datatype);
-    shaderName = "binary_vec_vec_fmod";
-    return true;
-
-  // =============================================================================
-  // Extended binary vec-scalar operations - Bitwise
-  // =============================================================================
-  case BinaryVecScalarBitwiseAnd:
-    shaderSource = generateBitwiseVecScalar("&", datatype);
-    shaderName = "binary_vec_scalar_bitwise_and";
-    return true;
-  case BinaryVecScalarBitwiseOr:
-    shaderSource = generateBitwiseVecScalar("|", datatype);
-    shaderName = "binary_vec_scalar_bitwise_or";
-    return true;
-  case BinaryVecScalarBitwiseXor:
-    shaderSource = generateBitwiseVecScalar("^", datatype);
-    shaderName = "binary_vec_scalar_bitwise_xor";
-    return true;
-  case BinaryVecScalarLeftShift:
-    shaderSource = generateBitwiseVecScalar("<<", datatype);
-    shaderName = "binary_vec_scalar_left_shift";
-    return true;
-  case BinaryVecScalarRightShift:
-    shaderSource = generateBitwiseVecScalar(">>", datatype);
-    shaderName = "binary_vec_scalar_right_shift";
-    return true;
-
-  // =============================================================================
   // Extended binary vec-scalar operations - Logical
   // =============================================================================
   case BinaryVecScalarLogicalAnd: {
@@ -173,25 +154,8 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   }
 
   // =============================================================================
-  // Extended binary vec-scalar operations - Special math
+  // Extended binary vec-scalar operations - Activation
   // =============================================================================
-  case BinaryVecScalarAtan2:
-    shaderSource = generateBinaryVecScalarFuncShader("atan", datatype);
-    shaderName = "binary_vec_scalar_atan2";
-    return true;
-  case BinaryVecScalarHypot:
-    shaderSource =
-        generateBinaryVecScalarCustom("sqrt(a * a + b * b)", datatype);
-    shaderName = "binary_vec_scalar_hypot";
-    return true;
-  case BinaryVecScalarCopysign:
-    shaderSource = generateBinaryVecScalarCustom("sign(b) * abs(a)", datatype);
-    shaderName = "binary_vec_scalar_copysign";
-    return true;
-  case BinaryVecScalarFmod:
-    shaderSource = generateBinaryVecScalarFuncShader("mod", datatype);
-    shaderName = "binary_vec_scalar_fmod";
-    return true;
   case BinaryVecScalarLeakyRelu: {
     std::string expr =
         "mix(b * a, a, " + vecType + "(greaterThan(a, " + vecType + "(0.0))))";
