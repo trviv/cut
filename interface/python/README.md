@@ -5,12 +5,12 @@ Python bindings for the CUT (Compute Unified Toolkit) GPU compute library.
 ## Installation
 
 ```bash
-cd cut/python
-python -m venv venv
-source venv/bin/activate
+cd cut
+python -m venv .venv
+source .venv/bin/activate
 pip install --upgrade pip
 pip install scikit-build-core pybind11 numpy
-pip install --no-build-isolation -e .
+pip install --no-build-isolation -e interface/python
 ```
 
 ### Requirements

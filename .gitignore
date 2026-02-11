@@ -3,6 +3,6 @@
 /shaders/CompiledShaders.cpp
 .DS_Store
 /interface/python/.pytest_cache
-/interface/python/venv/
 /interface/python/build
 /models
+/.venv
