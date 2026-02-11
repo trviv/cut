@@ -685,8 +685,10 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
   case BinaryVecVecCopysign:
     if constexpr (std::is_floating_point_v<T>) {
       return std::copysign(a, b);
-    } else {
+    } else if constexpr (std::is_signed_v<T>) {
       return b >= T{0} ? std::abs(a) : -std::abs(a);
+    } else {
+      return a; // unsigned values are always non-negative
     }
   case BinaryVecVecFmod:
     if constexpr (std::is_floating_point_v<T>) {
@@ -1234,14 +1236,130 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Float32) {
   }
 }
 
-// Note: Current shaders only support Float32, so Int32 tests are skipped
 TEST_F(VulkanBackendTest, BinaryVecVecOperators_Int32) {
-  GTEST_SKIP() << "Vulkan shaders currently only support Float32";
+  const DataType dtype = DataType::Int32;
+
+  // Ops that produce valid GLSL for ivec4
+  constexpr std::array<OperatorEnum, 22> kInt32BinaryVecVecOps = {
+      // Arithmetic
+      BinaryVecVecAdd, BinaryVecVecSub, BinaryVecVecMul, BinaryVecVecDiv,
+      BinaryVecVecMod, BinaryVecVecFloorDiv,
+      // Comparison
+      BinaryVecVecEqual, BinaryVecVecNotEqual, BinaryVecVecLess,
+      BinaryVecVecLessEqual, BinaryVecVecGreater, BinaryVecVecGreaterEqual,
+      // Min/Max
+      BinaryVecVecMin, BinaryVecVecMax,
+      // Bitwise
+      BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
+      BinaryVecVecLeftShift, BinaryVecVecRightShift,
+      // Logical
+      BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(int32_t);
+
+      auto dataA = generateTestData<int32_t>(elements, 42);
+      auto dataB = generateTestData<int32_t>(elements, 123);
+
+      // Clamp shift amounts to [0, 15] to avoid overflow
+      std::vector<int32_t> dataBShift = dataB;
+      for (auto &v : dataBShift) {
+        v = v % 16;
+      }
+
+      for (OperatorEnum op : kInt32BinaryVecVecOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        const auto &rhsData =
+            (op == BinaryVecVecLeftShift || op == BinaryVecVecRightShift)
+                ? dataBShift
+                : dataB;
+
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferB = runtime_->createTensor(shape, dtype, rhsData.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+        runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                      ComputeBinding(1, bufferB),
+                                      ComputeBinding(2, bufferOut)});
+
+        std::vector<int32_t> output(elements);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+        for (uint32_t i = 0; i < elements; ++i) {
+          int32_t expected = binaryVecVecRef(op, dataA[i], rhsData[i]);
+          EXPECT_EQ(output[i], expected)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
 }
 
-// Note: Current shaders only support Float32, so UInt32 tests are skipped
 TEST_F(VulkanBackendTest, BinaryVecVecOperators_UInt32) {
-  GTEST_SKIP() << "Vulkan shaders currently only support Float32";
+  const DataType dtype = DataType::UInt32;
+
+  // Ops that produce valid GLSL for uvec4
+  constexpr std::array<OperatorEnum, 22> kUInt32BinaryVecVecOps = {
+      // Arithmetic
+      BinaryVecVecAdd, BinaryVecVecSub, BinaryVecVecMul, BinaryVecVecDiv,
+      BinaryVecVecMod, BinaryVecVecFloorDiv,
+      // Comparison
+      BinaryVecVecEqual, BinaryVecVecNotEqual, BinaryVecVecLess,
+      BinaryVecVecLessEqual, BinaryVecVecGreater, BinaryVecVecGreaterEqual,
+      // Min/Max
+      BinaryVecVecMin, BinaryVecVecMax,
+      // Bitwise
+      BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
+      BinaryVecVecLeftShift, BinaryVecVecRightShift,
+      // Logical
+      BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(uint32_t);
+
+      auto dataA = generateTestData<uint32_t>(elements, 42);
+      auto dataB = generateTestData<uint32_t>(elements, 123);
+
+      // Clamp shift amounts to [0, 15] to avoid overflow
+      std::vector<uint32_t> dataBShift = dataB;
+      for (auto &v : dataBShift) {
+        v = v % 16;
+      }
+
+      for (OperatorEnum op : kUInt32BinaryVecVecOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        const auto &rhsData =
+            (op == BinaryVecVecLeftShift || op == BinaryVecVecRightShift)
+                ? dataBShift
+                : dataB;
+
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferB = runtime_->createTensor(shape, dtype, rhsData.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+        runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
+                                      ComputeBinding(1, bufferB),
+                                      ComputeBinding(2, bufferOut)});
+
+        std::vector<uint32_t> output(elements);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+        for (uint32_t i = 0; i < elements; ++i) {
+          uint32_t expected = binaryVecVecRef(op, dataA[i], rhsData[i]);
+          EXPECT_EQ(output[i], expected)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
 }
 
 // Test unary operators with Float32

@@ -564,12 +564,21 @@ std::string generateBinaryVecScalarCustom(const char *expr, DataType datatype) {
 }
 
 std::string generateBitwiseVecVec(const char *op, DataType datatype) {
+  if (datatype == DataType::Int32 || datatype == DataType::UInt32) {
+    std::string expr = "a " + std::string(op) + " b";
+    return generateBinaryVecVecCustom(expr.c_str(), datatype);
+  }
   std::string expr = "intBitsToFloat(floatBitsToInt(a) " + std::string(op) +
                      " floatBitsToInt(b))";
   return generateBinaryVecVecCustom(expr.c_str(), datatype);
 }
 
 std::string generateBitwiseVecScalar(const char *op, DataType datatype) {
+  if (datatype == DataType::Int32 || datatype == DataType::UInt32) {
+    std::string scalarType = getGLSLScalarType(datatype);
+    std::string expr = "a " + std::string(op) + " " + scalarType + "(b.x)";
+    return generateBinaryVecScalarCustom(expr.c_str(), datatype);
+  }
   std::string expr =
       "intBitsToFloat(floatBitsToInt(a) " + std::string(op) + " int(b.x))";
   return generateBinaryVecScalarCustom(expr.c_str(), datatype);

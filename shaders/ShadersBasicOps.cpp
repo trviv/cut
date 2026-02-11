@@ -166,6 +166,22 @@ bool generateBasicOpShader(const OperatorEnum shader,
       shaderSource = generateUnaryShader("~a", datatype);
       shaderName = "unary_bitwise_not";
       return true;
+    case BinaryVecVecMod:
+      shaderSource = generateBinaryVecVecOpShader("%", datatype);
+      shaderName = "binary_vec_vec_mod";
+      return true;
+    case BinaryVecScalarMod:
+      shaderSource = generateBinaryVecScalarOpShader("%", datatype);
+      shaderName = "binary_vec_scalar_mod";
+      return true;
+    case BinaryVecVecFloorDiv:
+      shaderSource = generateBinaryVecVecOpShader("/", datatype);
+      shaderName = "binary_vec_vec_floor_div";
+      return true;
+    case BinaryVecScalarFloorDiv:
+      shaderSource = generateBinaryVecScalarOpShader("/", datatype);
+      shaderName = "binary_vec_scalar_floor_div";
+      return true;
     default:
       break; // Fall through to table lookup / other special cases
     }
