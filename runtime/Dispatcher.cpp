@@ -158,9 +158,9 @@ bool isUnaryOp(OperatorEnum op) {
   }
 }
 
-/// Checks if an operator is a ternary operation (like clamp).
+/// Checks if an operator is a ternary operation (like clamp or select).
 bool isTernaryOp(OperatorEnum op) {
-  return op == TernaryClamp;
+  return op == TernaryClamp || op == TernarySelect;
 }
 
 /// Checks if an operator is a reduction operation.
@@ -404,6 +404,8 @@ const char *Dispatcher::operatorName(OperatorEnum op) {
   // Ternary operations
   case TernaryClamp:
     return "TernaryClamp";
+  case TernarySelect:
+    return "TernarySelect";
 
   // Reduction operations
   case ReduceSum:
@@ -460,11 +462,15 @@ void Dispatcher::encode(OperatorEnum op,
     if (bindings.size() != 2) {
       throw std::runtime_error("Unary operation requires exactly 2 bindings");
     }
-  } else if (isTernaryOp(op)) {
-    // Ternary (clamp): input, output + 2 scalar values in push constants
+  } else if (op == TernaryClamp) {
+    // Ternary clamp: input, output + 2 scalar values in push constants
     if (bindings.size() < 2) {
-      throw std::runtime_error(
-          "Ternary operation requires at least 2 bindings");
+      throw std::runtime_error("TernaryClamp requires at least 2 bindings");
+    }
+  } else if (op == TernarySelect) {
+    // Ternary select: cond, x, y, output (4 buffer bindings)
+    if (bindings.size() != 4) {
+      throw std::runtime_error("TernarySelect requires exactly 4 bindings");
     }
   } else if (isReductionOp(op)) {
     // Reduction: input, output (output is scalar or reduced array)
@@ -530,8 +536,8 @@ void Dispatcher::encode(OperatorEnum op,
     } pushData{scalar, numElements};
     dispatch.bindData(DataReference(&pushData, sizeof(pushData)),
                       static_cast<uint32_t>(handleBindings.size()));
-  } else if (isTernaryOp(op)) {
-    // Ternary ops (clamp) need min and max values from data bindings
+  } else if (op == TernaryClamp) {
+    // Ternary clamp needs min and max values from data bindings
     float minVal = 0.0f;
     float maxVal = 0.0f;
     std::vector<ComputeBinding> ternaryHandleBindings;
@@ -562,6 +568,13 @@ void Dispatcher::encode(OperatorEnum op,
         DataReference(&clampPushData, sizeof(clampPushData)),
         static_cast<uint32_t>(ternaryHandleBindings.size()));
     iface_->encode(std::move(ternaryDispatch));
+    return;
+  } else if (op == TernarySelect) {
+    // Ternary select: all 4 bindings are buffers, just needs numElements
+    ComputeDispatch selectDispatch(shader, workgroupSize, bindings);
+    selectDispatch.bindData(DataReference(numElements),
+                            static_cast<uint32_t>(bindings.size()));
+    iface_->encode(std::move(selectDispatch));
     return;
   } else if (isReductionOp(op)) {
     // Reduction ops: dispatch with workgroups for parallel reduction
