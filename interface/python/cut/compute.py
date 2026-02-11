@@ -624,7 +624,7 @@ _register_operations()
 # Special Operations (not auto-generated)
 # =============================================================================
 
-def reduce_sum(a: Tensor) -> float:
+def sum(a: Tensor) -> float:
     """
     Compute the sum of all elements in the tensor.
 
@@ -636,7 +636,7 @@ def reduce_sum(a: Tensor) -> float:
 
     Example:
         >>> a = Tensor([1, 2, 3, 4])
-        >>> result = reduce_sum(a)  # Returns 10.0
+        >>> result = sum(a)  # Returns 10.0
     """
     _ensure_initialized()
 
@@ -652,7 +652,7 @@ def reduce_sum(a: Tensor) -> float:
     return float(out.copy_to()[0])
 
 
-def reduce_mean(a: Tensor) -> float:
+def mean(a: Tensor) -> float:
     """
     Compute the mean of all elements in the tensor.
 
@@ -664,7 +664,7 @@ def reduce_mean(a: Tensor) -> float:
 
     Example:
         >>> a = Tensor([1, 2, 3, 4])
-        >>> result = reduce_mean(a)  # Returns 2.5
+        >>> result = mean(a)  # Returns 2.5
     """
     _ensure_initialized()
 
@@ -683,7 +683,7 @@ def reduce_mean(a: Tensor) -> float:
     return total / count
 
 
-def reduce_min(a: Tensor) -> float:
+def min(a: Tensor) -> float:
     """
     Find the minimum element in the tensor.
 
@@ -695,7 +695,7 @@ def reduce_min(a: Tensor) -> float:
 
     Example:
         >>> a = Tensor([3, 1, 4, 1, 5])
-        >>> result = reduce_min(a)  # Returns 1.0
+        >>> result = min(a)  # Returns 1.0
     """
     _ensure_initialized()
 
@@ -710,7 +710,7 @@ def reduce_min(a: Tensor) -> float:
     return float(out.copy_to()[0])
 
 
-def reduce_max(a: Tensor) -> float:
+def max(a: Tensor) -> float:
     """
     Find the maximum element in the tensor.
 
@@ -722,7 +722,7 @@ def reduce_max(a: Tensor) -> float:
 
     Example:
         >>> a = Tensor([3, 1, 4, 1, 5])
-        >>> result = reduce_max(a)  # Returns 5.0
+        >>> result = max(a)  # Returns 5.0
     """
     _ensure_initialized()
 
@@ -737,7 +737,7 @@ def reduce_max(a: Tensor) -> float:
     return float(out.copy_to()[0])
 
 
-def reduce_prod(a: Tensor) -> float:
+def prod(a: Tensor) -> float:
     """
     Compute the product of all elements in the tensor.
 
@@ -749,7 +749,7 @@ def reduce_prod(a: Tensor) -> float:
 
     Example:
         >>> a = Tensor([1, 2, 3, 4])
-        >>> result = reduce_prod(a)  # Returns 24.0
+        >>> result = prod(a)  # Returns 24.0
     """
     _ensure_initialized()
 
@@ -764,7 +764,7 @@ def reduce_prod(a: Tensor) -> float:
     return float(out.copy_to()[0])
 
 
-def reduce_any(a: Tensor) -> bool:
+def any(a: Tensor) -> bool:
     """
     Check if any element in the tensor is non-zero (logical OR).
 
@@ -776,7 +776,7 @@ def reduce_any(a: Tensor) -> bool:
 
     Example:
         >>> a = Tensor([0, 0, 1, 0])
-        >>> result = reduce_any(a)  # Returns True
+        >>> result = any(a)  # Returns True
     """
     _ensure_initialized()
 
@@ -791,7 +791,7 @@ def reduce_any(a: Tensor) -> bool:
     return bool(out.copy_to()[0] != 0.0)
 
 
-def reduce_all(a: Tensor) -> bool:
+def all(a: Tensor) -> bool:
     """
     Check if all elements in the tensor are non-zero (logical AND).
 
@@ -803,7 +803,7 @@ def reduce_all(a: Tensor) -> bool:
 
     Example:
         >>> a = Tensor([1, 2, 3, 4])
-        >>> result = reduce_all(a)  # Returns True
+        >>> result = all(a)  # Returns True
     """
     _ensure_initialized()
 
@@ -1512,13 +1512,13 @@ __all__ = [
     "clamp",
     "where",
     # Reduction operations
-    "reduce_sum",
-    "reduce_mean",
-    "reduce_min",
-    "reduce_max",
-    "reduce_prod",
-    "reduce_any",
-    "reduce_all",
+    "sum",
+    "mean",
+    "min",
+    "max",
+    "prod",
+    "any",
+    "all",
     # Matrix operations
     "matmul",
     "transpose",
