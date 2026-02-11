@@ -749,36 +749,62 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
     return std::min(a, scalar);
   case BinaryVecScalarMax:
     return std::max(a, scalar);
-  // Bitwise operations
+  // Bitwise operations — GPU shader uses int(scalar) (value truncation) for the
+  // scalar, but floatBitsToInt(a) (bit reinterpretation) for the vector element
   case BinaryVecScalarBitwiseAnd:
     if constexpr (std::is_integral_v<T>) {
       return a & static_cast<T>(scalar);
     } else {
-      return static_cast<T>(static_cast<int>(a) & static_cast<int>(scalar));
+      int ia, ir;
+      memcpy(&ia, &a, sizeof(int));
+      ir = ia & static_cast<int>(scalar);
+      T r;
+      memcpy(&r, &ir, sizeof(T));
+      return r;
     }
   case BinaryVecScalarBitwiseOr:
     if constexpr (std::is_integral_v<T>) {
       return a | static_cast<T>(scalar);
     } else {
-      return static_cast<T>(static_cast<int>(a) | static_cast<int>(scalar));
+      int ia, ir;
+      memcpy(&ia, &a, sizeof(int));
+      ir = ia | static_cast<int>(scalar);
+      T r;
+      memcpy(&r, &ir, sizeof(T));
+      return r;
     }
   case BinaryVecScalarBitwiseXor:
     if constexpr (std::is_integral_v<T>) {
       return a ^ static_cast<T>(scalar);
     } else {
-      return static_cast<T>(static_cast<int>(a) ^ static_cast<int>(scalar));
+      int ia, ir;
+      memcpy(&ia, &a, sizeof(int));
+      ir = ia ^ static_cast<int>(scalar);
+      T r;
+      memcpy(&r, &ir, sizeof(T));
+      return r;
     }
   case BinaryVecScalarLeftShift:
     if constexpr (std::is_integral_v<T>) {
       return a << static_cast<int>(scalar);
     } else {
-      return static_cast<T>(static_cast<int>(a) << static_cast<int>(scalar));
+      uint32_t ua, ur;
+      memcpy(&ua, &a, sizeof(uint32_t));
+      ur = ua << (static_cast<uint32_t>(static_cast<int>(scalar)) & 31u);
+      T r;
+      memcpy(&r, &ur, sizeof(T));
+      return r;
     }
   case BinaryVecScalarRightShift:
     if constexpr (std::is_integral_v<T>) {
       return a >> static_cast<int>(scalar);
     } else {
-      return static_cast<T>(static_cast<int>(a) >> static_cast<int>(scalar));
+      uint32_t ua, ur;
+      memcpy(&ua, &a, sizeof(uint32_t));
+      ur = ua >> (static_cast<uint32_t>(static_cast<int>(scalar)) & 31u);
+      T r;
+      memcpy(&r, &ur, sizeof(T));
+      return r;
     }
   // Logical operations
   case BinaryVecScalarLogicalAnd:
@@ -995,7 +1021,12 @@ T unaryRef(OperatorEnum op, T a) {
     if constexpr (std::is_integral_v<T>) {
       return ~a;
     } else {
-      return static_cast<T>(~static_cast<int>(a));
+      int ia;
+      memcpy(&ia, &a, sizeof(int));
+      ia = ~ia;
+      T r;
+      memcpy(&r, &ia, sizeof(T));
+      return r;
     }
   case UnaryRelu:
     return a > T{0} ? a : T{0};
@@ -1377,14 +1408,6 @@ TEST_F(VulkanBackendTest, UnaryOperators_Float32) {
       }
 
       for (OperatorEnum op : kUnaryOps) {
-        // Skip operators without shader support or problematic ones
-        if (!hasVulkanShaderSupport(op) || op == UnaryLog || op == UnaryLog2 ||
-            op == UnaryLog10 || op == UnaryAsin || op == UnaryAcos ||
-            op == UnaryTan || op == UnarySinh || op == UnaryCosh ||
-            op == UnaryExp || op == UnaryBitwiseNot) {
-          continue;
-        }
-
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
@@ -1462,15 +1485,6 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
       auto dataA = generateTestData<float>(elements, 42);
 
       for (OperatorEnum op : kBinaryVecScalarOps) {
-        // Skip operators without shader support or problematic ones
-        if (!hasVulkanShaderSupport(op) || op == BinaryVecScalarMod ||
-            op == BinaryVecScalarPow || op == BinaryVecScalarFloorDiv ||
-            op == BinaryVecScalarBitwiseAnd || op == BinaryVecScalarBitwiseOr ||
-            op == BinaryVecScalarBitwiseXor || op == BinaryVecScalarLeftShift ||
-            op == BinaryVecScalarRightShift) {
-          continue;
-        }
-
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
@@ -1486,7 +1500,15 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
 
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = binaryVecScalarRef(op, dataA[i], scalar);
-          EXPECT_NEAR(output[i], expected, 1e-5f)
+          if (std::isnan(expected) && std::isnan(output[i]))
+            continue;
+          if (std::isinf(expected) && std::isinf(output[i]) &&
+              std::signbit(expected) == std::signbit(output[i]))
+            continue;
+          float tol = (op == BinaryVecScalarPow)
+                          ? std::max(1e-5f, std::abs(expected) * 1e-5f)
+                          : 1e-5f;
+          EXPECT_NEAR(output[i], expected, tol)
               << "Mismatch at index " << i << " for " << operatorName(op);
         }
       }
