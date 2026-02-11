@@ -81,17 +81,6 @@ static bool isGeneratedShader(const OperatorEnum shader) {
   }
 }
 
-uint32_t getScaledDispatchSize(uint32_t dispatchSize,
-                               const OperatorEnum shader,
-                               const DataType datatype) {
-  // Generated shaders use vec4 types, so they process 4 elements per invocation
-  if (isGeneratedShader(shader)) {
-    return (dispatchSize + 3) / 4; // Round up division by 4
-  }
-  // Compiled shaders use scalar types
-  return dispatchSize;
-}
-
 size_t validateExecutionSize(OperatorEnum op,
                              const std::vector<size_t> &execSizes) {
   (void)op; // Currently unused, reserved for future operator-specific logic

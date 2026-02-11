@@ -37,15 +37,6 @@ std::optional<std::vector<uint32_t>>
 getCompiledShader(const OperatorEnum shader);
 
 /*
- * Returns the scaled dispatch size for a shader.
- * When shaders use vectorized types (vec4), the dispatch size is scaled down
- * by 4 since each invocation processes 4 elements.
- */
-uint32_t getScaledDispatchSize(uint32_t dispatchSize,
-                               const OperatorEnum shader,
-                               const DataType datatype = DataType::Float32);
-
-/*
  * Validates execution sizes for an operator and returns the resolved size.
  * For elementwise operators (unary, binary, ternary), all buffer execution
  * sizes must match. Future operators (e.g., matmul, reduce) may have
