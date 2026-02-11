@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <random>
 #include <string>
 #include <vector>
@@ -597,36 +598,67 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
     return std::min(a, b);
   case BinaryVecVecMax:
     return std::max(a, b);
-  // Bitwise operations
+  // Bitwise operations - for floats, match GPU shader behavior:
+  // intBitsToFloat(floatBitsToInt(a) OP floatBitsToInt(b))
   case BinaryVecVecBitwiseAnd:
     if constexpr (std::is_integral_v<T>) {
       return a & b;
     } else {
-      return static_cast<T>(static_cast<int>(a) & static_cast<int>(b));
+      int ia, ib, ir;
+      memcpy(&ia, &a, sizeof(int));
+      memcpy(&ib, &b, sizeof(int));
+      ir = ia & ib;
+      T r;
+      memcpy(&r, &ir, sizeof(T));
+      return r;
     }
   case BinaryVecVecBitwiseOr:
     if constexpr (std::is_integral_v<T>) {
       return a | b;
     } else {
-      return static_cast<T>(static_cast<int>(a) | static_cast<int>(b));
+      int ia, ib, ir;
+      memcpy(&ia, &a, sizeof(int));
+      memcpy(&ib, &b, sizeof(int));
+      ir = ia | ib;
+      T r;
+      memcpy(&r, &ir, sizeof(T));
+      return r;
     }
   case BinaryVecVecBitwiseXor:
     if constexpr (std::is_integral_v<T>) {
       return a ^ b;
     } else {
-      return static_cast<T>(static_cast<int>(a) ^ static_cast<int>(b));
+      int ia, ib, ir;
+      memcpy(&ia, &a, sizeof(int));
+      memcpy(&ib, &b, sizeof(int));
+      ir = ia ^ ib;
+      T r;
+      memcpy(&r, &ir, sizeof(T));
+      return r;
     }
   case BinaryVecVecLeftShift:
     if constexpr (std::is_integral_v<T>) {
       return a << static_cast<int>(b);
     } else {
-      return static_cast<T>(static_cast<int>(a) << static_cast<int>(b));
+      uint32_t ua, ub, ur;
+      memcpy(&ua, &a, sizeof(uint32_t));
+      memcpy(&ub, &b, sizeof(uint32_t));
+      ur = ua << (ub & 31u); // SPIR-V masks shift to 5 bits
+      T r;
+      memcpy(&r, &ur, sizeof(T));
+      return r;
     }
   case BinaryVecVecRightShift:
     if constexpr (std::is_integral_v<T>) {
       return a >> static_cast<int>(b);
     } else {
-      return static_cast<T>(static_cast<int>(a) >> static_cast<int>(b));
+      uint32_t ua, ub, ur;
+      memcpy(&ua, &a, sizeof(uint32_t));
+      memcpy(&ub, &b, sizeof(uint32_t));
+      ur = ua >> (ub & 31u); // SPIR-V masks shift to 5 bits
+      T r;
+      memcpy(&r, &ur, sizeof(T));
+      return r;
     }
   // Logical operations
   case BinaryVecVecLogicalAnd:
@@ -1169,15 +1201,6 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Float32) {
       auto dataB = generateTestData<float>(elements, 123);
 
       for (OperatorEnum op : kBinaryVecVecOps) {
-        // Skip operators without shader support or problematic ones
-        if (!hasVulkanShaderSupport(op) || op == BinaryVecVecMod ||
-            op == BinaryVecVecPow || op == BinaryVecVecFloorDiv ||
-            op == BinaryVecVecBitwiseAnd || op == BinaryVecVecBitwiseOr ||
-            op == BinaryVecVecBitwiseXor || op == BinaryVecVecLeftShift ||
-            op == BinaryVecVecRightShift) {
-          continue;
-        }
-
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
@@ -1194,7 +1217,16 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Float32) {
 
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
-          EXPECT_NEAR(output[i], expected, 1e-5f)
+          // Bitwise ops on floats can produce NaN/Inf bit patterns
+          if (std::isnan(expected) && std::isnan(output[i]))
+            continue;
+          if (std::isinf(expected) && std::isinf(output[i]) &&
+              std::signbit(expected) == std::signbit(output[i]))
+            continue;
+          float tol = (op == BinaryVecVecPow)
+                          ? std::max(1e-5f, std::abs(expected) * 1e-5f)
+                          : 1e-5f;
+          EXPECT_NEAR(output[i], expected, tol)
               << "Mismatch at index " << i << " for " << operatorName(op);
         }
       }
