@@ -8,6 +8,7 @@
 
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace cut {
@@ -150,7 +151,7 @@ private:
   bool pendingCommands_ = false;
 
   // Shader cache: maps makeCacheKey(OperatorEnum, DataType) -> ComputeHandle
-  std::map<uint64_t, ComputeHandle> shaderCache_;
+  std::unordered_map<uint64_t, ComputeHandle> shaderCache_;
 
   // Dispatcher for encoding operators
   std::unique_ptr<Dispatcher> dispatcher_;
