@@ -165,15 +165,7 @@ ComputeHandle Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
 size_t
 Runtime::getExecutionSize(OperatorEnum op,
                           const std::vector<ComputeBinding> &bindings) const {
-  // For current operators (unary, binary vec-vec, binary vec-scalar),
-  // execution size is determined by buffer.executionSize() which accounts
-  // for alignment of the innermost dimension.
-  // Future operators (e.g., matmul, reduce) may compute execution size
-  // differently based on their semantics.
-  (void)op; // Currently unused, reserved for future operator-specific logic
-
-  size_t executionSize = 0;
-  bool executionSizeSet = false;
+  std::vector<size_t> execSizes;
 
   for (const auto &binding : bindings) {
     if (!binding.isHandle()) {
@@ -181,24 +173,10 @@ Runtime::getExecutionSize(OperatorEnum op,
     }
 
     const ComputeBuffer &buffer = interface_->getBuffer(binding.getHandle());
-    size_t bufferExecSize = buffer.executionSize();
-
-    if (!executionSizeSet) {
-      executionSize = bufferExecSize;
-      executionSizeSet = true;
-    } else if (bufferExecSize != executionSize) {
-      throw std::runtime_error(
-          "Buffer shape mismatch: execution sizes do not match (" +
-          std::to_string(executionSize) + " vs " +
-          std::to_string(bufferExecSize) + ")");
-    }
+    execSizes.push_back(buffer.executionSize());
   }
 
-  if (!executionSizeSet) {
-    throw std::runtime_error("No buffer bindings found");
-  }
-
-  return executionSize;
+  return validateExecutionSize(op, execSizes);
 }
 
 void Runtime::encodeOperator(OperatorEnum op,

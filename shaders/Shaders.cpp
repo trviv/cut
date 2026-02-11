@@ -92,4 +92,25 @@ uint32_t getScaledDispatchSize(uint32_t dispatchSize,
   return dispatchSize;
 }
 
+size_t validateExecutionSize(OperatorEnum op,
+                             const std::vector<size_t> &execSizes) {
+  (void)op; // Currently unused, reserved for future operator-specific logic
+
+  if (execSizes.empty()) {
+    throw std::runtime_error("No buffer bindings found");
+  }
+
+  size_t executionSize = execSizes[0];
+  for (size_t i = 1; i < execSizes.size(); ++i) {
+    if (execSizes[i] != executionSize) {
+      throw std::runtime_error(
+          "Buffer shape mismatch: execution sizes do not match (" +
+          std::to_string(executionSize) + " vs " +
+          std::to_string(execSizes[i]) + ")");
+    }
+  }
+
+  return executionSize;
+}
+
 } // namespace cut

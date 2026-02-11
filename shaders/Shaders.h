@@ -45,4 +45,18 @@ uint32_t getScaledDispatchSize(uint32_t dispatchSize,
                                const OperatorEnum shader,
                                const DataType datatype = DataType::Float32);
 
+/*
+ * Validates execution sizes for an operator and returns the resolved size.
+ * For elementwise operators (unary, binary, ternary), all buffer execution
+ * sizes must match. Future operators (e.g., matmul, reduce) may have
+ * different validation rules based on their semantics.
+ *
+ * @param op The operator being executed.
+ * @param execSizes The execution sizes of all buffer bindings.
+ * @return The validated execution size.
+ * @throws std::runtime_error if sizes are invalid for the operator.
+ */
+size_t validateExecutionSize(OperatorEnum op,
+                             const std::vector<size_t> &execSizes);
+
 } // namespace cut
