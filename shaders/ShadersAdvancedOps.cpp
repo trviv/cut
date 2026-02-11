@@ -107,22 +107,45 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   // Extended binary vec-vec operations - Logical
   // =============================================================================
   case BinaryVecVecLogicalAnd: {
-    std::string expr = vecType + "(notEqual(a, " + vecType +
-                       "(0.0)) && notEqual(b, " + vecType + "(0.0)))";
+    std::string expr;
+    if (datatype == DataType::UInt32) {
+      expr = "min(a, uvec4(1)) * min(b, uvec4(1))";
+    } else if (datatype == DataType::Int32) {
+      expr = "ivec4(notEqual(a, ivec4(0))) * ivec4(notEqual(b, ivec4(0)))";
+    } else {
+      expr = vecType + "(notEqual(a, " + vecType + "(0.0))) * " + vecType +
+             "(notEqual(b, " + vecType + "(0.0)))";
+    }
     shaderSource = generateBinaryVecVecCustom(expr.c_str(), datatype);
     shaderName = "binary_vec_vec_logical_and";
     return true;
   }
   case BinaryVecVecLogicalOr: {
-    std::string expr = vecType + "(notEqual(a, " + vecType +
-                       "(0.0)) || notEqual(b, " + vecType + "(0.0)))";
+    std::string expr;
+    if (datatype == DataType::UInt32) {
+      expr = "min(min(a, uvec4(1)) + min(b, uvec4(1)), uvec4(1))";
+    } else if (datatype == DataType::Int32) {
+      expr = "min(ivec4(notEqual(a, ivec4(0))) + ivec4(notEqual(b, ivec4(0))), "
+             "ivec4(1))";
+    } else {
+      expr = "min(" + vecType + "(notEqual(a, " + vecType + "(0.0))) + " +
+             vecType + "(notEqual(b, " + vecType + "(0.0))), " + vecType +
+             "(1.0))";
+    }
     shaderSource = generateBinaryVecVecCustom(expr.c_str(), datatype);
     shaderName = "binary_vec_vec_logical_or";
     return true;
   }
   case BinaryVecVecLogicalXor: {
-    std::string expr = vecType + "(notEqual(notEqual(a, " + vecType +
-                       "(0.0)), notEqual(b, " + vecType + "(0.0))))";
+    std::string expr;
+    if (datatype == DataType::UInt32) {
+      expr = "uvec4(notEqual(notEqual(a, uvec4(0)), notEqual(b, uvec4(0))))";
+    } else if (datatype == DataType::Int32) {
+      expr = "ivec4(notEqual(notEqual(a, ivec4(0)), notEqual(b, ivec4(0))))";
+    } else {
+      expr = vecType + "(notEqual(notEqual(a, " + vecType +
+             "(0.0)), notEqual(b, " + vecType + "(0.0))))";
+    }
     shaderSource = generateBinaryVecVecCustom(expr.c_str(), datatype);
     shaderName = "binary_vec_vec_logical_xor";
     return true;
@@ -132,22 +155,43 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   // Extended binary vec-scalar operations - Logical
   // =============================================================================
   case BinaryVecScalarLogicalAnd: {
-    std::string expr =
-        vecType + "(notEqual(a, " + vecType + "(0.0)) && (b.x != 0.0))";
+    std::string expr;
+    if (datatype == DataType::UInt32) {
+      expr = "min(a, uvec4(1)) * min(b.x, 1u)";
+    } else if (datatype == DataType::Int32) {
+      expr = "ivec4(notEqual(a, ivec4(0))) * int(b.x != 0)";
+    } else {
+      expr =
+          vecType + "(notEqual(a, " + vecType + "(0.0))) * float(b.x != 0.0)";
+    }
     shaderSource = generateBinaryVecScalarCustom(expr.c_str(), datatype);
     shaderName = "binary_vec_scalar_logical_and";
     return true;
   }
   case BinaryVecScalarLogicalOr: {
-    std::string expr =
-        vecType + "(notEqual(a, " + vecType + "(0.0)) || (b.x != 0.0))";
+    std::string expr;
+    if (datatype == DataType::UInt32) {
+      expr = "min(min(a, uvec4(1)) + min(b.x, 1u), uvec4(1))";
+    } else if (datatype == DataType::Int32) {
+      expr = "min(ivec4(notEqual(a, ivec4(0))) + int(b.x != 0), ivec4(1))";
+    } else {
+      expr = "min(" + vecType + "(notEqual(a, " + vecType +
+             "(0.0))) + float(b.x != 0.0), " + vecType + "(1.0))";
+    }
     shaderSource = generateBinaryVecScalarCustom(expr.c_str(), datatype);
     shaderName = "binary_vec_scalar_logical_or";
     return true;
   }
   case BinaryVecScalarLogicalXor: {
-    std::string expr = vecType + "(notEqual(notEqual(a, " + vecType +
-                       "(0.0)), bvec4(b.x != 0.0)))";
+    std::string expr;
+    if (datatype == DataType::UInt32) {
+      expr = "uvec4(notEqual(notEqual(a, uvec4(0)), bvec4(b.x != 0u)))";
+    } else if (datatype == DataType::Int32) {
+      expr = "ivec4(notEqual(notEqual(a, ivec4(0)), bvec4(b.x != 0)))";
+    } else {
+      expr = vecType + "(notEqual(notEqual(a, " + vecType +
+             "(0.0)), bvec4(b.x != 0.0)))";
+    }
     shaderSource = generateBinaryVecScalarCustom(expr.c_str(), datatype);
     shaderName = "binary_vec_scalar_logical_xor";
     return true;
