@@ -577,13 +577,10 @@ void Dispatcher::encode(OperatorEnum op,
     iface_->encode(std::move(selectDispatch));
     return;
   } else if (isReductionOp(op)) {
-    // Reduction ops: dispatch with workgroups for parallel reduction
-    // Calculate number of workgroups needed
-    const uint32_t workgroupSize256 = 256;
-    uint32_t numWorkgroups =
-        (numElements + workgroupSize256 - 1) / workgroupSize256;
-
-    ThreadSize reductionWorkgroupSize{numWorkgroups * workgroupSize256, 1, 1};
+    // Reduction ops: single workgroup of 256 threads.
+    // Each thread processes multiple elements via a strided loop,
+    // avoiding the need for float atomics across workgroups.
+    ThreadSize reductionWorkgroupSize{256, 1, 1};
     ComputeDispatch reductionDispatch(shader, reductionWorkgroupSize, bindings);
     reductionDispatch.bindData(DataReference(numElements),
                                static_cast<uint32_t>(bindings.size()));

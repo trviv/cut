@@ -2154,7 +2154,7 @@ TEST_F(VulkanNonAlignedInnermostTest, Unary_NonAlignedInnermost) {
 }
 
 // Test reduction operators with Float32 on Vulkan
-TEST_F(VulkanBackendTest, DISABLED_ReductionOperators_Float32) {
+TEST_F(VulkanBackendTest, ReductionOperators_Float32) {
   const DataType dtype = DataType::Float32;
 
   for (size_t numDims : kDimensionCounts) {
@@ -2191,7 +2191,10 @@ TEST_F(VulkanBackendTest, DISABLED_ReductionOperators_Float32) {
 
         // Verify result
         float expected = reduceRef(op, dataIn);
-        if (op == ReduceMean || op == ReduceSum || op == ReduceProd) {
+        if (std::isinf(expected) && std::isinf(output) &&
+            std::signbit(expected) == std::signbit(output)) {
+          // Both are same-sign infinity — pass
+        } else if (op == ReduceMean || op == ReduceSum || op == ReduceProd) {
           EXPECT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f)
               << "Mismatch for " << operatorName(op);
         } else {

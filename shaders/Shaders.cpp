@@ -1,6 +1,8 @@
 
 #include <Shaders.h>
 
+#include <algorithm>
+
 namespace cut {
 
 std::vector<uint32_t> getShader(const OperatorEnum shader,
@@ -81,14 +83,24 @@ static bool isGeneratedShader(const OperatorEnum shader) {
   }
 }
 
+static bool isReductionOp(OperatorEnum op) {
+  return op >= ReduceSum && op <= ReduceAll;
+}
+
 size_t validateExecutionSize(OperatorEnum op,
                              const std::vector<size_t> &execSizes) {
-  (void)op; // Currently unused, reserved for future operator-specific logic
-
   if (execSizes.empty()) {
     throw std::runtime_error("No buffer bindings found");
   }
 
+  // Reduction ops have mismatched input/output sizes by design:
+  // input is the full tensor, output is a scalar.
+  // Use the maximum execution size (the input buffer).
+  if (isReductionOp(op)) {
+    return *std::max_element(execSizes.begin(), execSizes.end());
+  }
+
+  // For elementwise ops, all buffer execution sizes must match.
   size_t executionSize = execSizes[0];
   for (size_t i = 1; i < execSizes.size(); ++i) {
     if (execSizes[i] != executionSize) {

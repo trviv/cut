@@ -296,38 +296,41 @@ layout(push_constant) uniform PushConstants {
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    float dataIn[];
+    %SCALAR_DTYPE% dataIn[];
 };
 
-layout(set = 0, binding = 1, std430) restrict buffer BufferOut {
-    float dataOut[];
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    %SCALAR_DTYPE% dataOut[];
 };
 
-shared float sharedData[256];
+shared %SCALAR_DTYPE% sharedData[256];
 
 void main() {
     uint tid = gl_LocalInvocationID.x;
-    uint gid = gl_GlobalInvocationID.x;
 
-    // Load data into shared memory (identity element if out of bounds)
-    if (gid < numElements) {
-        sharedData[tid] = dataIn[gid];
-    } else {
-        sharedData[tid] = %IDENTITY%;
+    // Each thread reduces multiple elements via strided loop
+    %SCALAR_DTYPE% localVal = %IDENTITY%;
+    for (uint i = tid; i < numElements; i += 256) {
+        %SCALAR_DTYPE% a = localVal;
+        %SCALAR_DTYPE% b = dataIn[i];
+        localVal = %REDUCE_OP%;
     }
+    sharedData[tid] = localVal;
     barrier();
 
     // Parallel reduction in shared memory
-    for (uint stride = gl_WorkGroupSize.x / 2; stride > 0; stride >>= 1) {
+    for (uint stride = 128; stride > 0; stride >>= 1) {
         if (tid < stride) {
+            %SCALAR_DTYPE% a = sharedData[tid];
+            %SCALAR_DTYPE% b = sharedData[tid + stride];
             sharedData[tid] = %REDUCE_OP%;
         }
         barrier();
     }
 
-    // Write result from first thread of workgroup
+    // Single workgroup: write result directly, no atomics needed
     if (tid == 0) {
-        atomicAdd(dataOut[0], sharedData[0]);
+        dataOut[0] = sharedData[0];
     }
 }
 )";

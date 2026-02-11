@@ -173,7 +173,15 @@ Runtime::getExecutionSize(OperatorEnum op,
     }
 
     const ComputeBuffer &buffer = interface_->getBuffer(binding.getHandle());
-    execSizes.push_back(buffer.executionSize());
+    // Reductions need actual element counts (not aligned) to avoid
+    // including padding zeros in the result. Elementwise ops use
+    // aligned sizes since they process in vec4 chunks.
+    if (op >= ReduceSum && op <= ReduceAll) {
+      execSizes.push_back(buffer.calculateActualSize() /
+                          dataTypeSize(buffer.getDtype()));
+    } else {
+      execSizes.push_back(buffer.executionSize());
+    }
   }
 
   return validateExecutionSize(op, execSizes);

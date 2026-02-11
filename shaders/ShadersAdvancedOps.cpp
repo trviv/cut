@@ -214,49 +214,43 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   case ReduceSum: {
     shaderSource = reductionShaderTemplate;
     shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
-    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
-                              "sharedData[tid] + sharedData[tid + stride]");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a + b");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_sum";
     return true;
   }
   case ReduceMean: {
-    // Mean uses sum reduction, division by count done on CPU
     shaderSource = reductionShaderTemplate;
     shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
-    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
-                              "sharedData[tid] + sharedData[tid + stride]");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a + b");
+    shaderSource = replaceAll(shaderSource, "dataOut[0] = sharedData[0]",
+                              "dataOut[0] = sharedData[0] / "
+                              "%SCALAR_DTYPE%(numElements)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_mean";
     return true;
   }
   case ReduceMin: {
-    std::string s = reductionShaderTemplate;
-    s = replaceAll(s, "%IDENTITY%", "3.402823466e+38"); // FLT_MAX
-    s = replaceAll(s, "%REDUCE_OP%",
-                   "min(sharedData[tid], sharedData[tid + stride])");
-    // Replace atomicAdd with atomicMin for min reduction
-    s = replaceAll(s, "atomicAdd(dataOut[0], sharedData[0])",
-                   "atomicMin(dataOut[0], floatBitsToInt(sharedData[0]))");
-    shaderSource = s;
+    shaderSource = reductionShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "3.402823466e+38");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "min(a, b)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_min";
     return true;
   }
   case ReduceMax: {
-    std::string s = reductionShaderTemplate;
-    s = replaceAll(s, "%IDENTITY%", "-3.402823466e+38"); // -FLT_MAX
-    s = replaceAll(s, "%REDUCE_OP%",
-                   "max(sharedData[tid], sharedData[tid + stride])");
-    // Replace atomicAdd with atomicMax for max reduction
-    s = replaceAll(s, "atomicAdd(dataOut[0], sharedData[0])",
-                   "atomicMax(dataOut[0], floatBitsToInt(sharedData[0]))");
-    shaderSource = s;
+    shaderSource = reductionShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "-3.402823466e+38");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "max(a, b)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_max";
     return true;
   }
   case ReduceProd: {
     shaderSource = reductionShaderTemplate;
     shaderSource = replaceAll(shaderSource, "%IDENTITY%", "1.0");
-    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
-                              "sharedData[tid] * sharedData[tid + stride]");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a * b");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_prod";
     return true;
   }
@@ -264,8 +258,8 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
     shaderSource = reductionShaderTemplate;
     shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
     shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
-                              "((sharedData[tid] != 0.0 || sharedData[tid + "
-                              "stride] != 0.0) ? 1.0 : 0.0)");
+                              "((a != 0.0 || b != 0.0) ? 1.0 : 0.0)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_any";
     return true;
   }
@@ -273,8 +267,8 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
     shaderSource = reductionShaderTemplate;
     shaderSource = replaceAll(shaderSource, "%IDENTITY%", "1.0");
     shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
-                              "((sharedData[tid] != 0.0 && sharedData[tid + "
-                              "stride] != 0.0) ? 1.0 : 0.0)");
+                              "((a != 0.0 && b != 0.0) ? 1.0 : 0.0)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_all";
     return true;
   }
