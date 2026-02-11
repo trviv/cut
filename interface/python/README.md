@@ -82,6 +82,57 @@ with open("my_shader.spv", "rb") as f:
 shader = cut.Shader(spirv)
 ```
 
+## Testing
+
+Run the test suite from the project root:
+
+```bash
+pytest interface/python/tests
+```
+
+To run a specific test file:
+
+```bash
+pytest interface/python/tests/test_compute.py
+```
+
+Run with verbose output:
+
+```bash
+pytest interface/python/tests -v
+```
+
+### Benchmarks
+
+Run the multi-backend benchmark suite (Vulkan, CuPy, JAX, PyTorch vs NumPy):
+
+```bash
+python interface/python/benchmarks/run_benchmarks.py
+```
+
+With custom options:
+
+```bash
+python interface/python/benchmarks/run_benchmarks.py -n 10000000  # 10M elements
+python interface/python/benchmarks/run_benchmarks.py -i 20        # 20 iterations
+python interface/python/benchmarks/run_benchmarks.py --json results.json --csv results.csv
+```
+
+Run single-backend benchmarks:
+
+```bash
+python interface/python/benchmarks/benchmark.py                    # Auto-select backend
+python interface/python/benchmarks/benchmark.py --backend vulkan   # Vulkan GPU
+```
+
+Run chained operation benchmarks:
+
+```bash
+python interface/python/benchmarks/benchmark_chained_ops.py
+python interface/python/benchmarks/benchmark_chained_ops.py --backend vulkan --size 1000000
+python interface/python/benchmarks/benchmark_chained_ops.py --include-jax --all-backends
+```
+
 ## API Reference
 
 ### Classes
