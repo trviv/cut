@@ -1259,9 +1259,44 @@ TEST_F(VulkanBackendTest, UnaryOperators_Float32) {
   }
 }
 
-// Note: Current shaders only support Float32, so Int32 tests are skipped
+// Test unary operators with Int32
 TEST_F(VulkanBackendTest, UnaryOperators_Int32) {
-  GTEST_SKIP() << "Vulkan shaders currently only support Float32";
+  const DataType dtype = DataType::Int32;
+
+  // Unary ops that produce valid GLSL for ivec4
+  constexpr std::array<OperatorEnum, 11> kInt32UnaryOps = {
+      UnaryNeg,        UnaryAbs,        UnarySquare, UnaryReciprocal,
+      UnarySign,       UnaryFloor,      UnaryCeil,   UnaryRound,
+      UnaryLogicalNot, UnaryBitwiseNot, UnaryRelu};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(int32_t);
+
+      auto dataIn = generateTestData<int32_t>(elements, 42);
+
+      for (OperatorEnum op : kInt32UnaryOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+        std::vector<int32_t> output(elements);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+        for (uint32_t i = 0; i < elements; ++i) {
+          int32_t expected = unaryRef(op, dataIn[i]);
+          EXPECT_EQ(output[i], expected)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
 }
 
 // Test binary vec-scalar operators with Float32

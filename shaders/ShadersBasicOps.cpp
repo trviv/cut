@@ -128,6 +128,49 @@ bool generateBasicOpShader(const OperatorEnum shader,
                            const DataType datatype,
                            std::string &shaderSource,
                            std::string &shaderName) {
+  // Int/UInt-specific overrides for ops whose table expressions use float
+  // literals or float-only GLSL functions
+  bool isIntType = datatype == DataType::Int32 || datatype == DataType::UInt32;
+  if (isIntType) {
+    std::string vecType = getGLSLType(datatype);
+    std::string zero = vecType + "(0)";
+    switch (shader) {
+    case UnaryReciprocal:
+      if (datatype == DataType::Int32) {
+        shaderSource =
+            generateUnaryShader("sign(a) / max(abs(a), ivec4(1))", datatype);
+      } else {
+        shaderSource =
+            generateUnaryShader("uvec4(1) / max(a, uvec4(1))", datatype);
+      }
+      shaderName = "unary_reciprocal";
+      return true;
+    case UnaryRelu:
+      shaderSource =
+          generateUnaryShader(("max(a, " + zero + ")").c_str(), datatype);
+      shaderName = "unary_relu";
+      return true;
+    case UnaryFloor:
+      shaderSource = generateUnaryShader("a", datatype);
+      shaderName = "unary_floor";
+      return true;
+    case UnaryCeil:
+      shaderSource = generateUnaryShader("a", datatype);
+      shaderName = "unary_ceil";
+      return true;
+    case UnaryRound:
+      shaderSource = generateUnaryShader("a", datatype);
+      shaderName = "unary_round";
+      return true;
+    case UnaryBitwiseNot:
+      shaderSource = generateUnaryShader("~a", datatype);
+      shaderName = "unary_bitwise_not";
+      return true;
+    default:
+      break; // Fall through to table lookup / other special cases
+    }
+  }
+
   // Fast path: direct array lookup for simple ops
   if (shader < kOpTableSize && opTable[shader].generator) {
     const auto &entry = opTable[shader];
@@ -157,7 +200,8 @@ bool generateBasicOpShader(const OperatorEnum shader,
     return true;
   case UnaryLogicalNot: {
     vecType = getGLSLType(datatype);
-    std::string expr = vecType + "(equal(a, " + vecType + "(0.0)))";
+    std::string zeroLit = isIntType ? "0" : "0.0";
+    std::string expr = vecType + "(equal(a, " + vecType + "(" + zeroLit + ")))";
     shaderSource = generateUnaryShader(expr.c_str(), datatype);
     shaderName = "unary_logical_not";
     return true;
