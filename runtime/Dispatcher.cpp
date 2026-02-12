@@ -189,6 +189,7 @@ bool isDimReductionOp(OperatorEnum op) {
   case ReduceDimProd:
   case ReduceDimAny:
   case ReduceDimAll:
+  case NormDim:
     return true;
   default:
     return false;

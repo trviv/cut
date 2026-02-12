@@ -532,3 +532,179 @@ class TestBackendSwitching:
             del vk_buf
             cc.shutdown()
 
+
+# =============================================================================
+# Dimension-wise Reduction Tests
+# =============================================================================
+
+class TestDimReduce:
+    """Test dimension-wise reduction operations."""
+
+    def test_sum_dim0_2d(self, backend):
+        """Test sum along dimension 0 of a 2D tensor."""
+        data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.sum(t, dim=0)
+        expected = data.sum(axis=0)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_sum_dim1_2d(self, backend):
+        """Test sum along dimension 1 of a 2D tensor."""
+        data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.sum(t, dim=1)
+        expected = data.sum(axis=1)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_mean_dim0(self, backend):
+        """Test mean along dimension 0."""
+        data = np.array([[2, 4], [6, 8], [10, 12]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.mean(t, dim=0)
+        expected = data.mean(axis=0)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_mean_dim1(self, backend):
+        """Test mean along dimension 1."""
+        data = np.array([[2, 4], [6, 8], [10, 12]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.mean(t, dim=1)
+        expected = data.mean(axis=1)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_min_dim0(self, backend):
+        """Test min along dimension 0."""
+        data = np.array([[3, 1, 4], [1, 5, 9]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.min(t, dim=0)
+        expected = data.min(axis=0)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_max_dim1(self, backend):
+        """Test max along dimension 1."""
+        data = np.array([[3, 1, 4], [1, 5, 9]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.max(t, dim=1)
+        expected = data.max(axis=1)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_prod_dim0(self, backend):
+        """Test prod along dimension 0."""
+        data = np.array([[1, 2], [3, 4]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.prod(t, dim=0)
+        expected = data.prod(axis=0)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_sum_negative_dim(self, backend):
+        """Test sum with negative dimension index."""
+        data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.sum(t, dim=-1)
+        expected = data.sum(axis=-1)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_sum_dim_3d(self, backend):
+        """Test sum along middle dimension of a 3D tensor."""
+        data = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
+        t = cc.Tensor(data.flatten().tolist())
+        t._shape = (2, 3, 4)
+        result = cc.sum(t, dim=1)
+        expected = data.sum(axis=1)
+        np.testing.assert_allclose(to_numpy(result), expected.flatten(), rtol=1e-5)
+
+    def test_sum_dim_output_shape(self, backend):
+        """Test that dim reduce produces correct output shape."""
+        data = np.ones((3, 4, 5), dtype=np.float32)
+        t = cc.Tensor(data.flatten().tolist())
+        t._shape = (3, 4, 5)
+        result = cc.sum(t, dim=1)
+        assert result.shape == (3, 5)
+
+    def test_dim_out_of_range(self, backend):
+        """Test that invalid dimension raises ValueError."""
+        t = cc.Tensor([[1, 2], [3, 4]])
+        with pytest.raises(ValueError):
+            cc.sum(t, dim=3)
+
+    def test_large_dim_reduce(self, backend):
+        """Test dim reduce with larger arrays."""
+        data = np.random.randn(64, 128).astype(np.float32)
+        t = cc.Tensor(data.flatten().tolist())
+        t._shape = (64, 128)
+        result = cc.sum(t, dim=1)
+        expected = data.sum(axis=1)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
+
+
+# =============================================================================
+# Dimension-wise Norm Tests
+# =============================================================================
+
+class TestNormDim:
+    """Test dimension-wise L2 norm operation."""
+
+    def test_norm_dim0_2d(self, backend):
+        """Test L2 norm along dimension 0."""
+        data = np.array([[3, 1], [4, 5]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.norm(t, dim=0)
+        expected = np.linalg.norm(data, axis=0)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_norm_dim1_2d(self, backend):
+        """Test L2 norm along dimension 1."""
+        data = np.array([[3, 4], [5, 12]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.norm(t, dim=1)
+        expected = np.linalg.norm(data, axis=1)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_norm_dim_3d(self, backend):
+        """Test L2 norm along middle dimension of a 3D tensor."""
+        data = np.random.randn(2, 3, 4).astype(np.float32)
+        t = cc.Tensor(data.flatten().tolist())
+        t._shape = (2, 3, 4)
+        result = cc.norm(t, dim=1)
+        expected = np.linalg.norm(data, axis=1)
+        np.testing.assert_allclose(to_numpy(result), expected.flatten(), rtol=1e-4)
+
+    def test_norm_dim_output_shape(self, backend):
+        """Test that norm dim produces correct output shape."""
+        data = np.ones((3, 4, 5), dtype=np.float32)
+        t = cc.Tensor(data.flatten().tolist())
+        t._shape = (3, 4, 5)
+        result = cc.norm(t, dim=2)
+        assert result.shape == (3, 4)
+
+    def test_norm_dim_negative_index(self, backend):
+        """Test L2 norm with negative dimension index."""
+        data = np.array([[3, 4], [5, 12]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.norm(t, dim=-1)
+        expected = np.linalg.norm(data, axis=-1)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_norm_dim_single_element(self, backend):
+        """Test norm along dimension with size 1."""
+        data = np.array([[3], [4], [5]], dtype=np.float32)
+        t = cc.Tensor(data.flatten().tolist())
+        t._shape = (3, 1)
+        result = cc.norm(t, dim=1)
+        expected = np.linalg.norm(data, axis=1)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_norm_dim_large(self, backend):
+        """Test dim norm with larger arrays."""
+        data = np.random.randn(32, 64).astype(np.float32)
+        t = cc.Tensor(data.flatten().tolist())
+        t._shape = (32, 64)
+        result = cc.norm(t, dim=1)
+        expected = np.linalg.norm(data, axis=1)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
+
+    def test_norm_dim_non_l2_raises(self, backend):
+        """Test that non-L2 norm with dim raises NotImplementedError."""
+        t = cc.Tensor([[1, 2], [3, 4]])
+        with pytest.raises(NotImplementedError):
+            cc.norm(t, p=1, dim=0)

@@ -627,6 +627,17 @@ void main() {
     shaderName = "norm";
     return true;
   }
+  case NormDim: {
+    // L2 norm along a dimension: sqrt(sum of squares) per output element
+    shaderSource = reductionDimShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a + b * b");
+    shaderSource = replaceAll(shaderSource, "dataOut[outIdx] = val",
+                              "dataOut[outIdx] = sqrt(val)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
+    shaderName = "norm_dim";
+    return true;
+  }
 
   default:
     // Not handled by this file

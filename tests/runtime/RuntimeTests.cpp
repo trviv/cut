@@ -2066,6 +2066,384 @@ TEST_F(VulkanBackendTest, TernarySelect_Float32) {
 }
 
 // ============================================================================
+// Dimension-wise Reduction Tests
+// ============================================================================
+
+// Dim reduction operators
+constexpr std::array<OperatorEnum, 7> kDimReductionOps = {
+    ReduceDimSum,  ReduceDimMean, ReduceDimMin, ReduceDimMax,
+    ReduceDimProd, ReduceDimAny,  ReduceDimAll};
+
+// CPU reference for dimension-wise reduction.
+// Reduces data of shape (outerSize, reduceSize, innerSize) along the middle
+// dimension, producing outerSize * innerSize outputs.
+std::vector<float> dimReduceRef(OperatorEnum op,
+                                const std::vector<float> &data,
+                                uint32_t outerSize,
+                                uint32_t reduceSize,
+                                uint32_t innerSize) {
+  std::vector<float> output(outerSize * innerSize);
+  for (uint32_t o = 0; o < outerSize; ++o) {
+    for (uint32_t i = 0; i < innerSize; ++i) {
+      float val;
+      switch (op) {
+      case ReduceDimMin:
+        val = std::numeric_limits<float>::max();
+        break;
+      case ReduceDimMax:
+        val = std::numeric_limits<float>::lowest();
+        break;
+      case ReduceDimProd:
+      case ReduceDimAll:
+        val = 1.0f;
+        break;
+      default:
+        val = 0.0f;
+        break;
+      }
+      for (uint32_t r = 0; r < reduceSize; ++r) {
+        float elem = data[o * reduceSize * innerSize + r * innerSize + i];
+        switch (op) {
+        case ReduceDimSum:
+        case ReduceDimMean:
+          val += elem;
+          break;
+        case ReduceDimMin:
+          val = std::min(val, elem);
+          break;
+        case ReduceDimMax:
+          val = std::max(val, elem);
+          break;
+        case ReduceDimProd:
+          val *= elem;
+          break;
+        case ReduceDimAny:
+          val = (val != 0.0f || elem != 0.0f) ? 1.0f : 0.0f;
+          break;
+        case ReduceDimAll:
+          val = (val != 0.0f && elem != 0.0f) ? 1.0f : 0.0f;
+          break;
+        default:
+          break;
+        }
+      }
+      if (op == ReduceDimMean) {
+        val /= static_cast<float>(reduceSize);
+      }
+      output[o * innerSize + i] = val;
+    }
+  }
+  return output;
+}
+
+// CPU reference for dimension-wise L2 norm.
+std::vector<float> normDimRef(const std::vector<float> &data,
+                              uint32_t outerSize,
+                              uint32_t reduceSize,
+                              uint32_t innerSize) {
+  std::vector<float> output(outerSize * innerSize);
+  for (uint32_t o = 0; o < outerSize; ++o) {
+    for (uint32_t i = 0; i < innerSize; ++i) {
+      float sumSq = 0.0f;
+      for (uint32_t r = 0; r < reduceSize; ++r) {
+        float elem = data[o * reduceSize * innerSize + r * innerSize + i];
+        sumSq += elem * elem;
+      }
+      output[o * innerSize + i] = std::sqrt(sumSq);
+    }
+  }
+  return output;
+}
+
+// Test dim reduction operators on 2D tensors reducing along dim 0
+TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim0) {
+  const DataType dtype = DataType::Float32;
+
+  struct TestCase {
+    uint32_t rows;
+    uint32_t cols;
+  };
+  constexpr std::array<TestCase, 4> testCases = {
+      {{3, 4}, {7, 8}, {4, 12}, {13, 16}}};
+
+  for (const auto &tc : testCases) {
+    const uint32_t elements = tc.rows * tc.cols;
+    auto dataIn = generateTestData<float>(elements, 42);
+
+    // Reduce along dim 0: outerSize=1, reduceSize=rows, innerSize=cols
+    uint32_t outerSize = 1;
+    uint32_t reduceSize = tc.rows;
+    uint32_t innerSize = tc.cols;
+
+    for (OperatorEnum op : kDimReductionOps) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) + " Shape: [" +
+                   std::to_string(tc.rows) + ", " + std::to_string(tc.cols) +
+                   "] dim=0");
+
+      auto bufferIn =
+          runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty({tc.cols}, dtype);
+
+      uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
+      runtime_->encodeOperator(
+          op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+               ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+      std::vector<float> output(innerSize);
+      runtime_->copyFromTensor(bufferOut, output.data(),
+                               innerSize * sizeof(float));
+
+      auto expected =
+          dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
+      for (uint32_t i = 0; i < innerSize; ++i) {
+        EXPECT_NEAR(output[i], expected[i],
+                    std::abs(expected[i]) * 1e-4f + 1e-5f)
+            << "Mismatch at index " << i;
+      }
+    }
+  }
+}
+
+// Test dim reduction operators on 2D tensors reducing along dim 1
+TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim1) {
+  const DataType dtype = DataType::Float32;
+
+  struct TestCase {
+    uint32_t rows;
+    uint32_t cols;
+  };
+  constexpr std::array<TestCase, 4> testCases = {
+      {{3, 4}, {7, 8}, {4, 12}, {13, 16}}};
+
+  for (const auto &tc : testCases) {
+    const uint32_t elements = tc.rows * tc.cols;
+    auto dataIn = generateTestData<float>(elements, 42);
+
+    // Reduce along dim 1: outerSize=rows, reduceSize=cols, innerSize=1
+    uint32_t outerSize = tc.rows;
+    uint32_t reduceSize = tc.cols;
+    uint32_t innerSize = 1;
+
+    for (OperatorEnum op : kDimReductionOps) {
+      SCOPED_TRACE(std::string("Op: ") + operatorName(op) + " Shape: [" +
+                   std::to_string(tc.rows) + ", " + std::to_string(tc.cols) +
+                   "] dim=1");
+
+      auto bufferIn =
+          runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty({tc.rows}, dtype);
+
+      uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
+      runtime_->encodeOperator(
+          op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+               ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+      std::vector<float> output(outerSize);
+      runtime_->copyFromTensor(bufferOut, output.data(),
+                               outerSize * sizeof(float));
+
+      auto expected =
+          dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
+      for (uint32_t i = 0; i < outerSize; ++i) {
+        EXPECT_NEAR(output[i], expected[i],
+                    std::abs(expected[i]) * 1e-4f + 1e-5f)
+            << "Mismatch at index " << i;
+      }
+    }
+  }
+}
+
+// Test dim reduction on 3D tensor reducing along the middle dimension
+TEST_F(VulkanBackendTest, DimReductionOperators_3D_MiddleDim) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t d0 = 3, d1 = 5, d2 = 4;
+  const uint32_t elements = d0 * d1 * d2;
+  auto dataIn = generateTestData<float>(elements, 42);
+
+  // Reduce along dim 1: outerSize=d0, reduceSize=d1, innerSize=d2
+  uint32_t outerSize = d0;
+  uint32_t reduceSize = d1;
+  uint32_t innerSize = d2;
+  uint32_t numOutputs = outerSize * innerSize;
+
+  for (OperatorEnum op : kDimReductionOps) {
+    SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                 " Shape: [3, 5, 4] dim=1");
+
+    auto bufferIn = runtime_->createTensor({d0, d1, d2}, dtype, dataIn.data());
+    auto bufferOut = runtime_->createTensorEmpty({d0, d2}, dtype);
+
+    uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
+    runtime_->encodeOperator(
+        op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+             ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+    std::vector<float> output(numOutputs);
+    runtime_->copyFromTensor(bufferOut, output.data(),
+                             numOutputs * sizeof(float));
+
+    auto expected = dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
+    for (uint32_t i = 0; i < numOutputs; ++i) {
+      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+// ============================================================================
+// Dimension-wise Norm Tests
+// ============================================================================
+
+// Test NormDim on 2D tensors reducing along dim 0
+TEST_F(VulkanBackendTest, NormDim_2D_Dim0) {
+  const DataType dtype = DataType::Float32;
+
+  struct TestCase {
+    uint32_t rows;
+    uint32_t cols;
+  };
+  constexpr std::array<TestCase, 4> testCases = {
+      {{3, 4}, {7, 8}, {4, 12}, {13, 16}}};
+
+  for (const auto &tc : testCases) {
+    const uint32_t elements = tc.rows * tc.cols;
+    auto dataIn = generateTestData<float>(elements, 42);
+
+    uint32_t outerSize = 1;
+    uint32_t reduceSize = tc.rows;
+    uint32_t innerSize = tc.cols;
+
+    SCOPED_TRACE(std::string("Shape: [") + std::to_string(tc.rows) + ", " +
+                 std::to_string(tc.cols) + "] dim=0");
+
+    auto bufferIn =
+        runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
+    auto bufferOut = runtime_->createTensorEmpty({tc.cols}, dtype);
+
+    uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
+    runtime_->encodeOperator(
+        NormDim,
+        {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+         ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+    std::vector<float> output(innerSize);
+    runtime_->copyFromTensor(bufferOut, output.data(),
+                             innerSize * sizeof(float));
+
+    auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
+    for (uint32_t i = 0; i < innerSize; ++i) {
+      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+// Test NormDim on 2D tensors reducing along dim 1
+TEST_F(VulkanBackendTest, NormDim_2D_Dim1) {
+  const DataType dtype = DataType::Float32;
+
+  struct TestCase {
+    uint32_t rows;
+    uint32_t cols;
+  };
+  constexpr std::array<TestCase, 4> testCases = {
+      {{3, 4}, {7, 8}, {4, 12}, {13, 16}}};
+
+  for (const auto &tc : testCases) {
+    const uint32_t elements = tc.rows * tc.cols;
+    auto dataIn = generateTestData<float>(elements, 42);
+
+    uint32_t outerSize = tc.rows;
+    uint32_t reduceSize = tc.cols;
+    uint32_t innerSize = 1;
+
+    SCOPED_TRACE(std::string("Shape: [") + std::to_string(tc.rows) + ", " +
+                 std::to_string(tc.cols) + "] dim=1");
+
+    auto bufferIn =
+        runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
+    auto bufferOut = runtime_->createTensorEmpty({tc.rows}, dtype);
+
+    uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
+    runtime_->encodeOperator(
+        NormDim,
+        {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+         ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+    std::vector<float> output(outerSize);
+    runtime_->copyFromTensor(bufferOut, output.data(),
+                             outerSize * sizeof(float));
+
+    auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
+    for (uint32_t i = 0; i < outerSize; ++i) {
+      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+// Test NormDim on 3D tensor reducing along middle dimension
+TEST_F(VulkanBackendTest, NormDim_3D_MiddleDim) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t d0 = 3, d1 = 5, d2 = 4;
+  const uint32_t elements = d0 * d1 * d2;
+  auto dataIn = generateTestData<float>(elements, 42);
+
+  uint32_t outerSize = d0;
+  uint32_t reduceSize = d1;
+  uint32_t innerSize = d2;
+  uint32_t numOutputs = outerSize * innerSize;
+
+  SCOPED_TRACE("Shape: [3, 5, 4] dim=1");
+
+  auto bufferIn = runtime_->createTensor({d0, d1, d2}, dtype, dataIn.data());
+  auto bufferOut = runtime_->createTensorEmpty({d0, d2}, dtype);
+
+  uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
+  runtime_->encodeOperator(
+      NormDim,
+      {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+       ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+  std::vector<float> output(numOutputs);
+  runtime_->copyFromTensor(bufferOut, output.data(),
+                           numOutputs * sizeof(float));
+
+  auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
+  for (uint32_t i = 0; i < numOutputs; ++i) {
+    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+        << "Mismatch at index " << i;
+  }
+}
+
+// Test NormDim with known values (3-4-5 triangle)
+TEST_F(VulkanBackendTest, NormDim_KnownValues) {
+  const DataType dtype = DataType::Float32;
+
+  // [[3, 5], [4, 12]] -> norm along dim 0 -> [sqrt(9+16), sqrt(25+144)]
+  //                                        = [5, 13]
+  std::vector<float> dataIn = {3.0f, 5.0f, 4.0f, 12.0f};
+  uint32_t outerSize = 1;
+  uint32_t reduceSize = 2;
+  uint32_t innerSize = 2;
+
+  auto bufferIn = runtime_->createTensor({2, 2}, dtype, dataIn.data());
+  auto bufferOut = runtime_->createTensorEmpty({2}, dtype);
+
+  uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
+  runtime_->encodeOperator(
+      NormDim,
+      {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+       ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+  std::vector<float> output(2);
+  runtime_->copyFromTensor(bufferOut, output.data(), 2 * sizeof(float));
+
+  EXPECT_NEAR(output[0], 5.0f, 1e-5f);
+  EXPECT_NEAR(output[1], 13.0f, 1e-5f);
+}
+
+// ============================================================================
 // Runtime Lifecycle Tests
 // ============================================================================
 

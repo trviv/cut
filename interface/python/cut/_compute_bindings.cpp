@@ -405,6 +405,8 @@ PYBIND11_MODULE(_cut_compute, m) {
       .value("ReduceDimProd", cut::OperatorEnum::ReduceDimProd)
       .value("ReduceDimAny", cut::OperatorEnum::ReduceDimAny)
       .value("ReduceDimAll", cut::OperatorEnum::ReduceDimAll)
+      // Norm operations
+      .value("NormDim", cut::OperatorEnum::NormDim)
       // Matrix operations
       .value("MatMul", cut::OperatorEnum::MatMul)
       .value("Transpose", cut::OperatorEnum::Transpose)

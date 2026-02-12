@@ -1339,9 +1339,11 @@ def norm(input: Tensor, p: Union[float, str] = 2, dim: Optional[int] = None,
     """
     _ensure_initialized()
 
-    # For now, implement basic functionality
     if dim is not None:
-        raise NotImplementedError("Per-dimension norm not yet implemented")
+        if p == 2 or p == 'fro':
+            return _dim_reduce(input, dim, OperatorEnum.NormDim)
+        else:
+            raise NotImplementedError("Per-dimension norm only supports p=2 (L2 norm)")
 
     data = input.tolist()
 

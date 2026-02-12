@@ -271,6 +271,8 @@ const char *operatorName(OperatorEnum op) {
   // Norm operations
   case Norm:
     return "Norm";
+  case NormDim:
+    return "NormDim";
 
   // Tensor creation operations
   case Arange:
