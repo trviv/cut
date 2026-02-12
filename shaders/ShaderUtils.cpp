@@ -343,6 +343,8 @@ layout(push_constant) uniform PushConstants {
     uint outerSize;
     uint reduceSize;
     uint innerSize;
+    uint inOuterStride;
+    uint inReduceStride;
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
@@ -366,7 +368,7 @@ void main() {
 
     %SCALAR_DTYPE% val = %IDENTITY%;
     for (uint r = 0; r < reduceSize; r++) {
-        uint inIdx = outer * reduceSize * innerSize + r * innerSize + inner;
+        uint inIdx = outer * inOuterStride + r * inReduceStride + inner;
         %SCALAR_DTYPE% a = val;
         %SCALAR_DTYPE% b = dataIn[inIdx];
         val = %REDUCE_OP%;

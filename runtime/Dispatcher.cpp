@@ -391,6 +391,29 @@ void Dispatcher::encode(OperatorEnum op,
       }
     }
 
+    // Compute input buffer strides that account for inner-dimension alignment.
+    // The GPU buffer pads the innermost dimension to a multiple of 4, so the
+    // shader must use aligned strides when indexing into the input buffer.
+    uint32_t inReduceStride = innerSize;
+    uint32_t inOuterStride = reduceSize * innerSize;
+    if (!dimReduceHandleBindings.empty()) {
+      const auto &inputBuffer =
+          iface_->getBuffer(dimReduceHandleBindings[0].getHandle());
+      uint32_t bufInnerDim = inputBuffer.innerDimSize();
+      uint32_t alignedBufInner = (bufInnerDim + 3) & ~static_cast<uint32_t>(3);
+      if (innerSize == bufInnerDim) {
+        // Reducing a non-innermost dimension: stride between reduce steps
+        // is the aligned inner dimension
+        inReduceStride = alignedBufInner;
+        inOuterStride = reduceSize * alignedBufInner;
+      } else if (innerSize == 1) {
+        // Reducing the innermost dimension: elements within a row are
+        // contiguous, but rows start at aligned offsets
+        inReduceStride = 1;
+        inOuterStride = alignedBufInner;
+      }
+    }
+
     uint32_t numOutputs = outerSize * innerSize;
     // Round up to multiple of 256 for workgroup dispatch
     uint32_t gridX = ((numOutputs + 255) / 256) * 256;
@@ -402,7 +425,9 @@ void Dispatcher::encode(OperatorEnum op,
       uint32_t outerSize;
       uint32_t reduceSize;
       uint32_t innerSize;
-    } pushData{outerSize, reduceSize, innerSize};
+      uint32_t inOuterStride;
+      uint32_t inReduceStride;
+    } pushData{outerSize, reduceSize, innerSize, inOuterStride, inReduceStride};
     dimReduceDispatch.bindData(
         DataReference(&pushData, sizeof(pushData)),
         static_cast<uint32_t>(dimReduceHandleBindings.size()));
