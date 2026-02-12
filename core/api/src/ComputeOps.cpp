@@ -69,6 +69,10 @@ const char *operatorName(OperatorEnum op) {
     return "BinaryVecVecCopysign";
   case BinaryVecVecFmod:
     return "BinaryVecVecFmod";
+  case BinaryVecVecLogaddexp:
+    return "BinaryVecVecLogaddexp";
+  case BinaryVecVecLogaddexp2:
+    return "BinaryVecVecLogaddexp2";
 
   // Binary vec-scalar arithmetic
   case BinaryVecScalarAdd:
@@ -139,6 +143,10 @@ const char *operatorName(OperatorEnum op) {
   // Binary vec-scalar activation
   case BinaryVecScalarLeakyRelu:
     return "BinaryVecScalarLeakyRelu";
+  case BinaryVecScalarPrelu:
+    return "BinaryVecScalarPrelu";
+  case BinaryVecScalarHardshrink:
+    return "BinaryVecScalarHardshrink";
 
   // Unary operations
   case UnaryNeg:
@@ -216,6 +224,54 @@ const char *operatorName(OperatorEnum op) {
   case UnaryIsInf:
     return "UnaryIsInf";
 
+  // Extended unary activations
+  case UnaryRelu6:
+    return "UnaryRelu6";
+  case UnaryElu:
+    return "UnaryElu";
+  case UnarySelu:
+    return "UnarySelu";
+  case UnaryCelu:
+    return "UnaryCelu";
+  case UnaryMish:
+    return "UnaryMish";
+  case UnaryHardswish:
+    return "UnaryHardswish";
+  case UnaryHardsigmoid:
+    return "UnaryHardsigmoid";
+  case UnaryHardtanh:
+    return "UnaryHardtanh";
+  case UnarySoftsign:
+    return "UnarySoftsign";
+  case UnaryLogSigmoid:
+    return "UnaryLogSigmoid";
+  case UnaryTanhshrink:
+    return "UnaryTanhshrink";
+
+  // Extended unary math
+  case UnaryRsqrt:
+    return "UnaryRsqrt";
+  case UnaryTrunc:
+    return "UnaryTrunc";
+  case UnaryFrac:
+    return "UnaryFrac";
+  case UnaryAsinh:
+    return "UnaryAsinh";
+  case UnaryAcosh:
+    return "UnaryAcosh";
+  case UnaryAtanh:
+    return "UnaryAtanh";
+  case UnaryIsFinite:
+    return "UnaryIsFinite";
+
+  // Extended binary vec-scalar
+  case BinaryVecScalarSoftshrink:
+    return "BinaryVecScalarSoftshrink";
+  case BinaryVecScalarLogaddexp:
+    return "BinaryVecScalarLogaddexp";
+  case BinaryVecScalarLogaddexp2:
+    return "BinaryVecScalarLogaddexp2";
+
   // Ternary operations
   case TernaryClamp:
     return "TernaryClamp";
@@ -251,6 +307,20 @@ const char *operatorName(OperatorEnum op) {
     return "ReduceDimAny";
   case ReduceDimAll:
     return "ReduceDimAll";
+  case ReduceArgmax:
+    return "ReduceArgmax";
+  case ReduceArgmin:
+    return "ReduceArgmin";
+  case ReduceDimArgmax:
+    return "ReduceDimArgmax";
+  case ReduceDimArgmin:
+    return "ReduceDimArgmin";
+
+  // Cumulative operations
+  case CumSum:
+    return "CumSum";
+  case CumProd:
+    return "CumProd";
 
   // Matrix operations
   case MatMul:

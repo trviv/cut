@@ -35,7 +35,7 @@ constexpr std::array<DataType, 4> kAllDataTypes = {
     DataType::Float32, DataType::Float16, DataType::UInt32, DataType::Int32};
 
 // All binary vec-vec operators
-constexpr std::array<OperatorEnum, 27> kBinaryVecVecOps = {
+constexpr std::array<OperatorEnum, 29> kBinaryVecVecOps = {
     // Arithmetic
     BinaryVecVecAdd, BinaryVecVecSub, BinaryVecVecMul, BinaryVecVecDiv,
     BinaryVecVecMod, BinaryVecVecPow, BinaryVecVecFloorDiv,
@@ -51,10 +51,12 @@ constexpr std::array<OperatorEnum, 27> kBinaryVecVecOps = {
     BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor,
     // Math
     BinaryVecVecAtan2, BinaryVecVecHypot, BinaryVecVecCopysign,
-    BinaryVecVecFmod};
+    BinaryVecVecFmod,
+    // Numerically stable log-sum-exp
+    BinaryVecVecLogaddexp, BinaryVecVecLogaddexp2};
 
 // All binary vec-scalar operators
-constexpr std::array<OperatorEnum, 28> kBinaryVecScalarOps = {
+constexpr std::array<OperatorEnum, 34> kBinaryVecScalarOps = {
     // Arithmetic
     BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
     BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarPow,
@@ -76,10 +78,14 @@ constexpr std::array<OperatorEnum, 28> kBinaryVecScalarOps = {
     BinaryVecScalarAtan2, BinaryVecScalarHypot, BinaryVecScalarCopysign,
     BinaryVecScalarFmod,
     // Activation
-    BinaryVecScalarLeakyRelu};
+    BinaryVecScalarLeakyRelu,
+    // Parameterized activations
+    BinaryVecScalarPrelu, BinaryVecScalarHardshrink, BinaryVecScalarSoftshrink,
+    // Numerically stable log-sum-exp
+    BinaryVecScalarLogaddexp, BinaryVecScalarLogaddexp2};
 
 // All unary operators
-constexpr std::array<OperatorEnum, 37> kUnaryOps = {
+constexpr std::array<OperatorEnum, 55> kUnaryOps = {
     // Basic
     UnaryNeg, UnaryAbs, UnarySqrt, UnarySquare, UnaryReciprocal, UnarySign,
     // Exponential/Logarithmic
@@ -98,7 +104,14 @@ constexpr std::array<OperatorEnum, 37> kUnaryOps = {
     // Activation Functions
     UnaryRelu, UnarySigmoid, UnaryGelu, UnarySilu, UnarySoftplus,
     // Check Operations
-    UnaryIsNan, UnaryIsInf};
+    UnaryIsNan, UnaryIsInf,
+    // Extended Activations (Phase 1)
+    UnaryRelu6, UnaryElu, UnarySelu, UnaryCelu, UnaryMish, UnaryHardswish,
+    UnaryHardsigmoid, UnaryHardtanh, UnarySoftsign, UnaryLogSigmoid,
+    UnaryTanhshrink,
+    // Extended Math (Phase 2)
+    UnaryRsqrt, UnaryTrunc, UnaryFrac, UnaryAsinh, UnaryAcosh, UnaryAtanh,
+    UnaryIsFinite};
 
 // Ternary operators
 constexpr std::array<OperatorEnum, 2> kTernaryOps = {TernaryClamp,
@@ -257,6 +270,52 @@ inline bool hasVulkanShaderSupport(OperatorEnum op) {
   case Full:
   // Norm operations
   case Norm:
+  // Extended unary activations (Phase 1)
+  case UnaryRelu6:
+  case UnaryElu:
+  case UnarySelu:
+  case UnaryCelu:
+  case UnaryMish:
+  case UnaryHardswish:
+  case UnaryHardsigmoid:
+  case UnaryHardtanh:
+  case UnarySoftsign:
+  case UnaryLogSigmoid:
+  case UnaryTanhshrink:
+  // Extended unary math (Phase 2)
+  case UnaryRsqrt:
+  case UnaryTrunc:
+  case UnaryFrac:
+  case UnaryAsinh:
+  case UnaryAcosh:
+  case UnaryAtanh:
+  case UnaryIsFinite:
+  // Extended binary vec-vec (Phase 3)
+  case BinaryVecVecLogaddexp:
+  case BinaryVecVecLogaddexp2:
+  // Extended binary vec-scalar activations
+  case BinaryVecScalarPrelu:
+  case BinaryVecScalarHardshrink:
+  case BinaryVecScalarSoftshrink:
+  case BinaryVecScalarLogaddexp:
+  case BinaryVecScalarLogaddexp2:
+  // Argmax/Argmin reductions
+  case ReduceArgmax:
+  case ReduceArgmin:
+  case ReduceDimArgmax:
+  case ReduceDimArgmin:
+  // Cumulative scan operations
+  case CumSum:
+  case CumProd:
+  // Dim-wise reductions
+  case NormDim:
+  case ReduceDimSum:
+  case ReduceDimMean:
+  case ReduceDimMin:
+  case ReduceDimMax:
+  case ReduceDimProd:
+  case ReduceDimAny:
+  case ReduceDimAll:
     return true;
   // Operators without shader support yet
   default:
@@ -476,6 +535,22 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
     } else {
       return a % b;
     }
+  case BinaryVecVecLogaddexp:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::max(a, b) + std::log(T{1} + std::exp(-std::abs(a - b)));
+    } else {
+      double da = static_cast<double>(a), db = static_cast<double>(b);
+      return static_cast<T>(std::max(da, db) +
+                            std::log(1.0 + std::exp(-std::abs(da - db))));
+    }
+  case BinaryVecVecLogaddexp2:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::max(a, b) + std::log2(T{1} + std::exp2(-std::abs(a - b)));
+    } else {
+      double da = static_cast<double>(a), db = static_cast<double>(b);
+      return static_cast<T>(std::max(da, db) +
+                            std::log2(1.0 + std::exp2(-std::abs(da - db))));
+    }
   default:
     return T{};
   }
@@ -623,6 +698,51 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
   // Activation
   case BinaryVecScalarLeakyRelu:
     return a > T{0} ? a : a * scalar;
+  // Parameterized activations
+  case BinaryVecScalarPrelu:
+    return a >= T{0} ? a : scalar * a;
+  case BinaryVecScalarHardshrink:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::abs(a) > scalar ? a : T{0};
+    } else {
+      return std::abs(static_cast<double>(a)) > static_cast<double>(scalar)
+                 ? a
+                 : T{0};
+    }
+  case BinaryVecScalarSoftshrink:
+    if constexpr (std::is_floating_point_v<T>) {
+      if (a > scalar)
+        return a - scalar;
+      if (a < -scalar)
+        return a + scalar;
+      return T{0};
+    } else {
+      double da = static_cast<double>(a), ds = static_cast<double>(scalar);
+      if (da > ds)
+        return static_cast<T>(da - ds);
+      if (da < -ds)
+        return static_cast<T>(da + ds);
+      return T{0};
+    }
+  // Log-sum-exp
+  case BinaryVecScalarLogaddexp:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::max(a, scalar) +
+             std::log(T{1} + std::exp(-std::abs(a - scalar)));
+    } else {
+      double da = static_cast<double>(a), ds = static_cast<double>(scalar);
+      return static_cast<T>(std::max(da, ds) +
+                            std::log(1.0 + std::exp(-std::abs(da - ds))));
+    }
+  case BinaryVecScalarLogaddexp2:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::max(a, scalar) +
+             std::log2(T{1} + std::exp2(-std::abs(a - scalar)));
+    } else {
+      double da = static_cast<double>(a), ds = static_cast<double>(scalar);
+      return static_cast<T>(std::max(da, ds) +
+                            std::log2(1.0 + std::exp2(-std::abs(da - ds))));
+    }
   default:
     return T{};
   }
@@ -857,6 +977,125 @@ T unaryRef(OperatorEnum op, T a) {
       return static_cast<T>(std::isinf(a) ? 1 : 0);
     } else {
       return T{0}; // Integers are never Inf
+    }
+  // Extended Activations (Phase 1)
+  case UnaryRelu6:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::clamp(a, T{0}, T{6});
+    } else {
+      return std::clamp(a, T{0}, T{6});
+    }
+  case UnaryElu:
+    if constexpr (std::is_floating_point_v<T>) {
+      return a >= T{0} ? a : std::exp(a) - T{1};
+    } else {
+      double x = static_cast<double>(a);
+      return static_cast<T>(x >= 0 ? x : std::exp(x) - 1.0);
+    }
+  case UnarySelu: {
+    constexpr double kAlpha = 1.6732632423543772;
+    constexpr double kScale = 1.0507009873554805;
+    double x = static_cast<double>(a);
+    return static_cast<T>(kScale * (x >= 0 ? x : kAlpha * (std::exp(x) - 1.0)));
+  }
+  case UnaryCelu:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::max(a, T{0}) + std::min(T{0}, std::exp(a) - T{1});
+    } else {
+      double x = static_cast<double>(a);
+      return static_cast<T>(std::max(x, 0.0) +
+                            std::min(0.0, std::exp(x) - 1.0));
+    }
+  case UnaryMish:
+    if constexpr (std::is_floating_point_v<T>) {
+      return a * std::tanh(std::log(T{1} + std::exp(a)));
+    } else {
+      double x = static_cast<double>(a);
+      return static_cast<T>(x * std::tanh(std::log(1.0 + std::exp(x))));
+    }
+  case UnaryHardswish:
+    if constexpr (std::is_floating_point_v<T>) {
+      return a * std::clamp(a + T{3}, T{0}, T{6}) / T{6};
+    } else {
+      double x = static_cast<double>(a);
+      return static_cast<T>(x * std::clamp(x + 3.0, 0.0, 6.0) / 6.0);
+    }
+  case UnaryHardsigmoid:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::clamp(a / T{6} + T{0.5}, T{0}, T{1});
+    } else {
+      double x = static_cast<double>(a);
+      return static_cast<T>(std::clamp(x / 6.0 + 0.5, 0.0, 1.0));
+    }
+  case UnaryHardtanh:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::clamp(a, T{-1}, T{1});
+    } else {
+      return std::clamp(a, T{-1}, T{1});
+    }
+  case UnarySoftsign:
+    if constexpr (std::is_floating_point_v<T>) {
+      return a / (T{1} + std::abs(a));
+    } else {
+      double x = static_cast<double>(a);
+      return static_cast<T>(x / (1.0 + std::abs(x)));
+    }
+  case UnaryLogSigmoid:
+    if constexpr (std::is_floating_point_v<T>) {
+      return -std::log(T{1} + std::exp(-a));
+    } else {
+      double x = static_cast<double>(a);
+      return static_cast<T>(-std::log(1.0 + std::exp(-x)));
+    }
+  case UnaryTanhshrink:
+    if constexpr (std::is_floating_point_v<T>) {
+      return a - std::tanh(a);
+    } else {
+      double x = static_cast<double>(a);
+      return static_cast<T>(x - std::tanh(x));
+    }
+  // Extended Math (Phase 2)
+  case UnaryRsqrt:
+    if constexpr (std::is_floating_point_v<T>) {
+      return T{1} / std::sqrt(a);
+    } else {
+      return static_cast<T>(1.0 / std::sqrt(static_cast<double>(a)));
+    }
+  case UnaryTrunc:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::trunc(a);
+    } else {
+      return a;
+    }
+  case UnaryFrac:
+    if constexpr (std::is_floating_point_v<T>) {
+      return a - std::floor(a);
+    } else {
+      return T{0};
+    }
+  case UnaryAsinh:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::asinh(a);
+    } else {
+      return static_cast<T>(std::asinh(static_cast<double>(a)));
+    }
+  case UnaryAcosh:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::acosh(a);
+    } else {
+      return static_cast<T>(std::acosh(static_cast<double>(a)));
+    }
+  case UnaryAtanh:
+    if constexpr (std::is_floating_point_v<T>) {
+      return std::atanh(a);
+    } else {
+      return static_cast<T>(std::atanh(static_cast<double>(a)));
+    }
+  case UnaryIsFinite:
+    if constexpr (std::is_floating_point_v<T>) {
+      return static_cast<T>(std::isfinite(a) ? 1 : 0);
+    } else {
+      return T{1}; // Integers are always finite
     }
   default:
     return T{};
@@ -2512,6 +2751,420 @@ TEST_F(RuntimeLifecycleTest, MoveSemantics) {
   EXPECT_EQ(runtime3.currentBackend(), BackendType::Vulkan);
 
   runtime3.shutdown();
+}
+
+// ============================================================================
+// Argmax/Argmin Tests
+// ============================================================================
+
+class ArgmaxArgminTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(ArgmaxArgminTest, GlobalArgmax_Float32) {
+  const DataType dtype = DataType::Float32;
+  std::vector<float> data = {1.0f, 5.0f, 3.0f, 9.0f, 2.0f, 7.0f, 4.0f, 6.0f};
+  const uint32_t elements = static_cast<uint32_t>(data.size());
+
+  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+  runtime_->encodeOperator(ReduceArgmax, {ComputeBinding(0, bufferIn),
+                                          ComputeBinding(1, bufferOut)});
+
+  float output = 0.0f;
+  runtime_->copyFromTensor(bufferOut, &output, sizeof(float));
+
+  EXPECT_EQ(static_cast<int>(output), 3)
+      << "Argmax should be index 3 (value 9.0)";
+}
+
+TEST_F(ArgmaxArgminTest, GlobalArgmin_Float32) {
+  const DataType dtype = DataType::Float32;
+  std::vector<float> data = {5.0f, 3.0f, 1.0f, 9.0f, 2.0f, 7.0f, 4.0f, 6.0f};
+  const uint32_t elements = static_cast<uint32_t>(data.size());
+
+  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+  runtime_->encodeOperator(ReduceArgmin, {ComputeBinding(0, bufferIn),
+                                          ComputeBinding(1, bufferOut)});
+
+  float output = 0.0f;
+  runtime_->copyFromTensor(bufferOut, &output, sizeof(float));
+
+  EXPECT_EQ(static_cast<int>(output), 2)
+      << "Argmin should be index 2 (value 1.0)";
+}
+
+TEST_F(ArgmaxArgminTest, GlobalArgmax_LargeTensor) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t elements = 1024;
+  std::mt19937 gen(42);
+  std::uniform_real_distribution<float> dist(-100.0f, 100.0f);
+
+  std::vector<float> data(elements);
+  for (auto &v : data)
+    v = dist(gen);
+
+  // Find expected argmax
+  int expectedIdx = 0;
+  for (uint32_t i = 1; i < elements; ++i) {
+    if (data[i] > data[expectedIdx])
+      expectedIdx = static_cast<int>(i);
+  }
+
+  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+  runtime_->encodeOperator(ReduceArgmax, {ComputeBinding(0, bufferIn),
+                                          ComputeBinding(1, bufferOut)});
+
+  float output = 0.0f;
+  runtime_->copyFromTensor(bufferOut, &output, sizeof(float));
+
+  EXPECT_EQ(static_cast<int>(output), expectedIdx);
+}
+
+TEST_F(ArgmaxArgminTest, DimArgmax_2D_Dim0) {
+  const DataType dtype = DataType::Float32;
+  // 3x4 matrix, find argmax along dim 0 (across rows)
+  std::vector<float> data = {
+      1.0f, 9.0f, 3.0f, 2.0f, // row 0
+      7.0f, 4.0f, 8.0f, 5.0f, // row 1
+      6.0f, 2.0f, 1.0f, 10.0f // row 2
+  };
+  std::vector<uint32_t> shape = {3, 4};
+
+  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty({4}, dtype);
+
+  // For dim 0: outerSize=1, reduceSize=3, innerSize=4
+  uint32_t shapeData[5] = {
+      1, 3, 4, 4, 4}; // outer, reduce, inner, inOuterStride, inReduceStride
+
+  runtime_->encodeOperator(
+      ReduceDimArgmax,
+      {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+       ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+  std::vector<float> output(4);
+  runtime_->copyFromTensor(bufferOut, output.data(), 4 * sizeof(float));
+
+  // Expected: col 0->row 1 (7), col 1->row 0 (9), col 2->row 1 (8), col 3->row
+  // 2 (10)
+  EXPECT_EQ(static_cast<int>(output[0]), 1);
+  EXPECT_EQ(static_cast<int>(output[1]), 0);
+  EXPECT_EQ(static_cast<int>(output[2]), 1);
+  EXPECT_EQ(static_cast<int>(output[3]), 2);
+}
+
+TEST_F(ArgmaxArgminTest, DimArgmin_2D_Dim0) {
+  const DataType dtype = DataType::Float32;
+  // Same data as above
+  std::vector<float> data = {1.0f, 9.0f, 3.0f, 2.0f, 7.0f, 4.0f,
+                             8.0f, 5.0f, 6.0f, 2.0f, 1.0f, 10.0f};
+  std::vector<uint32_t> shape = {3, 4};
+
+  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty({4}, dtype);
+
+  uint32_t shapeData[5] = {1, 3, 4, 4, 4};
+
+  runtime_->encodeOperator(
+      ReduceDimArgmin,
+      {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+       ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+  std::vector<float> output(4);
+  runtime_->copyFromTensor(bufferOut, output.data(), 4 * sizeof(float));
+
+  // Expected: col 0->row 0 (1), col 1->row 2 (2), col 2->row 2 (1), col 3->row
+  // 0 (2)
+  EXPECT_EQ(static_cast<int>(output[0]), 0);
+  EXPECT_EQ(static_cast<int>(output[1]), 2);
+  EXPECT_EQ(static_cast<int>(output[2]), 2);
+  EXPECT_EQ(static_cast<int>(output[3]), 0);
+}
+
+// ============================================================================
+// Cumulative Scan Tests
+// ============================================================================
+
+class CumsumCumprodTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(CumsumCumprodTest, CumSum_1D) {
+  const DataType dtype = DataType::Float32;
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+  const uint32_t elements = static_cast<uint32_t>(data.size());
+
+  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+  // 1D cumsum: outerSize=1, reduceSize=8, innerSize=1
+  uint32_t shapeData[5] = {1, 8, 1, 1, 1};
+
+  runtime_->encodeOperator(
+      CumSum, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+               ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+
+  std::vector<float> expected = {1.0f,  3.0f,  6.0f,  10.0f,
+                                 15.0f, 21.0f, 28.0f, 36.0f};
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f)
+        << "CumSum mismatch at index " << i;
+  }
+}
+
+TEST_F(CumsumCumprodTest, CumProd_1D) {
+  const DataType dtype = DataType::Float32;
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  const uint32_t elements = static_cast<uint32_t>(data.size());
+
+  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+  uint32_t shapeData[5] = {1, 4, 1, 1, 1};
+
+  runtime_->encodeOperator(
+      CumProd,
+      {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+       ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+
+  std::vector<float> expected = {1.0f, 2.0f, 6.0f, 24.0f};
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f)
+        << "CumProd mismatch at index " << i;
+  }
+}
+
+TEST_F(CumsumCumprodTest, CumSum_2D_Dim0) {
+  const DataType dtype = DataType::Float32;
+  // 3x4 matrix, cumsum along dim 0
+  std::vector<float> data = {
+      1.0f, 2.0f,  3.0f,  4.0f, // row 0
+      5.0f, 6.0f,  7.0f,  8.0f, // row 1
+      9.0f, 10.0f, 11.0f, 12.0f // row 2
+  };
+  std::vector<uint32_t> shape = {3, 4};
+  const uint32_t elements = 12;
+
+  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+  // dim 0: outerSize=1, reduceSize=3, innerSize=4
+  uint32_t shapeData[5] = {1, 3, 4, 4, 4};
+
+  runtime_->encodeOperator(
+      CumSum, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+               ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+
+  // Expected: cumsum along rows
+  std::vector<float> expected = {
+      1.0f,  2.0f,  3.0f,  4.0f,  // row 0
+      6.0f,  8.0f,  10.0f, 12.0f, // row 0 + row 1
+      15.0f, 18.0f, 21.0f, 24.0f  // row 0 + row 1 + row 2
+  };
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f)
+        << "CumSum 2D dim0 mismatch at index " << i;
+  }
+}
+
+TEST_F(CumsumCumprodTest, CumProd_2D_Dim0) {
+  const DataType dtype = DataType::Float32;
+  // 2x4 matrix, cumprod along dim 0
+  std::vector<float> data = {
+      1.0f, 2.0f, 3.0f, 4.0f, // row 0
+      5.0f, 6.0f, 7.0f, 8.0f  // row 1
+  };
+  std::vector<uint32_t> shape = {2, 4};
+  const uint32_t elements = 8;
+
+  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+  // dim 0: outerSize=1, reduceSize=2, innerSize=4
+  uint32_t shapeData[5] = {1, 2, 4, 4, 4};
+
+  runtime_->encodeOperator(
+      CumProd,
+      {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+       ComputeBinding(2, DataReference(shapeData, sizeof(shapeData)))});
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+
+  std::vector<float> expected = {
+      1.0f, 2.0f,  3.0f,  4.0f, // row 0
+      5.0f, 12.0f, 21.0f, 32.0f // row 0 * row 1
+  };
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f)
+        << "CumProd 2D dim0 mismatch at index " << i;
+  }
+}
+
+// ============================================================================
+// Extended Activation & Math Shader Compilation Tests
+// ============================================================================
+
+class NewOpsShaderCompileTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(NewOpsShaderCompileTest, AllNewUnaryActivations_Compile) {
+  const DataType dtype = DataType::Float32;
+  constexpr std::array<OperatorEnum, 11> kNewUnaryActivations = {
+      UnaryRelu6,    UnaryElu,        UnarySelu,        UnaryCelu,
+      UnaryMish,     UnaryHardswish,  UnaryHardsigmoid, UnaryHardtanh,
+      UnarySoftsign, UnaryLogSigmoid, UnaryTanhshrink};
+
+  std::vector<float> dataIn = {-2.0f, -1.0f, 0.0f, 1.0f,
+                               2.0f,  3.0f,  5.0f, 7.0f};
+  const uint32_t elements = static_cast<uint32_t>(dataIn.size());
+  const size_t bufferSize = elements * sizeof(float);
+
+  for (OperatorEnum op : kNewUnaryActivations) {
+    SCOPED_TRACE(std::string("Op: ") + operatorName(op));
+
+    auto bufferIn = runtime_->createTensor({elements}, dtype, dataIn.data());
+    auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+    EXPECT_NO_THROW(runtime_->encodeOperator(
+        op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)}));
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = unaryRef(op, dataIn[i]);
+      if (std::isfinite(expected)) {
+        EXPECT_NEAR(output[i], expected, 1e-3f)
+            << "Mismatch at index " << i << " for " << operatorName(op);
+      }
+    }
+  }
+}
+
+TEST_F(NewOpsShaderCompileTest, AllNewUnaryMath_Compile) {
+  const DataType dtype = DataType::Float32;
+  constexpr std::array<OperatorEnum, 7> kNewUnaryMath = {
+      UnaryRsqrt, UnaryTrunc, UnaryFrac,    UnaryAsinh,
+      UnaryAcosh, UnaryAtanh, UnaryIsFinite};
+
+  // Values suitable for all these functions (acosh requires >= 1, atanh
+  // requires |x| < 1)
+  std::vector<float> dataIn = {0.1f, 0.5f, 0.9f, 1.5f, 2.0f, 3.0f, 5.0f, 10.0f};
+  const uint32_t elements = static_cast<uint32_t>(dataIn.size());
+  const size_t bufferSize = elements * sizeof(float);
+
+  for (OperatorEnum op : kNewUnaryMath) {
+    SCOPED_TRACE(std::string("Op: ") + operatorName(op));
+
+    auto bufferIn = runtime_->createTensor({elements}, dtype, dataIn.data());
+    auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+    EXPECT_NO_THROW(runtime_->encodeOperator(
+        op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)}));
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = unaryRef(op, dataIn[i]);
+      if (std::isfinite(expected)) {
+        EXPECT_NEAR(output[i], expected, 1e-4f)
+            << "Mismatch at index " << i << " for " << operatorName(op);
+      }
+    }
+  }
+}
+
+TEST_F(NewOpsShaderCompileTest, NewBinaryVecVec_Logaddexp) {
+  const DataType dtype = DataType::Float32;
+  std::vector<float> dataA = {1.0f,  2.0f, 3.0f, -1.0f,
+                              -2.0f, 0.0f, 5.0f, 10.0f};
+  std::vector<float> dataB = {2.0f, 1.0f, 3.0f, 0.0f, -3.0f, 0.0f, 4.0f, 9.0f};
+  const uint32_t elements = static_cast<uint32_t>(dataA.size());
+  const size_t bufferSize = elements * sizeof(float);
+
+  for (OperatorEnum op : {BinaryVecVecLogaddexp, BinaryVecVecLogaddexp2}) {
+    SCOPED_TRACE(std::string("Op: ") + operatorName(op));
+
+    auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
+    auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
+    auto bufOut = runtime_->createTensorEmpty({elements}, dtype);
+
+    runtime_->encodeOperator(op,
+                             {ComputeBinding(0, bufA), ComputeBinding(1, bufB),
+                              ComputeBinding(2, bufOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
+      EXPECT_NEAR(output[i], expected, 1e-4f)
+          << "Mismatch at index " << i << " for " << operatorName(op);
+    }
+  }
+}
+
+TEST_F(NewOpsShaderCompileTest, NewBinaryVecScalar_ParameterizedActivations) {
+  const DataType dtype = DataType::Float32;
+  std::vector<float> dataA = {-3.0f, -1.0f, -0.5f, 0.0f,
+                              0.5f,  1.0f,  2.0f,  3.0f};
+  const uint32_t elements = static_cast<uint32_t>(dataA.size());
+  const size_t bufferSize = elements * sizeof(float);
+  const float scalar = 0.5f;
+
+  for (OperatorEnum op : {BinaryVecScalarPrelu, BinaryVecScalarHardshrink,
+                          BinaryVecScalarSoftshrink, BinaryVecScalarLogaddexp,
+                          BinaryVecScalarLogaddexp2}) {
+    SCOPED_TRACE(std::string("Op: ") + operatorName(op));
+
+    auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
+    auto bufOut = runtime_->createTensorEmpty({elements}, dtype);
+
+    runtime_->encodeOperator(op, {ComputeBinding(0, bufA),
+                                  ComputeBinding(1, bufOut),
+                                  ComputeBinding(2, DataReference(scalar))});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = binaryVecScalarRef(op, dataA[i], scalar);
+      if (std::isfinite(expected)) {
+        EXPECT_NEAR(output[i], expected, 1e-4f)
+            << "Mismatch at index " << i << " for " << operatorName(op);
+      }
+    }
+  }
 }
 
 } // namespace

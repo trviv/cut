@@ -541,6 +541,10 @@ def _format_tensor(data, indent=0) -> str:
     return f"[{items}]"
 
 
+# Save reference to builtin sum before we shadow it
+import builtins as _builtins
+builtins_sum = _builtins.sum
+
 # =============================================================================
 # Operation Implementations
 # =============================================================================
@@ -759,9 +763,7 @@ def mean(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     ]
     _cut_compute.execute_operator(OperatorEnum.ReduceMean, bindings)
 
-    total = float(out.copy_to()[0])
-    count = _cut_compute.shape_product(list(a.shape))
-    return total / count
+    return float(out.copy_to()[0])
 
 
 def min(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -1576,6 +1578,735 @@ def full(*size, fill_value: Union[int, float] = 0, dtype: Optional[DataType] = N
     return Tensor([fill_value] * total_size, dtype=dtype, shape=shape)
 
 
+def zeros_like(input: Tensor, dtype: Optional[DType] = None) -> Tensor:
+    """
+    Create a tensor of zeros with the same shape and dtype as input.
+
+    Args:
+        input: Reference tensor
+        dtype: Override data type (default: same as input)
+
+    Returns:
+        Tensor filled with zeros
+
+    Example:
+        >>> a = Tensor([[1, 2], [3, 4]])
+        >>> result = zeros_like(a)  # [[0, 0], [0, 0]]
+    """
+    d = dtype if dtype is not None else input._dtype
+    total = _cut_compute.shape_product(list(input._shape))
+    return Tensor([0] * total, dtype=d, shape=input._shape)
+
+
+def ones_like(input: Tensor, dtype: Optional[DType] = None) -> Tensor:
+    """
+    Create a tensor of ones with the same shape and dtype as input.
+
+    Args:
+        input: Reference tensor
+        dtype: Override data type (default: same as input)
+
+    Returns:
+        Tensor filled with ones
+
+    Example:
+        >>> a = Tensor([[1, 2], [3, 4]])
+        >>> result = ones_like(a)  # [[1, 1], [1, 1]]
+    """
+    d = dtype if dtype is not None else input._dtype
+    total = _cut_compute.shape_product(list(input._shape))
+    return Tensor([1] * total, dtype=d, shape=input._shape)
+
+
+def full_like(input: Tensor, fill_value: Union[int, float], dtype: Optional[DType] = None) -> Tensor:
+    """
+    Create a tensor filled with fill_value, same shape and dtype as input.
+
+    Args:
+        input: Reference tensor
+        fill_value: Value to fill with
+        dtype: Override data type (default: same as input)
+
+    Returns:
+        Tensor filled with fill_value
+
+    Example:
+        >>> a = Tensor([[1, 2], [3, 4]])
+        >>> result = full_like(a, 7.0)  # [[7, 7], [7, 7]]
+    """
+    d = dtype if dtype is not None else input._dtype
+    total = _cut_compute.shape_product(list(input._shape))
+    return Tensor([fill_value] * total, dtype=d, shape=input._shape)
+
+
+def var(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[float, 'Tensor']:
+    """
+    Compute the variance of elements, optionally along a dimension.
+
+    Uses Bessel's correction (N-1) by default, matching PyTorch behavior.
+
+    Args:
+        a: Input tensor
+        dim: Dimension along which to compute. If None, computes over all elements.
+        correction: Degrees of freedom correction (default: 1 for unbiased)
+
+    Returns:
+        Variance value or tensor
+
+    Example:
+        >>> a = Tensor([1, 2, 3, 4])
+        >>> var(a)  # 1.6667 (unbiased)
+    """
+    _ensure_initialized()
+
+    if dim is not None:
+        shape = a._shape
+        ndim = len(shape)
+        if dim < 0:
+            dim = ndim + dim
+
+        outer_size = 1
+        for i in range(dim):
+            outer_size *= shape[i]
+        reduce_size = shape[dim]
+        inner_size = 1
+        for i in range(dim + 1, ndim):
+            inner_size *= shape[i]
+
+        # Use GPU to compute dim-wise mean, then compute variance in Python
+        m = mean(a, dim=dim)
+        mean_data = m.copy_to()
+        flat_data = a.copy_to()
+        result = []
+        for o in range(outer_size):
+            for i_inner in range(inner_size):
+                mean_val = mean_data[o * inner_size + i_inner]
+                s = 0.0
+                for r in range(reduce_size):
+                    idx = o * reduce_size * inner_size + r * inner_size + i_inner
+                    diff = flat_data[idx] - mean_val
+                    s += diff * diff
+                n = reduce_size - correction
+                result.append(s / n if n > 0 else 0.0)
+
+        out_shape = tuple(s for idx, s in enumerate(shape) if idx != dim)
+        if not out_shape:
+            out_shape = (1,)
+        return Tensor(result, dtype=a._dtype, shape=out_shape)
+
+    # Global variance using sum (more reliable)
+    total = sum(a)
+    flat = a.copy_to()
+    n = len(flat)
+    m = total / n
+    s = builtins_sum((x - m) ** 2 for x in flat)
+    denom = n - correction
+    return s / denom if denom > 0 else 0.0
+
+
+def std(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[float, 'Tensor']:
+    """
+    Compute the standard deviation of elements, optionally along a dimension.
+
+    Uses Bessel's correction (N-1) by default, matching PyTorch behavior.
+
+    Args:
+        a: Input tensor
+        dim: Dimension along which to compute. If None, computes over all elements.
+        correction: Degrees of freedom correction (default: 1 for unbiased)
+
+    Returns:
+        Standard deviation value or tensor
+
+    Example:
+        >>> a = Tensor([1, 2, 3, 4])
+        >>> std(a)  # 1.2910
+    """
+    _ensure_initialized()
+
+    if dim is not None:
+        v = var(a, dim=dim, correction=correction)
+        return globals()['sqrt'](v)
+
+    import math
+    return math.sqrt(var(a, correction=correction))
+
+
+def softmax(a: Tensor, dim: int = -1) -> Tensor:
+    """
+    Compute softmax along a dimension.
+
+    softmax(x_i) = exp(x_i) / sum(exp(x_j))
+
+    Args:
+        a: Input tensor
+        dim: Dimension along which to compute softmax (default: -1, last dim)
+
+    Returns:
+        Tensor with softmax probabilities
+
+    Example:
+        >>> a = Tensor([[1, 2, 3], [1, 2, 3]])
+        >>> result = softmax(a, dim=1)
+    """
+    _ensure_initialized()
+
+    shape = a._shape
+    ndim = len(shape)
+    if dim < 0:
+        dim = ndim + dim
+
+    # Compute max for numerical stability
+    m = _dim_reduce(a, dim, OperatorEnum.ReduceDimMax)
+
+    # We need to broadcast max back and subtract
+    # For now, implement in Python for correctness
+    flat_data = a.copy_to()
+    max_data = m.copy_to()
+
+    outer_size = 1
+    for i in range(dim):
+        outer_size *= shape[i]
+    reduce_size = shape[dim]
+    inner_size = 1
+    for i in range(dim + 1, ndim):
+        inner_size *= shape[i]
+
+    import math
+    result = [0.0] * len(flat_data)
+    for o in range(outer_size):
+        for i_inner in range(inner_size):
+            max_val = max_data[o * inner_size + i_inner]
+            # Compute exp(x - max) and sum
+            exp_sum = 0.0
+            for r in range(reduce_size):
+                idx = o * reduce_size * inner_size + r * inner_size + i_inner
+                e = math.exp(flat_data[idx] - max_val)
+                result[idx] = e
+                exp_sum += e
+            # Normalize
+            for r in range(reduce_size):
+                idx = o * reduce_size * inner_size + r * inner_size + i_inner
+                result[idx] /= exp_sum
+
+    return Tensor(result, dtype=a._dtype, shape=a._shape)
+
+
+def log_softmax(a: Tensor, dim: int = -1) -> Tensor:
+    """
+    Compute log softmax along a dimension.
+
+    log_softmax(x_i) = x_i - log(sum(exp(x_j)))
+
+    Args:
+        a: Input tensor
+        dim: Dimension along which to compute (default: -1, last dim)
+
+    Returns:
+        Tensor with log softmax values
+
+    Example:
+        >>> a = Tensor([[1, 2, 3], [1, 2, 3]])
+        >>> result = log_softmax(a, dim=1)
+    """
+    _ensure_initialized()
+
+    shape = a._shape
+    ndim = len(shape)
+    if dim < 0:
+        dim = ndim + dim
+
+    flat_data = a.copy_to()
+    max_data = _dim_reduce(a, dim, OperatorEnum.ReduceDimMax).copy_to()
+
+    outer_size = 1
+    for i in range(dim):
+        outer_size *= shape[i]
+    reduce_size = shape[dim]
+    inner_size = 1
+    for i in range(dim + 1, ndim):
+        inner_size *= shape[i]
+
+    import math
+    result = [0.0] * len(flat_data)
+    for o in range(outer_size):
+        for i_inner in range(inner_size):
+            max_val = max_data[o * inner_size + i_inner]
+            exp_sum = 0.0
+            for r in range(reduce_size):
+                idx = o * reduce_size * inner_size + r * inner_size + i_inner
+                exp_sum += math.exp(flat_data[idx] - max_val)
+            log_sum = math.log(exp_sum) + max_val
+            for r in range(reduce_size):
+                idx = o * reduce_size * inner_size + r * inner_size + i_inner
+                result[idx] = flat_data[idx] - log_sum
+
+    return Tensor(result, dtype=a._dtype, shape=a._shape)
+
+
+def cumsum(a: Tensor, dim: int = 0) -> Tensor:
+    """
+    Compute the cumulative sum along a dimension.
+
+    Args:
+        a: Input tensor
+        dim: Dimension along which to compute cumulative sum (default: 0)
+
+    Returns:
+        Tensor with cumulative sums
+
+    Example:
+        >>> a = Tensor([1.0, 2.0, 3.0, 4.0])
+        >>> cumsum(a)  # Returns [1, 3, 6, 10]
+        >>> x = Tensor([[1, 2, 3], [4, 5, 6]])
+        >>> cumsum(x, dim=0)  # Returns [[1, 2, 3], [5, 7, 9]]
+    """
+    _ensure_initialized()
+
+    shape = a._shape
+    ndim = len(shape)
+
+    if dim < 0:
+        dim = ndim + dim
+    if dim < 0 or dim >= ndim:
+        raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
+
+    outer_size = 1
+    for i in range(dim):
+        outer_size *= shape[i]
+    reduce_size = shape[dim]
+    inner_size = 1
+    for i in range(dim + 1, ndim):
+        inner_size *= shape[i]
+
+    out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
+
+    shape_data = array.array('I', [outer_size, reduce_size, inner_size])
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+        ComputeBinding.from_bytes(2, shape_data),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.CumSum, bindings)
+
+    return out
+
+
+def cumprod(a: Tensor, dim: int = 0) -> Tensor:
+    """
+    Compute the cumulative product along a dimension.
+
+    Args:
+        a: Input tensor
+        dim: Dimension along which to compute cumulative product (default: 0)
+
+    Returns:
+        Tensor with cumulative products
+
+    Example:
+        >>> a = Tensor([1.0, 2.0, 3.0, 4.0])
+        >>> cumprod(a)  # Returns [1, 2, 6, 24]
+        >>> x = Tensor([[1, 2, 3], [4, 5, 6]])
+        >>> cumprod(x, dim=0)  # Returns [[1, 2, 3], [4, 10, 18]]
+    """
+    _ensure_initialized()
+
+    shape = a._shape
+    ndim = len(shape)
+
+    if dim < 0:
+        dim = ndim + dim
+    if dim < 0 or dim >= ndim:
+        raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
+
+    outer_size = 1
+    for i in range(dim):
+        outer_size *= shape[i]
+    reduce_size = shape[dim]
+    inner_size = 1
+    for i in range(dim + 1, ndim):
+        inner_size *= shape[i]
+
+    out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
+
+    shape_data = array.array('I', [outer_size, reduce_size, inner_size])
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+        ComputeBinding.from_bytes(2, shape_data),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.CumProd, bindings)
+
+    return out
+
+
+def argmax(a: Tensor, dim: Optional[int] = None) -> Union[int, 'Tensor']:
+    """
+    Return the index of the maximum value, optionally along a dimension.
+
+    Args:
+        a: Input tensor
+        dim: Dimension along which to find argmax. If None, returns
+             the index into the flattened tensor.
+
+    Returns:
+        If dim is None: integer index of the maximum element.
+        If dim is specified: Tensor of indices along that dimension.
+
+    Example:
+        >>> a = Tensor([3.0, 1.0, 4.0, 1.0, 5.0])
+        >>> argmax(a)  # Returns 4
+        >>> x = Tensor([[1.0, 3.0], [4.0, 2.0]])
+        >>> argmax(x, dim=0)  # Returns Tensor([1, 0])
+    """
+    _ensure_initialized()
+
+    if dim is not None:
+        return _dim_reduce(a, dim, OperatorEnum.ReduceDimArgmax)
+
+    out = Tensor(size=4, dtype=float32, shape=(1,))
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.ReduceArgmax, bindings)
+
+    return int(out.copy_to()[0])
+
+
+def argmin(a: Tensor, dim: Optional[int] = None) -> Union[int, 'Tensor']:
+    """
+    Return the index of the minimum value, optionally along a dimension.
+
+    Args:
+        a: Input tensor
+        dim: Dimension along which to find argmin. If None, returns
+             the index into the flattened tensor.
+
+    Returns:
+        If dim is None: integer index of the minimum element.
+        If dim is specified: Tensor of indices along that dimension.
+
+    Example:
+        >>> a = Tensor([3.0, 1.0, 4.0, 1.0, 5.0])
+        >>> argmin(a)  # Returns 1
+        >>> x = Tensor([[1.0, 3.0], [4.0, 2.0]])
+        >>> argmin(x, dim=0)  # Returns Tensor([0, 1])
+    """
+    _ensure_initialized()
+
+    if dim is not None:
+        return _dim_reduce(a, dim, OperatorEnum.ReduceDimArgmin)
+
+    out = Tensor(size=4, dtype=float32, shape=(1,))
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+    ]
+    _cut_compute.execute_operator(OperatorEnum.ReduceArgmin, bindings)
+
+    return int(out.copy_to()[0])
+
+
+def _view(a: Tensor, new_shape: tuple) -> Tensor:
+    """Create a view of a tensor with a new shape (shares GPU buffer)."""
+    result = object.__new__(Tensor)
+    result._handle = a._handle
+    result._size = a._size
+    result._dtype = a._dtype
+    result._shape = new_shape
+    _live_tensors.add(result)
+    return result
+
+
+def reshape(a: Tensor, *shape) -> Tensor:
+    """
+    Reshape a tensor to a new shape without changing its data.
+
+    Returns a view sharing the same GPU buffer. Supports -1 for one
+    inferred dimension.
+
+    Args:
+        a: Input tensor
+        *shape: New shape (can be individual ints or a single tuple/list)
+
+    Returns:
+        Reshaped tensor (view)
+
+    Example:
+        >>> a = Tensor([1, 2, 3, 4, 5, 6])
+        >>> reshape(a, 2, 3)  # Shape: (2, 3)
+        >>> reshape(a, (3, -1))  # Shape: (3, 2)
+    """
+    _ensure_initialized()
+
+    if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+        new_shape = list(shape[0])
+    else:
+        new_shape = list(shape)
+
+    old_total = _cut_compute.shape_product(list(a._shape))
+
+    # Handle -1 dimension (infer)
+    neg_idx = None
+    known_total = 1
+    for i, s in enumerate(new_shape):
+        if s == -1:
+            if neg_idx is not None:
+                raise ValueError("Only one dimension can be -1")
+            neg_idx = i
+        elif s < 0:
+            raise ValueError(f"Invalid shape dimension: {s}")
+        else:
+            known_total *= s
+
+    if neg_idx is not None:
+        if known_total == 0:
+            raise ValueError("Cannot infer dimension with other zero-size dimensions")
+        inferred = old_total // known_total
+        if inferred * known_total != old_total:
+            raise ValueError(
+                f"Shape {tuple(new_shape)} is invalid for tensor of size {old_total}"
+            )
+        new_shape[neg_idx] = inferred
+
+    new_total = _cut_compute.shape_product(new_shape)
+    if old_total != new_total:
+        raise ValueError(
+            f"Cannot reshape tensor of size {old_total} to shape {tuple(new_shape)} "
+            f"(size {new_total})"
+        )
+
+    return _view(a, tuple(new_shape))
+
+
+def view(a: Tensor, *shape) -> Tensor:
+    """
+    Return a new tensor with the same data but different shape.
+
+    Alias for reshape(). Matches PyTorch's Tensor.view() semantics.
+
+    Args:
+        a: Input tensor
+        *shape: New shape
+
+    Returns:
+        Reshaped tensor (view)
+    """
+    return reshape(a, *shape)
+
+
+def squeeze(a: Tensor, dim: Optional[int] = None) -> Tensor:
+    """
+    Remove size-1 dimensions from a tensor's shape.
+
+    Args:
+        a: Input tensor
+        dim: If given, only squeeze that specific dimension
+             (no-op if that dim is not size 1).
+             If None, squeeze all size-1 dimensions.
+
+    Returns:
+        Squeezed tensor (view)
+
+    Example:
+        >>> a = Tensor([1, 2, 3], shape=(1, 3, 1))
+        >>> squeeze(a)  # Shape: (3,)
+        >>> squeeze(a, dim=0)  # Shape: (3, 1)
+    """
+    _ensure_initialized()
+
+    shape = list(a._shape)
+    ndim = len(shape)
+
+    if dim is not None:
+        if dim < 0:
+            dim = ndim + dim
+        if dim < 0 or dim >= ndim:
+            raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
+        if shape[dim] == 1:
+            new_shape = shape[:dim] + shape[dim + 1:]
+        else:
+            new_shape = shape  # no-op
+    else:
+        new_shape = [s for s in shape if s != 1]
+
+    if not new_shape:
+        new_shape = [1]
+
+    return _view(a, tuple(new_shape))
+
+
+def unsqueeze(a: Tensor, dim: int) -> Tensor:
+    """
+    Insert a dimension of size 1 at the specified position.
+
+    Args:
+        a: Input tensor
+        dim: Position at which to insert the new dimension.
+             Supports negative indexing.
+
+    Returns:
+        Tensor with added dimension (view)
+
+    Example:
+        >>> a = Tensor([1, 2, 3])  # Shape: (3,)
+        >>> unsqueeze(a, 0)  # Shape: (1, 3)
+        >>> unsqueeze(a, 1)  # Shape: (3, 1)
+        >>> unsqueeze(a, -1)  # Shape: (3, 1)
+    """
+    _ensure_initialized()
+
+    shape = list(a._shape)
+    ndim = len(shape)
+
+    # dim can range from -(ndim+1) to ndim (inclusive)
+    if dim < 0:
+        dim = ndim + 1 + dim
+    if dim < 0 or dim > ndim:
+        raise ValueError(
+            f"dim {dim} out of range for tensor with {ndim} dimensions "
+            f"(valid range: [{-(ndim+1)}, {ndim}])"
+        )
+
+    new_shape = shape[:dim] + [1] + shape[dim:]
+    return _view(a, tuple(new_shape))
+
+
+def unflatten(a: Tensor, dim: int, sizes: Sequence[int]) -> Tensor:
+    """
+    Expand a single dimension into multiple dimensions.
+
+    Args:
+        a: Input tensor
+        dim: Dimension to unflatten
+        sizes: New shape for the unflattened dimension
+
+    Returns:
+        Tensor with unflattened dimension (view)
+
+    Example:
+        >>> a = Tensor(list(range(12)), shape=(12,))
+        >>> unflatten(a, 0, (3, 4))  # Shape: (3, 4)
+        >>> b = Tensor(list(range(12)), shape=(2, 6))
+        >>> unflatten(b, 1, (2, 3))  # Shape: (2, 2, 3)
+    """
+    _ensure_initialized()
+
+    shape = list(a._shape)
+    ndim = len(shape)
+
+    if dim < 0:
+        dim = ndim + dim
+    if dim < 0 or dim >= ndim:
+        raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
+
+    sizes = list(sizes)
+    expected = shape[dim]
+    actual = _cut_compute.shape_product(sizes)
+    if expected != actual:
+        raise ValueError(
+            f"Product of sizes {tuple(sizes)} ({actual}) must match "
+            f"dimension {dim} size ({expected})"
+        )
+
+    new_shape = shape[:dim] + sizes + shape[dim + 1:]
+    return _view(a, tuple(new_shape))
+
+
+def mse_loss(input: Tensor, target: Tensor, reduction: str = 'mean') -> Union[float, 'Tensor']:
+    """
+    Mean Squared Error loss.
+
+    Args:
+        input: Predicted values
+        target: Target values
+        reduction: 'mean' (default), 'sum', or 'none'
+
+    Returns:
+        Loss value
+
+    Example:
+        >>> pred = Tensor([1.0, 2.0, 3.0])
+        >>> target = Tensor([1.5, 2.5, 3.5])
+        >>> loss = mse_loss(pred, target)  # 0.25
+    """
+    _ensure_initialized()
+    diff = globals()['subtract'](input, target)
+    sq = globals()['square'](diff)
+    if reduction == 'none':
+        return sq
+    elif reduction == 'sum':
+        return sum(sq)
+    else:
+        return mean(sq)
+
+
+def l1_loss(input: Tensor, target: Tensor, reduction: str = 'mean') -> Union[float, 'Tensor']:
+    """
+    Mean Absolute Error (L1) loss.
+
+    Args:
+        input: Predicted values
+        target: Target values
+        reduction: 'mean' (default), 'sum', or 'none'
+
+    Returns:
+        Loss value
+
+    Example:
+        >>> pred = Tensor([1.0, 2.0, 3.0])
+        >>> target = Tensor([1.5, 2.5, 3.5])
+        >>> loss = l1_loss(pred, target)  # 0.5
+    """
+    _ensure_initialized()
+    diff = globals()['subtract'](input, target)
+    abs_diff = globals()['abs'](diff)
+    if reduction == 'none':
+        return abs_diff
+    elif reduction == 'sum':
+        return sum(abs_diff)
+    else:
+        return mean(abs_diff)
+
+
+def cross_entropy_loss(input: Tensor, target: Tensor, reduction: str = 'mean') -> Union[float, 'Tensor']:
+    """
+    Cross entropy loss (expects raw logits, not probabilities).
+
+    Computes -sum(target * log_softmax(input)) per sample.
+    For classification, target should be one-hot encoded.
+
+    Args:
+        input: Logits tensor (N, C) or (C,)
+        target: Target tensor, same shape as input (one-hot or soft labels)
+        reduction: 'mean' (default), 'sum', or 'none'
+
+    Returns:
+        Loss value
+
+    Example:
+        >>> logits = Tensor([[1.0, 2.0, 3.0]])
+        >>> target = Tensor([[0.0, 0.0, 1.0]])
+        >>> loss = cross_entropy_loss(logits, target)
+    """
+    _ensure_initialized()
+    log_probs = log_softmax(input, dim=-1)
+    neg_log_probs = globals()['negative'](log_probs)
+    loss_per_element = globals()['multiply'](target, neg_log_probs)
+
+    if reduction == 'none':
+        return loss_per_element
+    elif reduction == 'sum':
+        return sum(loss_per_element)
+    else:
+        return mean(loss_per_element)
+
+
 # Helper function to get SPIR-V shaders
 def get_shader(op: OperatorEnum, dtype: DataType = DataType.Float32):
     """
@@ -1637,6 +2368,12 @@ __all__ = [
     "prod",
     "any",
     "all",
+    # Argmax/Argmin
+    "argmax",
+    "argmin",
+    # Cumulative operations
+    "cumsum",
+    "cumprod",
     # Matrix operations
     "matmul",
     "transpose",
@@ -1653,4 +2390,23 @@ __all__ = [
     "zeros",
     "ones",
     "full",
+    "zeros_like",
+    "ones_like",
+    "full_like",
+    # Statistical operations
+    "var",
+    "std",
+    # Shape operations
+    "reshape",
+    "view",
+    "squeeze",
+    "unsqueeze",
+    "unflatten",
+    # Softmax
+    "softmax",
+    "log_softmax",
+    # Loss functions
+    "mse_loss",
+    "l1_loss",
+    "cross_entropy_loss",
 ] + ALL_OPERATION_NAMES

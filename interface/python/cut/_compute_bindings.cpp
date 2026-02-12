@@ -346,6 +346,26 @@ PYBIND11_MODULE(_cut_compute, m) {
       .value("UnarySoftplus", cut::OperatorEnum::UnarySoftplus)
       .value("UnaryIsNan", cut::OperatorEnum::UnaryIsNan)
       .value("UnaryIsInf", cut::OperatorEnum::UnaryIsInf)
+      // Extended unary activations
+      .value("UnaryRelu6", cut::OperatorEnum::UnaryRelu6)
+      .value("UnaryElu", cut::OperatorEnum::UnaryElu)
+      .value("UnarySelu", cut::OperatorEnum::UnarySelu)
+      .value("UnaryCelu", cut::OperatorEnum::UnaryCelu)
+      .value("UnaryMish", cut::OperatorEnum::UnaryMish)
+      .value("UnaryHardswish", cut::OperatorEnum::UnaryHardswish)
+      .value("UnaryHardsigmoid", cut::OperatorEnum::UnaryHardsigmoid)
+      .value("UnaryHardtanh", cut::OperatorEnum::UnaryHardtanh)
+      .value("UnarySoftsign", cut::OperatorEnum::UnarySoftsign)
+      .value("UnaryLogSigmoid", cut::OperatorEnum::UnaryLogSigmoid)
+      .value("UnaryTanhshrink", cut::OperatorEnum::UnaryTanhshrink)
+      // Extended unary math
+      .value("UnaryRsqrt", cut::OperatorEnum::UnaryRsqrt)
+      .value("UnaryTrunc", cut::OperatorEnum::UnaryTrunc)
+      .value("UnaryFrac", cut::OperatorEnum::UnaryFrac)
+      .value("UnaryAsinh", cut::OperatorEnum::UnaryAsinh)
+      .value("UnaryAcosh", cut::OperatorEnum::UnaryAcosh)
+      .value("UnaryAtanh", cut::OperatorEnum::UnaryAtanh)
+      .value("UnaryIsFinite", cut::OperatorEnum::UnaryIsFinite)
       // New binary vec-vec operations
       .value("BinaryVecVecBitwiseAnd",
              cut::OperatorEnum::BinaryVecVecBitwiseAnd)
@@ -364,6 +384,9 @@ PYBIND11_MODULE(_cut_compute, m) {
       .value("BinaryVecVecHypot", cut::OperatorEnum::BinaryVecVecHypot)
       .value("BinaryVecVecCopysign", cut::OperatorEnum::BinaryVecVecCopysign)
       .value("BinaryVecVecFmod", cut::OperatorEnum::BinaryVecVecFmod)
+      .value("BinaryVecVecLogaddexp", cut::OperatorEnum::BinaryVecVecLogaddexp)
+      .value("BinaryVecVecLogaddexp2",
+             cut::OperatorEnum::BinaryVecVecLogaddexp2)
       // New binary vec-scalar operations
       .value("BinaryVecScalarBitwiseAnd",
              cut::OperatorEnum::BinaryVecScalarBitwiseAnd)
@@ -388,6 +411,15 @@ PYBIND11_MODULE(_cut_compute, m) {
       .value("BinaryVecScalarFmod", cut::OperatorEnum::BinaryVecScalarFmod)
       .value("BinaryVecScalarLeakyRelu",
              cut::OperatorEnum::BinaryVecScalarLeakyRelu)
+      .value("BinaryVecScalarPrelu", cut::OperatorEnum::BinaryVecScalarPrelu)
+      .value("BinaryVecScalarHardshrink",
+             cut::OperatorEnum::BinaryVecScalarHardshrink)
+      .value("BinaryVecScalarSoftshrink",
+             cut::OperatorEnum::BinaryVecScalarSoftshrink)
+      .value("BinaryVecScalarLogaddexp",
+             cut::OperatorEnum::BinaryVecScalarLogaddexp)
+      .value("BinaryVecScalarLogaddexp2",
+             cut::OperatorEnum::BinaryVecScalarLogaddexp2)
       // Ternary operations
       .value("TernaryClamp", cut::OperatorEnum::TernaryClamp)
       // Reduction operations
@@ -405,6 +437,14 @@ PYBIND11_MODULE(_cut_compute, m) {
       .value("ReduceDimProd", cut::OperatorEnum::ReduceDimProd)
       .value("ReduceDimAny", cut::OperatorEnum::ReduceDimAny)
       .value("ReduceDimAll", cut::OperatorEnum::ReduceDimAll)
+      // Argmax/Argmin reductions
+      .value("ReduceArgmax", cut::OperatorEnum::ReduceArgmax)
+      .value("ReduceArgmin", cut::OperatorEnum::ReduceArgmin)
+      .value("ReduceDimArgmax", cut::OperatorEnum::ReduceDimArgmax)
+      .value("ReduceDimArgmin", cut::OperatorEnum::ReduceDimArgmin)
+      // Cumulative operations
+      .value("CumSum", cut::OperatorEnum::CumSum)
+      .value("CumProd", cut::OperatorEnum::CumProd)
       // Norm operations
       .value("NormDim", cut::OperatorEnum::NormDim)
       // Matrix operations

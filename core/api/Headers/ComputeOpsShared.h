@@ -55,6 +55,8 @@
 #define OP_BINARY_VEC_VEC_HYPOT 24
 #define OP_BINARY_VEC_VEC_COPYSIGN 25
 #define OP_BINARY_VEC_VEC_FMOD 26
+#define OP_BINARY_VEC_VEC_LOGADDEXP 27
+#define OP_BINARY_VEC_VEC_LOGADDEXP2 28
 
 // =============================================================================
 // Binary vec-scalar operations (30-59)
@@ -101,6 +103,8 @@
 
 // Binary vec-scalar activation operations
 #define OP_BINARY_VEC_SCALAR_LEAKY_RELU 57
+#define OP_BINARY_VEC_SCALAR_PRELU 58
+#define OP_BINARY_VEC_SCALAR_HARDSHRINK 59
 
 // =============================================================================
 // Unary operations (60-89)
@@ -162,6 +166,40 @@
 #define OP_UNARY_ISINF 96
 
 // =============================================================================
+// Extended unary operations (160-199)
+// =============================================================================
+
+// Extended activation functions
+#define OP_UNARY_RELU6 160
+#define OP_UNARY_ELU 161
+#define OP_UNARY_SELU 162
+#define OP_UNARY_CELU 163
+#define OP_UNARY_MISH 164
+#define OP_UNARY_HARDSWISH 165
+#define OP_UNARY_HARDSIGMOID 166
+#define OP_UNARY_HARDTANH 167
+#define OP_UNARY_SOFTSIGN 168
+#define OP_UNARY_LOGSIGMOID 169
+#define OP_UNARY_TANHSHRINK 170
+
+// Extended math operations
+#define OP_UNARY_RSQRT 171
+#define OP_UNARY_TRUNC 172
+#define OP_UNARY_FRAC 173
+#define OP_UNARY_ASINH 174
+#define OP_UNARY_ACOSH 175
+#define OP_UNARY_ATANH 176
+#define OP_UNARY_ISFINITE 177
+
+// =============================================================================
+// Extended binary vec-scalar operations (200-219)
+// =============================================================================
+
+#define OP_BINARY_VEC_SCALAR_SOFTSHRINK 200
+#define OP_BINARY_VEC_SCALAR_LOGADDEXP 201
+#define OP_BINARY_VEC_SCALAR_LOGADDEXP2 202
+
+// =============================================================================
 // Ternary operations (100-109)
 // =============================================================================
 
@@ -186,6 +224,19 @@
 #define OP_REDUCE_DIM_PROD 124
 #define OP_REDUCE_DIM_ANY 125
 #define OP_REDUCE_DIM_ALL 126
+
+// Argmax/Argmin reductions (220-223)
+#define OP_REDUCE_ARGMAX 220
+#define OP_REDUCE_ARGMIN 221
+#define OP_REDUCE_DIM_ARGMAX 222
+#define OP_REDUCE_DIM_ARGMIN 223
+
+// =============================================================================
+// Cumulative/scan operations (240-259)
+// =============================================================================
+
+#define OP_CUMSUM 240
+#define OP_CUMPROD 241
 
 // =============================================================================
 // Matrix operations (120-122)

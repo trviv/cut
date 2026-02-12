@@ -119,9 +119,13 @@ if(ENABLE_UBSAN)
     target_link_options(tests PRIVATE -fsanitize=undefined)
 endif()
 
-# Discover tests
+# Set RPATH so the test binary can find Vulkan at runtime
+get_filename_component(VULKAN_LIB_DIR "${Vulkan_LIBRARIES}" DIRECTORY)
+set_target_properties(tests PROPERTIES BUILD_RPATH "${VULKAN_LIB_DIR}")
+
+# Discover tests (PRE_TEST defers discovery to ctest time, avoiding dylib issues at build time)
 include(GoogleTest)
-gtest_discover_tests(tests)
+gtest_discover_tests(tests DISCOVERY_MODE PRE_TEST)
 
 # Optional: Add custom target to run tests
 add_custom_target(run_tests

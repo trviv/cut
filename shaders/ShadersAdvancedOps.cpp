@@ -26,7 +26,7 @@ struct AdvOpEntry {
   const char *name;
 };
 
-static constexpr int kAdvOpTableSize = OP_BINARY_VEC_SCALAR_LEAKY_RELU + 1;
+static constexpr int kAdvOpTableSize = OP_BINARY_VEC_SCALAR_HARDSHRINK + 1;
 
 // clang-format off
 static const AdvOpEntry advOpTable[kAdvOpTableSize] = {
@@ -204,6 +204,163 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
     shaderName = "binary_vec_scalar_leaky_relu";
     return true;
   }
+  case BinaryVecScalarPrelu: {
+    std::string expr = "mix(b * a, a, " + vecType + "(greaterThanEqual(a, " +
+                       vecType + "(0.0))))";
+    shaderSource = generateBinaryVecScalarCustom(expr.c_str(), datatype);
+    shaderName = "binary_vec_scalar_prelu";
+    return true;
+  }
+  case BinaryVecScalarHardshrink: {
+    std::string expr =
+        "mix(" + vecType + "(0.0), a, " + vecType + "(greaterThan(abs(a), b)))";
+    shaderSource = generateBinaryVecScalarCustom(expr.c_str(), datatype);
+    shaderName = "binary_vec_scalar_hardshrink";
+    return true;
+  }
+  case BinaryVecScalarSoftshrink: {
+    std::string expr = "sign(a) * max(abs(a) - b, " + vecType + "(0.0))";
+    shaderSource = generateBinaryVecScalarCustom(expr.c_str(), datatype);
+    shaderName = "binary_vec_scalar_softshrink";
+    return true;
+  }
+  case BinaryVecScalarLogaddexp: {
+    shaderSource = generateBinaryVecScalarCustom(
+        "max(a, b) + log(1.0 + exp(-abs(a - b)))", datatype);
+    shaderName = "binary_vec_scalar_logaddexp";
+    return true;
+  }
+  case BinaryVecScalarLogaddexp2: {
+    shaderSource = generateBinaryVecScalarCustom(
+        "max(a, b) + log2(1.0 + exp2(-abs(a - b)))", datatype);
+    shaderName = "binary_vec_scalar_logaddexp2";
+    return true;
+  }
+
+  // =============================================================================
+  // Extended binary vec-vec operations - Math
+  // =============================================================================
+  case BinaryVecVecLogaddexp: {
+    shaderSource = generateBinaryVecVecCustom(
+        "max(a, b) + log(1.0 + exp(-abs(a - b)))", datatype);
+    shaderName = "binary_vec_vec_logaddexp";
+    return true;
+  }
+  case BinaryVecVecLogaddexp2: {
+    shaderSource = generateBinaryVecVecCustom(
+        "max(a, b) + log2(1.0 + exp2(-abs(a - b)))", datatype);
+    shaderName = "binary_vec_vec_logaddexp2";
+    return true;
+  }
+
+  // =============================================================================
+  // Extended unary operations - Activations
+  // =============================================================================
+  case UnaryRelu6: {
+    shaderSource = generateUnaryShader("clamp(a, 0.0, 6.0)", datatype);
+    shaderName = "unary_relu6";
+    return true;
+  }
+  case UnaryElu: {
+    std::string expr = "mix(exp(a) - 1.0, a, " + vecType +
+                       "(greaterThanEqual(a, " + vecType + "(0.0))))";
+    shaderSource = generateUnaryShader(expr.c_str(), datatype);
+    shaderName = "unary_elu";
+    return true;
+  }
+  case UnarySelu: {
+    std::string expr = "1.0507009873554804934193349852946 * "
+                       "mix(1.6732632423543772848170429916717 "
+                       "* (exp(a) - 1.0), a, " +
+                       vecType + "(greaterThanEqual(a, " + vecType + "(0.0))))";
+    shaderSource = generateUnaryShader(expr.c_str(), datatype);
+    shaderName = "unary_selu";
+    return true;
+  }
+  case UnaryCelu: {
+    shaderSource =
+        generateUnaryShader("max(a, 0.0) + min(exp(a) - 1.0, 0.0)", datatype);
+    shaderName = "unary_celu";
+    return true;
+  }
+  case UnaryMish: {
+    shaderSource = generateUnaryShader("a * tanh(log(1.0 + exp(a)))", datatype);
+    shaderName = "unary_mish";
+    return true;
+  }
+  case UnaryHardswish: {
+    shaderSource =
+        generateUnaryShader("a * clamp(a + 3.0, 0.0, 6.0) / 6.0", datatype);
+    shaderName = "unary_hardswish";
+    return true;
+  }
+  case UnaryHardsigmoid: {
+    shaderSource =
+        generateUnaryShader("clamp(a / 6.0 + 0.5, 0.0, 1.0)", datatype);
+    shaderName = "unary_hardsigmoid";
+    return true;
+  }
+  case UnaryHardtanh: {
+    shaderSource = generateUnaryShader("clamp(a, -1.0, 1.0)", datatype);
+    shaderName = "unary_hardtanh";
+    return true;
+  }
+  case UnarySoftsign: {
+    shaderSource = generateUnaryShader("a / (1.0 + abs(a))", datatype);
+    shaderName = "unary_softsign";
+    return true;
+  }
+  case UnaryLogSigmoid: {
+    shaderSource = generateUnaryShader("-log(1.0 + exp(-a))", datatype);
+    shaderName = "unary_logsigmoid";
+    return true;
+  }
+  case UnaryTanhshrink: {
+    shaderSource = generateUnaryShader("a - tanh(a)", datatype);
+    shaderName = "unary_tanhshrink";
+    return true;
+  }
+
+  // =============================================================================
+  // Extended unary operations - Math
+  // =============================================================================
+  case UnaryRsqrt: {
+    shaderSource = generateUnaryShader("inversesqrt(a)", datatype);
+    shaderName = "unary_rsqrt";
+    return true;
+  }
+  case UnaryTrunc: {
+    shaderSource = generateUnaryShader("trunc(a)", datatype);
+    shaderName = "unary_trunc";
+    return true;
+  }
+  case UnaryFrac: {
+    shaderSource = generateUnaryShader("fract(a)", datatype);
+    shaderName = "unary_frac";
+    return true;
+  }
+  case UnaryAsinh: {
+    shaderSource = generateUnaryShader("asinh(a)", datatype);
+    shaderName = "unary_asinh";
+    return true;
+  }
+  case UnaryAcosh: {
+    shaderSource = generateUnaryShader("acosh(a)", datatype);
+    shaderName = "unary_acosh";
+    return true;
+  }
+  case UnaryAtanh: {
+    shaderSource = generateUnaryShader("atanh(a)", datatype);
+    shaderName = "unary_atanh";
+    return true;
+  }
+  case UnaryIsFinite: {
+    std::string expr =
+        vecType + "(not(isnan(a))) * " + vecType + "(not(isinf(a)))";
+    shaderSource = generateUnaryShader(expr.c_str(), datatype);
+    shaderName = "unary_isfinite";
+    return true;
+  }
 
   // =============================================================================
   // Reduction operations
@@ -328,6 +485,304 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
                               "((a != 0.0 && b != 0.0) ? 1.0 : 0.0)");
     shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_dim_all";
+    return true;
+  }
+
+  // =============================================================================
+  // Cumulative scan operations (cumsum, cumprod)
+  // =============================================================================
+  case CumSum: {
+    shaderSource = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint outerSize;
+    uint reduceSize;
+    uint innerSize;
+    uint inOuterStride;
+    uint inReduceStride;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    float dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    float dataOut[];
+};
+
+void main() {
+    uint outIdx = gl_GlobalInvocationID.x;
+    uint numScanLines = outerSize * innerSize;
+
+    if (outIdx >= numScanLines) {
+        return;
+    }
+
+    uint outer = outIdx / innerSize;
+    uint inner = outIdx % innerSize;
+
+    float acc = 0.0;
+    for (uint r = 0; r < reduceSize; r++) {
+        uint idx = outer * inOuterStride + r * inReduceStride + inner;
+        acc += dataIn[idx];
+        dataOut[idx] = acc;
+    }
+}
+)";
+    shaderName = "cumsum";
+    return true;
+  }
+  case CumProd: {
+    shaderSource = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint outerSize;
+    uint reduceSize;
+    uint innerSize;
+    uint inOuterStride;
+    uint inReduceStride;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    float dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    float dataOut[];
+};
+
+void main() {
+    uint outIdx = gl_GlobalInvocationID.x;
+    uint numScanLines = outerSize * innerSize;
+
+    if (outIdx >= numScanLines) {
+        return;
+    }
+
+    uint outer = outIdx / innerSize;
+    uint inner = outIdx % innerSize;
+
+    float acc = 1.0;
+    for (uint r = 0; r < reduceSize; r++) {
+        uint idx = outer * inOuterStride + r * inReduceStride + inner;
+        acc *= dataIn[idx];
+        dataOut[idx] = acc;
+    }
+}
+)";
+    shaderName = "cumprod";
+    return true;
+  }
+
+  // =============================================================================
+  // Argmax/Argmin reduction operations
+  // =============================================================================
+  case ReduceArgmax: {
+    shaderSource = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    float dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    float dataOut[];
+};
+
+shared float sharedVal[256];
+shared uint  sharedIdx[256];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+
+    float localVal = -3.402823466e+38;
+    uint localIdx = 0;
+    for (uint i = tid; i < numElements; i += 256) {
+        float b = dataIn[i];
+        if (b > localVal) {
+            localVal = b;
+            localIdx = i;
+        }
+    }
+    sharedVal[tid] = localVal;
+    sharedIdx[tid] = localIdx;
+    barrier();
+
+    for (uint stride = 128; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            if (sharedVal[tid + stride] > sharedVal[tid]) {
+                sharedVal[tid] = sharedVal[tid + stride];
+                sharedIdx[tid] = sharedIdx[tid + stride];
+            }
+        }
+        barrier();
+    }
+
+    if (tid == 0) {
+        dataOut[0] = float(sharedIdx[0]);
+    }
+}
+)";
+    shaderName = "reduce_argmax";
+    return true;
+  }
+  case ReduceArgmin: {
+    shaderSource = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint numElements;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    float dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    float dataOut[];
+};
+
+shared float sharedVal[256];
+shared uint  sharedIdx[256];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+
+    float localVal = 3.402823466e+38;
+    uint localIdx = 0;
+    for (uint i = tid; i < numElements; i += 256) {
+        float b = dataIn[i];
+        if (b < localVal) {
+            localVal = b;
+            localIdx = i;
+        }
+    }
+    sharedVal[tid] = localVal;
+    sharedIdx[tid] = localIdx;
+    barrier();
+
+    for (uint stride = 128; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            if (sharedVal[tid + stride] < sharedVal[tid]) {
+                sharedVal[tid] = sharedVal[tid + stride];
+                sharedIdx[tid] = sharedIdx[tid + stride];
+            }
+        }
+        barrier();
+    }
+
+    if (tid == 0) {
+        dataOut[0] = float(sharedIdx[0]);
+    }
+}
+)";
+    shaderName = "reduce_argmin";
+    return true;
+  }
+  case ReduceDimArgmax: {
+    shaderSource = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint outerSize;
+    uint reduceSize;
+    uint innerSize;
+    uint inOuterStride;
+    uint inReduceStride;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    float dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    float dataOut[];
+};
+
+void main() {
+    uint outIdx = gl_GlobalInvocationID.x;
+    uint numOutputs = outerSize * innerSize;
+
+    if (outIdx >= numOutputs) {
+        return;
+    }
+
+    uint outer = outIdx / innerSize;
+    uint inner = outIdx % innerSize;
+
+    float maxVal = -3.402823466e+38;
+    uint maxIdx = 0;
+    for (uint r = 0; r < reduceSize; r++) {
+        uint inIdx = outer * inOuterStride + r * inReduceStride + inner;
+        float b = dataIn[inIdx];
+        if (b > maxVal) {
+            maxVal = b;
+            maxIdx = r;
+        }
+    }
+    dataOut[outIdx] = float(maxIdx);
+}
+)";
+    shaderName = "reduce_dim_argmax";
+    return true;
+  }
+  case ReduceDimArgmin: {
+    shaderSource = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint outerSize;
+    uint reduceSize;
+    uint innerSize;
+    uint inOuterStride;
+    uint inReduceStride;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    float dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    float dataOut[];
+};
+
+void main() {
+    uint outIdx = gl_GlobalInvocationID.x;
+    uint numOutputs = outerSize * innerSize;
+
+    if (outIdx >= numOutputs) {
+        return;
+    }
+
+    uint outer = outIdx / innerSize;
+    uint inner = outIdx % innerSize;
+
+    float minVal = 3.402823466e+38;
+    uint minIdx = 0;
+    for (uint r = 0; r < reduceSize; r++) {
+        uint inIdx = outer * inOuterStride + r * inReduceStride + inner;
+        float b = dataIn[inIdx];
+        if (b < minVal) {
+            minVal = b;
+            minIdx = r;
+        }
+    }
+    dataOut[outIdx] = float(minIdx);
+}
+)";
+    shaderName = "reduce_dim_argmin";
     return true;
   }
 

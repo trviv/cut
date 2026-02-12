@@ -178,8 +178,9 @@ Runtime::getExecutionSize(OperatorEnum op,
     // aligned sizes since they process in vec4 chunks.
     if ((op >= ReduceSum && op <= ReduceAll) ||
         (op >= ReduceDimSum && op <= ReduceDimMin) ||
-        (op >= ReduceDimMax && op <= ReduceDimAll) ||
-        op == NormDim) {
+        (op >= ReduceDimMax && op <= ReduceDimAll) || op == NormDim ||
+        op == ReduceArgmax || op == ReduceArgmin || op == ReduceDimArgmax ||
+        op == ReduceDimArgmin || op == CumSum || op == CumProd) {
       execSizes.push_back(buffer.calculateActualSize() /
                           dataTypeSize(buffer.getDtype()));
     } else {

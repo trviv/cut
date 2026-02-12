@@ -38,6 +38,8 @@ BINARY_VEC_VEC_OPS = {
     "hypot": "BinaryVecVecHypot",
     "copysign": "BinaryVecVecCopysign",
     "fmod": "BinaryVecVecFmod",
+    "logaddexp": "BinaryVecVecLogaddexp",
+    "logaddexp2": "BinaryVecVecLogaddexp2",
 }
 
 BINARY_VEC_SCALAR_OPS = {
@@ -73,6 +75,11 @@ BINARY_VEC_SCALAR_OPS = {
     "copysign_scalar": "BinaryVecScalarCopysign",
     "fmod_scalar": "BinaryVecScalarFmod",
     "leaky_relu": "BinaryVecScalarLeakyRelu",
+    "prelu": "BinaryVecScalarPrelu",
+    "hardshrink": "BinaryVecScalarHardshrink",
+    "softshrink": "BinaryVecScalarSoftshrink",
+    "logaddexp_scalar": "BinaryVecScalarLogaddexp",
+    "logaddexp2_scalar": "BinaryVecScalarLogaddexp2",
 }
 
 UNARY_OPS = {
@@ -114,6 +121,26 @@ UNARY_OPS = {
     "softplus": "UnarySoftplus",
     "isnan": "UnaryIsNan",
     "isinf": "UnaryIsInf",
+    # Extended unary activations
+    "relu6": "UnaryRelu6",
+    "elu": "UnaryElu",
+    "selu": "UnarySelu",
+    "celu": "UnaryCelu",
+    "mish": "UnaryMish",
+    "hardswish": "UnaryHardswish",
+    "hardsigmoid": "UnaryHardsigmoid",
+    "hardtanh": "UnaryHardtanh",
+    "softsign": "UnarySoftsign",
+    "logsigmoid": "UnaryLogSigmoid",
+    "tanhshrink": "UnaryTanhshrink",
+    # Extended unary math
+    "rsqrt": "UnaryRsqrt",
+    "trunc": "UnaryTrunc",
+    "frac": "UnaryFrac",
+    "arcsinh": "UnaryAsinh",
+    "arccosh": "UnaryAcosh",
+    "arctanh": "UnaryAtanh",
+    "isfinite": "UnaryIsFinite",
 }
 
 # Docstrings for operations
@@ -146,6 +173,8 @@ BINARY_VEC_VEC_DOCS = {
     "hypot": "Element-wise hypotenuse: sqrt(a^2 + b^2).",
     "copysign": "Element-wise copy sign of b to a.",
     "fmod": "Element-wise floating-point remainder of a/b.",
+    "logaddexp": "Element-wise log(exp(a) + exp(b)), numerically stable.",
+    "logaddexp2": "Element-wise log2(2^a + 2^b), numerically stable.",
 }
 
 BINARY_VEC_SCALAR_DOCS = {
@@ -178,6 +207,11 @@ BINARY_VEC_SCALAR_DOCS = {
     "copysign_scalar": "Element-wise copy sign of scalar to buffer elements.",
     "fmod_scalar": "Element-wise floating-point remainder of buffer/scalar.",
     "leaky_relu": "Leaky ReLU activation: x if x > 0 else alpha * x.",
+    "prelu": "PReLU activation: x if x >= 0 else weight * x.",
+    "hardshrink": "Hard shrink: x if |x| > lambda else 0.",
+    "softshrink": "Soft shrink: sign(x) * max(|x| - lambda, 0).",
+    "logaddexp_scalar": "Element-wise log(exp(x) + exp(scalar)), numerically stable.",
+    "logaddexp2_scalar": "Element-wise log2(2^x + 2^scalar), numerically stable.",
 }
 
 UNARY_DOCS = {
@@ -219,6 +253,26 @@ UNARY_DOCS = {
     "softplus": "Softplus activation: log(1 + exp(x)) element-wise.",
     "isnan": "Check if NaN element-wise. Returns 1.0 for NaN, 0.0 otherwise.",
     "isinf": "Check if infinite element-wise. Returns 1.0 for inf/-inf, 0.0 otherwise.",
+    # Extended unary activations
+    "relu6": "ReLU6 activation: clamp(x, 0, 6) element-wise.",
+    "elu": "ELU activation: x if x >= 0 else exp(x) - 1.",
+    "selu": "SELU activation: scale * (x if x >= 0 else alpha * (exp(x) - 1)).",
+    "celu": "CELU activation: max(0, x) + min(0, exp(x) - 1).",
+    "mish": "Mish activation: x * tanh(softplus(x)).",
+    "hardswish": "Hard Swish activation: x * clamp(x + 3, 0, 6) / 6.",
+    "hardsigmoid": "Hard Sigmoid activation: clamp(x/6 + 0.5, 0, 1).",
+    "hardtanh": "Hard Tanh activation: clamp(x, -1, 1).",
+    "softsign": "Softsign activation: x / (1 + |x|).",
+    "logsigmoid": "Log Sigmoid activation: -log(1 + exp(-x)).",
+    "tanhshrink": "Tanhshrink activation: x - tanh(x).",
+    # Extended unary math
+    "rsqrt": "Reciprocal square root (1/sqrt(x)) element-wise.",
+    "trunc": "Truncate to integer element-wise.",
+    "frac": "Fractional part element-wise.",
+    "arcsinh": "Inverse hyperbolic sine element-wise.",
+    "arccosh": "Inverse hyperbolic cosine element-wise.",
+    "arctanh": "Inverse hyperbolic tangent element-wise.",
+    "isfinite": "Check if finite element-wise. Returns 1.0 for finite, 0.0 for inf/nan.",
 }
 
 # List of all operation names for __all__ exports

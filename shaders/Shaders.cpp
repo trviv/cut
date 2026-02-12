@@ -87,7 +87,9 @@ static bool isReductionOp(OperatorEnum op) {
   return (op >= ReduceSum && op <= ReduceAll) ||
          (op >= ReduceDimSum && op <= ReduceDimMin) ||
          (op >= ReduceDimMax && op <= ReduceDimAll) || op == Norm ||
-         op == NormDim;
+         op == NormDim || op == ReduceArgmax || op == ReduceArgmin ||
+         op == ReduceDimArgmax || op == ReduceDimArgmin || op == CumSum ||
+         op == CumProd;
 }
 
 size_t validateExecutionSize(OperatorEnum op,

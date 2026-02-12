@@ -55,6 +55,8 @@ enum OperatorEnum {
   BinaryVecVecHypot = OP_BINARY_VEC_VEC_HYPOT,
   BinaryVecVecCopysign = OP_BINARY_VEC_VEC_COPYSIGN,
   BinaryVecVecFmod = OP_BINARY_VEC_VEC_FMOD,
+  BinaryVecVecLogaddexp = OP_BINARY_VEC_VEC_LOGADDEXP,
+  BinaryVecVecLogaddexp2 = OP_BINARY_VEC_VEC_LOGADDEXP2,
 
   // ===========================================================================
   // Binary vec-scalar operations (30-59)
@@ -101,6 +103,8 @@ enum OperatorEnum {
 
   // Activation
   BinaryVecScalarLeakyRelu = OP_BINARY_VEC_SCALAR_LEAKY_RELU,
+  BinaryVecScalarPrelu = OP_BINARY_VEC_SCALAR_PRELU,
+  BinaryVecScalarHardshrink = OP_BINARY_VEC_SCALAR_HARDSHRINK,
 
   // ===========================================================================
   // Unary operations (60-96)
@@ -162,6 +166,40 @@ enum OperatorEnum {
   UnaryIsInf = OP_UNARY_ISINF,
 
   // ===========================================================================
+  // Extended unary operations (160-199)
+  // ===========================================================================
+
+  // Extended Activations
+  UnaryRelu6 = OP_UNARY_RELU6,
+  UnaryElu = OP_UNARY_ELU,
+  UnarySelu = OP_UNARY_SELU,
+  UnaryCelu = OP_UNARY_CELU,
+  UnaryMish = OP_UNARY_MISH,
+  UnaryHardswish = OP_UNARY_HARDSWISH,
+  UnaryHardsigmoid = OP_UNARY_HARDSIGMOID,
+  UnaryHardtanh = OP_UNARY_HARDTANH,
+  UnarySoftsign = OP_UNARY_SOFTSIGN,
+  UnaryLogSigmoid = OP_UNARY_LOGSIGMOID,
+  UnaryTanhshrink = OP_UNARY_TANHSHRINK,
+
+  // Extended Math
+  UnaryRsqrt = OP_UNARY_RSQRT,
+  UnaryTrunc = OP_UNARY_TRUNC,
+  UnaryFrac = OP_UNARY_FRAC,
+  UnaryAsinh = OP_UNARY_ASINH,
+  UnaryAcosh = OP_UNARY_ACOSH,
+  UnaryAtanh = OP_UNARY_ATANH,
+  UnaryIsFinite = OP_UNARY_ISFINITE,
+
+  // ===========================================================================
+  // Extended binary vec-scalar operations (200-219)
+  // ===========================================================================
+
+  BinaryVecScalarSoftshrink = OP_BINARY_VEC_SCALAR_SOFTSHRINK,
+  BinaryVecScalarLogaddexp = OP_BINARY_VEC_SCALAR_LOGADDEXP,
+  BinaryVecScalarLogaddexp2 = OP_BINARY_VEC_SCALAR_LOGADDEXP2,
+
+  // ===========================================================================
   // Ternary operations (100-109)
   // ===========================================================================
 
@@ -186,6 +224,19 @@ enum OperatorEnum {
   ReduceDimProd = OP_REDUCE_DIM_PROD,
   ReduceDimAny = OP_REDUCE_DIM_ANY,
   ReduceDimAll = OP_REDUCE_DIM_ALL,
+
+  // Argmax/Argmin
+  ReduceArgmax = OP_REDUCE_ARGMAX,
+  ReduceArgmin = OP_REDUCE_ARGMIN,
+  ReduceDimArgmax = OP_REDUCE_DIM_ARGMAX,
+  ReduceDimArgmin = OP_REDUCE_DIM_ARGMIN,
+
+  // ===========================================================================
+  // Cumulative/scan operations (240-259)
+  // ===========================================================================
+
+  CumSum = OP_CUMSUM,
+  CumProd = OP_CUMPROD,
 
   // ===========================================================================
   // Matrix operations (120-122)

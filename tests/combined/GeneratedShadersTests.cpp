@@ -2057,6 +2057,435 @@ TEST_F(GeneratedShadersInt32Test, BinaryVecScalarAddInt32Negative) {
 }
 
 // Reusing the same buffer as both input and output for intermediate results
+// ============================================================================
+// Extended Activation Shader Tests (Phase 1)
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, UnaryRelu6) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.1f - 5.0f; // range [-5, 20.6]
+    expected[i] = std::min(std::max(dataIn[i], 0.0f), 6.0f);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryRelu6, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-5f) << "Relu6 failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryElu) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.05f - 3.0f;
+    expected[i] = dataIn[i] >= 0.0f ? dataIn[i] : std::exp(dataIn[i]) - 1.0f;
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryElu, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-3f) << "Elu failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnarySelu) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  const float alpha = 1.6732632423543772f;
+  const float scale = 1.0507009873554805f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.05f - 3.0f;
+    expected[i] =
+        scale *
+        (dataIn[i] >= 0.0f ? dataIn[i] : alpha * (std::exp(dataIn[i]) - 1.0f));
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnarySelu, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-3f) << "Selu failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryHardswish) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    expected[i] =
+        dataIn[i] * std::min(std::max(dataIn[i] + 3.0f, 0.0f), 6.0f) / 6.0f;
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryHardswish, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "Hardswish failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryHardsigmoid) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    expected[i] = std::min(std::max(dataIn[i] / 6.0f + 0.5f, 0.0f), 1.0f);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryHardsigmoid, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-5f)
+        << "Hardsigmoid failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryHardtanh) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.02f - 2.0f;
+    expected[i] = std::min(std::max(dataIn[i], -1.0f), 1.0f);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryHardtanh, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-5f)
+        << "Hardtanh failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnarySoftsign) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    expected[i] = dataIn[i] / (1.0f + std::abs(dataIn[i]));
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnarySoftsign, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-5f)
+        << "Softsign failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryTanhshrink) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.05f - 3.0f;
+    expected[i] = dataIn[i] - std::tanh(dataIn[i]);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryTanhshrink, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "Tanhshrink failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryMish) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.05f - 3.0f;
+    expected[i] = dataIn[i] * std::tanh(std::log(1.0f + std::exp(dataIn[i])));
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryMish, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-3f) << "Mish failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryCelu) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.05f - 3.0f;
+    expected[i] =
+        std::max(dataIn[i], 0.0f) + std::min(0.0f, std::exp(dataIn[i]) - 1.0f);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryCelu, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f) << "Celu failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryLogSigmoid) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.05f - 3.0f;
+    expected[i] = -std::log(1.0f + std::exp(-dataIn[i]));
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryLogSigmoid, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "LogSigmoid failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Extended Math Shader Tests (Phase 2)
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, UnaryRsqrt) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i + 1) * 0.5f;
+    expected[i] = 1.0f / std::sqrt(dataIn[i]);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryRsqrt, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f) << "Rsqrt failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryTrunc) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.3f - 10.0f;
+    expected[i] = std::trunc(dataIn[i]);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryTrunc, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i]) << "Trunc failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryFrac) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.3f + 0.1f;
+    expected[i] = dataIn[i] - std::floor(dataIn[i]);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryFrac, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-5f) << "Frac failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryAsinh) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    expected[i] = std::asinh(dataIn[i]);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryAsinh, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f) << "Asinh failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryAcosh) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = 1.0f + static_cast<float>(i) * 0.1f; // acosh requires >= 1
+    expected[i] = std::acosh(dataIn[i]);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryAcosh, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f) << "Acosh failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryAtanh) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = (static_cast<float>(i) / static_cast<float>(elements)) * 1.8f -
+                0.9f; // range (-0.9, 0.9)
+    expected[i] = std::atanh(dataIn[i]);
+  }
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryAtanh, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f) << "Atanh failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, UnaryIsFinite) {
+  std::vector<float> dataIn(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataIn[i] = static_cast<float>(i) * 0.5f;
+    expected[i] = 1.0f; // all are finite
+  }
+  // Insert some special values
+  dataIn[0] = std::numeric_limits<float>::infinity();
+  expected[0] = 0.0f;
+  dataIn[1] = -std::numeric_limits<float>::infinity();
+  expected[1] = 0.0f;
+  dataIn[2] = std::numeric_limits<float>::quiet_NaN();
+  expected[2] = 0.0f;
+
+  std::vector<float> output;
+  runUnaryOp(cut::UnaryIsFinite, dataIn, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i]) << "IsFinite failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Extended Binary Shader Tests (Phase 3)
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecVecLogaddexp) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    dataB[i] = static_cast<float>(i) * 0.05f - 2.0f;
+    expected[i] = std::max(dataA[i], dataB[i]) +
+                  std::log(1.0f + std::exp(-std::abs(dataA[i] - dataB[i])));
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecLogaddexp, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "Logaddexp failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecLogaddexp2) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    dataB[i] = static_cast<float>(i) * 0.05f - 2.0f;
+    expected[i] = std::max(dataA[i], dataB[i]) +
+                  std::log2(1.0f + std::exp2(-std::abs(dataA[i] - dataB[i])));
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecLogaddexp2, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "Logaddexp2 failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Scalar Parameterized Activation Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarPrelu) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 0.25f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    expected[i] = dataA[i] >= 0.0f ? dataA[i] : scalar * dataA[i];
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarPrelu, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-5f) << "PReLU failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarHardshrink) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 1.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.05f - 3.0f;
+    expected[i] = std::abs(dataA[i]) > scalar ? dataA[i] : 0.0f;
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarHardshrink, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "Hardshrink failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarSoftshrink) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 0.5f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.05f - 3.0f;
+    if (dataA[i] > scalar)
+      expected[i] = dataA[i] - scalar;
+    else if (dataA[i] < -scalar)
+      expected[i] = dataA[i] + scalar;
+    else
+      expected[i] = 0.0f;
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarSoftshrink, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-5f)
+        << "Softshrink failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Shader Compilation Tests for All New Operations
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, AllNewActivationShadersCompile) {
+  const std::vector<cut::OperatorEnum> newActivations = {
+      cut::UnaryRelu6,       cut::UnaryElu,       cut::UnarySelu,
+      cut::UnaryCelu,        cut::UnaryMish,      cut::UnaryHardswish,
+      cut::UnaryHardsigmoid, cut::UnaryHardtanh,  cut::UnarySoftsign,
+      cut::UnaryLogSigmoid,  cut::UnaryTanhshrink};
+  for (auto shader : newActivations) {
+    EXPECT_NO_THROW(auto spirv = cut::getShader(shader))
+        << "Failed to compile shader " << cut::operatorName(shader);
+  }
+}
+
+TEST_F(GeneratedShadersTest, AllNewMathShadersCompile) {
+  const std::vector<cut::OperatorEnum> newMath = {
+      cut::UnaryRsqrt, cut::UnaryTrunc, cut::UnaryFrac,    cut::UnaryAsinh,
+      cut::UnaryAcosh, cut::UnaryAtanh, cut::UnaryIsFinite};
+  for (auto shader : newMath) {
+    EXPECT_NO_THROW(auto spirv = cut::getShader(shader))
+        << "Failed to compile shader " << cut::operatorName(shader);
+  }
+}
+
+TEST_F(GeneratedShadersTest, AllNewBinaryShadersCompile) {
+  const std::vector<cut::OperatorEnum> newBinary = {
+      cut::BinaryVecVecLogaddexp,     cut::BinaryVecVecLogaddexp2,
+      cut::BinaryVecScalarPrelu,      cut::BinaryVecScalarHardshrink,
+      cut::BinaryVecScalarSoftshrink, cut::BinaryVecScalarLogaddexp,
+      cut::BinaryVecScalarLogaddexp2};
+  for (auto shader : newBinary) {
+    EXPECT_NO_THROW(auto spirv = cut::getShader(shader))
+        << "Failed to compile shader " << cut::operatorName(shader);
+  }
+}
+
+TEST_F(GeneratedShadersTest, AllNewAdvancedShadersCompile) {
+  const std::vector<cut::OperatorEnum> newAdvanced = {
+      cut::ReduceArgmax,    cut::ReduceArgmin, cut::ReduceDimArgmax,
+      cut::ReduceDimArgmin, cut::CumSum,       cut::CumProd};
+  for (auto shader : newAdvanced) {
+    EXPECT_NO_THROW(auto spirv = cut::getShader(shader))
+        << "Failed to compile shader " << cut::operatorName(shader);
+  }
+}
+
+// ============================================================================
+// Chained Operations Test (existing)
+// ============================================================================
+
 TEST_F(GeneratedShadersTest, ChainedWithBufferReuse_AddThenNegInPlace) {
   std::vector<float> dataA(elements);
   std::vector<float> dataB(elements);

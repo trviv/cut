@@ -67,6 +67,8 @@ bool isBinaryVecVecOp(OperatorEnum op) {
   case BinaryVecVecHypot:
   case BinaryVecVecCopysign:
   case BinaryVecVecFmod:
+  case BinaryVecVecLogaddexp:
+  case BinaryVecVecLogaddexp2:
     return true;
   default:
     return false;
@@ -105,6 +107,11 @@ bool isBinaryVecScalarOp(OperatorEnum op) {
   case BinaryVecScalarCopysign:
   case BinaryVecScalarFmod:
   case BinaryVecScalarLeakyRelu:
+  case BinaryVecScalarPrelu:
+  case BinaryVecScalarHardshrink:
+  case BinaryVecScalarSoftshrink:
+  case BinaryVecScalarLogaddexp:
+  case BinaryVecScalarLogaddexp2:
     return true;
   default:
     return false;
@@ -152,6 +159,26 @@ bool isUnaryOp(OperatorEnum op) {
   case UnarySoftplus:
   case UnaryIsNan:
   case UnaryIsInf:
+  // Extended unary activations
+  case UnaryRelu6:
+  case UnaryElu:
+  case UnarySelu:
+  case UnaryCelu:
+  case UnaryMish:
+  case UnaryHardswish:
+  case UnaryHardsigmoid:
+  case UnaryHardtanh:
+  case UnarySoftsign:
+  case UnaryLogSigmoid:
+  case UnaryTanhshrink:
+  // Extended unary math
+  case UnaryRsqrt:
+  case UnaryTrunc:
+  case UnaryFrac:
+  case UnaryAsinh:
+  case UnaryAcosh:
+  case UnaryAtanh:
+  case UnaryIsFinite:
     return true;
   default:
     return false;
@@ -173,6 +200,8 @@ bool isReductionOp(OperatorEnum op) {
   case ReduceProd:
   case ReduceAny:
   case ReduceAll:
+  case ReduceArgmax:
+  case ReduceArgmin:
     return true;
   default:
     return false;
@@ -190,6 +219,10 @@ bool isDimReductionOp(OperatorEnum op) {
   case ReduceDimAny:
   case ReduceDimAll:
   case NormDim:
+  case ReduceDimArgmax:
+  case ReduceDimArgmin:
+  case CumSum:
+  case CumProd:
     return true;
   default:
     return false;

@@ -8,9 +8,12 @@ Note: numpy is used for verification/reference calculations only.
 The cut library itself does not depend on numpy.
 """
 
+import builtins
 import numpy as np
 import pytest
 import cut.compute as cc
+
+builtins_max = builtins.max
 
 
 # =============================================================================
@@ -708,3 +711,646 @@ class TestNormDim:
         t = cc.Tensor([[1, 2], [3, 4]])
         with pytest.raises(NotImplementedError):
             cc.norm(t, p=1, dim=0)
+
+
+# =============================================================================
+# Extended Unary Activation Tests
+# =============================================================================
+
+class TestExtendedActivations:
+    """Test extended unary activation functions."""
+
+    def test_relu6(self, backend):
+        """Test ReLU6: clamp(x, 0, 6)."""
+        data = [-2.0, 0.0, 3.0, 7.0, 10.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.relu6(t))
+        expected = np.clip(np.array(data, dtype=np.float32), 0.0, 6.0)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_elu(self, backend):
+        """Test ELU: x if x >= 0, exp(x) - 1 if x < 0."""
+        data = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.elu(t))
+        arr = np.array(data, dtype=np.float32)
+        expected = np.where(arr >= 0, arr, np.exp(arr) - 1.0)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_selu(self, backend):
+        """Test SELU activation."""
+        data = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.selu(t))
+        arr = np.array(data, dtype=np.float32)
+        alpha = 1.6732632423543772
+        scale = 1.0507009873554805
+        expected = scale * np.where(arr >= 0, arr, alpha * (np.exp(arr) - 1.0))
+        np.testing.assert_allclose(result, expected, rtol=1e-4)
+
+    def test_celu(self, backend):
+        """Test CELU: max(0, x) + min(0, exp(x) - 1)."""
+        data = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.celu(t))
+        arr = np.array(data, dtype=np.float32)
+        expected = np.maximum(arr, 0.0) + np.minimum(0.0, np.exp(arr) - 1.0)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_mish(self, backend):
+        """Test Mish: x * tanh(softplus(x))."""
+        data = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.mish(t))
+        arr = np.array(data, dtype=np.float32)
+        expected = arr * np.tanh(np.log(1.0 + np.exp(arr)))
+        np.testing.assert_allclose(result, expected, rtol=1e-4)
+
+    def test_hardswish(self, backend):
+        """Test HardSwish: x * clamp(x + 3, 0, 6) / 6."""
+        data = [-4.0, -3.0, 0.0, 3.0, 4.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.hardswish(t))
+        arr = np.array(data, dtype=np.float32)
+        expected = arr * np.clip(arr + 3.0, 0.0, 6.0) / 6.0
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_hardsigmoid(self, backend):
+        """Test HardSigmoid: clamp(x/6 + 0.5, 0, 1)."""
+        data = [-4.0, -3.0, 0.0, 3.0, 4.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.hardsigmoid(t))
+        arr = np.array(data, dtype=np.float32)
+        expected = np.clip(arr / 6.0 + 0.5, 0.0, 1.0)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_hardtanh(self, backend):
+        """Test HardTanh: clamp(x, -1, 1)."""
+        data = [-2.0, -0.5, 0.0, 0.5, 2.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.hardtanh(t))
+        expected = np.clip(np.array(data, dtype=np.float32), -1.0, 1.0)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_softsign(self, backend):
+        """Test Softsign: x / (1 + |x|)."""
+        data = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.softsign(t))
+        arr = np.array(data, dtype=np.float32)
+        expected = arr / (1.0 + np.abs(arr))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_logsigmoid(self, backend):
+        """Test LogSigmoid: -log(1 + exp(-x))."""
+        data = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.logsigmoid(t))
+        arr = np.array(data, dtype=np.float32)
+        expected = -np.log(1.0 + np.exp(-arr))
+        np.testing.assert_allclose(result, expected, rtol=1e-4)
+
+    def test_tanhshrink(self, backend):
+        """Test Tanhshrink: x - tanh(x)."""
+        data = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.tanhshrink(t))
+        arr = np.array(data, dtype=np.float32)
+        expected = arr - np.tanh(arr)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+
+# =============================================================================
+# Extended Binary-Scalar Activation Tests
+# =============================================================================
+
+class TestExtendedBinaryScalarActivations:
+    """Test extended binary vec-scalar activation functions."""
+
+    def test_prelu(self, backend):
+        """Test PReLU: x if x >= 0, weight * x otherwise."""
+        data = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        weight = 0.25
+        t = cc.Tensor(data)
+        result = to_numpy(cc.prelu(t, weight))
+        arr = np.array(data, dtype=np.float32)
+        expected = np.where(arr >= 0, arr, weight * arr)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_hardshrink(self, backend):
+        """Test Hardshrink: x if |x| > lambda, 0 otherwise."""
+        data = [-2.0, -0.3, 0.0, 0.3, 2.0]
+        lambd = 0.5
+        t = cc.Tensor(data)
+        result = to_numpy(cc.hardshrink(t, lambd))
+        arr = np.array(data, dtype=np.float32)
+        expected = np.where(np.abs(arr) > lambd, arr, 0.0)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_softshrink(self, backend):
+        """Test Softshrink: sign(x) * max(|x| - lambda, 0)."""
+        data = [-2.0, -0.3, 0.0, 0.3, 2.0]
+        lambd = 0.5
+        t = cc.Tensor(data)
+        result = to_numpy(cc.softshrink(t, lambd))
+        arr = np.array(data, dtype=np.float32)
+        expected = np.sign(arr) * np.maximum(np.abs(arr) - lambd, 0.0)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+
+# =============================================================================
+# Extended Unary Math Tests
+# =============================================================================
+
+class TestExtendedUnaryMath:
+    """Test extended unary math functions."""
+
+    def test_rsqrt(self, backend):
+        """Test reciprocal square root."""
+        data = [1.0, 4.0, 9.0, 16.0, 25.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.rsqrt(t))
+        expected = 1.0 / np.sqrt(np.array(data, dtype=np.float32))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_trunc(self, backend):
+        """Test truncation to integer."""
+        data = [1.7, -1.7, 2.5, -2.5, 0.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.trunc(t))
+        expected = np.trunc(np.array(data, dtype=np.float32))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_frac(self, backend):
+        """Test fractional part (GLSL fract = x - floor(x), always positive)."""
+        data = [1.7, -1.7, 2.5, 0.0, 3.14]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.frac(t))
+        arr = np.array(data, dtype=np.float32)
+        expected = arr - np.floor(arr)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_arcsinh(self, backend):
+        """Test inverse hyperbolic sine."""
+        data = [-2.0, -1.0, 0.0, 1.0, 2.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.arcsinh(t))
+        expected = np.arcsinh(np.array(data, dtype=np.float32))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_arccosh(self, backend):
+        """Test inverse hyperbolic cosine."""
+        data = [1.0, 2.0, 3.0, 4.0, 5.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.arccosh(t))
+        expected = np.arccosh(np.array(data, dtype=np.float32))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_arctanh(self, backend):
+        """Test inverse hyperbolic tangent."""
+        data = [-0.9, -0.5, 0.0, 0.5, 0.9]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.arctanh(t))
+        expected = np.arctanh(np.array(data, dtype=np.float32))
+        np.testing.assert_allclose(result, expected, rtol=1e-4)
+
+    def test_isfinite(self, backend):
+        """Test isfinite check."""
+        data = [1.0, 0.0, -1.0, 2.0, 3.0]
+        t = cc.Tensor(data)
+        result = to_numpy(cc.isfinite(t))
+        expected = np.isfinite(np.array(data, dtype=np.float32)).astype(np.float32)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+
+# =============================================================================
+# Logaddexp Binary Op Tests
+# =============================================================================
+
+class TestLogaddexp:
+    """Test logaddexp and logaddexp2 operations."""
+
+    def test_logaddexp(self, backend):
+        """Test logaddexp: log(exp(a) + exp(b))."""
+        a_data = [1.0, 2.0, 3.0, 4.0]
+        b_data = [2.0, 3.0, 4.0, 5.0]
+        a = cc.Tensor(a_data)
+        b = cc.Tensor(b_data)
+        result = to_numpy(cc.logaddexp(a, b))
+        expected = np.logaddexp(np.array(a_data, dtype=np.float32),
+                                np.array(b_data, dtype=np.float32))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_logaddexp2(self, backend):
+        """Test logaddexp2: log2(2^a + 2^b)."""
+        a_data = [1.0, 2.0, 3.0, 4.0]
+        b_data = [2.0, 3.0, 4.0, 5.0]
+        a = cc.Tensor(a_data)
+        b = cc.Tensor(b_data)
+        result = to_numpy(cc.logaddexp2(a, b))
+        expected = np.logaddexp2(np.array(a_data, dtype=np.float32),
+                                 np.array(b_data, dtype=np.float32))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_logaddexp_scalar(self, backend):
+        """Test logaddexp with scalar."""
+        a_data = [1.0, 2.0, 3.0, 4.0]
+        scalar = 2.0
+        a = cc.Tensor(a_data)
+        result = to_numpy(cc.logaddexp_scalar(a, scalar))
+        expected = np.logaddexp(np.array(a_data, dtype=np.float32), scalar)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_logaddexp2_scalar(self, backend):
+        """Test logaddexp2 with scalar."""
+        a_data = [1.0, 2.0, 3.0, 4.0]
+        scalar = 2.0
+        a = cc.Tensor(a_data)
+        result = to_numpy(cc.logaddexp2_scalar(a, scalar))
+        expected = np.logaddexp2(np.array(a_data, dtype=np.float32), scalar)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+
+# =============================================================================
+# Tensor Creation Helper Tests
+# =============================================================================
+
+class TestTensorCreationHelpers:
+    """Test zeros_like, ones_like, full_like."""
+
+    def test_zeros_like(self, backend):
+        """Test zeros_like creates matching shape of zeros."""
+        a = cc.Tensor([[1.0, 2.0], [3.0, 4.0]])
+        result = cc.zeros_like(a)
+        assert result.shape == a.shape
+        assert result.dtype == a.dtype
+        np.testing.assert_array_equal(to_numpy(result), np.zeros((2, 2), dtype=np.float32))
+
+    def test_ones_like(self, backend):
+        """Test ones_like creates matching shape of ones."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        result = cc.ones_like(a)
+        assert result.shape == a.shape
+        np.testing.assert_array_equal(to_numpy(result), np.ones(4, dtype=np.float32))
+
+    def test_full_like(self, backend):
+        """Test full_like creates matching shape filled with value."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        result = cc.full_like(a, 3.14)
+        assert result.shape == a.shape
+        expected = np.full(4, 3.14, dtype=np.float32)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+
+# =============================================================================
+# Var/Std Tests
+# =============================================================================
+
+class TestVarStd:
+    """Test variance and standard deviation."""
+
+    def test_var_global(self, backend):
+        """Test global variance."""
+        data = [1.0, 2.0, 3.0, 4.0, 5.0]
+        a = cc.Tensor(data)
+        result = cc.var(a)
+        expected = np.var(np.array(data, dtype=np.float32), ddof=1)
+        np.testing.assert_allclose(result, expected, rtol=1e-4)
+
+    def test_std_global(self, backend):
+        """Test global standard deviation."""
+        data = [1.0, 2.0, 3.0, 4.0, 5.0]
+        a = cc.Tensor(data)
+        result = cc.std(a)
+        expected = np.std(np.array(data, dtype=np.float32), ddof=1)
+        np.testing.assert_allclose(result, expected, rtol=1e-4)
+
+    def test_var_dim(self, backend):
+        """Test variance along dimension 0."""
+        data = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+        a = cc.Tensor(data)
+        result = to_numpy(cc.var(a, dim=0))
+        expected = np.var(np.array(data, dtype=np.float32), axis=0, ddof=1)
+        np.testing.assert_allclose(result, expected, rtol=1e-4)
+
+
+# =============================================================================
+# Softmax Tests
+# =============================================================================
+
+class TestSoftmax:
+    """Test softmax and log_softmax."""
+
+    def test_softmax_1d(self, backend):
+        """Test softmax on 1D input."""
+        data = [1.0, 2.0, 3.0, 4.0]
+        a = cc.Tensor(data)
+        result = to_numpy(cc.softmax(a, dim=0))
+        arr = np.array(data, dtype=np.float32)
+        expected = np.exp(arr) / np.sum(np.exp(arr))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_softmax_2d(self, backend):
+        """Test softmax on 2D input along dim=0."""
+        data = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+        a = cc.Tensor(data)
+        result = cc.softmax(a, dim=0)
+        result_flat = list(result.copy_to())
+        arr = np.array(data, dtype=np.float32)
+        exp_arr = np.exp(arr - arr.max(axis=0, keepdims=True))
+        expected = (exp_arr / exp_arr.sum(axis=0, keepdims=True)).flatten()
+        np.testing.assert_allclose(result_flat, expected, rtol=1e-5)
+
+    def test_log_softmax_1d(self, backend):
+        """Test log_softmax on 1D input."""
+        data = [1.0, 2.0, 3.0, 4.0]
+        a = cc.Tensor(data)
+        result = to_numpy(cc.log_softmax(a, dim=0))
+        arr = np.array(data, dtype=np.float32)
+        log_sum_exp = np.log(np.sum(np.exp(arr)))
+        expected = arr - log_sum_exp
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+
+# =============================================================================
+# Loss Function Tests
+# =============================================================================
+
+class TestLossFunctions:
+    """Test loss functions."""
+
+    def test_mse_loss(self, backend):
+        """Test mean squared error loss."""
+        pred = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        target = cc.Tensor([1.5, 2.5, 3.5, 4.5])
+        result = cc.mse_loss(pred, target)
+        expected = np.mean((np.array([1.0, 2.0, 3.0, 4.0]) - np.array([1.5, 2.5, 3.5, 4.5])) ** 2)
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_l1_loss(self, backend):
+        """Test L1 loss."""
+        pred = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        target = cc.Tensor([1.5, 2.5, 3.5, 4.5])
+        result = cc.l1_loss(pred, target)
+        expected = np.mean(np.abs(np.array([1.0, 2.0, 3.0, 4.0]) - np.array([1.5, 2.5, 3.5, 4.5])))
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_mse_loss_none_reduction(self, backend):
+        """Test MSE loss with no reduction."""
+        pred = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        target = cc.Tensor([2.0, 3.0, 4.0, 5.0])
+        result = to_numpy(cc.mse_loss(pred, target, reduction='none'))
+        expected = (np.array([1.0, 2.0, 3.0, 4.0]) - np.array([2.0, 3.0, 4.0, 5.0])) ** 2
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+
+class TestShapeOps:
+    """Test reshape, view, squeeze, unsqueeze, unflatten."""
+
+    def test_reshape_1d_to_2d(self, backend):
+        """Test reshaping a 1D tensor to 2D."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        result = cc.reshape(a, 2, 3)
+        assert result.shape == (2, 3)
+        data = list(result.copy_to())
+        assert data == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+    def test_reshape_2d_to_1d(self, backend):
+        """Test reshaping a 2D tensor to 1D."""
+        a = cc.Tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        result = cc.reshape(a, 6)
+        assert result.shape == (6,)
+        data = list(result.copy_to())
+        assert data == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+    def test_reshape_with_negative_one(self, backend):
+        """Test reshape with -1 for inferred dimension."""
+        a = cc.Tensor(list(range(12)), shape=(12,))
+        result = cc.reshape(a, 3, -1)
+        assert result.shape == (3, 4)
+        result2 = cc.reshape(a, -1, 6)
+        assert result2.shape == (2, 6)
+
+    def test_reshape_tuple_arg(self, backend):
+        """Test reshape with a tuple argument."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        result = cc.reshape(a, (2, 2))
+        assert result.shape == (2, 2)
+
+    def test_reshape_invalid(self, backend):
+        """Test reshape with mismatched sizes raises error."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        with pytest.raises(ValueError):
+            cc.reshape(a, 3, 3)
+
+    def test_reshape_preserves_data(self, backend):
+        """Test that reshape is a zero-copy view (same GPU buffer)."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        b = cc.reshape(a, 2, 3)
+        # Verify data is the same
+        np.testing.assert_array_equal(list(a.copy_to()), list(b.copy_to()))
+
+    def test_view(self, backend):
+        """Test that view is an alias for reshape."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        result = cc.view(a, 2, 2)
+        assert result.shape == (2, 2)
+
+    def test_squeeze_all(self, backend):
+        """Test squeezing all size-1 dimensions."""
+        a = cc.Tensor([1.0, 2.0, 3.0], shape=(1, 3, 1))
+        result = cc.squeeze(a)
+        assert result.shape == (3,)
+        data = list(result.copy_to())
+        assert data == [1.0, 2.0, 3.0]
+
+    def test_squeeze_specific_dim(self, backend):
+        """Test squeezing a specific dimension."""
+        a = cc.Tensor([1.0, 2.0, 3.0], shape=(1, 3, 1))
+        result = cc.squeeze(a, dim=0)
+        assert result.shape == (3, 1)
+        result2 = cc.squeeze(a, dim=2)
+        assert result2.shape == (1, 3)
+
+    def test_squeeze_noop(self, backend):
+        """Test squeeze is no-op when dim is not size 1."""
+        a = cc.Tensor([1.0, 2.0, 3.0], shape=(1, 3))
+        result = cc.squeeze(a, dim=1)
+        assert result.shape == (1, 3)
+
+    def test_unsqueeze(self, backend):
+        """Test unsqueeze adds a dimension."""
+        a = cc.Tensor([1.0, 2.0, 3.0])
+        r0 = cc.unsqueeze(a, 0)
+        assert r0.shape == (1, 3)
+        r1 = cc.unsqueeze(a, 1)
+        assert r1.shape == (3, 1)
+        r_neg = cc.unsqueeze(a, -1)
+        assert r_neg.shape == (3, 1)
+
+    def test_unsqueeze_2d(self, backend):
+        """Test unsqueeze on a 2D tensor."""
+        a = cc.Tensor([[1.0, 2.0], [3.0, 4.0]])
+        r0 = cc.unsqueeze(a, 0)
+        assert r0.shape == (1, 2, 2)
+        r1 = cc.unsqueeze(a, 1)
+        assert r1.shape == (2, 1, 2)
+        r2 = cc.unsqueeze(a, 2)
+        assert r2.shape == (2, 2, 1)
+
+    def test_unflatten(self, backend):
+        """Test unflattening a dimension."""
+        a = cc.Tensor(list(range(12)), shape=(12,))
+        result = cc.unflatten(a, 0, (3, 4))
+        assert result.shape == (3, 4)
+
+    def test_unflatten_middle_dim(self, backend):
+        """Test unflattening a middle dimension."""
+        a = cc.Tensor(list(range(24)), shape=(2, 12))
+        result = cc.unflatten(a, 1, (3, 4))
+        assert result.shape == (2, 3, 4)
+
+    def test_unflatten_invalid(self, backend):
+        """Test unflatten with mismatched sizes raises error."""
+        a = cc.Tensor(list(range(12)), shape=(12,))
+        with pytest.raises(ValueError):
+            cc.unflatten(a, 0, (3, 5))
+
+    def test_reshape_then_ops(self, backend):
+        """Test that reshaped tensors work with operations."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        b = cc.reshape(a, 2, 3)
+        # Sum should still work on the reshaped tensor
+        total = cc.sum(b)
+        np.testing.assert_allclose(total, 21.0, rtol=1e-5)
+
+    def test_squeeze_unsqueeze_roundtrip(self, backend):
+        """Test that squeeze and unsqueeze are inverses."""
+        a = cc.Tensor([1.0, 2.0, 3.0])
+        b = cc.unsqueeze(a, 0)
+        assert b.shape == (1, 3)
+        c = cc.squeeze(b, dim=0)
+        assert c.shape == (3,)
+        np.testing.assert_array_equal(list(a.copy_to()), list(c.copy_to()))
+
+
+class TestArgmaxArgmin:
+    """Test argmax/argmin global and dim-wise reductions."""
+
+    def test_argmax_global(self, backend):
+        """Test global argmax."""
+        a = cc.Tensor([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0])
+        result = cc.argmax(a)
+        assert result == 5  # index of 9.0
+
+    def test_argmin_global(self, backend):
+        """Test global argmin."""
+        a = cc.Tensor([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0])
+        result = cc.argmin(a)
+        assert result == 1  # index of first 1.0
+
+    def test_argmax_global_single(self, backend):
+        """Test argmax with a single element."""
+        a = cc.Tensor([42.0])
+        assert cc.argmax(a) == 0
+
+    def test_argmin_global_negative(self, backend):
+        """Test argmin with negative values."""
+        a = cc.Tensor([5.0, -3.0, 2.0, -7.0])
+        assert cc.argmin(a) == 3  # index of -7.0
+
+    def test_argmax_dim0(self, backend):
+        """Test argmax along dim 0."""
+        # Shape (3, 4): 3 rows, 4 cols
+        a = cc.Tensor([
+            1.0, 5.0, 3.0, 2.0,
+            4.0, 2.0, 6.0, 1.0,
+            3.0, 8.0, 1.0, 7.0,
+        ], shape=(3, 4))
+        result = cc.argmax(a, dim=0)
+        # For each column, which row has the max?
+        # col 0: max is 4.0 at row 1
+        # col 1: max is 8.0 at row 2
+        # col 2: max is 6.0 at row 1
+        # col 3: max is 7.0 at row 2
+        expected = [1.0, 2.0, 1.0, 2.0]
+        np.testing.assert_array_equal(list(result.copy_to()), expected)
+
+    def test_argmin_dim0(self, backend):
+        """Test argmin along dim 0."""
+        a = cc.Tensor([
+            1.0, 5.0, 3.0, 2.0,
+            4.0, 2.0, 6.0, 1.0,
+            3.0, 8.0, 1.0, 7.0,
+        ], shape=(3, 4))
+        result = cc.argmin(a, dim=0)
+        # col 0: min is 1.0 at row 0
+        # col 1: min is 2.0 at row 1
+        # col 2: min is 1.0 at row 2
+        # col 3: min is 1.0 at row 1
+        expected = [0.0, 1.0, 2.0, 1.0]
+        np.testing.assert_array_equal(list(result.copy_to()), expected)
+
+    def test_argmax_large(self, backend):
+        """Test argmax with larger tensor."""
+        import random
+        random.seed(42)
+        data = [random.random() for _ in range(1024)]
+        a = cc.Tensor(data)
+        result = cc.argmax(a)
+        expected = data.index(builtins_max(data))
+        assert result == expected
+
+
+class TestCumsumCumprod:
+    """Test cumulative sum and product."""
+
+    def test_cumsum_1d(self, backend):
+        """Test cumulative sum on 1D tensor."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        result = list(cc.cumsum(a).copy_to())
+        expected = [1.0, 3.0, 6.0, 10.0]
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_cumprod_1d(self, backend):
+        """Test cumulative product on 1D tensor."""
+        a = cc.Tensor([1.0, 2.0, 3.0, 4.0])
+        result = list(cc.cumprod(a).copy_to())
+        expected = [1.0, 2.0, 6.0, 24.0]
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_cumsum_2d_dim0(self, backend):
+        """Test cumsum along dim 0 on a 2D tensor."""
+        a = cc.Tensor([
+            1.0, 2.0, 3.0, 4.0,
+            5.0, 6.0, 7.0, 8.0,
+            9.0, 10.0, 11.0, 12.0,
+        ], shape=(3, 4))
+        result = list(cc.cumsum(a, dim=0).copy_to())
+        # Row 0: [1, 2, 3, 4]
+        # Row 1: [1+5, 2+6, 3+7, 4+8] = [6, 8, 10, 12]
+        # Row 2: [6+9, 8+10, 10+11, 12+12] = [15, 18, 21, 24]
+        expected = [1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0, 15.0, 18.0, 21.0, 24.0]
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_cumprod_2d_dim0(self, backend):
+        """Test cumprod along dim 0 on a 2D tensor."""
+        a = cc.Tensor([
+            1.0, 2.0, 3.0, 4.0,
+            2.0, 3.0, 1.0, 2.0,
+        ], shape=(2, 4))
+        result = list(cc.cumprod(a, dim=0).copy_to())
+        expected = [1.0, 2.0, 3.0, 4.0, 2.0, 6.0, 3.0, 8.0]
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_cumsum_preserves_shape(self, backend):
+        """Test that cumsum output has same shape as input."""
+        a = cc.Tensor(list(range(1, 13)), shape=(3, 4))
+        result = cc.cumsum(a, dim=0)
+        assert result.shape == a.shape
+
+    def test_cumsum_single_element(self, backend):
+        """Test cumsum with single element."""
+        a = cc.Tensor([5.0])
+        result = list(cc.cumsum(a).copy_to())
+        assert result == [5.0]
