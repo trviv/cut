@@ -17,7 +17,7 @@ function(compile_shader SHADER_SOURCE)
     set(SHADER_BINARY ${SHADER_BINARY_DIR}/${SHADER_NAME}_shader.spv)
 
     # Include paths for shader headers
-    set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/core/api/Headers)
+    set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/core/api/include)
 
     add_custom_command(
         OUTPUT ${SHADER_BINARY}

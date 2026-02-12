@@ -42,7 +42,7 @@ message(STATUS "CUT_ROOT: ${CUT_ROOT}")
 
 # Include parent project headers
 include_directories(${CUT_ROOT})
-include_directories(${CUT_ROOT}/core/api/Headers)
+include_directories(${CUT_ROOT}/core/api/include)
 include_directories(${CUT_ROOT}/core/backends/vulkan)
 include_directories(${CUT_ROOT}/runtime)
 include_directories(${CUT_ROOT}/shaders)

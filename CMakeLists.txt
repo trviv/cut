@@ -71,12 +71,12 @@ if (OPENL_CL_WITH_VULKAN)
 endif()
 
 set(LIB_HEADERS
-    core/api/Headers/ComputeCommon.h
-    core/api/Headers/ComputeHandle.h
-    core/api/Headers/ComputeStructs.h
-    core/api/Headers/ComputeContainer.h
-    core/api/Headers/ComputeContainers.h
-    core/api/Headers/ComputeInterface.h
+    core/api/include/ComputeCommon.h
+    core/api/include/ComputeHandle.h
+    core/api/include/ComputeStructs.h
+    core/api/include/ComputeContainer.h
+    core/api/include/ComputeContainers.h
+    core/api/include/ComputeInterface.h
     core/backends/vulkan/VulkanCommon.h
     core/backends/vulkan/VulkanStructs.h
     core/backends/vulkan/VulkanContainers.h
@@ -137,7 +137,7 @@ add_executable(${PROJECT_NAME} "main.cpp")
 # Include directories
 target_include_directories(CUTLib PRIVATE
     ${Vulkan_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/core/api/Headers
+    ${CMAKE_SOURCE_DIR}/core/api/include
     ${CMAKE_SOURCE_DIR}/core/backends/vulkan
     ${CMAKE_SOURCE_DIR}/shaders
     ${CMAKE_SOURCE_DIR}/runtime
@@ -180,7 +180,7 @@ add_subdirectory(tests)
 if(TARGET benchmarks)
     target_include_directories(benchmarks PRIVATE
         ${Vulkan_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/core/api/Headers
+        ${CMAKE_SOURCE_DIR}/core/api/include
         ${CMAKE_SOURCE_DIR}/core/backends/vulkan
         ${CMAKE_SOURCE_DIR}/shaders
         ${CMAKE_SOURCE_DIR}/benchmarks
