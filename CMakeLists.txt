@@ -98,6 +98,7 @@ set(LIB_SOURCES
     shaders/CompiledShaders.cpp
     core/api/src/ComputeCommon.cpp
     core/api/src/ComputeHandle.cpp
+    core/api/src/ComputeOps.cpp
     core/api/src/ComputeStructs.cpp
     core/api/src/ComputeContainer.cpp
     core/api/src/ComputeInterface.cpp

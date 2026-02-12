@@ -13,9 +13,6 @@
 
 namespace cut {
 
-// Forward declaration from ShadersGenerated.cpp
-extern std::unordered_map<uint64_t, std::vector<uint32_t>> shaderCache;
-
 using ShaderGenFn = std::string (*)(const char *, DataType);
 
 struct OpEntry {

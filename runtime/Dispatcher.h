@@ -38,13 +38,6 @@ public:
               const ComputeHandle &shader,
               size_t executionSize);
 
-  /**
-   * Returns a string name for the given operator.
-   * @param op The operator enum.
-   * @return A human-readable name for the operator.
-   */
-  static const char *operatorName(OperatorEnum op);
-
 private:
   ComputeInterface *iface_;
 };

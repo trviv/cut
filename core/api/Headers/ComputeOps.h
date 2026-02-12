@@ -220,4 +220,11 @@ enum OperatorEnum {
   Full = OP_FULL,
 };
 
+/**
+ * Returns a string name for the given operator.
+ * @param op The operator enum.
+ * @return A human-readable name for the operator.
+ */
+const char *operatorName(OperatorEnum op);
+
 } // namespace cut
