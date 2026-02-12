@@ -179,9 +179,16 @@ enum OperatorEnum {
   ReduceProd = OP_REDUCE_PROD,
   ReduceAny = OP_REDUCE_ANY,
   ReduceAll = OP_REDUCE_ALL,
+  ReduceDimSum = OP_REDUCE_DIM_SUM,
+  ReduceDimMean = OP_REDUCE_DIM_MEAN,
+  ReduceDimMin = OP_REDUCE_DIM_MIN,
+  ReduceDimMax = OP_REDUCE_DIM_MAX,
+  ReduceDimProd = OP_REDUCE_DIM_PROD,
+  ReduceDimAny = OP_REDUCE_DIM_ANY,
+  ReduceDimAll = OP_REDUCE_DIM_ALL,
 
   // ===========================================================================
-  // Matrix operations (120-129)
+  // Matrix operations (120-122)
   // ===========================================================================
 
   MatMul = OP_MATMUL,

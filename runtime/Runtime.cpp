@@ -176,7 +176,9 @@ Runtime::getExecutionSize(OperatorEnum op,
     // Reductions need actual element counts (not aligned) to avoid
     // including padding zeros in the result. Elementwise ops use
     // aligned sizes since they process in vec4 chunks.
-    if (op >= ReduceSum && op <= ReduceAll) {
+    if ((op >= ReduceSum && op <= ReduceAll) ||
+        (op >= ReduceDimSum && op <= ReduceDimMin) ||
+        (op >= ReduceDimMax && op <= ReduceDimAll)) {
       execSizes.push_back(buffer.calculateActualSize() /
                           dataTypeSize(buffer.getDtype()));
     } else {

@@ -179,6 +179,22 @@ bool isReductionOp(OperatorEnum op) {
   }
 }
 
+/// Checks if an operator is a dimension-wise reduction operation.
+bool isDimReductionOp(OperatorEnum op) {
+  switch (op) {
+  case ReduceDimSum:
+  case ReduceDimMean:
+  case ReduceDimMin:
+  case ReduceDimMax:
+  case ReduceDimProd:
+  case ReduceDimAny:
+  case ReduceDimAll:
+    return true;
+  default:
+    return false;
+  }
+}
+
 /// Checks if an operator is a matrix operation.
 bool isMatrixOp(OperatorEnum op) {
   switch (op) {
@@ -422,6 +438,20 @@ const char *Dispatcher::operatorName(OperatorEnum op) {
     return "ReduceAny";
   case ReduceAll:
     return "ReduceAll";
+  case ReduceDimSum:
+    return "ReduceDimSum";
+  case ReduceDimMean:
+    return "ReduceDimMean";
+  case ReduceDimMin:
+    return "ReduceDimMin";
+  case ReduceDimMax:
+    return "ReduceDimMax";
+  case ReduceDimProd:
+    return "ReduceDimProd";
+  case ReduceDimAny:
+    return "ReduceDimAny";
+  case ReduceDimAll:
+    return "ReduceDimAll";
 
   // Matrix operations
   case MatMul:
@@ -477,6 +507,13 @@ void Dispatcher::encode(OperatorEnum op,
     if (bindings.size() != 2) {
       throw std::runtime_error(
           "Reduction operation requires exactly 2 bindings");
+    }
+  } else if (isDimReductionOp(op)) {
+    // Dim reduction: input, output, shape data (3 bindings)
+    if (bindings.size() != 3) {
+      throw std::runtime_error(
+          "Dim reduction operation requires exactly 3 bindings "
+          "(input, output, shape_data)");
     }
   } else if (isMatrixOp(op)) {
     // Matrix operations have varying requirements
@@ -585,6 +622,45 @@ void Dispatcher::encode(OperatorEnum op,
     reductionDispatch.bindData(DataReference(numElements),
                                static_cast<uint32_t>(bindings.size()));
     iface_->encode(std::move(reductionDispatch));
+    return;
+  } else if (isDimReductionOp(op)) {
+    // Dim reduction ops need shape info from data bindings.
+    // Bindings: input (handle), output (handle), shape_data (data).
+    // Shape data contains [outerSize, reduceSize, innerSize].
+    std::vector<ComputeBinding> dimReduceHandleBindings;
+    uint32_t outerSize = 0, reduceSize = 0, innerSize = 0;
+
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        dimReduceHandleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        const auto &data = binding.getData();
+        if (data.size() >= 3 * sizeof(uint32_t)) {
+          const uint32_t *dims =
+              reinterpret_cast<const uint32_t *>(data.data());
+          outerSize = dims[0];
+          reduceSize = dims[1];
+          innerSize = dims[2];
+        }
+      }
+    }
+
+    uint32_t numOutputs = outerSize * innerSize;
+    // Round up to multiple of 256 for workgroup dispatch
+    uint32_t gridX = ((numOutputs + 255) / 256) * 256;
+
+    ThreadSize dimReduceWorkgroupSize{gridX, 1, 1};
+    ComputeDispatch dimReduceDispatch(shader, dimReduceWorkgroupSize,
+                                      dimReduceHandleBindings);
+    struct DimReducePushConstants {
+      uint32_t outerSize;
+      uint32_t reduceSize;
+      uint32_t innerSize;
+    } pushData{outerSize, reduceSize, innerSize};
+    dimReduceDispatch.bindData(
+        DataReference(&pushData, sizeof(pushData)),
+        static_cast<uint32_t>(dimReduceHandleBindings.size()));
+    iface_->encode(std::move(dimReduceDispatch));
     return;
   } else if (isMatrixOp(op)) {
     // Matrix ops need shape info from data bindings

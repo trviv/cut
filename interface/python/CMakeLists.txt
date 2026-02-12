@@ -4,6 +4,11 @@ project(cut_python)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Fix for CMake 4.2+ @rpath issue on macOS
+if(APPLE AND NOT CMAKE_SHARED_LIBRARY_RUNTIME_C_FLAG)
+    set(CMAKE_SHARED_LIBRARY_RUNTIME_C_FLAG "-Wl,-rpath,")
+endif()
+
 # Find Python and pybind11
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(pybind11 CONFIG REQUIRED)

@@ -272,6 +272,67 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
     shaderName = "reduce_all";
     return true;
   }
+  case ReduceDimSum: {
+    shaderSource = reductionDimShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a + b");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
+    shaderName = "reduce_dim_sum";
+    return true;
+  }
+  case ReduceDimMean: {
+    shaderSource = reductionDimShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a + b");
+    shaderSource = replaceAll(shaderSource, "dataOut[outIdx] = val",
+                              "dataOut[outIdx] = val / "
+                              "%SCALAR_DTYPE%(reduceSize)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
+    shaderName = "reduce_dim_mean";
+    return true;
+  }
+  case ReduceDimMin: {
+    shaderSource = reductionDimShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "3.402823466e+38");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "min(a, b)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
+    shaderName = "reduce_dim_min";
+    return true;
+  }
+  case ReduceDimMax: {
+    shaderSource = reductionDimShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "-3.402823466e+38");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "max(a, b)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
+    shaderName = "reduce_dim_max";
+    return true;
+  }
+  case ReduceDimProd: {
+    shaderSource = reductionDimShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "1.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a * b");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
+    shaderName = "reduce_dim_prod";
+    return true;
+  }
+  case ReduceDimAny: {
+    shaderSource = reductionDimShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
+                              "((a != 0.0 || b != 0.0) ? 1.0 : 0.0)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
+    shaderName = "reduce_dim_any";
+    return true;
+  }
+  case ReduceDimAll: {
+    shaderSource = reductionDimShaderTemplate;
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "1.0");
+    shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
+                              "((a != 0.0 && b != 0.0) ? 1.0 : 0.0)");
+    shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
+    shaderName = "reduce_dim_all";
+    return true;
+  }
 
   // =============================================================================
   // Matrix operations

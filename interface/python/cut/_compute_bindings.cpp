@@ -398,6 +398,13 @@ PYBIND11_MODULE(_cut_compute, m) {
       .value("ReduceProd", cut::OperatorEnum::ReduceProd)
       .value("ReduceAny", cut::OperatorEnum::ReduceAny)
       .value("ReduceAll", cut::OperatorEnum::ReduceAll)
+      .value("ReduceDimSum", cut::OperatorEnum::ReduceDimSum)
+      .value("ReduceDimMean", cut::OperatorEnum::ReduceDimMean)
+      .value("ReduceDimMin", cut::OperatorEnum::ReduceDimMin)
+      .value("ReduceDimMax", cut::OperatorEnum::ReduceDimMax)
+      .value("ReduceDimProd", cut::OperatorEnum::ReduceDimProd)
+      .value("ReduceDimAny", cut::OperatorEnum::ReduceDimAny)
+      .value("ReduceDimAll", cut::OperatorEnum::ReduceDimAll)
       // Matrix operations
       .value("MatMul", cut::OperatorEnum::MatMul)
       .value("Transpose", cut::OperatorEnum::Transpose)
@@ -512,10 +519,7 @@ PYBIND11_MODULE(_cut_compute, m) {
       "Check if Vulkan backend is available");
 
   m.def(
-      "init",
-      [](cut::BackendType backend) {
-        getRuntime().init(backend);
-      },
+      "init", [](cut::BackendType backend) { getRuntime().init(backend); },
       py::arg("backend") = cut::BackendType::Vulkan,
       "Initialize the compute backend");
 

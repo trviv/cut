@@ -509,6 +509,37 @@ class Tensor:
         # Use native C++ reshape for performance
         return _cut_compute.reshape_to_nested(arr, self._dtype.to_cut_dtype(), list(self._shape))
 
+    def __repr__(self) -> str:
+        data = self.tolist()
+        dtype_str = str(self._dtype)
+        return f"Tensor({_format_tensor(data)}, dtype={dtype_str})"
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+
+def _format_tensor(data, indent=0) -> str:
+    """Format nested list data like numpy array printing."""
+    if not isinstance(data, list):
+        # Scalar: format floats cleanly, rounding to ~8 significant digits
+        # like numpy's default float32 display
+        if isinstance(data, float):
+            return f"{data:.8g}"
+        return str(data)
+
+    if not data:
+        return "[]"
+
+    # 1D list
+    if not isinstance(data[0], list):
+        items = ", ".join(_format_tensor(x) for x in data)
+        return f"[{items}]"
+
+    # Multi-dimensional: each sub-array on its own line
+    sep = ",\n" + " " * (indent + 1)
+    items = sep.join(_format_tensor(row, indent + 1) for row in data)
+    return f"[{items}]"
+
 
 # =============================================================================
 # Operation Implementations
@@ -624,23 +655,30 @@ _register_operations()
 # Special Operations (not auto-generated)
 # =============================================================================
 
-def sum(a: Tensor) -> float:
+def sum(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     """
-    Compute the sum of all elements in the tensor.
+    Compute the sum of elements in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
+        dim: Dimension along which to reduce. If None, reduces all elements.
 
     Returns:
-        Sum of all elements
+        If dim is None: scalar sum of all elements.
+        If dim is specified: Tensor with the given dimension reduced.
 
     Example:
         >>> a = Tensor([1, 2, 3, 4])
         >>> result = sum(a)  # Returns 10.0
+        >>> x = Tensor([[1, 2, 3], [4, 5, 6]])
+        >>> sum(x, dim=0)  # Returns Tensor([5, 7, 9])
+        >>> sum(x, dim=1)  # Returns Tensor([6, 15])
     """
     _ensure_initialized()
 
-    # Create output tensor for single result
+    if dim is not None:
+        return _dim_reduce(a, dim, OperatorEnum.ReduceDimSum)
+
     out = Tensor(size=4, dtype=float32, shape=(1,))
 
     bindings = [
@@ -652,23 +690,67 @@ def sum(a: Tensor) -> float:
     return float(out.copy_to()[0])
 
 
-def mean(a: Tensor) -> float:
+def _dim_reduce(a: Tensor, dim: int, dim_op_enum) -> Tensor:
+    """Helper for dimension-wise reduction ops."""
+    shape = a._shape
+    ndim = len(shape)
+
+    if dim < 0:
+        dim = ndim + dim
+    if dim < 0 or dim >= ndim:
+        raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
+
+    outer_size = 1
+    for i in range(dim):
+        outer_size *= shape[i]
+    reduce_size = shape[dim]
+    inner_size = 1
+    for i in range(dim + 1, ndim):
+        inner_size *= shape[i]
+
+    out_shape = tuple(s for i, s in enumerate(shape) if i != dim)
+    if not out_shape:
+        out_shape = (1,)
+
+    num_outputs = outer_size * inner_size
+    out = Tensor(size=num_outputs * a._dtype.itemsize, dtype=a._dtype)
+    out._shape = out_shape
+
+    shape_data = array.array('I', [outer_size, reduce_size, inner_size])
+
+    bindings = [
+        ComputeBinding(0, a._handle),
+        ComputeBinding(1, out._handle),
+        ComputeBinding.from_bytes(2, shape_data),
+    ]
+    _cut_compute.execute_operator(dim_op_enum, bindings)
+
+    return out
+
+
+def mean(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     """
-    Compute the mean of all elements in the tensor.
+    Compute the mean of elements in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
+        dim: Dimension along which to reduce. If None, reduces all elements.
 
     Returns:
-        Mean of all elements
+        If dim is None: scalar mean of all elements.
+        If dim is specified: Tensor with the given dimension reduced.
 
     Example:
         >>> a = Tensor([1, 2, 3, 4])
         >>> result = mean(a)  # Returns 2.5
+        >>> x = Tensor([[1, 2, 3], [4, 5, 6]])
+        >>> mean(x, dim=0)  # Returns Tensor([2.5, 3.5, 4.5])
     """
     _ensure_initialized()
 
-    # For mean, we compute sum on GPU and divide by count on CPU
+    if dim is not None:
+        return _dim_reduce(a, dim, OperatorEnum.ReduceDimMean)
+
     out = Tensor(size=4, dtype=float32, shape=(1,))
 
     bindings = [
@@ -677,27 +759,33 @@ def mean(a: Tensor) -> float:
     ]
     _cut_compute.execute_operator(OperatorEnum.ReduceMean, bindings)
 
-    # GPU computes sum, we divide by count
     total = float(out.copy_to()[0])
     count = _cut_compute.shape_product(list(a.shape))
     return total / count
 
 
-def min(a: Tensor) -> float:
+def min(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     """
-    Find the minimum element in the tensor.
+    Find the minimum element in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
+        dim: Dimension along which to reduce. If None, reduces all elements.
 
     Returns:
-        Minimum element
+        If dim is None: scalar minimum.
+        If dim is specified: Tensor with the given dimension reduced.
 
     Example:
         >>> a = Tensor([3, 1, 4, 1, 5])
         >>> result = min(a)  # Returns 1.0
+        >>> x = Tensor([[3, 1], [4, 2]])
+        >>> min(x, dim=0)  # Returns Tensor([3, 1])
     """
     _ensure_initialized()
+
+    if dim is not None:
+        return _dim_reduce(a, dim, OperatorEnum.ReduceDimMin)
 
     out = Tensor(size=4, dtype=float32, shape=(1,))
 
@@ -710,21 +798,28 @@ def min(a: Tensor) -> float:
     return float(out.copy_to()[0])
 
 
-def max(a: Tensor) -> float:
+def max(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     """
-    Find the maximum element in the tensor.
+    Find the maximum element in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
+        dim: Dimension along which to reduce. If None, reduces all elements.
 
     Returns:
-        Maximum element
+        If dim is None: scalar maximum.
+        If dim is specified: Tensor with the given dimension reduced.
 
     Example:
         >>> a = Tensor([3, 1, 4, 1, 5])
         >>> result = max(a)  # Returns 5.0
+        >>> x = Tensor([[3, 1], [4, 2]])
+        >>> max(x, dim=0)  # Returns Tensor([4, 2])
     """
     _ensure_initialized()
+
+    if dim is not None:
+        return _dim_reduce(a, dim, OperatorEnum.ReduceDimMax)
 
     out = Tensor(size=4, dtype=float32, shape=(1,))
 
@@ -737,21 +832,28 @@ def max(a: Tensor) -> float:
     return float(out.copy_to()[0])
 
 
-def prod(a: Tensor) -> float:
+def prod(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     """
-    Compute the product of all elements in the tensor.
+    Compute the product of elements in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
+        dim: Dimension along which to reduce. If None, reduces all elements.
 
     Returns:
-        Product of all elements
+        If dim is None: scalar product of all elements.
+        If dim is specified: Tensor with the given dimension reduced.
 
     Example:
         >>> a = Tensor([1, 2, 3, 4])
         >>> result = prod(a)  # Returns 24.0
+        >>> x = Tensor([[1, 2], [3, 4]])
+        >>> prod(x, dim=0)  # Returns Tensor([3, 8])
     """
     _ensure_initialized()
+
+    if dim is not None:
+        return _dim_reduce(a, dim, OperatorEnum.ReduceDimProd)
 
     out = Tensor(size=4, dtype=float32, shape=(1,))
 
@@ -764,21 +866,28 @@ def prod(a: Tensor) -> float:
     return float(out.copy_to()[0])
 
 
-def any(a: Tensor) -> bool:
+def any(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
     """
-    Check if any element in the tensor is non-zero (logical OR).
+    Check if any element in the tensor is non-zero, optionally along a dimension.
 
     Args:
         a: Input tensor
+        dim: Dimension along which to reduce. If None, reduces all elements.
 
     Returns:
-        True if any element is non-zero
+        If dim is None: True if any element is non-zero.
+        If dim is specified: Tensor with 1.0 where any element along dim is non-zero.
 
     Example:
         >>> a = Tensor([0, 0, 1, 0])
         >>> result = any(a)  # Returns True
+        >>> x = Tensor([[0, 1], [0, 0]])
+        >>> any(x, dim=0)  # Returns Tensor([0, 1])
     """
     _ensure_initialized()
+
+    if dim is not None:
+        return _dim_reduce(a, dim, OperatorEnum.ReduceDimAny)
 
     out = Tensor(size=4, dtype=float32, shape=(1,))
 
@@ -791,21 +900,28 @@ def any(a: Tensor) -> bool:
     return bool(out.copy_to()[0] != 0.0)
 
 
-def all(a: Tensor) -> bool:
+def all(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
     """
-    Check if all elements in the tensor are non-zero (logical AND).
+    Check if all elements in the tensor are non-zero, optionally along a dimension.
 
     Args:
         a: Input tensor
+        dim: Dimension along which to reduce. If None, reduces all elements.
 
     Returns:
-        True if all elements are non-zero
+        If dim is None: True if all elements are non-zero.
+        If dim is specified: Tensor with 1.0 where all elements along dim are non-zero.
 
     Example:
         >>> a = Tensor([1, 2, 3, 4])
         >>> result = all(a)  # Returns True
+        >>> x = Tensor([[1, 0], [1, 1]])
+        >>> all(x, dim=0)  # Returns Tensor([1, 0])
     """
     _ensure_initialized()
+
+    if dim is not None:
+        return _dim_reduce(a, dim, OperatorEnum.ReduceDimAll)
 
     out = Tensor(size=4, dtype=float32, shape=(1,))
 

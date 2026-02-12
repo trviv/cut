@@ -179,9 +179,16 @@
 #define OP_REDUCE_PROD 114
 #define OP_REDUCE_ANY 115
 #define OP_REDUCE_ALL 116
+#define OP_REDUCE_DIM_SUM 117
+#define OP_REDUCE_DIM_MEAN 118
+#define OP_REDUCE_DIM_MIN 119
+#define OP_REDUCE_DIM_MAX 123
+#define OP_REDUCE_DIM_PROD 124
+#define OP_REDUCE_DIM_ANY 125
+#define OP_REDUCE_DIM_ALL 126
 
 // =============================================================================
-// Matrix operations (120-129)
+// Matrix operations (120-122)
 // =============================================================================
 
 #define OP_MATMUL 120

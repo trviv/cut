@@ -84,7 +84,9 @@ static bool isGeneratedShader(const OperatorEnum shader) {
 }
 
 static bool isReductionOp(OperatorEnum op) {
-  return op >= ReduceSum && op <= ReduceAll;
+  return (op >= ReduceSum && op <= ReduceAll) ||
+         (op >= ReduceDimSum && op <= ReduceDimMin) ||
+         (op >= ReduceDimMax && op <= ReduceDimAll);
 }
 
 size_t validateExecutionSize(OperatorEnum op,

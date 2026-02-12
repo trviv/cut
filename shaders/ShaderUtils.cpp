@@ -335,6 +335,46 @@ void main() {
 }
 )";
 
+const char *reductionDimShaderTemplate = R"(#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint outerSize;
+    uint reduceSize;
+    uint innerSize;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    %SCALAR_DTYPE% dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    %SCALAR_DTYPE% dataOut[];
+};
+
+void main() {
+    uint outIdx = gl_GlobalInvocationID.x;
+    uint numOutputs = outerSize * innerSize;
+
+    if (outIdx >= numOutputs) {
+        return;
+    }
+
+    uint outer = outIdx / innerSize;
+    uint inner = outIdx % innerSize;
+
+    %SCALAR_DTYPE% val = %IDENTITY%;
+    for (uint r = 0; r < reduceSize; r++) {
+        uint inIdx = outer * reduceSize * innerSize + r * innerSize + inner;
+        %SCALAR_DTYPE% a = val;
+        %SCALAR_DTYPE% b = dataIn[inIdx];
+        val = %REDUCE_OP%;
+    }
+    dataOut[outIdx] = val;
+}
+)";
+
 // =============================================================================
 // Operation Function Templates - Pre-programmed opFunc implementations
 // =============================================================================

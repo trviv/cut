@@ -13,6 +13,7 @@ extern const char *matmulShaderTemplate;
 extern const char *transposeShaderTemplate;
 extern const char *dotShaderTemplate;
 extern const char *reductionShaderTemplate;
+extern const char *reductionDimShaderTemplate;
 
 // =============================================================================
 // Utility Functions
