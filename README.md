@@ -267,146 +267,399 @@ All reductions support both global (returns scalar) and dimension-wise (returns 
 
 ## PyTorch Compatibility Roadmap
 
-Status: **Supported** | **Planned** | Not planned
+Status: **Supported** | Not implemented
 
-### Element-wise Math
-
-| PyTorch | Status | Notes |
-|---------|--------|-------|
-| `torch.abs` | Supported | `cc.abs` |
-| `torch.neg` | Supported | `cc.negative` |
-| `torch.add` / `sub` / `mul` / `div` | Supported | + operator overloading |
-| `torch.pow` | Supported | `cc.power` |
-| `torch.sqrt` | Supported | `cc.sqrt` |
-| `torch.rsqrt` | Supported | `cc.rsqrt` |
-| `torch.square` | Supported | `cc.square` |
-| `torch.reciprocal` | Supported | `cc.reciprocal` |
-| `torch.sign` | Supported | `cc.sign` |
-| `torch.floor` / `ceil` / `round` | Supported | |
-| `torch.trunc` | Supported | `cc.trunc` |
-| `torch.frac` | Supported | `cc.frac` |
-| `torch.clamp` | Supported | `cc.clamp` |
-| `torch.exp` / `exp2` / `expm1` | Supported | |
-| `torch.log` / `log2` / `log10` / `log1p` | Supported | |
-| `torch.sin` / `cos` / `tan` | Supported | |
-| `torch.asin` / `acos` / `atan` / `atan2` | Supported | |
-| `torch.sinh` / `cosh` / `tanh` | Supported | |
-| `torch.asinh` / `acosh` / `atanh` | Supported | `cc.arcsinh` / `cc.arccosh` / `cc.arctanh` |
-| `torch.erf` / `erfc` | Not planned | special functions |
-| `torch.logaddexp` / `logaddexp2` | Supported | `cc.logaddexp` / `cc.logaddexp2` |
-| `torch.isnan` / `isinf` | Supported | |
-| `torch.isfinite` | Supported | `cc.isfinite` |
-| `torch.copysign` / `hypot` / `fmod` | Supported | |
-
-### Activation Functions
+### Pointwise Ops
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
-| `F.relu` | Supported | `cc.relu` |
-| `F.relu6` | Supported | `cc.relu6` |
-| `F.sigmoid` | Supported | `cc.sigmoid` |
-| `F.tanh` | Supported | `cc.tanh` |
-| `F.gelu` | Supported | `cc.gelu` |
-| `F.silu` / `swish` | Supported | `cc.silu` |
-| `F.softplus` | Supported | `cc.softplus` |
-| `F.leaky_relu` | Supported | `cc.leaky_relu` |
-| `F.elu` | Supported | `cc.elu` |
-| `F.selu` | Supported | `cc.selu` |
-| `F.celu` | Supported | `cc.celu` |
-| `F.mish` | Supported | `cc.mish` |
-| `F.hardswish` | Supported | `cc.hardswish` |
-| `F.hardsigmoid` | Supported | `cc.hardsigmoid` |
-| `F.hardtanh` | Supported | `cc.hardtanh` |
-| `F.softsign` | Supported | `cc.softsign` |
-| `F.logsigmoid` | Supported | `cc.logsigmoid` |
-| `F.tanhshrink` | Supported | `cc.tanhshrink` |
-| `F.prelu` | Supported | `cc.prelu` |
-| `F.hardshrink` | Supported | `cc.hardshrink` |
-| `F.softshrink` | Supported | `cc.softshrink` |
-| `F.softmax` | Supported | `cc.softmax` |
-| `F.log_softmax` | Supported | `cc.log_softmax` |
+| `torch.abs` | **Supported** | `cc.abs` |
+| `torch.neg` | **Supported** | `cc.negative` |
+| `torch.add` | **Supported** | `cc.add` / `cc.add_scalar` + operator overloading |
+| `torch.sub` | **Supported** | `cc.subtract` / `cc.subtract_scalar` + operator overloading |
+| `torch.mul` | **Supported** | `cc.multiply` / `cc.multiply_scalar` + operator overloading |
+| `torch.div` | **Supported** | `cc.divide` / `cc.divide_scalar` + operator overloading |
+| `torch.remainder` | **Supported** | `cc.mod` / `cc.mod_scalar` |
+| `torch.pow` | **Supported** | `cc.power` / `cc.power_scalar` |
+| `torch.floor_divide` | **Supported** | `cc.floor_divide` / `cc.floor_divide_scalar` |
+| `torch.fmod` | **Supported** | `cc.fmod` / `cc.fmod_scalar` |
+| `torch.sqrt` | **Supported** | `cc.sqrt` |
+| `torch.rsqrt` | **Supported** | `cc.rsqrt` |
+| `torch.square` | **Supported** | `cc.square` |
+| `torch.reciprocal` | **Supported** | `cc.reciprocal` |
+| `torch.sign` | **Supported** | `cc.sign` |
+| `torch.floor` | **Supported** | `cc.floor` |
+| `torch.ceil` | **Supported** | `cc.ceil` |
+| `torch.round` | **Supported** | `cc.round` |
+| `torch.trunc` | **Supported** | `cc.trunc` |
+| `torch.frac` | **Supported** | `cc.frac` |
+| `torch.clamp` | **Supported** | `cc.clamp` |
+| `torch.exp` | **Supported** | `cc.exp` |
+| `torch.exp2` | **Supported** | `cc.exp2` |
+| `torch.expm1` | **Supported** | `cc.expm1` |
+| `torch.log` | **Supported** | `cc.log` |
+| `torch.log2` | **Supported** | `cc.log2` |
+| `torch.log10` | **Supported** | `cc.log10` |
+| `torch.log1p` | **Supported** | `cc.log1p` |
+| `torch.sin` | **Supported** | `cc.sin` |
+| `torch.cos` | **Supported** | `cc.cos` |
+| `torch.tan` | **Supported** | `cc.tan` |
+| `torch.asin` | **Supported** | `cc.arcsin` |
+| `torch.acos` | **Supported** | `cc.arccos` |
+| `torch.atan` | **Supported** | `cc.arctan` |
+| `torch.atan2` | **Supported** | `cc.arctan2` / `cc.arctan2_scalar` |
+| `torch.sinh` | **Supported** | `cc.sinh` |
+| `torch.cosh` | **Supported** | `cc.cosh` |
+| `torch.tanh` | **Supported** | `cc.tanh` |
+| `torch.asinh` | **Supported** | `cc.arcsinh` |
+| `torch.acosh` | **Supported** | `cc.arccosh` |
+| `torch.atanh` | **Supported** | `cc.arctanh` |
+| `torch.logaddexp` | **Supported** | `cc.logaddexp` / `cc.logaddexp_scalar` |
+| `torch.logaddexp2` | **Supported** | `cc.logaddexp2` / `cc.logaddexp2_scalar` |
+| `torch.isnan` | **Supported** | `cc.isnan` |
+| `torch.isinf` | **Supported** | `cc.isinf` |
+| `torch.isfinite` | **Supported** | `cc.isfinite` |
+| `torch.copysign` | **Supported** | `cc.copysign` / `cc.copysign_scalar` |
+| `torch.hypot` | **Supported** | `cc.hypot` / `cc.hypot_scalar` |
+| `torch.rad2deg` | **Supported** | `cc.degrees` |
+| `torch.deg2rad` | **Supported** | `cc.radians` |
+| `torch.cbrt` | **Supported** | `cc.cbrt` (no PyTorch equivalent) |
+| `torch.addcdiv` | Not implemented | compound op |
+| `torch.addcmul` | Not implemented | compound op |
+| `torch.angle` | Not implemented | complex number op |
+| `torch.conj_physical` | Not implemented | complex number op |
+| `torch.digamma` | Not implemented | special function |
+| `torch.erf` | Not implemented | special function |
+| `torch.erfc` | Not implemented | special function |
+| `torch.erfinv` | Not implemented | special function |
+| `torch.float_power` | Not implemented | use `cc.power` with float dtype |
+| `torch.frexp` | Not implemented | decomposition op |
+| `torch.gradient` | Not implemented | numerical differentiation |
+| `torch.heaviside` | Not implemented | compose from `cc.where` |
+| `torch.i0` | Not implemented | Bessel function |
+| `torch.igamma` / `igammac` | Not implemented | special functions |
+| `torch.ldexp` | Not implemented | compose from `cc.power` + `cc.multiply` |
+| `torch.lerp` | Not implemented | compose from add + mul |
+| `torch.lgamma` | Not implemented | special function |
+| `torch.logit` | Not implemented | compose from log + div |
+| `torch.mvlgamma` | Not implemented | special function |
+| `torch.nan_to_num` | Not implemented | compose from `cc.where` + `cc.isnan` |
+| `torch.nextafter` | Not implemented | low-level float op |
+| `torch.polygamma` | Not implemented | special function |
+| `torch.positive` | Not implemented | identity op |
+| `torch.sgn` | Not implemented | complex sign; use `cc.sign` for real |
+| `torch.signbit` | Not implemented | compose from `cc.less_scalar(x, 0)` |
+| `torch.sinc` | Not implemented | compose from sin + div |
+| `torch.xlogy` | Not implemented | compose from mul + log + where |
+| `torch.complex` / `torch.polar` | Not implemented | complex number ops |
+| `torch.real` / `torch.imag` | Not implemented | complex number ops |
 
-### Reductions
+### Comparison Ops
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
-| `torch.sum` / `nansum` | Supported / Not planned | |
-| `torch.mean` / `nanmean` | Supported / Not planned | |
-| `torch.min` / `max` | Supported | global + dim-wise |
-| `torch.prod` | Supported | global + dim-wise |
-| `torch.any` / `all` | Supported | global + dim-wise |
-| `torch.norm` | Supported | L1, L2, Linf |
-| `torch.var` / `std` | Supported | `cc.var` / `cc.std` (composed) |
-| `torch.argmax` / `argmin` | Supported | `cc.argmax` / `cc.argmin` (global + dim) |
-| `torch.median` | Not planned | requires sorting |
-| `torch.logsumexp` | Not planned | |
-| `torch.cumsum` / `cumprod` | Supported | `cc.cumsum` / `cc.cumprod` |
-| `torch.count_nonzero` | Not planned | |
-| `torch.sort` / `argsort` | Not planned | GPU sort is complex |
-| `torch.topk` | Not planned | |
+| `torch.eq` | **Supported** | `cc.equal` / `cc.equal_scalar` |
+| `torch.ne` | **Supported** | `cc.not_equal` / `cc.not_equal_scalar` |
+| `torch.lt` | **Supported** | `cc.less` / `cc.less_scalar` |
+| `torch.le` | **Supported** | `cc.less_equal` / `cc.less_equal_scalar` |
+| `torch.gt` | **Supported** | `cc.greater` / `cc.greater_scalar` |
+| `torch.ge` | **Supported** | `cc.greater_equal` / `cc.greater_equal_scalar` |
+| `torch.minimum` | **Supported** | `cc.minimum` / `cc.minimum_scalar` |
+| `torch.maximum` | **Supported** | `cc.maximum` / `cc.maximum_scalar` |
+| `torch.allclose` | Not implemented | compose from abs + sub + all |
+| `torch.argsort` | Not implemented | requires GPU sort |
+| `torch.isclose` | Not implemented | compose from abs + sub |
+| `torch.isin` | Not implemented | set membership |
+| `torch.isposinf` | Not implemented | compose from isinf + greater |
+| `torch.isneginf` | Not implemented | compose from isinf + less |
+| `torch.isreal` | Not implemented | complex number op |
+| `torch.kthvalue` | Not implemented | requires partial sort |
+| `torch.fmax` | Not implemented | NaN-ignoring max |
+| `torch.fmin` | Not implemented | NaN-ignoring min |
+| `torch.sort` | Not implemented | GPU sort is complex |
+| `torch.topk` | Not implemented | requires partial sort |
+| `torch.msort` | Not implemented | GPU sort is complex |
+
+### Bitwise Ops
+
+| PyTorch | Status | Notes |
+|---------|--------|-------|
+| `torch.bitwise_and` | **Supported** | `cc.bitwise_and` / `cc.bitwise_and_scalar` |
+| `torch.bitwise_or` | **Supported** | `cc.bitwise_or` / `cc.bitwise_or_scalar` |
+| `torch.bitwise_xor` | **Supported** | `cc.bitwise_xor` / `cc.bitwise_xor_scalar` |
+| `torch.bitwise_not` | **Supported** | `cc.invert` |
+| `torch.bitwise_left_shift` | **Supported** | `cc.left_shift` / `cc.left_shift_scalar` |
+| `torch.bitwise_right_shift` | **Supported** | `cc.right_shift` / `cc.right_shift_scalar` |
+
+### Logical Ops
+
+| PyTorch | Status | Notes |
+|---------|--------|-------|
+| `torch.logical_and` | **Supported** | `cc.logical_and` / `cc.logical_and_scalar` |
+| `torch.logical_or` | **Supported** | `cc.logical_or` / `cc.logical_or_scalar` |
+| `torch.logical_xor` | **Supported** | `cc.logical_xor` / `cc.logical_xor_scalar` |
+| `torch.logical_not` | **Supported** | `cc.logical_not` |
+
+### Reduction Ops
+
+| PyTorch | Status | Notes |
+|---------|--------|-------|
+| `torch.sum` | **Supported** | global + dim-wise |
+| `torch.mean` | **Supported** | global + dim-wise |
+| `torch.min` | **Supported** | global + dim-wise |
+| `torch.max` | **Supported** | global + dim-wise |
+| `torch.prod` | **Supported** | global + dim-wise |
+| `torch.any` | **Supported** | global + dim-wise |
+| `torch.all` | **Supported** | global + dim-wise |
+| `torch.norm` | **Supported** | L1, L2, Linf; global + dim-wise |
+| `torch.var` | **Supported** | `cc.var` (composed) |
+| `torch.std` | **Supported** | `cc.std` (composed) |
+| `torch.argmax` | **Supported** | global + dim-wise |
+| `torch.argmin` | **Supported** | global + dim-wise |
+| `torch.cumsum` | **Supported** | `cc.cumsum` |
+| `torch.cumprod` | **Supported** | `cc.cumprod` |
+| `torch.amax` / `amin` | Not implemented | use `cc.max` / `cc.min` with dim |
+| `torch.aminmax` | Not implemented | compose from min + max |
+| `torch.dist` | Not implemented | compose from sub + norm |
+| `torch.logsumexp` | Not implemented | compose from max + exp + sum + log |
+| `torch.nanmean` | Not implemented | NaN-handling variant |
+| `torch.nansum` | Not implemented | NaN-handling variant |
+| `torch.nanmedian` | Not implemented | requires sorting + NaN handling |
+| `torch.median` | Not implemented | requires sorting |
+| `torch.mode` | Not implemented | requires sorting |
+| `torch.quantile` / `nanquantile` | Not implemented | requires sorting |
+| `torch.std_mean` | Not implemented | compose from `cc.std` + `cc.mean` |
+| `torch.var_mean` | Not implemented | compose from `cc.var` + `cc.mean` |
+| `torch.unique` / `unique_consecutive` | Not implemented | requires sorting |
+| `torch.count_nonzero` | Not implemented | compose from ne_scalar + sum |
 
 ### Matrix / Linear Algebra
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
-| `torch.matmul` / `mm` | Supported | 2D matrix multiply |
-| `torch.dot` | Supported | vector dot product |
-| `torch.transpose` | Supported | 2D transpose |
-| `torch.bmm` | Not planned | batched matmul |
-| `torch.mv` | Not planned | matrix-vector |
-| `torch.inner` / `outer` | Not planned | |
-| `torch.cross` | Not planned | |
-| `torch.det` / `inverse` | Not planned | decomposition-based |
-| `torch.svd` / `qr` / `lu` | Not planned | |
+| `torch.matmul` / `mm` | **Supported** | 2D matrix multiply |
+| `torch.dot` | **Supported** | vector dot product |
+| `torch.transpose` | **Supported** | 2D transpose |
+| `torch.bmm` | Not implemented | batched matmul |
+| `torch.mv` | Not implemented | matrix-vector multiply |
+| `torch.inner` | Not implemented | inner product |
+| `torch.outer` / `ger` | Not implemented | outer product |
+| `torch.cross` | Not implemented | cross product |
+| `torch.det` / `logdet` / `slogdet` | Not implemented | determinants |
+| `torch.inverse` / `pinverse` | Not implemented | matrix inverse |
+| `torch.svd` / `svd_lowrank` / `pca_lowrank` | Not implemented | decomposition |
+| `torch.qr` | Not implemented | QR decomposition |
+| `torch.lu` / `lu_solve` / `lu_unpack` | Not implemented | LU decomposition |
+| `torch.cholesky` / `cholesky_solve` / `cholesky_inverse` | Not implemented | Cholesky decomposition |
+| `torch.matrix_power` | Not implemented | compose from repeated matmul |
+| `torch.matrix_exp` | Not implemented | matrix exponential |
+| `torch.addbmm` | Not implemented | batched matmul + add |
+| `torch.addmm` | Not implemented | matmul + add |
+| `torch.addmv` | Not implemented | matrix-vector + add |
+| `torch.addr` | Not implemented | outer product + add |
+| `torch.baddbmm` | Not implemented | batched matmul + add |
+| `torch.chain_matmul` | Not implemented | compose from repeated matmul |
+| `torch.tensordot` | Not implemented | tensor contraction |
+| `torch.einsum` | Not implemented | Einstein summation |
+| `torch.vdot` | Not implemented | use `cc.dot` |
+| `torch.triangular_solve` | Not implemented | triangular system solve |
+| `torch.geqrf` / `orgqr` / `ormqr` | Not implemented | LAPACK routines |
+| `torch.lobpcg` | Not implemented | eigenvalue solver |
+| `torch.trapezoid` / `cumulative_trapezoid` | Not implemented | numerical integration |
+| `torch.trace` | Not implemented | matrix trace |
+| `torch.diag` / `diag_embed` / `diagflat` / `diagonal` | Not implemented | diagonal ops |
+| `torch.tril` / `triu` | Not implemented | triangular matrices |
+| `torch.kron` | Not implemented | Kronecker product |
 
 ### Shape / Indexing
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
-| `torch.reshape` / `view` | Supported | `cc.reshape` / `cc.view` (zero-copy) |
-| `torch.squeeze` / `unsqueeze` | Supported | `cc.squeeze` / `cc.unsqueeze` (zero-copy) |
-| `torch.flatten` | Supported | `cc.flatten` |
-| `torch.cat` / `stack` | Supported | `cc.concat` / `cc.stack` |
-| `torch.permute` | Not planned | generalized transpose |
-| `torch.flip` / `roll` | Not planned | |
-| `torch.gather` / `scatter` | Not planned | advanced indexing |
-| `torch.index_select` | Not planned | |
-| `torch.where` | Supported | `cc.where` |
+| `torch.reshape` | **Supported** | `cc.reshape` (zero-copy view) |
+| `Tensor.view` | **Supported** | `cc.view` (alias for reshape) |
+| `torch.squeeze` | **Supported** | `cc.squeeze` (zero-copy view) |
+| `torch.unsqueeze` | **Supported** | `cc.unsqueeze` (zero-copy view) |
+| `torch.flatten` | **Supported** | `cc.flatten` |
+| `torch.unflatten` | **Supported** | `cc.unflatten` (zero-copy view) |
+| `torch.cat` | **Supported** | `cc.concat` |
+| `torch.stack` | **Supported** | `cc.stack` |
+| `torch.where` | **Supported** | `cc.where` |
+| `torch.permute` | Not implemented | generalized transpose |
+| `torch.gather` | Not implemented | advanced indexing |
+| `torch.scatter` / `scatter_add` / `scatter_reduce` | Not implemented | advanced indexing |
+| `torch.index_select` | Not implemented | index-based selection |
+| `torch.index_add` / `index_copy` / `index_reduce` | Not implemented | index-based ops |
+| `torch.split` / `chunk` / `tensor_split` | Not implemented | tensor splitting |
+| `torch.tile` | Not implemented | compose from concat |
+| `torch.unbind` | Not implemented | unstack along dim |
+| `torch.narrow` / `narrow_copy` | Not implemented | slice along dim |
+| `torch.take` / `take_along_dim` | Not implemented | advanced indexing |
+| `torch.nonzero` / `argwhere` | Not implemented | index finding |
+| `torch.masked_select` | Not implemented | boolean indexing |
+| `torch.movedim` / `moveaxis` / `swapaxes` / `swapdims` | Not implemented | axis reordering |
+| `torch.flip` / `fliplr` / `flipud` | Not implemented | element reversal |
+| `torch.roll` / `rot90` | Not implemented | circular shift / rotation |
+| `torch.select` | Not implemented | indexing along dim |
+| `torch.diagonal_scatter` / `select_scatter` / `slice_scatter` | Not implemented | scatter variants |
+| `torch.dsplit` / `hsplit` / `vsplit` | Not implemented | splitting ops |
+| `torch.column_stack` / `dstack` / `hstack` / `vstack` / `row_stack` | Not implemented | stacking variants |
+| `torch.t` | Not implemented | use `cc.transpose` |
+| `torch.ravel` / `unravel_index` | Not implemented | flatten variants |
+| `torch.segment_reduce` | Not implemented | segment reduction |
+| `torch.repeat_interleave` | Not implemented | element repetition |
 
 ### Tensor Creation
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
-| `torch.zeros` / `ones` / `full` | Supported | |
-| `torch.arange` / `linspace` | Supported | |
-| `torch.zeros_like` / `ones_like` / `full_like` | Supported | `cc.zeros_like` / `cc.ones_like` / `cc.full_like` |
-| `torch.empty` / `empty_like` | Not planned | (use `zeros` / `zeros_like`) |
-| `torch.eye` | Not planned | |
-| `torch.logspace` | Not planned | (compose from `linspace` + `power`) |
-| `torch.rand` / `randn` / `randint` | Not planned | requires GPU PRNG |
+| `torch.zeros` | **Supported** | `cc.zeros` |
+| `torch.ones` | **Supported** | `cc.ones` |
+| `torch.full` | **Supported** | `cc.full` |
+| `torch.arange` | **Supported** | `cc.arange` |
+| `torch.linspace` | **Supported** | `cc.linspace` |
+| `torch.zeros_like` | **Supported** | `cc.zeros_like` |
+| `torch.ones_like` | **Supported** | `cc.ones_like` |
+| `torch.full_like` | **Supported** | `cc.full_like` |
+| `torch.empty` / `empty_like` | Not implemented | use `cc.zeros` / `cc.zeros_like` |
+| `torch.eye` | Not implemented | identity matrix |
+| `torch.logspace` | Not implemented | compose from `linspace` + `power` |
+| `torch.rand` / `rand_like` | Not implemented | requires GPU PRNG |
+| `torch.randn` / `randn_like` | Not implemented | requires GPU PRNG |
+| `torch.randint` / `randint_like` | Not implemented | requires GPU PRNG |
+| `torch.randperm` | Not implemented | requires GPU PRNG |
+| `torch.from_numpy` | Not implemented | interop; use `Tensor(data)` |
+| `torch.as_tensor` / `asarray` | Not implemented | interop |
+| `torch.from_dlpack` | Not implemented | interop |
+| `torch.frombuffer` / `from_file` | Not implemented | interop |
+
+### Activation Functions
+
+| PyTorch | Status | Notes |
+|---------|--------|-------|
+| `F.relu` | **Supported** | `cc.relu` |
+| `F.relu6` | **Supported** | `cc.relu6` |
+| `F.sigmoid` | **Supported** | `cc.sigmoid` |
+| `F.tanh` | **Supported** | `cc.tanh` |
+| `F.gelu` | **Supported** | `cc.gelu` |
+| `F.silu` / swish | **Supported** | `cc.silu` |
+| `F.softplus` | **Supported** | `cc.softplus` |
+| `F.leaky_relu` | **Supported** | `cc.leaky_relu` (scalar param) |
+| `F.elu` | **Supported** | `cc.elu` |
+| `F.selu` | **Supported** | `cc.selu` |
+| `F.celu` | **Supported** | `cc.celu` |
+| `F.mish` | **Supported** | `cc.mish` |
+| `F.hardswish` | **Supported** | `cc.hardswish` |
+| `F.hardsigmoid` | **Supported** | `cc.hardsigmoid` |
+| `F.hardtanh` | **Supported** | `cc.hardtanh` |
+| `F.softsign` | **Supported** | `cc.softsign` |
+| `F.logsigmoid` | **Supported** | `cc.logsigmoid` |
+| `F.tanhshrink` | **Supported** | `cc.tanhshrink` |
+| `F.prelu` | **Supported** | `cc.prelu` (scalar param) |
+| `F.hardshrink` | **Supported** | `cc.hardshrink` (scalar param) |
+| `F.softshrink` | **Supported** | `cc.softshrink` (scalar param) |
+| `F.softmax` | **Supported** | `cc.softmax` |
+| `F.log_softmax` | **Supported** | `cc.log_softmax` |
+| `F.threshold` | Not implemented | compose from where + clamp |
+| `F.rrelu` | Not implemented | requires GPU PRNG |
+| `F.glu` | Not implemented | gated linear unit |
+| `F.softmin` | Not implemented | compose from neg + softmax |
+| `F.gumbel_softmax` | Not implemented | requires GPU PRNG |
 
 ### Loss Functions
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
-| `F.mse_loss` | Supported | `cc.mse_loss` (composed) |
-| `F.l1_loss` | Supported | `cc.l1_loss` (composed) |
-| `F.smooth_l1_loss` / `huber_loss` | Not planned | |
-| `F.cross_entropy` | Supported | `cc.cross_entropy_loss` (composed) |
-| `F.binary_cross_entropy` | Not planned | |
-| `F.nll_loss` | Not planned | requires gather |
+| `F.mse_loss` | **Supported** | `cc.mse_loss` (composed) |
+| `F.l1_loss` | **Supported** | `cc.l1_loss` (composed) |
+| `F.cross_entropy` | **Supported** | `cc.cross_entropy_loss` (composed) |
+| `F.smooth_l1_loss` / `huber_loss` | Not implemented | |
+| `F.binary_cross_entropy` | Not implemented | |
+| `F.binary_cross_entropy_with_logits` | Not implemented | |
+| `F.poisson_nll_loss` | Not implemented | |
+| `F.cosine_embedding_loss` | Not implemented | |
+| `F.ctc_loss` | Not implemented | |
+| `F.gaussian_nll_loss` | Not implemented | |
+| `F.hinge_embedding_loss` | Not implemented | |
+| `F.kl_div` | Not implemented | |
+| `F.margin_ranking_loss` | Not implemented | |
+| `F.multilabel_margin_loss` | Not implemented | |
+| `F.multilabel_soft_margin_loss` | Not implemented | |
+| `F.multi_margin_loss` | Not implemented | |
+| `F.nll_loss` | Not implemented | requires gather |
+| `F.soft_margin_loss` | Not implemented | |
+| `F.triplet_margin_loss` | Not implemented | |
+| `F.triplet_margin_with_distance_loss` | Not implemented | |
+
+### Other Utility Ops
+
+| PyTorch | Status | Notes |
+|---------|--------|-------|
+| `torch.cummax` / `cummin` | Not implemented | cumulative extrema |
+| `torch.diff` | Not implemented | finite differences |
+| `torch.meshgrid` | Not implemented | coordinate grids |
+| `torch.logcumsumexp` | Not implemented | log cumulative sum exp |
+| `torch.renorm` | Not implemented | tensor renormalization |
+| `torch.searchsorted` | Not implemented | binary search |
+| `torch.vander` | Not implemented | Vandermonde matrix |
+| `torch.clone` | Not implemented | compose from `cc.add_scalar(x, 0)` |
+| `torch.bincount` | Not implemented | histogram-like |
+| `torch.block_diag` | Not implemented | block diagonal |
+| `torch.broadcast_tensors` / `broadcast_to` | Not implemented | broadcasting |
+| `torch.bucketize` | Not implemented | bucket assignment |
+| `torch.cartesian_prod` | Not implemented | Cartesian product |
+| `torch.cdist` | Not implemented | pairwise distance |
+| `torch.combinations` | Not implemented | combinatorics |
+| `torch.corrcoef` / `cov` | Not implemented | statistics |
+| `torch.histc` / `histogram` | Not implemented | histograms |
+| `torch.gcd` / `lcm` | Not implemented | integer math |
+
+### Spectral Ops
+
+| PyTorch | Status | Notes |
+|---------|--------|-------|
+| `torch.stft` / `istft` | Not implemented | Short-time Fourier transform |
+| `torch.bartlett_window` | Not implemented | window function |
+| `torch.blackman_window` | Not implemented | window function |
+| `torch.hamming_window` | Not implemented | window function |
+| `torch.hann_window` | Not implemented | window function |
+| `torch.kaiser_window` | Not implemented | window function |
+
+### Random Sampling
+
+| PyTorch | Status | Notes |
+|---------|--------|-------|
+| `torch.bernoulli` | Not implemented | requires GPU PRNG |
+| `torch.multinomial` | Not implemented | requires GPU PRNG |
+| `torch.normal` | Not implemented | requires GPU PRNG |
+| `torch.poisson` | Not implemented | requires GPU PRNG |
 
 ### Neural Network Layers
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
-| `nn.Conv1d/2d/3d` | Not planned | complex spatial ops |
-| `nn.MaxPool/AvgPool` | Not planned | |
-| `nn.BatchNorm` / `LayerNorm` / `RMSNorm` | Not planned | |
-| `nn.Dropout` | Not planned | requires GPU PRNG |
-| `nn.Embedding` | Not planned | |
-| `nn.Linear` | Not planned | (use matmul + add) |
-| `nn.MultiheadAttention` | Not planned | (compose from matmul + softmax) |
+| `nn.Conv1d` / `Conv2d` / `Conv3d` | Not implemented | spatial convolution |
+| `nn.ConvTranspose1d` / `2d` / `3d` | Not implemented | transposed convolution |
+| `nn.MaxPool1d` / `2d` / `3d` | Not implemented | max pooling |
+| `nn.AvgPool1d` / `2d` / `3d` | Not implemented | average pooling |
+| `nn.AdaptiveMaxPool` / `AdaptiveAvgPool` | Not implemented | adaptive pooling |
+| `F.batch_norm` | Not implemented | batch normalization |
+| `F.group_norm` | Not implemented | group normalization |
+| `F.instance_norm` | Not implemented | instance normalization |
+| `F.layer_norm` | Not implemented | layer normalization |
+| `F.rms_norm` | Not implemented | RMS normalization |
+| `F.normalize` | Not implemented | Lp normalization |
+| `F.linear` | Not implemented | use matmul + add |
+| `F.bilinear` | Not implemented | bilinear transform |
+| `F.dropout` / `dropout2d` / `dropout3d` | Not implemented | requires GPU PRNG |
+| `F.embedding` / `embedding_bag` | Not implemented | embedding lookup |
+| `F.pairwise_distance` | Not implemented | distance function |
+| `F.cosine_similarity` | Not implemented | compose from dot + norm |
+| `F.pdist` | Not implemented | pairwise distance |
+| `F.pad` | Not implemented | tensor padding |
+| `F.interpolate` / `upsample` | Not implemented | spatial interpolation |
+| `F.grid_sample` / `affine_grid` | Not implemented | spatial transform |
+| `F.pixel_shuffle` / `pixel_unshuffle` | Not implemented | spatial rearrange |
+| `F.scaled_dot_product_attention` | Not implemented | compose from matmul + softmax |
 
 ---
 
