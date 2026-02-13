@@ -52,8 +52,8 @@ public:
 private:
   ComputeInterface *iface_;
 
-  /// Pool of reusable temporary GPU buffers keyed by size in bytes.
-  std::unordered_map<size_t, std::vector<ComputeHandle>> tempBufferPool_;
+  /// Pool of reusable temporary GPU buffers.
+  std::vector<ComputeHandle> tempBufferPool_;
 
   /// Temporary buffers currently in use by the current multi-pass operation.
   std::vector<ComputeHandle> activeTempBuffers_;

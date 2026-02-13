@@ -946,13 +946,15 @@ ComputeHandle Dispatcher::acquireTempBuffer(size_t numElements,
   size_t sizeBytes = ComputeBuffer::calculateAlignedSize(
       {static_cast<uint32_t>(numElements)}, dtype);
 
-  // Check pool for a buffer of sufficient size
-  auto it = tempBufferPool_.find(sizeBytes);
-  if (it != tempBufferPool_.end() && !it->second.empty()) {
-    ComputeHandle handle = it->second.back();
-    it->second.pop_back();
-    activeTempBuffers_.push_back(handle);
-    return handle;
+  // Iterate pool to find a buffer of sufficient size
+  for (auto it = tempBufferPool_.begin(); it != tempBufferPool_.end(); ++it) {
+    const auto &buffer = iface_->getBuffer(*it);
+    if (buffer.size() >= sizeBytes) {
+      ComputeHandle handle = *it;
+      tempBufferPool_.erase(it);
+      activeTempBuffers_.push_back(handle);
+      return handle;
+    }
   }
 
   // No pooled buffer available — create a new one
@@ -964,9 +966,7 @@ ComputeHandle Dispatcher::acquireTempBuffer(size_t numElements,
 
 void Dispatcher::releaseTempBuffers() {
   for (const auto &handle : activeTempBuffers_) {
-    const auto &buffer = iface_->getBuffer(handle);
-    size_t sizeBytes = buffer.size();
-    tempBufferPool_[sizeBytes].push_back(handle);
+    tempBufferPool_.push_back(handle);
   }
   activeTempBuffers_.clear();
 }
