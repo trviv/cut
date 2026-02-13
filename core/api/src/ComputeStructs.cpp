@@ -96,6 +96,12 @@ ComputeDispatch::ComputeDispatch(const ComputeHandle &shader,
                                  const std::vector<ComputeBinding> &bindings)
     : shader_(shader), wgSize_(wgSize), bindings_(bindings) {}
 
+ComputeDispatch ComputeDispatch::createBarrier() {
+  ComputeDispatch barrier;
+  barrier.isBarrier_ = true;
+  return barrier;
+}
+
 void ComputeDispatch::bindShader(const ComputeHandle &shaderHandle) {
   shader_ = shaderHandle;
 }

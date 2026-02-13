@@ -239,6 +239,46 @@
 #define OP_CUMPROD 241
 
 // =============================================================================
+// Prefix scan operations (260-269)
+// =============================================================================
+
+#define OP_PREFIX_SCAN_EXCLUSIVE_SUM 260
+#define OP_PREFIX_SCAN_INCLUSIVE_SUM 261
+
+// =============================================================================
+// Sort operations (270-279)
+// =============================================================================
+
+#define OP_SORT_BITONIC 270
+#define OP_SORT_RADIX 271
+
+// =============================================================================
+// Dispatcher internal shader templates (280-299)
+// =============================================================================
+
+// Multi-workgroup reduce (parameterized templates)
+#define OP_INTERNAL_PARTIAL_REDUCE 280
+#define OP_INTERNAL_FINAL_REDUCE 281
+
+// Prefix scan (three-pass)
+#define OP_INTERNAL_SCAN_PER_WG 282
+#define OP_INTERNAL_SCAN_PARTIAL_SUMS 283
+#define OP_INTERNAL_SCAN_PROPAGATE 284
+
+// Bitonic sort
+#define OP_INTERNAL_BITONIC_STEP 285
+#define OP_INTERNAL_BITONIC_PAD_INIT 286
+#define OP_INTERNAL_BITONIC_COPY_BACK 287
+
+// Radix sort
+#define OP_INTERNAL_RADIX_HISTOGRAM 288
+#define OP_INTERNAL_RADIX_SCATTER 289
+
+// Utility
+#define OP_INTERNAL_FILL_UINT 290
+#define OP_INTERNAL_SCAN_UINT 291
+
+// =============================================================================
 // Matrix operations (120-122)
 // =============================================================================
 

@@ -92,6 +92,12 @@ static bool isReductionOp(OperatorEnum op) {
          op == CumProd;
 }
 
+/// Prefix scan and sort ops have variable buffer sizes (use max).
+static bool isMultiPassOp(OperatorEnum op) {
+  return op == PrefixScanExclusiveSum || op == PrefixScanInclusiveSum ||
+         op == SortBitonic || op == SortRadix;
+}
+
 size_t validateExecutionSize(OperatorEnum op,
                              const std::vector<size_t> &execSizes) {
   if (execSizes.empty()) {
@@ -101,7 +107,7 @@ size_t validateExecutionSize(OperatorEnum op,
   // Reduction ops have mismatched input/output sizes by design:
   // input is the full tensor, output is a scalar.
   // Use the maximum execution size (the input buffer).
-  if (isReductionOp(op)) {
+  if (isReductionOp(op) || isMultiPassOp(op)) {
     return *std::max_element(execSizes.begin(), execSizes.end());
   }
 

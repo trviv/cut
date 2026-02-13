@@ -15,6 +15,21 @@ extern const char *dotShaderTemplate;
 extern const char *reductionShaderTemplate;
 extern const char *reductionDimShaderTemplate;
 
+// Dispatcher internal shader templates (multi-workgroup reduce, prefix scan,
+// bitonic sort, radix sort)
+extern const char *kPartialReduceTemplate;
+extern const char *kFinalReduceTemplate;
+extern const char *kScanPerWgTemplate;
+extern const char *kScanPartialSumsTemplate;
+extern const char *kScanPropagateTemplate;
+extern const char *kBitonicStepTemplate;
+extern const char *kBitonicPadInitTemplate;
+extern const char *kBitonicCopyBackTemplate;
+extern const char *kRadixHistogramTemplate;
+extern const char *kRadixScatterTemplate;
+extern const char *kFillUintTemplate;
+extern const char *kScanUintTemplate;
+
 // =============================================================================
 // Utility Functions
 // =============================================================================

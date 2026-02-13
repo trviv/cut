@@ -239,6 +239,20 @@ enum OperatorEnum {
   CumProd = OP_CUMPROD,
 
   // ===========================================================================
+  // Prefix scan operations (260-269)
+  // ===========================================================================
+
+  PrefixScanExclusiveSum = OP_PREFIX_SCAN_EXCLUSIVE_SUM,
+  PrefixScanInclusiveSum = OP_PREFIX_SCAN_INCLUSIVE_SUM,
+
+  // ===========================================================================
+  // Sort operations (270-279)
+  // ===========================================================================
+
+  SortBitonic = OP_SORT_BITONIC,
+  SortRadix = OP_SORT_RADIX,
+
+  // ===========================================================================
   // Matrix operations (120-122)
   // ===========================================================================
 
@@ -270,6 +284,32 @@ enum OperatorEnum {
   Zeros = OP_ZEROS,
   Ones = OP_ONES,
   Full = OP_FULL,
+
+  // ===========================================================================
+  // Dispatcher internal shader templates (280-299)
+  // ===========================================================================
+
+  // Multi-workgroup reduce (parameterized templates)
+  InternalPartialReduce = OP_INTERNAL_PARTIAL_REDUCE,
+  InternalFinalReduce = OP_INTERNAL_FINAL_REDUCE,
+
+  // Prefix scan (three-pass)
+  InternalScanPerWg = OP_INTERNAL_SCAN_PER_WG,
+  InternalScanPartialSums = OP_INTERNAL_SCAN_PARTIAL_SUMS,
+  InternalScanPropagate = OP_INTERNAL_SCAN_PROPAGATE,
+
+  // Bitonic sort
+  InternalBitonicStep = OP_INTERNAL_BITONIC_STEP,
+  InternalBitonicPadInit = OP_INTERNAL_BITONIC_PAD_INIT,
+  InternalBitonicCopyBack = OP_INTERNAL_BITONIC_COPY_BACK,
+
+  // Radix sort
+  InternalRadixHistogram = OP_INTERNAL_RADIX_HISTOGRAM,
+  InternalRadixScatter = OP_INTERNAL_RADIX_SCATTER,
+
+  // Utility
+  InternalFillUint = OP_INTERNAL_FILL_UINT,
+  InternalScanUint = OP_INTERNAL_SCAN_UINT,
 };
 
 /**

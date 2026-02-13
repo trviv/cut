@@ -180,7 +180,9 @@ Runtime::getExecutionSize(OperatorEnum op,
         (op >= ReduceDimSum && op <= ReduceDimMin) ||
         (op >= ReduceDimMax && op <= ReduceDimAll) || op == NormDim ||
         op == ReduceArgmax || op == ReduceArgmin || op == ReduceDimArgmax ||
-        op == ReduceDimArgmin || op == CumSum || op == CumProd) {
+        op == ReduceDimArgmin || op == CumSum || op == CumProd ||
+        op == PrefixScanExclusiveSum || op == PrefixScanInclusiveSum ||
+        op == SortBitonic || op == SortRadix) {
       execSizes.push_back(buffer.calculateActualSize() /
                           dataTypeSize(buffer.getDtype()));
     } else {
@@ -197,17 +199,39 @@ void Runtime::encodeOperator(OperatorEnum op,
     throw std::runtime_error("Dispatcher not initialized. Call init() first.");
   }
 
-  // Infer dtype from buffer bindings (also validates dtype consistency)
-  DataType dtype = ComputeBuffer::inferDataType(
-      bindings, [this](const ComputeHandle &h) -> const ComputeBuffer & {
-        return interface_->getBuffer(h);
-      });
+  // Infer dtype from buffer bindings (also validates dtype consistency).
+  // Sort ops allow mixed dtypes (e.g., Float32 keys + UInt32 indices),
+  // so skip dtype validation and just use the first buffer's dtype.
+  DataType dtype = DataType::Float32;
+  if (op == SortBitonic || op == SortRadix) {
+    for (const auto &b : bindings) {
+      if (b.isHandle()) {
+        dtype = interface_->getBuffer(b.getHandle()).getDtype();
+        break;
+      }
+    }
+  } else {
+    dtype = ComputeBuffer::inferDataType(
+        bindings, [this](const ComputeHandle &h) -> const ComputeBuffer & {
+          return interface_->getBuffer(h);
+        });
+  }
 
   // Get execution size for this operator
   size_t executionSize = getExecutionSize(op, bindings);
 
-  // Get or create shader for this operator
-  ComputeHandle shader = getOrCreateShader(op, dtype);
+  // Sort with 0 or 1 elements is a no-op (nothing to reorder)
+  if ((op == SortBitonic || op == SortRadix) && executionSize <= 1) {
+    return;
+  }
+
+  // Prefix scan and sort ops use internally-generated shaders in the
+  // Dispatcher, so skip the normal shader creation path for them.
+  ComputeHandle shader;
+  if (op != PrefixScanExclusiveSum && op != PrefixScanInclusiveSum &&
+      op != SortBitonic && op != SortRadix) {
+    shader = getOrCreateShader(op, dtype);
+  }
 
   // Use dispatcher to encode with the shader and execution size
   dispatcher_->encode(op, bindings, shader, executionSize);

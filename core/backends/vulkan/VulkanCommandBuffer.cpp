@@ -57,6 +57,10 @@ createDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
     allLayoutBindings.reserve(dispatches.size());
 
     for (const auto &dispatch : dispatches) {
+      if (dispatch.isBarrier()) {
+        continue; // Skip barrier dispatches — no shader or descriptors
+      }
+
       const auto &reflection = shaderContainer.getReflection(dispatch.shader());
 
       // Create layout bindings for this dispatch
@@ -138,14 +142,19 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
   std::vector<VulkanPipelineLayoutCreateInfo> pipelineLayoutCreateInfos;
   pipelineLayoutCreateInfos.reserve(dispatches.size());
 
+  size_t layoutIndex = 0;
   for (size_t i = 0; i < dispatches.size(); ++i) {
+    if (dispatches[i].isBarrier()) {
+      continue; // Skip barrier dispatches — no shader or pipeline
+    }
+
     const auto &reflection =
         shaderContainer.getReflection(dispatches[i].shader());
 
     VulkanPipelineLayoutCreateInfo createInfo{};
     createInfo.createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     createInfo.createInfo.setLayoutCount = 1;
-    createInfo.createInfo.pSetLayouts = &descriptorSetLayouts[i];
+    createInfo.createInfo.pSetLayouts = &descriptorSetLayouts[layoutIndex];
 
     // Add push constant range if the shader uses push constants
     if (reflection.pushConstantSize > 0) {
@@ -157,6 +166,7 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
     }
 
     pipelineLayoutCreateInfos.emplace_back(createInfo);
+    ++layoutIndex;
   }
 
   // Create all pipeline layouts in a single call
@@ -173,6 +183,10 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
   shaderStages.reserve(dispatches.size());
 
   for (size_t i = 0; i < dispatches.size(); ++i) {
+    if (dispatches[i].isBarrier()) {
+      continue; // Skip barrier dispatches
+    }
+
     VkPipelineShaderStageCreateInfo stageInfo{};
     stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -274,6 +288,10 @@ void VulkanCommandBuffer::end() {
 
     size_t dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
+      if (dispatch.isBarrier()) {
+        continue; // Skip barrier dispatches — no descriptors to update
+      }
+
       const auto &reflection =
           containers_.shaderContainer.getReflection(dispatch.shader());
 
@@ -358,6 +376,20 @@ void VulkanCommandBuffer::end() {
     }
     dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
+      // Handle barrier dispatches: insert a compute-to-compute memory barrier
+      if (dispatch.isBarrier()) {
+        VkMemoryBarrier computeBarrier{};
+        computeBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        computeBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        computeBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer_,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                             &computeBarrier, 0, nullptr, 0, nullptr);
+        continue; // Do NOT increment dispatchIndex
+      }
+
       // Bind the compute pipeline
       vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE,
                         vkPipelines[dispatchIndex]);

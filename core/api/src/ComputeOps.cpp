@@ -356,6 +356,44 @@ const char *operatorName(OperatorEnum op) {
   case Full:
     return "Full";
 
+  // Prefix scan operations
+  case PrefixScanExclusiveSum:
+    return "PrefixScanExclusiveSum";
+  case PrefixScanInclusiveSum:
+    return "PrefixScanInclusiveSum";
+
+  // Sort operations
+  case SortBitonic:
+    return "SortBitonic";
+  case SortRadix:
+    return "SortRadix";
+
+  // Dispatcher internal shader templates
+  case InternalPartialReduce:
+    return "InternalPartialReduce";
+  case InternalFinalReduce:
+    return "InternalFinalReduce";
+  case InternalScanPerWg:
+    return "InternalScanPerWg";
+  case InternalScanPartialSums:
+    return "InternalScanPartialSums";
+  case InternalScanPropagate:
+    return "InternalScanPropagate";
+  case InternalBitonicStep:
+    return "InternalBitonicStep";
+  case InternalBitonicPadInit:
+    return "InternalBitonicPadInit";
+  case InternalBitonicCopyBack:
+    return "InternalBitonicCopyBack";
+  case InternalRadixHistogram:
+    return "InternalRadixHistogram";
+  case InternalRadixScatter:
+    return "InternalRadixScatter";
+  case InternalFillUint:
+    return "InternalFillUint";
+  case InternalScanUint:
+    return "InternalScanUint";
+
   default:
     return "Unknown";
   }

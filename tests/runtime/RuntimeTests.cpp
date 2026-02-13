@@ -307,6 +307,12 @@ inline bool hasVulkanShaderSupport(OperatorEnum op) {
   // Cumulative scan operations
   case CumSum:
   case CumProd:
+  // Prefix scan operations
+  case PrefixScanExclusiveSum:
+  case PrefixScanInclusiveSum:
+  // Sort operations
+  case SortBitonic:
+  case SortRadix:
   // Dim-wise reductions
   case NormDim:
   case ReduceDimSum:
@@ -3164,6 +3170,621 @@ TEST_F(NewOpsShaderCompileTest, NewBinaryVecScalar_ParameterizedActivations) {
             << "Mismatch at index " << i << " for " << operatorName(op);
       }
     }
+  }
+}
+
+// ============================================================================
+// Multi-Workgroup Reduce Tests
+// ============================================================================
+
+class MultiWorkgroupReduceTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(MultiWorkgroupReduceTest, ReduceSum_LargeArray) {
+  // Tests that trigger multi-workgroup reduce (>65536 elements)
+  for (uint32_t elements : {257u, 1000u, 4096u, 65537u, 100000u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+    auto bufIn =
+        runtime_->createTensor({elements}, DataType::Float32, data.data());
+    auto bufOut = runtime_->createTensorEmpty({1}, DataType::Float32);
+
+    float initVal = 0.0f;
+    runtime_->copyToTensor(bufOut, &initVal, sizeof(float));
+
+    runtime_->encodeOperator(
+        ReduceSum, {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+    float output = 0.0f;
+    runtime_->copyFromTensor(bufOut, &output, sizeof(float));
+
+    float expected = reduceRef<float>(ReduceSum, data);
+    EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-3f)
+        << "ReduceSum mismatch for " << elements << " elements";
+  }
+}
+
+TEST_F(MultiWorkgroupReduceTest, ReduceMean_LargeArray) {
+  for (uint32_t elements : {1000u, 65537u, 100000u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+    auto bufIn =
+        runtime_->createTensor({elements}, DataType::Float32, data.data());
+    auto bufOut = runtime_->createTensorEmpty({1}, DataType::Float32);
+
+    float initVal = 0.0f;
+    runtime_->copyToTensor(bufOut, &initVal, sizeof(float));
+
+    runtime_->encodeOperator(
+        ReduceMean, {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+    float output = 0.0f;
+    runtime_->copyFromTensor(bufOut, &output, sizeof(float));
+
+    float expected = reduceRef<float>(ReduceMean, data);
+    EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-3f)
+        << "ReduceMean mismatch for " << elements << " elements";
+  }
+}
+
+TEST_F(MultiWorkgroupReduceTest, ReduceMinMax_LargeArray) {
+  uint32_t elements = 100000u;
+  auto data = generateTestData<float>(elements, 42);
+  auto bufIn =
+      runtime_->createTensor({elements}, DataType::Float32, data.data());
+
+  // Test ReduceMin
+  {
+    auto bufOut = runtime_->createTensorEmpty({1}, DataType::Float32);
+    float initVal = std::numeric_limits<float>::max();
+    runtime_->copyToTensor(bufOut, &initVal, sizeof(float));
+
+    runtime_->encodeOperator(
+        ReduceMin, {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+    float output = 0.0f;
+    runtime_->copyFromTensor(bufOut, &output, sizeof(float));
+
+    float expected = reduceRef<float>(ReduceMin, data);
+    EXPECT_NEAR(output, expected, 1e-5f) << "ReduceMin mismatch";
+  }
+
+  // Test ReduceMax
+  {
+    auto bufOut = runtime_->createTensorEmpty({1}, DataType::Float32);
+    float initVal = std::numeric_limits<float>::lowest();
+    runtime_->copyToTensor(bufOut, &initVal, sizeof(float));
+
+    runtime_->encodeOperator(
+        ReduceMax, {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+    float output = 0.0f;
+    runtime_->copyFromTensor(bufOut, &output, sizeof(float));
+
+    float expected = reduceRef<float>(ReduceMax, data);
+    EXPECT_NEAR(output, expected, 1e-5f) << "ReduceMax mismatch";
+  }
+}
+
+TEST_F(MultiWorkgroupReduceTest, ReduceProd_LargeArray) {
+  // Use smaller values to avoid overflow
+  uint32_t elements = 1000u;
+  std::mt19937 gen(42);
+  std::uniform_real_distribution<float> dist(0.99f, 1.01f);
+  std::vector<float> data(elements);
+  for (auto &v : data)
+    v = dist(gen);
+
+  auto bufIn =
+      runtime_->createTensor({elements}, DataType::Float32, data.data());
+  auto bufOut = runtime_->createTensorEmpty({1}, DataType::Float32);
+
+  float initVal = 1.0f;
+  runtime_->copyToTensor(bufOut, &initVal, sizeof(float));
+
+  runtime_->encodeOperator(
+      ReduceProd, {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+  float output = 0.0f;
+  runtime_->copyFromTensor(bufOut, &output, sizeof(float));
+
+  float expected = reduceRef<float>(ReduceProd, data);
+  EXPECT_NEAR(output, expected, std::abs(expected) * 1e-2f + 1e-5f)
+      << "ReduceProd mismatch";
+}
+
+TEST_F(MultiWorkgroupReduceTest, SmallArrayStillWorks) {
+  // Verify small arrays (<=256) still use single-workgroup path
+  for (uint32_t elements : {1u, 4u, 100u, 256u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+    auto bufIn =
+        runtime_->createTensor({elements}, DataType::Float32, data.data());
+    auto bufOut = runtime_->createTensorEmpty({1}, DataType::Float32);
+
+    float initVal = 0.0f;
+    runtime_->copyToTensor(bufOut, &initVal, sizeof(float));
+
+    runtime_->encodeOperator(
+        ReduceSum, {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+    float output = 0.0f;
+    runtime_->copyFromTensor(bufOut, &output, sizeof(float));
+
+    float expected = reduceRef<float>(ReduceSum, data);
+    EXPECT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f);
+  }
+}
+
+// ============================================================================
+// Prefix Scan Tests
+// ============================================================================
+
+class PrefixScanTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(PrefixScanTest, ExclusiveSum_Small) {
+  // Small array: single workgroup
+  for (uint32_t elements : {1u, 4u, 16u, 100u, 256u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+    auto bufIn =
+        runtime_->createTensor({elements}, DataType::Float32, data.data());
+    auto bufOut = runtime_->createTensorEmpty({elements}, DataType::Float32);
+
+    runtime_->encodeOperator(
+        PrefixScanExclusiveSum,
+        {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufOut, output.data(), elements * sizeof(float));
+
+    // Verify exclusive prefix sum: output[i] = sum(input[0..i-1])
+    float runningSum = 0.0f;
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+      runningSum += data[i];
+    }
+  }
+}
+
+TEST_F(PrefixScanTest, ExclusiveSum_Large) {
+  // Large array: multi-workgroup (>256 elements)
+  for (uint32_t elements : {257u, 1000u, 10000u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+    auto bufIn =
+        runtime_->createTensor({elements}, DataType::Float32, data.data());
+    auto bufOut = runtime_->createTensorEmpty({elements}, DataType::Float32);
+
+    runtime_->encodeOperator(
+        PrefixScanExclusiveSum,
+        {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufOut, output.data(), elements * sizeof(float));
+
+    float runningSum = 0.0f;
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-3f + 1e-4f)
+          << "Mismatch at index " << i;
+      runningSum += data[i];
+    }
+  }
+}
+
+TEST_F(PrefixScanTest, InclusiveSum_Small) {
+  for (uint32_t elements : {1u, 4u, 16u, 100u, 256u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+    auto bufIn =
+        runtime_->createTensor({elements}, DataType::Float32, data.data());
+    auto bufOut = runtime_->createTensorEmpty({elements}, DataType::Float32);
+
+    runtime_->encodeOperator(
+        PrefixScanInclusiveSum,
+        {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufOut, output.data(), elements * sizeof(float));
+
+    // Verify inclusive prefix sum: output[i] = sum(input[0..i])
+    float runningSum = 0.0f;
+    for (uint32_t i = 0; i < elements; ++i) {
+      runningSum += data[i];
+      EXPECT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+TEST_F(PrefixScanTest, InclusiveSum_Large) {
+  for (uint32_t elements : {257u, 1000u, 10000u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+    auto bufIn =
+        runtime_->createTensor({elements}, DataType::Float32, data.data());
+    auto bufOut = runtime_->createTensorEmpty({elements}, DataType::Float32);
+
+    runtime_->encodeOperator(
+        PrefixScanInclusiveSum,
+        {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufOut, output.data(), elements * sizeof(float));
+
+    float runningSum = 0.0f;
+    for (uint32_t i = 0; i < elements; ++i) {
+      runningSum += data[i];
+      EXPECT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-3f + 1e-4f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+// ============================================================================
+// Bitonic Sort Tests (Float32)
+// ============================================================================
+
+class BitonicSortTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(BitonicSortTest, Sort_SmallArrays) {
+  for (uint32_t elements : {1u, 2u, 4u, 16u, 100u, 256u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+
+    // Create indices [0, 1, 2, ..., N-1]
+    std::vector<uint32_t> indices(elements);
+    for (uint32_t i = 0; i < elements; ++i)
+      indices[i] = i;
+
+    auto bufKeys =
+        runtime_->createTensor({elements}, DataType::Float32, data.data());
+    auto bufVals =
+        runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+    runtime_->encodeOperator(
+        SortBitonic, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+    std::vector<float> sortedKeys(elements);
+    std::vector<uint32_t> sortedVals(elements);
+    runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                             elements * sizeof(float));
+    runtime_->copyFromTensor(bufVals, sortedVals.data(),
+                             elements * sizeof(uint32_t));
+
+    // Verify ascending order
+    for (uint32_t i = 1; i < elements; ++i) {
+      EXPECT_LE(sortedKeys[i - 1], sortedKeys[i])
+          << "Not sorted at index " << i;
+    }
+
+    // Verify indices are a valid permutation
+    std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
+    std::sort(sortedIndices.begin(), sortedIndices.end());
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_EQ(sortedIndices[i], i) << "Invalid permutation at index " << i;
+    }
+
+    // Verify key-index correspondence
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_EQ(sortedKeys[i], data[sortedVals[i]])
+          << "Key-index mismatch at position " << i;
+    }
+  }
+}
+
+TEST_F(BitonicSortTest, Sort_LargeArray) {
+  for (uint32_t elements : {1000u, 10000u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+    std::vector<uint32_t> indices(elements);
+    for (uint32_t i = 0; i < elements; ++i)
+      indices[i] = i;
+
+    auto bufKeys =
+        runtime_->createTensor({elements}, DataType::Float32, data.data());
+    auto bufVals =
+        runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+    runtime_->encodeOperator(
+        SortBitonic, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+    std::vector<float> sortedKeys(elements);
+    std::vector<uint32_t> sortedVals(elements);
+    runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                             elements * sizeof(float));
+    runtime_->copyFromTensor(bufVals, sortedVals.data(),
+                             elements * sizeof(uint32_t));
+
+    // Verify ascending order
+    for (uint32_t i = 1; i < elements; ++i) {
+      EXPECT_LE(sortedKeys[i - 1], sortedKeys[i])
+          << "Not sorted at index " << i;
+    }
+
+    // Verify indices are a valid permutation
+    std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
+    std::sort(sortedIndices.begin(), sortedIndices.end());
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_EQ(sortedIndices[i], i);
+    }
+  }
+}
+
+TEST_F(BitonicSortTest, Sort_AlreadySorted) {
+  uint32_t elements = 100;
+  std::vector<float> data(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    data[i] = static_cast<float>(i);
+
+  std::vector<uint32_t> indices(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    indices[i] = i;
+
+  auto bufKeys =
+      runtime_->createTensor({elements}, DataType::Float32, data.data());
+  auto bufVals =
+      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+  runtime_->encodeOperator(
+      SortBitonic, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+  std::vector<float> sortedKeys(elements);
+  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                           elements * sizeof(float));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_EQ(sortedKeys[i], static_cast<float>(i));
+  }
+}
+
+TEST_F(BitonicSortTest, Sort_ReverseSorted) {
+  uint32_t elements = 100;
+  std::vector<float> data(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    data[i] = static_cast<float>(elements - 1 - i);
+
+  std::vector<uint32_t> indices(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    indices[i] = i;
+
+  auto bufKeys =
+      runtime_->createTensor({elements}, DataType::Float32, data.data());
+  auto bufVals =
+      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+  runtime_->encodeOperator(
+      SortBitonic, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+  std::vector<float> sortedKeys(elements);
+  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                           elements * sizeof(float));
+
+  for (uint32_t i = 1; i < elements; ++i) {
+    EXPECT_LE(sortedKeys[i - 1], sortedKeys[i]) << "Not sorted at index " << i;
+  }
+}
+
+TEST_F(BitonicSortTest, Sort_AllSameValues) {
+  uint32_t elements = 100;
+  std::vector<float> data(elements, 5.0f);
+  std::vector<uint32_t> indices(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    indices[i] = i;
+
+  auto bufKeys =
+      runtime_->createTensor({elements}, DataType::Float32, data.data());
+  auto bufVals =
+      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+  runtime_->encodeOperator(
+      SortBitonic, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+  std::vector<float> sortedKeys(elements);
+  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                           elements * sizeof(float));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_EQ(sortedKeys[i], 5.0f);
+  }
+}
+
+// ============================================================================
+// Radix Sort Tests (UInt32)
+// ============================================================================
+
+class RadixSortTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(RadixSortTest, Sort_SmallArrays_UInt32) {
+  for (uint32_t elements : {1u, 2u, 16u, 100u, 256u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<uint32_t>(elements, 42);
+    std::vector<uint32_t> indices(elements);
+    for (uint32_t i = 0; i < elements; ++i)
+      indices[i] = i;
+
+    auto bufKeys =
+        runtime_->createTensor({elements}, DataType::UInt32, data.data());
+    auto bufVals =
+        runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+    runtime_->encodeOperator(
+        SortRadix, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+    std::vector<uint32_t> sortedKeys(elements);
+    std::vector<uint32_t> sortedVals(elements);
+    runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                             elements * sizeof(uint32_t));
+    runtime_->copyFromTensor(bufVals, sortedVals.data(),
+                             elements * sizeof(uint32_t));
+
+    // Verify ascending order
+    for (uint32_t i = 1; i < elements; ++i) {
+      EXPECT_LE(sortedKeys[i - 1], sortedKeys[i])
+          << "Not sorted at index " << i;
+    }
+
+    // Verify indices are a valid permutation
+    std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
+    std::sort(sortedIndices.begin(), sortedIndices.end());
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_EQ(sortedIndices[i], i) << "Invalid permutation at index " << i;
+    }
+
+    // Verify key-index correspondence
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_EQ(sortedKeys[i], data[sortedVals[i]])
+          << "Key-index mismatch at position " << i;
+    }
+  }
+}
+
+TEST_F(RadixSortTest, Sort_LargeArray_UInt32) {
+  for (uint32_t elements : {1000u, 10000u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<uint32_t>(elements, 42);
+    std::vector<uint32_t> indices(elements);
+    for (uint32_t i = 0; i < elements; ++i)
+      indices[i] = i;
+
+    auto bufKeys =
+        runtime_->createTensor({elements}, DataType::UInt32, data.data());
+    auto bufVals =
+        runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+    runtime_->encodeOperator(
+        SortRadix, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+    std::vector<uint32_t> sortedKeys(elements);
+    std::vector<uint32_t> sortedVals(elements);
+    runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                             elements * sizeof(uint32_t));
+    runtime_->copyFromTensor(bufVals, sortedVals.data(),
+                             elements * sizeof(uint32_t));
+
+    for (uint32_t i = 1; i < elements; ++i) {
+      EXPECT_LE(sortedKeys[i - 1], sortedKeys[i])
+          << "Not sorted at index " << i;
+    }
+
+    std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
+    std::sort(sortedIndices.begin(), sortedIndices.end());
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_EQ(sortedIndices[i], i);
+    }
+  }
+}
+
+TEST_F(RadixSortTest, Sort_AlreadySorted_UInt32) {
+  uint32_t elements = 100;
+  std::vector<uint32_t> data(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    data[i] = i;
+
+  std::vector<uint32_t> indices(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    indices[i] = i;
+
+  auto bufKeys =
+      runtime_->createTensor({elements}, DataType::UInt32, data.data());
+  auto bufVals =
+      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+  runtime_->encodeOperator(
+      SortRadix, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+  std::vector<uint32_t> sortedKeys(elements);
+  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                           elements * sizeof(uint32_t));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_EQ(sortedKeys[i], i);
+  }
+}
+
+TEST_F(RadixSortTest, Sort_ReverseSorted_UInt32) {
+  uint32_t elements = 100;
+  std::vector<uint32_t> data(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    data[i] = elements - 1 - i;
+
+  std::vector<uint32_t> indices(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    indices[i] = i;
+
+  auto bufKeys =
+      runtime_->createTensor({elements}, DataType::UInt32, data.data());
+  auto bufVals =
+      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+  runtime_->encodeOperator(
+      SortRadix, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+  std::vector<uint32_t> sortedKeys(elements);
+  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                           elements * sizeof(uint32_t));
+
+  for (uint32_t i = 1; i < elements; ++i) {
+    EXPECT_LE(sortedKeys[i - 1], sortedKeys[i]) << "Not sorted at index " << i;
+  }
+}
+
+TEST_F(RadixSortTest, Sort_AllSameValues_UInt32) {
+  uint32_t elements = 100;
+  std::vector<uint32_t> data(elements, 42u);
+  std::vector<uint32_t> indices(elements);
+  for (uint32_t i = 0; i < elements; ++i)
+    indices[i] = i;
+
+  auto bufKeys =
+      runtime_->createTensor({elements}, DataType::UInt32, data.data());
+  auto bufVals =
+      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
+
+  runtime_->encodeOperator(
+      SortRadix, {ComputeBinding(0, bufKeys), ComputeBinding(1, bufVals)});
+
+  std::vector<uint32_t> sortedKeys(elements);
+  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
+                           elements * sizeof(uint32_t));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_EQ(sortedKeys[i], 42u);
   }
 }
 

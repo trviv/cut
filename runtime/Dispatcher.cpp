@@ -1,11 +1,12 @@
 #include "Dispatcher.h"
 
+#include "ShaderUtils.h"
+#include "Shaders.h"
 #include <ComputeInterface.h>
 
 #include <functional>
 #include <numeric>
 #include <stdexcept>
-#include <string>
 
 namespace cut {
 
@@ -241,6 +242,104 @@ bool isMatrixOp(OperatorEnum op) {
   }
 }
 
+/// Threshold for switching from single-workgroup to multi-workgroup reduce.
+constexpr uint32_t kMultiReduceThreshold = 65536;
+
+/// Returns GLSL scalar type name for a DataType.
+const char *scalarTypeName(DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return "float";
+  case DataType::Float16:
+    return "float";
+  case DataType::UInt32:
+    return "uint";
+  case DataType::Int32:
+    return "int";
+  default:
+    return "float";
+  }
+}
+
+/// Simple string replacement helper.
+std::string
+replaceAllStr(std::string str, const std::string &from, const std::string &to) {
+  size_t pos = 0;
+  while ((pos = str.find(from, pos)) != std::string::npos) {
+    str.replace(pos, from.length(), to);
+    pos += to.length();
+  }
+  return str;
+}
+
+/// Parameters for a reduction operation.
+struct ReduceParams {
+  const char *identity;
+  const char *reduceOp;
+  bool isMean;
+};
+
+/// Returns the identity value and reduce operation for a given reduction op.
+ReduceParams getReduceParams(OperatorEnum op) {
+  switch (op) {
+  case ReduceSum:
+    return {"0.0", "a + b", false};
+  case ReduceMean:
+    return {"0.0", "a + b", true};
+  case ReduceMin:
+    return {"3.402823466e+38", "min(a, b)", false};
+  case ReduceMax:
+    return {"-3.402823466e+38", "max(a, b)", false};
+  case ReduceProd:
+    return {"1.0", "a * b", false};
+  case ReduceAny:
+    return {"0.0", "((a != 0.0 || b != 0.0) ? 1.0 : 0.0)", false};
+  case ReduceAll:
+    return {"1.0", "((a != 0.0 && b != 0.0) ? 1.0 : 0.0)", false};
+  default:
+    return {"0.0", "a + b", false};
+  }
+}
+
+/// Checks if a reduction op supports multi-workgroup (excludes argmax/argmin).
+bool isMultiReduceCapable(OperatorEnum op) {
+  switch (op) {
+  case ReduceSum:
+  case ReduceMean:
+  case ReduceMin:
+  case ReduceMax:
+  case ReduceProd:
+  case ReduceAny:
+  case ReduceAll:
+    return true;
+  default:
+    return false;
+  }
+}
+
+/// Checks if an operator is a prefix scan operation.
+bool isPrefixScanOp(OperatorEnum op) {
+  return op == PrefixScanExclusiveSum || op == PrefixScanInclusiveSum;
+}
+
+/// Checks if an operator is a sort operation.
+bool isSortOp(OperatorEnum op) {
+  return op == SortBitonic || op == SortRadix;
+}
+
+/// Returns the next power of 2 >= n.
+uint32_t nextPowerOf2(uint32_t n) {
+  if (n <= 1)
+    return 1;
+  n--;
+  n |= n >> 1;
+  n |= n >> 2;
+  n |= n >> 4;
+  n |= n >> 8;
+  n |= n >> 16;
+  return n + 1;
+}
+
 } // namespace
 
 Dispatcher::Dispatcher(ComputeInterface *iface) : iface_(iface) {}
@@ -302,6 +401,16 @@ void Dispatcher::encode(OperatorEnum op,
       throw std::runtime_error("Transpose requires exactly 2 bindings");
     } else if (op == Dot && bindings.size() != 3) {
       throw std::runtime_error("Dot requires exactly 3 bindings");
+    }
+  } else if (isPrefixScanOp(op)) {
+    if (bindings.size() != 2) {
+      throw std::runtime_error(
+          "Prefix scan operation requires exactly 2 bindings (input, output)");
+    }
+  } else if (isSortOp(op)) {
+    if (bindings.size() != 2) {
+      throw std::runtime_error(
+          "Sort operation requires exactly 2 bindings (keys, values)");
     }
   } else {
     throw std::runtime_error(std::string("Unknown operator: ") +
@@ -393,9 +502,13 @@ void Dispatcher::encode(OperatorEnum op,
     iface_->encode(std::move(selectDispatch));
     return;
   } else if (isReductionOp(op)) {
-    // Reduction ops: single workgroup of 256 threads.
-    // Each thread processes multiple elements via a strided loop,
-    // avoiding the need for float atomics across workgroups.
+    // For large inputs and compatible ops, use multi-workgroup reduce
+    if (numElements > kMultiReduceThreshold && isMultiReduceCapable(op)) {
+      encodeMultiWorkgroupReduce(op, bindings, executionSize);
+      return;
+    }
+    // Small inputs: single workgroup of 256 threads.
+    // Each thread processes multiple elements via a strided loop.
     ThreadSize reductionWorkgroupSize{256, 1, 1};
     ComputeDispatch reductionDispatch(shader, reductionWorkgroupSize, bindings);
     reductionDispatch.bindData(DataReference(numElements),
@@ -539,6 +652,15 @@ void Dispatcher::encode(OperatorEnum op,
       iface_->encode(std::move(dotDispatch));
     }
     return;
+  } else if (isPrefixScanOp(op)) {
+    encodePrefixScan(op, bindings, executionSize);
+    return;
+  } else if (op == SortBitonic) {
+    encodeBitonicSort(bindings, executionSize);
+    return;
+  } else if (op == SortRadix) {
+    encodeRadixSort(bindings, executionSize);
+    return;
   } else {
     // Just add numElements for other operation types
     dispatch.bindData(DataReference(numElements),
@@ -547,6 +669,361 @@ void Dispatcher::encode(OperatorEnum op,
 
   // Encode the dispatch
   iface_->encode(std::move(dispatch));
+}
+
+void Dispatcher::encodePrefixScan(OperatorEnum op,
+                                  const std::vector<ComputeBinding> &bindings,
+                                  size_t executionSize) {
+  uint32_t numElements = static_cast<uint32_t>(executionSize);
+  uint32_t isExclusive = (op == PrefixScanExclusiveSum) ? 1u : 0u;
+  uint32_t groupCount = (numElements + 255) / 256;
+
+  // Extract input and output handles
+  ComputeHandle inputHandle, outputHandle;
+  for (const auto &b : bindings) {
+    if (!b.isHandle())
+      continue;
+    if (b.index() == 0)
+      inputHandle = b.getHandle();
+    else if (b.index() == 1)
+      outputHandle = b.getHandle();
+  }
+
+  struct ScanPC {
+    uint32_t numElements;
+    uint32_t isExclusive;
+  } scanPC{numElements, isExclusive};
+
+  if (groupCount <= 1) {
+    // Single workgroup: simple scan, no temp buffers needed
+    ComputeHandle partialSums = acquireTempBuffer(1, DataType::Float32);
+    dispatchInternal(InternalScanPerWg,
+                     {{0u, inputHandle}, {1u, outputHandle}, {2u, partialSums}},
+                     {256, 1, 1}, scanPC);
+    releaseTempBuffers();
+    return;
+  }
+
+  // Multi-workgroup: three-pass approach
+  ComputeHandle partialSums = acquireTempBuffer(groupCount, DataType::Float32);
+
+  // Pass 1: Per-workgroup scan
+  dispatchInternal(InternalScanPerWg,
+                   {{0u, inputHandle}, {1u, outputHandle}, {2u, partialSums}},
+                   {256 * groupCount, 1, 1}, scanPC);
+  encodeBarrier();
+
+  // Pass 2: Exclusive scan on partial sums (single thread)
+  dispatchInternal(InternalScanPartialSums, {{0u, partialSums}}, {1, 1, 1},
+                   groupCount);
+  encodeBarrier();
+
+  // Pass 3: Add group prefix to each element
+  dispatchInternal(InternalScanPropagate,
+                   {{0u, partialSums}, {1u, outputHandle}},
+                   {256 * groupCount, 1, 1}, numElements);
+
+  releaseTempBuffers();
+}
+
+void Dispatcher::encodeBitonicSort(const std::vector<ComputeBinding> &bindings,
+                                   size_t executionSize) {
+  uint32_t numElements = static_cast<uint32_t>(executionSize);
+  if (numElements <= 1)
+    return; // Nothing to sort
+  uint32_t n = nextPowerOf2(numElements);
+
+  // Extract keys and values handles
+  ComputeHandle keysHandle, valsHandle;
+  for (const auto &b : bindings) {
+    if (!b.isHandle())
+      continue;
+    if (b.index() == 0)
+      keysHandle = b.getHandle();
+    else if (b.index() == 1)
+      valsHandle = b.getHandle();
+  }
+
+  // For non-power-of-2 sizes, pad to power-of-2 with sentinel values.
+  // The bitonic network requires all N elements to participate in
+  // compare-and-swap for correctness.
+  ComputeHandle sortKeys = keysHandle;
+  ComputeHandle sortVals = valsHandle;
+  bool needsPadding = (numElements != n);
+
+  if (needsPadding) {
+    sortKeys = acquireTempBuffer(n, DataType::Float32);
+    sortVals = acquireTempBuffer(n, DataType::UInt32);
+
+    // Copy real data and fill padding with sentinels (FLT_MAX / 0xFFFFFFFF)
+    struct InitPC {
+      uint32_t numElements;
+      uint32_t paddedSize;
+    } initPC{numElements, n};
+    dispatchInternal(
+        InternalBitonicPadInit,
+        {{0u, keysHandle}, {1u, valsHandle}, {2u, sortKeys}, {3u, sortVals}},
+        {((n + 255) / 256) * 256, 1, 1}, initPC);
+    encodeBarrier();
+  }
+
+  // Run bitonic sort on (possibly padded) buffers
+  // Pre-fetch shader outside the O(log^2 N) loop
+  ComputeHandle stepShader = getOrCreateInternalShader(InternalBitonicStep);
+  uint32_t dispatchThreads = ((n + 255) / 256) * 256;
+
+  for (uint32_t k = 2; k <= n; k <<= 1) {
+    for (uint32_t j = k >> 1; j > 0; j >>= 1) {
+      struct StepPC {
+        uint32_t numElements;
+        uint32_t outerStep;
+        uint32_t innerStep;
+      } pc{n, k, j};
+      dispatchInternal(stepShader, {{0u, sortKeys}, {1u, sortVals}},
+                       {dispatchThreads, 1, 1}, pc);
+      encodeBarrier();
+    }
+  }
+
+  if (needsPadding) {
+    // Copy sorted data back from padded temp buffers to user buffers
+    dispatchInternal(
+        InternalBitonicCopyBack,
+        {{0u, sortKeys}, {1u, sortVals}, {2u, keysHandle}, {3u, valsHandle}},
+        {((numElements + 255) / 256) * 256, 1, 1}, numElements);
+    releaseTempBuffers();
+  }
+}
+
+void Dispatcher::encodeRadixSort(const std::vector<ComputeBinding> &bindings,
+                                 size_t executionSize) {
+  uint32_t numElements = static_cast<uint32_t>(executionSize);
+  if (numElements <= 1)
+    return; // Nothing to sort
+
+  // Extract keys and values handles
+  ComputeHandle keysHandle, valsHandle;
+  for (const auto &b : bindings) {
+    if (!b.isHandle())
+      continue;
+    if (b.index() == 0)
+      keysHandle = b.getHandle();
+    else if (b.index() == 1)
+      valsHandle = b.getHandle();
+  }
+
+  uint32_t groupCount = std::max((numElements + 255) / 256, 1u);
+  uint32_t histSize = 16 * groupCount; // 16 digits * groupCount
+
+  ComputeHandle histogram = acquireTempBuffer(histSize, DataType::UInt32);
+  ComputeHandle keysAlt = acquireTempBuffer(numElements, DataType::UInt32);
+  ComputeHandle valsAlt = acquireTempBuffer(numElements, DataType::UInt32);
+
+  // Pre-fetch shaders outside the loop
+  ComputeHandle histShader = getOrCreateInternalShader(InternalRadixHistogram);
+  ComputeHandle scatterShader = getOrCreateInternalShader(InternalRadixScatter);
+  ComputeHandle scanUintShader = getOrCreateInternalShader(InternalScanUint);
+
+  // 8 passes (4 bits each) for 32-bit keys
+  for (uint32_t pass = 0; pass < 8; pass++) {
+    uint32_t bitOffset = pass * 4;
+    bool evenPass = (pass % 2 == 0);
+
+    ComputeHandle curKeys = evenPass ? keysHandle : keysAlt;
+    ComputeHandle curVals = evenPass ? valsHandle : valsAlt;
+    ComputeHandle dstKeys = evenPass ? keysAlt : keysHandle;
+    ComputeHandle dstVals = evenPass ? valsAlt : valsHandle;
+
+    struct RadixPC {
+      uint32_t numElements;
+      uint32_t bitOffset;
+      uint32_t groupCount;
+    } pc{numElements, bitOffset, groupCount};
+
+    // Step 1: Histogram
+    dispatchInternal(histShader, {{0u, curKeys}, {1u, histogram}},
+                     {256 * groupCount, 1, 1}, pc);
+    encodeBarrier();
+
+    // Step 2: Exclusive prefix scan on histogram (single thread)
+    dispatchInternal(scanUintShader, {{0u, histogram}}, {1, 1, 1}, histSize);
+    encodeBarrier();
+
+    // Step 3: Scatter (single thread for stability)
+    dispatchInternal(scatterShader,
+                     {{0u, curKeys},
+                      {1u, curVals},
+                      {2u, dstKeys},
+                      {3u, dstVals},
+                      {4u, histogram}},
+                     {1, 1, 1}, pc);
+    encodeBarrier();
+  }
+
+  // After 8 passes (even number), final result is back in keysHandle/valsHandle
+  releaseTempBuffers();
+}
+
+void Dispatcher::encodeMultiWorkgroupReduce(
+    OperatorEnum op,
+    const std::vector<ComputeBinding> &bindings,
+    size_t executionSize) {
+  auto params = getReduceParams(op);
+
+  // Infer dtype from bindings
+  DataType dtype = ComputeBuffer::inferDataType(
+      bindings, [this](const ComputeHandle &h) -> const ComputeBuffer & {
+        return iface_->getBuffer(h);
+      });
+
+  uint32_t numElements = static_cast<uint32_t>(executionSize);
+  const char *scalarType = scalarTypeName(dtype);
+
+  // Each WG of 256 threads processes ~1024 elements, cap at 256 workgroups
+  uint32_t groupCount = (numElements + 1023) / 1024;
+  groupCount = std::min(groupCount, 256u);
+  groupCount = std::max(groupCount, 2u);
+
+  // Extract input and output handles from bindings
+  ComputeHandle inputHandle, outputHandle;
+  for (const auto &b : bindings) {
+    if (!b.isHandle())
+      continue;
+    if (b.index() == 0)
+      inputHandle = b.getHandle();
+    else if (b.index() == 1)
+      outputHandle = b.getHandle();
+  }
+
+  // Generate and cache partial reduce shader
+  std::string partialSrc = kPartialReduceTemplate;
+  partialSrc = replaceAllStr(partialSrc, "%SCALAR_DTYPE%", scalarType);
+  partialSrc = replaceAllStr(partialSrc, "%IDENTITY%", params.identity);
+  partialSrc = replaceAllStr(partialSrc, "%REDUCE_OP%", params.reduceOp);
+  ComputeHandle partialShader = getOrCreateInternalShader(partialSrc);
+
+  // Generate and cache final reduce shader
+  std::string finalSrc = kFinalReduceTemplate;
+  finalSrc = replaceAllStr(finalSrc, "%SCALAR_DTYPE%", scalarType);
+  finalSrc = replaceAllStr(finalSrc, "%IDENTITY%", params.identity);
+  finalSrc = replaceAllStr(finalSrc, "%REDUCE_OP%", params.reduceOp);
+  if (params.isMean) {
+    finalSrc =
+        replaceAllStr(finalSrc, "%FINAL_WRITE%",
+                      "dataOut[0] = sharedData[0] / " +
+                          std::string(scalarType) + "(originalNumElements);");
+  } else {
+    finalSrc =
+        replaceAllStr(finalSrc, "%FINAL_WRITE%", "dataOut[0] = sharedData[0];");
+  }
+  ComputeHandle finalShader = getOrCreateInternalShader(finalSrc);
+
+  ComputeHandle partialSums = acquireTempBuffer(groupCount, dtype);
+
+  // Phase 1: Partial reduce — each workgroup reduces its batch
+  struct PartialPC {
+    uint32_t numElements;
+    uint32_t groupCount;
+  } partialPC{numElements, groupCount};
+  dispatchInternal(partialShader, {{0u, inputHandle}, {1u, partialSums}},
+                   {256 * groupCount, 1, 1}, partialPC);
+  encodeBarrier();
+
+  // Phase 2: Final reduce — single workgroup reduces partial sums
+  struct FinalPC {
+    uint32_t numElements;
+    uint32_t originalNumElements;
+  } finalPC{groupCount, numElements};
+  dispatchInternal(finalShader, {{0u, partialSums}, {1u, outputHandle}},
+                   {256, 1, 1}, finalPC);
+
+  releaseTempBuffers();
+}
+
+ComputeHandle Dispatcher::acquireTempBuffer(size_t numElements,
+                                            DataType dtype) {
+  // Calculate aligned size in bytes for pool lookup
+  size_t sizeBytes = ComputeBuffer::calculateAlignedSize(
+      {static_cast<uint32_t>(numElements)}, dtype);
+
+  // Check pool for a buffer of sufficient size
+  auto it = tempBufferPool_.find(sizeBytes);
+  if (it != tempBufferPool_.end() && !it->second.empty()) {
+    ComputeHandle handle = it->second.back();
+    it->second.pop_back();
+    activeTempBuffers_.push_back(handle);
+    return handle;
+  }
+
+  // No pooled buffer available — create a new one
+  ComputeHandle handle =
+      iface_->createBuffer({static_cast<uint32_t>(numElements)}, dtype);
+  activeTempBuffers_.push_back(handle);
+  return handle;
+}
+
+void Dispatcher::releaseTempBuffers() {
+  for (const auto &handle : activeTempBuffers_) {
+    const auto &buffer = iface_->getBuffer(handle);
+    size_t sizeBytes = buffer.size();
+    tempBufferPool_[sizeBytes].push_back(handle);
+  }
+  activeTempBuffers_.clear();
+}
+
+void Dispatcher::encodeBarrier() {
+  iface_->encode(ComputeDispatch::createBarrier());
+}
+
+ComputeHandle
+Dispatcher::getOrCreateInternalShader(const std::string &glslSource) {
+  // Hash the source string for cache lookup
+  std::hash<std::string> hasher;
+  size_t key = hasher(glslSource);
+
+  auto it = internalShaderCache_.find(key);
+  if (it != internalShaderCache_.end()) {
+    return it->second;
+  }
+
+  // Compile GLSL to SPIR-V and create shader module
+  auto spirv = compileShaderToSpirv(glslSource, "internal_shader");
+  ComputeHandle handle = iface_->createShaderModule(spirv);
+  internalShaderCache_[key] = handle;
+  return handle;
+}
+
+void Dispatcher::dispatchInternal(const ComputeHandle &shader,
+                                  const std::vector<ComputeBinding> &bindings,
+                                  ThreadSize threadSize,
+                                  const DataReference &pushData) {
+  ComputeDispatch dispatch(shader, threadSize, bindings);
+  dispatch.bindData(pushData, static_cast<uint32_t>(bindings.size()));
+  iface_->encode(std::move(dispatch));
+}
+
+void Dispatcher::dispatchInternal(OperatorEnum op,
+                                  const std::vector<ComputeBinding> &bindings,
+                                  ThreadSize threadSize,
+                                  const DataReference &pushData) {
+  dispatchInternal(getOrCreateInternalShader(op), bindings, threadSize,
+                   pushData);
+}
+
+ComputeHandle Dispatcher::getOrCreateInternalShader(OperatorEnum op) {
+  // Use enum value with high-bit offset to avoid collision with string hashes
+  size_t key = static_cast<size_t>(op) | (size_t(1) << 48);
+
+  auto it = internalShaderCache_.find(key);
+  if (it != internalShaderCache_.end()) {
+    return it->second;
+  }
+
+  // Compile via the shader generation system
+  auto spirv = getShader(op);
+  ComputeHandle handle = iface_->createShaderModule(spirv);
+  internalShaderCache_[key] = handle;
+  return handle;
 }
 
 } // namespace cut

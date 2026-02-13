@@ -232,6 +232,18 @@ public:
                   const ThreadSize &wgSize = {},
                   const std::vector<ComputeBinding> &bindings = {});
 
+  /**
+   * Creates a barrier-only dispatch that inserts a compute-to-compute memory
+   * barrier. No shader is dispatched; instead, a pipeline barrier is recorded
+   * to ensure prior shader writes are visible to subsequent shader reads.
+   */
+  static ComputeDispatch createBarrier();
+
+  /**
+   * Returns true if this dispatch is a barrier (no shader dispatch).
+   */
+  bool isBarrier() const { return isBarrier_; }
+
   /** Deleted copy constructor. */
   ComputeDispatch(const ComputeDispatch &) = delete;
 
@@ -296,6 +308,7 @@ private:
   ThreadSize wgSize_;                    ///< Workgroup dimensions.
   ComputeHandle shader_;                 ///< Bound shader handle.
   std::vector<ComputeBinding> bindings_; ///< All bindings (handles and data).
+  bool isBarrier_ = false; ///< True if this is a barrier-only dispatch.
 };
 
 /**
