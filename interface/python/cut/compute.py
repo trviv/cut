@@ -389,7 +389,15 @@ class Tensor:
 
             # Create array.array with contiguous memory
             arr = array.array(resolved_dtype.typecode, flat_data)
-            self._handle = _cut_compute.create_buffer(arr, is_uniform)
+            # Create buffer with correct multidimensional shape so the GPU
+            # buffer knows the innermost dimension for alignment/stride
+            # calculations.  Using create_buffer_empty + copy_to_buffer
+            # instead of create_buffer (which infers a flat 1D shape from
+            # the array.array) ensures dim-reduction strides are correct.
+            self._handle = _cut_compute.create_buffer_empty(
+                list(self._shape), resolved_dtype.to_cut_dtype(), is_uniform
+            )
+            _cut_compute.copy_to_buffer(self._handle, arr)
             self._size = len(arr) * resolved_dtype.itemsize
 
         elif size is not None:
@@ -717,8 +725,7 @@ def _dim_reduce(a: Tensor, dim: int, dim_op_enum) -> Tensor:
         out_shape = (1,)
 
     num_outputs = outer_size * inner_size
-    out = Tensor(size=num_outputs * a._dtype.itemsize, dtype=a._dtype)
-    out._shape = out_shape
+    out = Tensor(size=num_outputs * a._dtype.itemsize, dtype=a._dtype, shape=out_shape)
 
     shape_data = array.array('I', [outer_size, reduce_size, inner_size])
 

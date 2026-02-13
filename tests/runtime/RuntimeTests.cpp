@@ -692,6 +692,8 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
   case BinaryVecScalarCopysign:
     if constexpr (std::is_floating_point_v<T>) {
       return std::copysign(a, scalar);
+    } else if constexpr (std::is_unsigned_v<T>) {
+      return a; // unsigned values are always non-negative
     } else {
       return scalar >= T{0} ? std::abs(a) : -std::abs(a);
     }
@@ -1036,6 +1038,8 @@ T unaryRef(OperatorEnum op, T a) {
   case UnaryHardtanh:
     if constexpr (std::is_floating_point_v<T>) {
       return std::clamp(a, T{-1}, T{1});
+    } else if constexpr (std::is_unsigned_v<T>) {
+      return std::clamp(a, T{0}, T{1});
     } else {
       return std::clamp(a, T{-1}, T{1});
     }
@@ -3785,6 +3789,965 @@ TEST_F(RadixSortTest, Sort_AllSameValues_UInt32) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     EXPECT_EQ(sortedKeys[i], 42u);
+  }
+}
+
+// ============================================================================
+// Binary Vec-Scalar Tests - Int32 and UInt32
+// ============================================================================
+
+TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Int32) {
+  const DataType dtype = DataType::Int32;
+  const int32_t scalar = 3;
+
+  constexpr std::array<OperatorEnum, 20> kInt32BinaryVecScalarOps = {
+      // Arithmetic
+      BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
+      BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarFloorDiv,
+      // Comparison
+      BinaryVecScalarEqual, BinaryVecScalarNotEqual, BinaryVecScalarLess,
+      BinaryVecScalarLessEqual, BinaryVecScalarGreater,
+      BinaryVecScalarGreaterEqual,
+      // Min/Max
+      BinaryVecScalarMin, BinaryVecScalarMax,
+      // Bitwise
+      BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
+      BinaryVecScalarBitwiseXor,
+      // Logical
+      BinaryVecScalarLogicalAnd, BinaryVecScalarLogicalOr,
+      BinaryVecScalarLogicalXor};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(int32_t);
+
+      auto dataA = generateTestData<int32_t>(elements, 42);
+
+      for (OperatorEnum op : kInt32BinaryVecScalarOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        // Pass scalar as float through DataReference (GPU reads as float)
+        float scalarF = static_cast<float>(scalar);
+
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
+                 ComputeBinding(2, DataReference(scalarF))});
+
+        std::vector<int32_t> output(elements);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+        for (uint32_t i = 0; i < elements; ++i) {
+          int32_t expected = binaryVecScalarRef(op, dataA[i], scalar);
+          EXPECT_EQ(output[i], expected)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+TEST_F(VulkanBackendTest, BinaryVecScalarOperators_UInt32) {
+  const DataType dtype = DataType::UInt32;
+  const uint32_t scalar = 3;
+
+  constexpr std::array<OperatorEnum, 20> kUInt32BinaryVecScalarOps = {
+      // Arithmetic
+      BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
+      BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarFloorDiv,
+      // Comparison
+      BinaryVecScalarEqual, BinaryVecScalarNotEqual, BinaryVecScalarLess,
+      BinaryVecScalarLessEqual, BinaryVecScalarGreater,
+      BinaryVecScalarGreaterEqual,
+      // Min/Max
+      BinaryVecScalarMin, BinaryVecScalarMax,
+      // Bitwise
+      BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
+      BinaryVecScalarBitwiseXor,
+      // Logical
+      BinaryVecScalarLogicalAnd, BinaryVecScalarLogicalOr,
+      BinaryVecScalarLogicalXor};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(uint32_t);
+
+      auto dataA = generateTestData<uint32_t>(elements, 42);
+
+      for (OperatorEnum op : kUInt32BinaryVecScalarOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        float scalarF = static_cast<float>(scalar);
+
+        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
+                 ComputeBinding(2, DataReference(scalarF))});
+
+        std::vector<uint32_t> output(elements);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+        for (uint32_t i = 0; i < elements; ++i) {
+          uint32_t expected = binaryVecScalarRef(op, dataA[i], scalar);
+          EXPECT_EQ(output[i], expected)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Unary Operators - UInt32
+// ============================================================================
+
+TEST_F(VulkanBackendTest, UnaryOperators_UInt32) {
+  const DataType dtype = DataType::UInt32;
+
+  constexpr std::array<OperatorEnum, 8> kUInt32UnaryOps = {
+      UnarySquare, UnaryReciprocal, UnarySign,       UnaryFloor,
+      UnaryCeil,   UnaryRound,      UnaryLogicalNot, UnaryBitwiseNot};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(uint32_t);
+
+      auto dataIn = generateTestData<uint32_t>(elements, 42);
+
+      for (OperatorEnum op : kUInt32UnaryOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+        std::vector<uint32_t> output(elements);
+        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+        for (uint32_t i = 0; i < elements; ++i) {
+          uint32_t expected = unaryRef(op, dataIn[i]);
+          EXPECT_EQ(output[i], expected)
+              << "Mismatch at index " << i << " for " << operatorName(op);
+        }
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Ternary Operators - Int32 and UInt32
+// ============================================================================
+
+TEST_F(VulkanBackendTest, TernaryClamp_Int32) {
+  const DataType dtype = DataType::Int32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(int32_t);
+
+      auto dataIn = generateTestData<int32_t>(elements, 42);
+      float minVal = 20.0f;
+      float maxVal = 80.0f;
+
+      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
+
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+      float clampVals[2] = {minVal, maxVal};
+      runtime_->encodeOperator(
+          TernaryClamp,
+          {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+           ComputeBinding(2, DataReference(clampVals, sizeof(clampVals)))});
+
+      std::vector<int32_t> output(elements);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        int32_t expected =
+            ternaryClampRef(dataIn[i], static_cast<int32_t>(minVal),
+                            static_cast<int32_t>(maxVal));
+        EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+      }
+    }
+  }
+}
+
+TEST_F(VulkanBackendTest, TernaryClamp_UInt32) {
+  const DataType dtype = DataType::UInt32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(uint32_t);
+
+      auto dataIn = generateTestData<uint32_t>(elements, 42);
+      float minVal = 20.0f;
+      float maxVal = 80.0f;
+
+      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
+
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+      float clampVals[2] = {minVal, maxVal};
+      runtime_->encodeOperator(
+          TernaryClamp,
+          {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut),
+           ComputeBinding(2, DataReference(clampVals, sizeof(clampVals)))});
+
+      std::vector<uint32_t> output(elements);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        uint32_t expected =
+            ternaryClampRef(dataIn[i], static_cast<uint32_t>(minVal),
+                            static_cast<uint32_t>(maxVal));
+        EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+      }
+    }
+  }
+}
+
+TEST_F(VulkanBackendTest, TernarySelect_Int32) {
+  const DataType dtype = DataType::Int32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(int32_t);
+
+      auto dataCond = generateTestData<int32_t>(elements, 42);
+      auto dataX = generateTestData<int32_t>(elements, 123);
+      auto dataY = generateTestData<int32_t>(elements, 456);
+
+      for (size_t i = 0; i < dataCond.size(); ++i) {
+        dataCond[i] = (i % 3 == 0) ? 0 : dataCond[i];
+      }
+
+      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
+
+      auto bufferCond = runtime_->createTensor(shape, dtype, dataCond.data());
+      auto bufferX = runtime_->createTensor(shape, dtype, dataX.data());
+      auto bufferY = runtime_->createTensor(shape, dtype, dataY.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+      runtime_->encodeOperator(TernarySelect, {ComputeBinding(0, bufferCond),
+                                               ComputeBinding(1, bufferX),
+                                               ComputeBinding(2, bufferY),
+                                               ComputeBinding(3, bufferOut)});
+
+      std::vector<int32_t> output(elements);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        int32_t expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
+        EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+      }
+    }
+  }
+}
+
+TEST_F(VulkanBackendTest, TernarySelect_UInt32) {
+  const DataType dtype = DataType::UInt32;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(uint32_t);
+
+      auto dataCond = generateTestData<uint32_t>(elements, 42);
+      auto dataX = generateTestData<uint32_t>(elements, 123);
+      auto dataY = generateTestData<uint32_t>(elements, 456);
+
+      for (size_t i = 0; i < dataCond.size(); ++i) {
+        dataCond[i] = (i % 3 == 0) ? 0u : dataCond[i];
+      }
+
+      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
+
+      auto bufferCond = runtime_->createTensor(shape, dtype, dataCond.data());
+      auto bufferX = runtime_->createTensor(shape, dtype, dataX.data());
+      auto bufferY = runtime_->createTensor(shape, dtype, dataY.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+      runtime_->encodeOperator(TernarySelect, {ComputeBinding(0, bufferCond),
+                                               ComputeBinding(1, bufferX),
+                                               ComputeBinding(2, bufferY),
+                                               ComputeBinding(3, bufferOut)});
+
+      std::vector<uint32_t> output(elements);
+      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        uint32_t expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
+        EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Reduction Operators - Int32 and UInt32
+// ============================================================================
+
+TEST_F(VulkanBackendTest, ReductionOperators_Int32) {
+  const DataType dtype = DataType::Int32;
+
+  // Int32 supports all reduction ops except Mean (integer division)
+  constexpr std::array<OperatorEnum, 6> kInt32ReductionOps = {
+      ReduceSum, ReduceMin, ReduceMax, ReduceProd, ReduceAny, ReduceAll};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+
+      // Use small values to avoid overflow with ReduceProd
+      std::mt19937 gen(42);
+      std::uniform_int_distribution<int32_t> dist(1, 3);
+      std::vector<int32_t> dataIn(elements);
+      for (auto &v : dataIn)
+        v = dist(gen);
+
+      for (OperatorEnum op : kInt32ReductionOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+        int32_t initVal = 0;
+        if (op == ReduceProd || op == ReduceAll)
+          initVal = 1;
+        else if (op == ReduceMin)
+          initVal = std::numeric_limits<int32_t>::max();
+        else if (op == ReduceMax)
+          initVal = std::numeric_limits<int32_t>::lowest();
+        runtime_->copyToTensor(bufferOut, &initVal, sizeof(int32_t));
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+        int32_t output = 0;
+        runtime_->copyFromTensor(bufferOut, &output, sizeof(int32_t));
+
+        int32_t expected = reduceRef(op, dataIn);
+        EXPECT_EQ(output, expected) << "Mismatch for " << operatorName(op);
+      }
+    }
+  }
+}
+
+TEST_F(VulkanBackendTest, ReductionOperators_UInt32) {
+  const DataType dtype = DataType::UInt32;
+
+  constexpr std::array<OperatorEnum, 6> kUInt32ReductionOps = {
+      ReduceSum, ReduceMin, ReduceMax, ReduceProd, ReduceAny, ReduceAll};
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+
+      std::mt19937 gen(42);
+      std::uniform_int_distribution<uint32_t> dist(1, 3);
+      std::vector<uint32_t> dataIn(elements);
+      for (auto &v : dataIn)
+        v = dist(gen);
+
+      for (OperatorEnum op : kUInt32ReductionOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+        uint32_t initVal = 0;
+        if (op == ReduceProd || op == ReduceAll)
+          initVal = 1;
+        else if (op == ReduceMin)
+          initVal = std::numeric_limits<uint32_t>::max();
+        else if (op == ReduceMax)
+          initVal = std::numeric_limits<uint32_t>::lowest();
+        runtime_->copyToTensor(bufferOut, &initVal, sizeof(uint32_t));
+
+        runtime_->encodeOperator(
+            op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+        uint32_t output = 0;
+        runtime_->copyFromTensor(bufferOut, &output, sizeof(uint32_t));
+
+        uint32_t expected = reduceRef(op, dataIn);
+        EXPECT_EQ(output, expected) << "Mismatch for " << operatorName(op);
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Matrix Operation Tests
+// ============================================================================
+
+class MatrixOpsTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(MatrixOpsTest, MatMul_Square) {
+  const DataType dtype = DataType::Float32;
+
+  // 4x4 * 4x4 = 4x4
+  const uint32_t M = 4, K = 4, N = 4;
+  std::vector<float> A = {1, 2,  3,  4,  5,  6,  7,  8,
+                          9, 10, 11, 12, 13, 14, 15, 16};
+  std::vector<float> B = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+  // A * I = A
+
+  auto bufA = runtime_->createTensor({M, K}, dtype, A.data());
+  auto bufB = runtime_->createTensor({K, N}, dtype, B.data());
+  auto bufC = runtime_->createTensorEmpty({M, N}, dtype);
+
+  uint32_t dims[3] = {M, K, N};
+  runtime_->encodeOperator(
+      MatMul, {ComputeBinding(0, bufA), ComputeBinding(1, bufB),
+               ComputeBinding(2, bufC),
+               ComputeBinding(3, DataReference(dims, sizeof(dims)))});
+
+  std::vector<float> output(M * N);
+  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
+
+  for (uint32_t i = 0; i < M * N; ++i) {
+    EXPECT_NEAR(output[i], A[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(MatrixOpsTest, MatMul_Rectangular) {
+  const DataType dtype = DataType::Float32;
+
+  // 2x4 * 4x8 = 2x8
+  const uint32_t M = 2, K = 4, N = 8;
+  auto dataA = generateTestData<float>(M * K, 42);
+  auto dataB = generateTestData<float>(K * N, 123);
+
+  auto bufA = runtime_->createTensor({M, K}, dtype, dataA.data());
+  auto bufB = runtime_->createTensor({K, N}, dtype, dataB.data());
+  auto bufC = runtime_->createTensorEmpty({M, N}, dtype);
+
+  uint32_t dims[3] = {M, K, N};
+  runtime_->encodeOperator(
+      MatMul, {ComputeBinding(0, bufA), ComputeBinding(1, bufB),
+               ComputeBinding(2, bufC),
+               ComputeBinding(3, DataReference(dims, sizeof(dims)))});
+
+  std::vector<float> output(M * N);
+  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
+
+  // Reference matmul
+  for (uint32_t i = 0; i < M; ++i) {
+    for (uint32_t j = 0; j < N; ++j) {
+      float expected = 0.0f;
+      for (uint32_t k = 0; k < K; ++k) {
+        expected += dataA[i * K + k] * dataB[k * N + j];
+      }
+      EXPECT_NEAR(output[i * N + j], expected,
+                  std::abs(expected) * 1e-4f + 1e-5f)
+          << "Mismatch at [" << i << ", " << j << "]";
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, MatMul_LargerMatrices) {
+  const DataType dtype = DataType::Float32;
+
+  // Test several sizes including non-multiples of tile size (16)
+  struct TestCase {
+    uint32_t M, K, N;
+  };
+  std::array<TestCase, 4> testCases = {
+      {{8, 8, 8}, {16, 16, 16}, {7, 12, 4}, {4, 4, 16}}};
+
+  for (const auto &tc : testCases) {
+    SCOPED_TRACE("MatMul [" + std::to_string(tc.M) + "x" +
+                 std::to_string(tc.K) + "] * [" + std::to_string(tc.K) + "x" +
+                 std::to_string(tc.N) + "]");
+
+    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
+    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
+
+    auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
+    auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
+    auto bufC = runtime_->createTensorEmpty({tc.M, tc.N}, dtype);
+
+    uint32_t dims[3] = {tc.M, tc.K, tc.N};
+    runtime_->encodeOperator(
+        MatMul, {ComputeBinding(0, bufA), ComputeBinding(1, bufB),
+                 ComputeBinding(2, bufC),
+                 ComputeBinding(3, DataReference(dims, sizeof(dims)))});
+
+    std::vector<float> output(tc.M * tc.N);
+    runtime_->copyFromTensor(bufC, output.data(), tc.M * tc.N * sizeof(float));
+
+    for (uint32_t i = 0; i < tc.M; ++i) {
+      for (uint32_t j = 0; j < tc.N; ++j) {
+        float expected = 0.0f;
+        for (uint32_t k = 0; k < tc.K; ++k) {
+          expected += dataA[i * tc.K + k] * dataB[k * tc.N + j];
+        }
+        EXPECT_NEAR(output[i * tc.N + j], expected,
+                    std::abs(expected) * 1e-4f + 1e-5f)
+            << "Mismatch at [" << i << ", " << j << "]";
+      }
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, Transpose_Square) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t M = 4, N = 4;
+
+  std::vector<float> data = {1, 2,  3,  4,  5,  6,  7,  8,
+                             9, 10, 11, 12, 13, 14, 15, 16};
+
+  auto bufIn = runtime_->createTensor({M, N}, dtype, data.data());
+  auto bufOut = runtime_->createTensorEmpty({N, M}, dtype);
+
+  uint32_t dims[3] = {M, 0, N}; // M and N dimensions
+  runtime_->encodeOperator(
+      Transpose, {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut),
+                  ComputeBinding(2, DataReference(dims, sizeof(dims)))});
+
+  std::vector<float> output(M * N);
+  runtime_->copyFromTensor(bufOut, output.data(), M * N * sizeof(float));
+
+  for (uint32_t i = 0; i < M; ++i) {
+    for (uint32_t j = 0; j < N; ++j) {
+      EXPECT_NEAR(output[j * M + i], data[i * N + j], 1e-5f)
+          << "Mismatch at [" << j << ", " << i << "]";
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, Transpose_Rectangular) {
+  const DataType dtype = DataType::Float32;
+
+  struct TestCase {
+    uint32_t M, N;
+  };
+  std::array<TestCase, 3> testCases = {{{3, 4}, {4, 8}, {7, 12}}};
+
+  for (const auto &tc : testCases) {
+    SCOPED_TRACE("Transpose [" + std::to_string(tc.M) + "x" +
+                 std::to_string(tc.N) + "]");
+
+    auto dataIn = generateTestData<float>(tc.M * tc.N, 42);
+
+    auto bufIn = runtime_->createTensor({tc.M, tc.N}, dtype, dataIn.data());
+    auto bufOut = runtime_->createTensorEmpty({tc.N, tc.M}, dtype);
+
+    uint32_t dims[3] = {tc.M, 0, tc.N};
+    runtime_->encodeOperator(
+        Transpose, {ComputeBinding(0, bufIn), ComputeBinding(1, bufOut),
+                    ComputeBinding(2, DataReference(dims, sizeof(dims)))});
+
+    std::vector<float> output(tc.M * tc.N);
+    runtime_->copyFromTensor(bufOut, output.data(),
+                             tc.M * tc.N * sizeof(float));
+
+    for (uint32_t i = 0; i < tc.M; ++i) {
+      for (uint32_t j = 0; j < tc.N; ++j) {
+        EXPECT_NEAR(output[j * tc.M + i], dataIn[i * tc.N + j], 1e-5f)
+            << "Mismatch at [" << j << ", " << i << "]";
+      }
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, Dot_Basic) {
+  const DataType dtype = DataType::Float32;
+
+  std::vector<float> dataA = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> dataB = {5.0f, 6.0f, 7.0f, 8.0f};
+  const uint32_t elements = 4;
+
+  auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
+  auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
+  auto bufOut = runtime_->createTensorEmpty({1}, dtype);
+
+  // Initialize output to 0
+  float initVal = 0.0f;
+  runtime_->copyToTensor(bufOut, &initVal, sizeof(float));
+
+  uint32_t dims[3] = {elements, 0, 0};
+  runtime_->encodeOperator(
+      Dot, {ComputeBinding(0, bufA), ComputeBinding(1, bufB),
+            ComputeBinding(2, bufOut),
+            ComputeBinding(3, DataReference(dims, sizeof(dims)))});
+
+  float output = 0.0f;
+  runtime_->copyFromTensor(bufOut, &output, sizeof(float));
+
+  float expected = 1 * 5 + 2 * 6 + 3 * 7 + 4 * 8; // = 70
+  EXPECT_NEAR(output, expected, 1e-4f);
+}
+
+TEST_F(MatrixOpsTest, Dot_LargerVectors) {
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t elements : {8u, 16u, 100u, 256u, 1024u}) {
+    SCOPED_TRACE("Dot elements=" + std::to_string(elements));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+
+    auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
+    auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
+    auto bufOut = runtime_->createTensorEmpty({1}, dtype);
+
+    float initVal = 0.0f;
+    runtime_->copyToTensor(bufOut, &initVal, sizeof(float));
+
+    uint32_t dims[3] = {elements, 0, 0};
+    runtime_->encodeOperator(
+        Dot, {ComputeBinding(0, bufA), ComputeBinding(1, bufB),
+              ComputeBinding(2, bufOut),
+              ComputeBinding(3, DataReference(dims, sizeof(dims)))});
+
+    float output = 0.0f;
+    runtime_->copyFromTensor(bufOut, &output, sizeof(float));
+
+    double expected = 0.0;
+    for (uint32_t i = 0; i < elements; ++i) {
+      expected += static_cast<double>(dataA[i]) * static_cast<double>(dataB[i]);
+    }
+    EXPECT_NEAR(output, static_cast<float>(expected),
+                std::abs(static_cast<float>(expected)) * 1e-3f + 1e-4f);
+  }
+}
+
+// ============================================================================
+// Global Norm Test
+// ============================================================================
+
+class NormTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(NormTest, Norm_KnownValues) {
+  const DataType dtype = DataType::Float32;
+
+  // 3-4-5 triangle: sqrt(3^2 + 4^2) = 5
+  std::vector<float> data = {3.0f, 4.0f, 0.0f, 0.0f};
+  const uint32_t elements = 4;
+
+  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+  float initVal = 0.0f;
+  runtime_->copyToTensor(bufferOut, &initVal, sizeof(float));
+
+  runtime_->encodeOperator(
+      Norm, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+  float output = 0.0f;
+  runtime_->copyFromTensor(bufferOut, &output, sizeof(float));
+
+  EXPECT_NEAR(output, 5.0f, 1e-4f);
+}
+
+TEST_F(NormTest, Norm_VariousSizes) {
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t elements : {4u, 8u, 16u, 100u, 256u, 1024u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto data = generateTestData<float>(elements, 42);
+
+    auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
+    auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+    float initVal = 0.0f;
+    runtime_->copyToTensor(bufferOut, &initVal, sizeof(float));
+
+    runtime_->encodeOperator(
+        Norm, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+    float output = 0.0f;
+    runtime_->copyFromTensor(bufferOut, &output, sizeof(float));
+
+    // Reference: L2 norm
+    double sumSq = 0.0;
+    for (uint32_t i = 0; i < elements; ++i) {
+      sumSq += static_cast<double>(data[i]) * static_cast<double>(data[i]);
+    }
+    float expected = static_cast<float>(std::sqrt(sumSq));
+
+    EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-4f);
+  }
+}
+
+TEST_F(NormTest, Norm_MultiDimensional) {
+  const DataType dtype = DataType::Float32;
+
+  // 2D tensor
+  std::vector<uint32_t> shape = {3, 4};
+  const uint32_t elements = totalElements(shape);
+  auto data = generateTestData<float>(elements, 42);
+
+  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
+  auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
+  float initVal = 0.0f;
+  runtime_->copyToTensor(bufferOut, &initVal, sizeof(float));
+
+  runtime_->encodeOperator(
+      Norm, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
+
+  float output = 0.0f;
+  runtime_->copyFromTensor(bufferOut, &output, sizeof(float));
+
+  double sumSq = 0.0;
+  for (uint32_t i = 0; i < elements; ++i) {
+    sumSq += static_cast<double>(data[i]) * static_cast<double>(data[i]);
+  }
+  float expected = static_cast<float>(std::sqrt(sumSq));
+
+  EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-4f);
+}
+
+// ============================================================================
+// Tensor Creation Operation Tests
+// ============================================================================
+
+class TensorCreationTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(TensorCreationTest, Zeros_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t elements : {4u, 8u, 16u, 100u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+    runtime_->encodeOperator(Zeros, {ComputeBinding(0, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufferOut, output.data(),
+                             elements * sizeof(float));
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_EQ(output[i], 0.0f) << "Mismatch at index " << i;
+    }
+  }
+}
+
+TEST_F(TensorCreationTest, Ones_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  for (uint32_t elements : {4u, 8u, 16u, 100u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+    runtime_->encodeOperator(Ones, {ComputeBinding(0, bufferOut)});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufferOut, output.data(),
+                             elements * sizeof(float));
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_EQ(output[i], 1.0f) << "Mismatch at index " << i;
+    }
+  }
+}
+
+TEST_F(TensorCreationTest, Full_Float32) {
+  const DataType dtype = DataType::Float32;
+  const float fillValue = 3.14f;
+
+  for (uint32_t elements : {4u, 8u, 16u, 100u}) {
+    SCOPED_TRACE("elements=" + std::to_string(elements));
+
+    auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+    runtime_->encodeOperator(Full,
+                             {ComputeBinding(0, bufferOut),
+                              ComputeBinding(1, DataReference(fillValue))});
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufferOut, output.data(),
+                             elements * sizeof(float));
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      EXPECT_NEAR(output[i], fillValue, 1e-5f) << "Mismatch at index " << i;
+    }
+  }
+}
+
+TEST_F(TensorCreationTest, Arange_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  // arange(0, 8, 1) -> [0, 1, 2, 3, 4, 5, 6, 7]
+  const uint32_t elements = 8;
+  const float start = 0.0f;
+  const float step = 1.0f;
+
+  auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+  float params[2] = {start, step};
+  runtime_->encodeOperator(
+      Arange, {ComputeBinding(0, bufferOut),
+               ComputeBinding(1, DataReference(params, sizeof(params)))});
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = start + static_cast<float>(i) * step;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(TensorCreationTest, Arange_WithStep) {
+  const DataType dtype = DataType::Float32;
+
+  // arange(1, ?, 0.5) -> [1.0, 1.5, 2.0, 2.5, ...]
+  const uint32_t elements = 8;
+  const float start = 1.0f;
+  const float step = 0.5f;
+
+  auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+  float params[2] = {start, step};
+  runtime_->encodeOperator(
+      Arange, {ComputeBinding(0, bufferOut),
+               ComputeBinding(1, DataReference(params, sizeof(params)))});
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = start + static_cast<float>(i) * step;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(TensorCreationTest, Linspace_Float32) {
+  const DataType dtype = DataType::Float32;
+
+  // linspace(0, 1, 5) -> [0.0, 0.25, 0.5, 0.75, 1.0]
+  const uint32_t elements = 8;
+  const float start = 0.0f;
+  const float end = 1.0f;
+  const float step = (end - start) / static_cast<float>(elements - 1);
+
+  auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+  float params[2] = {start, step};
+  runtime_->encodeOperator(
+      Linspace, {ComputeBinding(0, bufferOut),
+                 ComputeBinding(1, DataReference(params, sizeof(params)))});
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = start + static_cast<float>(i) * step;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(TensorCreationTest, Zeros_MultiDimensional) {
+  const DataType dtype = DataType::Float32;
+
+  std::vector<uint32_t> shape = {3, 4};
+  const uint32_t elements = totalElements(shape);
+
+  auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+  runtime_->encodeOperator(Zeros, {ComputeBinding(0, bufferOut)});
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_EQ(output[i], 0.0f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(TensorCreationTest, Ones_MultiDimensional) {
+  const DataType dtype = DataType::Float32;
+
+  std::vector<uint32_t> shape = {3, 4};
+  const uint32_t elements = totalElements(shape);
+
+  auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
+  runtime_->encodeOperator(Ones, {ComputeBinding(0, bufferOut)});
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_EQ(output[i], 1.0f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(TensorCreationTest, Zeros_Int32) {
+  const DataType dtype = DataType::Int32;
+
+  const uint32_t elements = 16;
+  auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+  runtime_->encodeOperator(Zeros, {ComputeBinding(0, bufferOut)});
+
+  std::vector<int32_t> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(),
+                           elements * sizeof(int32_t));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_EQ(output[i], 0) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(TensorCreationTest, Ones_UInt32) {
+  const DataType dtype = DataType::UInt32;
+
+  const uint32_t elements = 16;
+  auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
+  runtime_->encodeOperator(Ones, {ComputeBinding(0, bufferOut)});
+
+  std::vector<uint32_t> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(),
+                           elements * sizeof(uint32_t));
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_EQ(output[i], 1u) << "Mismatch at index " << i;
   }
 }
 

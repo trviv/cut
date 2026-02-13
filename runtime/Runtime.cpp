@@ -234,7 +234,7 @@ void Runtime::encodeOperator(OperatorEnum op,
   }
 
   // Use dispatcher to encode with the shader and execution size
-  dispatcher_->encode(op, bindings, shader, executionSize);
+  dispatcher_->encode(op, bindings, shader, executionSize, dtype);
 
   // Handle submission based on backend type
   if (isGpuBackend()) {

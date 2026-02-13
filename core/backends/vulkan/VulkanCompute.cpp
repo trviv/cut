@@ -574,21 +574,22 @@ VulkanInstance::VulkanInstance() {
 
   std::vector<const char *> extensions;
 
-  // Enabled requested instance extensions
+  // Enable requested instance extensions (skip unsupported ones)
   if (!requestedExtensions.empty()) {
     for (const auto &requestedExtension : requestedExtensions) {
       bool found = false;
-      // Output message if requested extension is not available
       for (const auto &supportedExtension : supportedExtensions) {
         if (supportedExtension == requestedExtension) {
           found = true;
           break;
         }
       }
-      if (!found) {
-        logErr("Requested extension %s is not supported.", requestedExtension);
+      if (found) {
+        extensions.push_back(requestedExtension);
+      } else {
+        logMsg("Optional extension %s is not supported, skipping.",
+               requestedExtension);
       }
-      extensions.push_back(requestedExtension);
     }
   }
 

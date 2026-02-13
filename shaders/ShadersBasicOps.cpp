@@ -142,6 +142,16 @@ bool generateBasicOpShader(const OperatorEnum shader,
       }
       shaderName = "unary_reciprocal";
       return true;
+    case UnarySign:
+      if (datatype == DataType::UInt32) {
+        // sign() is undefined for unsigned types; uint is always >= 0
+        shaderSource = generateUnaryShader("min(a, uvec4(1))", datatype);
+      } else {
+        // sign() works for int types
+        shaderSource = generateUnaryShader("sign(a)", datatype);
+      }
+      shaderName = "unary_sign";
+      return true;
     case UnaryRelu:
       shaderSource =
           generateUnaryShader(("max(a, " + zero + ")").c_str(), datatype);

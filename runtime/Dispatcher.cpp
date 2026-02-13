@@ -4,6 +4,7 @@
 #include "Shaders.h"
 #include <ComputeInterface.h>
 
+#include <cstring>
 #include <functional>
 #include <numeric>
 #include <stdexcept>
@@ -280,24 +281,37 @@ struct ReduceParams {
 };
 
 /// Returns the identity value and reduce operation for a given reduction op.
-ReduceParams getReduceParams(OperatorEnum op) {
+ReduceParams getReduceParams(OperatorEnum op,
+                             DataType dtype = DataType::Float32) {
+  bool isInt = dtype == DataType::Int32 || dtype == DataType::UInt32;
+  bool isUint = dtype == DataType::UInt32;
+  const char *minIdentity =
+      isUint ? "4294967295u" : (isInt ? "2147483647" : "3.402823466e+38");
+  const char *maxIdentity =
+      isUint ? "0u" : (isInt ? "-2147483648" : "-3.402823466e+38");
   switch (op) {
   case ReduceSum:
-    return {"0.0", "a + b", false};
+    return {isInt ? "0" : "0.0", "a + b", false};
   case ReduceMean:
-    return {"0.0", "a + b", true};
+    return {isInt ? "0" : "0.0", "a + b", true};
   case ReduceMin:
-    return {"3.402823466e+38", "min(a, b)", false};
+    return {minIdentity, "min(a, b)", false};
   case ReduceMax:
-    return {"-3.402823466e+38", "max(a, b)", false};
+    return {maxIdentity, "max(a, b)", false};
   case ReduceProd:
-    return {"1.0", "a * b", false};
+    return {isInt ? "1" : "1.0", "a * b", false};
   case ReduceAny:
-    return {"0.0", "((a != 0.0 || b != 0.0) ? 1.0 : 0.0)", false};
+    return {isInt ? "0" : "0.0",
+            isInt ? "((a != 0 || b != 0) ? 1 : 0)"
+                  : "((a != 0.0 || b != 0.0) ? 1.0 : 0.0)",
+            false};
   case ReduceAll:
-    return {"1.0", "((a != 0.0 && b != 0.0) ? 1.0 : 0.0)", false};
+    return {isInt ? "1" : "1.0",
+            isInt ? "((a != 0 && b != 0) ? 1 : 0)"
+                  : "((a != 0.0 && b != 0.0) ? 1.0 : 0.0)",
+            false};
   default:
-    return {"0.0", "a + b", false};
+    return {isInt ? "0" : "0.0", "a + b", false};
   }
 }
 
@@ -347,7 +361,8 @@ Dispatcher::Dispatcher(ComputeInterface *iface) : iface_(iface) {}
 void Dispatcher::encode(OperatorEnum op,
                         const std::vector<ComputeBinding> &bindings,
                         const ComputeHandle &shader,
-                        size_t executionSize) {
+                        size_t executionSize,
+                        DataType dtype) {
   if (!iface_) {
     throw std::runtime_error("Dispatcher::encode: ComputeInterface is null");
   }
@@ -394,13 +409,30 @@ void Dispatcher::encode(OperatorEnum op,
           "(input, output, shape_data)");
     }
   } else if (isMatrixOp(op)) {
-    // Matrix operations have varying requirements
-    if (op == MatMul && bindings.size() != 3) {
-      throw std::runtime_error("MatMul requires exactly 3 bindings (A, B, C)");
-    } else if (op == Transpose && bindings.size() != 2) {
-      throw std::runtime_error("Transpose requires exactly 2 bindings");
-    } else if (op == Dot && bindings.size() != 3) {
-      throw std::runtime_error("Dot requires exactly 3 bindings");
+    // Matrix operations: buffers + optional DataReference for dimensions
+    if (op == MatMul && bindings.size() < 3) {
+      throw std::runtime_error("MatMul requires at least 3 bindings (A, B, C)");
+    } else if (op == Transpose && bindings.size() < 2) {
+      throw std::runtime_error("Transpose requires at least 2 bindings");
+    } else if (op == Dot && bindings.size() < 3) {
+      throw std::runtime_error("Dot requires at least 3 bindings");
+    }
+  } else if (op == Norm) {
+    // Norm: input, output (like reduction)
+    if (bindings.size() != 2) {
+      throw std::runtime_error("Norm requires exactly 2 bindings");
+    }
+  } else if (op == Zeros || op == Ones) {
+    // Tensor creation (no params): just output buffer
+    if (bindings.size() < 1) {
+      throw std::runtime_error(
+          "Zeros/Ones requires at least 1 binding (output)");
+    }
+  } else if (op == Full || op == Arange || op == Linspace) {
+    // Tensor creation with params: output buffer + data reference
+    if (bindings.size() < 1) {
+      throw std::runtime_error(
+          "Full/Arange/Linspace requires at least 1 binding (output)");
     }
   } else if (isPrefixScanOp(op)) {
     if (bindings.size() != 2) {
@@ -428,17 +460,17 @@ void Dispatcher::encode(OperatorEnum op,
   // For binary vec-scalar ops, filter out data bindings (scalar) from handle
   // bindings since we'll pack them into push constants with numElements
   std::vector<ComputeBinding> handleBindings;
-  float scalar = 0.0f;
+  float scalarFloat = 0.0f;
 
   if (isBinaryVecScalarOp(op)) {
     for (const auto &binding : bindings) {
       if (binding.isHandle()) {
         handleBindings.push_back(binding);
       } else if (binding.isData()) {
-        // Extract scalar value from data binding
+        // Extract scalar value from data binding (always passed as float)
         const auto &data = binding.getData();
         if (data.size() >= sizeof(float)) {
-          scalar = *reinterpret_cast<const float *>(data.data());
+          scalarFloat = *reinterpret_cast<const float *>(data.data());
         }
       }
     }
@@ -454,11 +486,21 @@ void Dispatcher::encode(OperatorEnum op,
   uint32_t numElements = static_cast<uint32_t>(executionSize);
   if (isBinaryVecScalarOp(op)) {
     // Pack scalar + numElements into push constant data
-    // Shader layout: scalar first, then numElements
+    // Shader layout: scalar (4 bytes, type matches dtype) then numElements
+    // For integer types, convert the float scalar to the correct integer type
     struct PushConstants {
-      float scalar;
+      uint32_t scalarBits;
       uint32_t numElements;
-    } pushData{scalar, numElements};
+    } pushData{0, numElements};
+    if (dtype == DataType::Int32) {
+      int32_t intScalar = static_cast<int32_t>(scalarFloat);
+      std::memcpy(&pushData.scalarBits, &intScalar, sizeof(int32_t));
+    } else if (dtype == DataType::UInt32) {
+      uint32_t uintScalar = static_cast<uint32_t>(scalarFloat);
+      pushData.scalarBits = uintScalar;
+    } else {
+      std::memcpy(&pushData.scalarBits, &scalarFloat, sizeof(float));
+    }
     dispatch.bindData(DataReference(&pushData, sizeof(pushData)),
                       static_cast<uint32_t>(handleBindings.size()));
   } else if (op == TernaryClamp) {
@@ -484,11 +526,24 @@ void Dispatcher::encode(OperatorEnum op,
     // Recreate dispatch with only handle bindings
     ComputeDispatch ternaryDispatch(shader, workgroupSize,
                                     ternaryHandleBindings);
+    // Pack min/max as correct type (shader uses %SCALAR_DTYPE%)
     struct ClampPushConstants {
-      float minVal;
-      float maxVal;
+      uint32_t minBits;
+      uint32_t maxBits;
       uint32_t numElements;
-    } clampPushData{minVal, maxVal, numElements};
+    } clampPushData{0, 0, numElements};
+    if (dtype == DataType::Int32) {
+      int32_t iMin = static_cast<int32_t>(minVal);
+      int32_t iMax = static_cast<int32_t>(maxVal);
+      std::memcpy(&clampPushData.minBits, &iMin, sizeof(int32_t));
+      std::memcpy(&clampPushData.maxBits, &iMax, sizeof(int32_t));
+    } else if (dtype == DataType::UInt32) {
+      clampPushData.minBits = static_cast<uint32_t>(minVal);
+      clampPushData.maxBits = static_cast<uint32_t>(maxVal);
+    } else {
+      std::memcpy(&clampPushData.minBits, &minVal, sizeof(float));
+      std::memcpy(&clampPushData.maxBits, &maxVal, sizeof(float));
+    }
     ternaryDispatch.bindData(
         DataReference(&clampPushData, sizeof(clampPushData)),
         static_cast<uint32_t>(ternaryHandleBindings.size()));
@@ -627,12 +682,16 @@ void Dispatcher::encode(OperatorEnum op,
       uint32_t gridX = (N + tileSize - 1) / tileSize * tileSize;
       uint32_t gridY = (M + tileSize - 1) / tileSize * tileSize;
 
+      // Compute aligned strides (innermost dim padded to multiple of 4)
+      uint32_t strideIn = (N + 3) & ~3u;  // input rows stride
+      uint32_t strideOut = (M + 3) & ~3u; // output rows stride
+
       ThreadSize transposeWorkgroupSize{gridX, gridY, 1};
       ComputeDispatch transposeDispatch(shader, transposeWorkgroupSize,
                                         matrixHandleBindings);
       struct TransposePushConstants {
-        uint32_t M, N;
-      } pushData{M, N};
+        uint32_t M, N, strideIn, strideOut;
+      } pushData{M, N, strideIn, strideOut};
       transposeDispatch.bindData(
           DataReference(&pushData, sizeof(pushData)),
           static_cast<uint32_t>(matrixHandleBindings.size()));
@@ -651,6 +710,76 @@ void Dispatcher::encode(OperatorEnum op,
                            static_cast<uint32_t>(matrixHandleBindings.size()));
       iface_->encode(std::move(dotDispatch));
     }
+    return;
+  } else if (op == Norm) {
+    // Norm: like a reduction with 256-thread workgroup
+    ThreadSize normWorkgroupSize{256, 1, 1};
+    ComputeDispatch normDispatch(shader, normWorkgroupSize, bindings);
+    normDispatch.bindData(DataReference(numElements),
+                          static_cast<uint32_t>(bindings.size()));
+    iface_->encode(std::move(normDispatch));
+    return;
+  } else if (op == Zeros || op == Ones) {
+    // Tensor creation: output buffer only, numElements as push constant
+    std::vector<ComputeBinding> handleBindingsOnly;
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        handleBindingsOnly.push_back(binding);
+      }
+    }
+    ComputeDispatch creationDispatch(shader, workgroupSize, handleBindingsOnly);
+    creationDispatch.bindData(DataReference(numElements),
+                              static_cast<uint32_t>(handleBindingsOnly.size()));
+    iface_->encode(std::move(creationDispatch));
+    return;
+  } else if (op == Full) {
+    // Full: output buffer + fill value from DataReference
+    std::vector<ComputeBinding> handleBindingsOnly;
+    float fillValue = 0.0f;
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        handleBindingsOnly.push_back(binding);
+      } else if (binding.isData()) {
+        const auto &data = binding.getData();
+        if (data.size() >= sizeof(float)) {
+          fillValue = *reinterpret_cast<const float *>(data.data());
+        }
+      }
+    }
+    ComputeDispatch fullDispatch(shader, workgroupSize, handleBindingsOnly);
+    struct FullPushConstants {
+      float fillValue;
+      uint32_t numElements;
+    } pushData{fillValue, numElements};
+    fullDispatch.bindData(DataReference(&pushData, sizeof(pushData)),
+                          static_cast<uint32_t>(handleBindingsOnly.size()));
+    iface_->encode(std::move(fullDispatch));
+    return;
+  } else if (op == Arange || op == Linspace) {
+    // Arange/Linspace: output buffer + [start, step] from DataReference
+    std::vector<ComputeBinding> handleBindingsOnly;
+    float start = 0.0f, step = 1.0f;
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        handleBindingsOnly.push_back(binding);
+      } else if (binding.isData()) {
+        const auto &data = binding.getData();
+        if (data.size() >= 2 * sizeof(float)) {
+          const float *params = reinterpret_cast<const float *>(data.data());
+          start = params[0];
+          step = params[1];
+        }
+      }
+    }
+    ComputeDispatch rangeDispatch(shader, workgroupSize, handleBindingsOnly);
+    struct RangePushConstants {
+      float start;
+      float step;
+      uint32_t numElements;
+    } pushData{start, step, numElements};
+    rangeDispatch.bindData(DataReference(&pushData, sizeof(pushData)),
+                           static_cast<uint32_t>(handleBindingsOnly.size()));
+    iface_->encode(std::move(rangeDispatch));
     return;
   } else if (isPrefixScanOp(op)) {
     encodePrefixScan(op, bindings, executionSize);
@@ -868,14 +997,13 @@ void Dispatcher::encodeMultiWorkgroupReduce(
     OperatorEnum op,
     const std::vector<ComputeBinding> &bindings,
     size_t executionSize) {
-  auto params = getReduceParams(op);
-
   // Infer dtype from bindings
   DataType dtype = ComputeBuffer::inferDataType(
       bindings, [this](const ComputeHandle &h) -> const ComputeBuffer & {
         return iface_->getBuffer(h);
       });
 
+  auto params = getReduceParams(op, dtype);
   uint32_t numElements = static_cast<uint32_t>(executionSize);
   const char *scalarType = scalarTypeName(dtype);
 

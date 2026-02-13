@@ -41,7 +41,8 @@ public:
   void encode(OperatorEnum op,
               const std::vector<ComputeBinding> &bindings,
               const ComputeHandle &shader,
-              size_t executionSize);
+              size_t executionSize,
+              DataType dtype = DataType::Float32);
 
   /**
    * Releases all temporary buffers back to the pool.

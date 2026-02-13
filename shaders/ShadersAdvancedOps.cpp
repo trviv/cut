@@ -18,6 +18,16 @@
 
 namespace cut {
 
+// Helper to return type-appropriate literal for integer vs float types
+static bool isIntegerType(DataType dt) {
+  return dt == DataType::Int32 || dt == DataType::UInt32;
+}
+
+static const char *
+typedLiteral(DataType dt, const char *floatVal, const char *intVal) {
+  return isIntegerType(dt) ? intVal : floatVal;
+}
+
 using ShaderGenFn = std::string (*)(const char *, DataType);
 
 struct AdvOpEntry {
@@ -367,7 +377,8 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   // =============================================================================
   case ReduceSum: {
     shaderSource = reductionShaderTemplate;
-    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%",
+                              typedLiteral(datatype, "0.0", "0"));
     shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a + b");
     shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_sum";
@@ -375,7 +386,8 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   }
   case ReduceMean: {
     shaderSource = reductionShaderTemplate;
-    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%",
+                              typedLiteral(datatype, "0.0", "0"));
     shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a + b");
     shaderSource = replaceAll(shaderSource, "dataOut[0] = sharedData[0]",
                               "dataOut[0] = sharedData[0] / "
@@ -386,7 +398,11 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   }
   case ReduceMin: {
     shaderSource = reductionShaderTemplate;
-    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "3.402823466e+38");
+    const char *minId =
+        datatype == DataType::UInt32
+            ? "4294967295u"
+            : typedLiteral(datatype, "3.402823466e+38", "2147483647");
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", minId);
     shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "min(a, b)");
     shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_min";
@@ -394,7 +410,11 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   }
   case ReduceMax: {
     shaderSource = reductionShaderTemplate;
-    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "-3.402823466e+38");
+    const char *maxId =
+        datatype == DataType::UInt32
+            ? "0u"
+            : typedLiteral(datatype, "-3.402823466e+38", "-2147483648");
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%", maxId);
     shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "max(a, b)");
     shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_max";
@@ -402,7 +422,8 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   }
   case ReduceProd: {
     shaderSource = reductionShaderTemplate;
-    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "1.0");
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%",
+                              typedLiteral(datatype, "1.0", "1"));
     shaderSource = replaceAll(shaderSource, "%REDUCE_OP%", "a * b");
     shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_prod";
@@ -410,18 +431,24 @@ bool generateAdvancedOpShader(const OperatorEnum shader,
   }
   case ReduceAny: {
     shaderSource = reductionShaderTemplate;
-    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "0.0");
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%",
+                              typedLiteral(datatype, "0.0", "0"));
     shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
-                              "((a != 0.0 || b != 0.0) ? 1.0 : 0.0)");
+                              isIntegerType(datatype)
+                                  ? "((a != 0 || b != 0) ? 1 : 0)"
+                                  : "((a != 0.0 || b != 0.0) ? 1.0 : 0.0)");
     shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_any";
     return true;
   }
   case ReduceAll: {
     shaderSource = reductionShaderTemplate;
-    shaderSource = replaceAll(shaderSource, "%IDENTITY%", "1.0");
+    shaderSource = replaceAll(shaderSource, "%IDENTITY%",
+                              typedLiteral(datatype, "1.0", "1"));
     shaderSource = replaceAll(shaderSource, "%REDUCE_OP%",
-                              "((a != 0.0 && b != 0.0) ? 1.0 : 0.0)");
+                              isIntegerType(datatype)
+                                  ? "((a != 0 && b != 0) ? 1 : 0)"
+                                  : "((a != 0.0 && b != 0.0) ? 1.0 : 0.0)");
     shaderSource = applyDatatypeSubstitutions(shaderSource, datatype);
     shaderName = "reduce_all";
     return true;
@@ -1031,7 +1058,7 @@ void main() {
   // =============================================================================
   case Norm: {
     // L2 norm: sqrt(sum of squares)
-    // This is a reduction operation similar to ReduceSum but with squares
+    // Single-workgroup reduction (strided loop handles any array size)
     std::string normShader = R"(#version 450
 
 #define WORKGROUP_SIZE 256
@@ -1045,7 +1072,7 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
     float dataIn[];
 };
 
-layout(set = 0, binding = 1, std430) restrict buffer BufferOut {
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
     float dataOut[];
 };
 
@@ -1053,15 +1080,14 @@ shared float sharedData[WORKGROUP_SIZE];
 
 void main() {
     uint tid = gl_LocalInvocationID.x;
-    uint gid = gl_GlobalInvocationID.x;
 
-    // Load and square
-    float value = 0.0;
-    if (gid < numElements) {
-        value = dataIn[gid];
-        value = value * value;  // Square for L2 norm
+    // Each thread accumulates squared values via strided loop
+    float localVal = 0.0;
+    for (uint i = tid; i < numElements; i += WORKGROUP_SIZE) {
+        float val = dataIn[i];
+        localVal += val * val;
     }
-    sharedData[tid] = value;
+    sharedData[tid] = localVal;
     barrier();
 
     // Parallel reduction in shared memory
@@ -1072,9 +1098,9 @@ void main() {
         barrier();
     }
 
-    // Write result from first thread
+    // Write sqrt of result
     if (tid == 0) {
-        atomicAdd(dataOut[0], sharedData[0]);
+        dataOut[0] = sqrt(sharedData[0]);
     }
 }
 )";

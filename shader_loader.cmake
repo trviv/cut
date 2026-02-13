@@ -201,7 +201,6 @@ foreach(SHADER_SOURCE ${SHADER_SOURCES})
 endforeach()
 
 if(SHADER_SOURCES)
-    file(WRITE ${SHADERS_SOURCE_FILE} "")
     generate_shader_source("${SHADER_SOURCES}")
 else()
     # Generate a stub CompiledShaders.cpp when there are no shader sources

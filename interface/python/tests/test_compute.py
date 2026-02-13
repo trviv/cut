@@ -610,17 +610,15 @@ class TestDimReduce:
     def test_sum_dim_3d(self, backend):
         """Test sum along middle dimension of a 3D tensor."""
         data = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
-        t = cc.Tensor(data.flatten().tolist())
-        t._shape = (2, 3, 4)
+        t = cc.Tensor(data.tolist())
         result = cc.sum(t, dim=1)
         expected = data.sum(axis=1)
-        np.testing.assert_allclose(to_numpy(result), expected.flatten(), rtol=1e-5)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
 
     def test_sum_dim_output_shape(self, backend):
         """Test that dim reduce produces correct output shape."""
         data = np.ones((3, 4, 5), dtype=np.float32)
-        t = cc.Tensor(data.flatten().tolist())
-        t._shape = (3, 4, 5)
+        t = cc.Tensor(data.tolist())
         result = cc.sum(t, dim=1)
         assert result.shape == (3, 5)
 
@@ -633,8 +631,7 @@ class TestDimReduce:
     def test_large_dim_reduce(self, backend):
         """Test dim reduce with larger arrays."""
         data = np.random.randn(64, 128).astype(np.float32)
-        t = cc.Tensor(data.flatten().tolist())
-        t._shape = (64, 128)
+        t = cc.Tensor(data.tolist())
         result = cc.sum(t, dim=1)
         expected = data.sum(axis=1)
         np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
@@ -666,17 +663,15 @@ class TestNormDim:
     def test_norm_dim_3d(self, backend):
         """Test L2 norm along middle dimension of a 3D tensor."""
         data = np.random.randn(2, 3, 4).astype(np.float32)
-        t = cc.Tensor(data.flatten().tolist())
-        t._shape = (2, 3, 4)
+        t = cc.Tensor(data.tolist())
         result = cc.norm(t, dim=1)
         expected = np.linalg.norm(data, axis=1)
-        np.testing.assert_allclose(to_numpy(result), expected.flatten(), rtol=1e-4)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)
 
     def test_norm_dim_output_shape(self, backend):
         """Test that norm dim produces correct output shape."""
         data = np.ones((3, 4, 5), dtype=np.float32)
-        t = cc.Tensor(data.flatten().tolist())
-        t._shape = (3, 4, 5)
+        t = cc.Tensor(data.tolist())
         result = cc.norm(t, dim=2)
         assert result.shape == (3, 4)
 
@@ -691,8 +686,7 @@ class TestNormDim:
     def test_norm_dim_single_element(self, backend):
         """Test norm along dimension with size 1."""
         data = np.array([[3], [4], [5]], dtype=np.float32)
-        t = cc.Tensor(data.flatten().tolist())
-        t._shape = (3, 1)
+        t = cc.Tensor(data.tolist())
         result = cc.norm(t, dim=1)
         expected = np.linalg.norm(data, axis=1)
         np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
@@ -700,8 +694,7 @@ class TestNormDim:
     def test_norm_dim_large(self, backend):
         """Test dim norm with larger arrays."""
         data = np.random.randn(32, 64).astype(np.float32)
-        t = cc.Tensor(data.flatten().tolist())
-        t._shape = (32, 64)
+        t = cc.Tensor(data.tolist())
         result = cc.norm(t, dim=1)
         expected = np.linalg.norm(data, axis=1)
         np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-4)

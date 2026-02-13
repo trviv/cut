@@ -215,8 +215,10 @@ const char *transposeShaderTemplate = R"(#version 450
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(push_constant) uniform PushConstants {
-    uint M;  // rows of input
-    uint N;  // cols of input
+    uint M;         // logical rows of input
+    uint N;         // logical cols of input
+    uint strideIn;  // aligned stride for input rows (aligned N)
+    uint strideOut; // aligned stride for output rows (aligned M)
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
@@ -233,12 +235,13 @@ void main() {
 
     if (row < M && col < N) {
         // Transpose: out[col, row] = in[row, col]
-        dataOut[col * M + row] = dataIn[row * N + col];
+        dataOut[col * strideOut + row] = dataIn[row * strideIn + col];
     }
 }
 )";
 
 const char *dotShaderTemplate = R"(#version 450
+#extension GL_EXT_shader_atomic_float : require
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
