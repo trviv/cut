@@ -7,7 +7,6 @@
  */
 
 #include <memory>
-#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <vector>
@@ -222,24 +221,6 @@ py::object reshapeToNested(const void *data,
     result.append(reshapeToNested(data, dtype, inner_shape, offset));
   }
   return result;
-}
-
-/**
- * Get item size for a data type.
- */
-size_t dtypeItemSize(cut::DataType dtype) {
-  switch (dtype) {
-  case cut::DataType::Float32:
-    return 4;
-  case cut::DataType::Float16:
-    return 2;
-  case cut::DataType::UInt32:
-    return 4;
-  case cut::DataType::Int32:
-    return 4;
-  default:
-    return 4;
-  }
 }
 
 } // namespace
@@ -531,33 +512,6 @@ PYBIND11_MODULE(_cut_compute, m) {
            "Check if this is a data binding");
 
   // =========================================================================
-  // ComputeDispatch
-  // =========================================================================
-  py::class_<cut::ComputeDispatch>(m, "ComputeDispatch")
-      .def(py::init<cut::ComputeHandle>())
-      .def("set_workgroup_size", &cut::ComputeDispatch::setWorkgroupSize)
-      .def("bind_resource",
-           [](cut::ComputeDispatch &self, cut::ComputeHandle handle,
-              uint32_t binding) { self.bindResource(handle, binding); })
-      .def("bind_data",
-           [](cut::ComputeDispatch &self, py::buffer data, uint32_t binding) {
-             py::buffer_info info = data.request();
-             cut::DataReference ref(
-                 info.ptr, static_cast<uint32_t>(info.size * info.itemsize));
-             self.bindData(ref, binding);
-           })
-      .def("bind_uint",
-           [](cut::ComputeDispatch &self, uint32_t value, uint32_t binding) {
-             self.bindValue(value, binding);
-           })
-      .def("bind_int", [](cut::ComputeDispatch &self, int32_t value,
-                          uint32_t binding) { self.bindValue(value, binding); })
-      .def("bind_float",
-           [](cut::ComputeDispatch &self, float value, uint32_t binding) {
-             self.bindValue(value, binding);
-           });
-
-  // =========================================================================
   // Backend Management Functions
   // =========================================================================
 
@@ -575,58 +529,9 @@ PYBIND11_MODULE(_cut_compute, m) {
       "Get the current backend type");
 
   // =========================================================================
-  // Tensor Operations
+  // Buffer Operations
   // =========================================================================
 
-  m.def(
-      "create_tensor",
-      [](py::array arr, bool is_uniform) {
-        py::buffer_info info = arr.request();
-        std::vector<uint32_t> shape(info.shape.begin(), info.shape.end());
-        cut::DataType dtype = numpyFormatToDataType(info.format, info.itemsize);
-
-        return getRuntime().createTensor(shape, dtype, info.ptr, is_uniform);
-      },
-      py::arg("data"), py::arg("is_uniform") = false,
-      "Create a tensor from numpy array");
-
-  m.def(
-      "create_tensor_empty",
-      [](std::vector<uint32_t> shape, cut::DataType dtype, bool is_uniform) {
-        return getRuntime().createTensorEmpty(shape, dtype, is_uniform);
-      },
-      py::arg("shape"), py::arg("dtype"), py::arg("is_uniform") = false,
-      "Create an empty tensor");
-
-  m.def(
-      "copy_to_tensor",
-      [](cut::ComputeHandle handle, py::array arr, size_t src_offset,
-         size_t dst_offset) {
-        py::buffer_info info = arr.request();
-        size_t size = info.size * info.itemsize;
-        getRuntime().copyToTensor(handle, info.ptr, size, src_offset,
-                                  dst_offset);
-      },
-      py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
-      py::arg("dst_offset") = 0, "Copy data to tensor");
-
-  m.def(
-      "copy_from_tensor",
-      [](cut::ComputeHandle handle, py::array arr, size_t src_offset,
-         size_t dst_offset) {
-        py::buffer_info info = arr.request();
-        size_t size = info.size * info.itemsize;
-        getRuntime().copyFromTensor(handle, info.ptr, size, src_offset,
-                                    dst_offset);
-      },
-      py::arg("handle"), py::arg("data"), py::arg("src_offset") = 0,
-      py::arg("dst_offset") = 0, "Copy data from tensor");
-
-  // =========================================================================
-  // Native Python Buffer Operations (no numpy dependency)
-  // =========================================================================
-
-  // Create buffer from Python buffer protocol object (array.array, etc.)
   m.def(
       "create_buffer",
       [](py::buffer data, bool is_uniform) {
@@ -701,12 +606,6 @@ PYBIND11_MODULE(_cut_compute, m) {
       "shape_product",
       [](std::vector<size_t> shape) { return shapeProduct(shape); },
       py::arg("shape"), "Compute product of shape dimensions");
-
-  // Get item size for dtype
-  m.def(
-      "dtype_itemsize",
-      [](cut::DataType dtype) { return dtypeItemSize(dtype); },
-      py::arg("dtype"), "Get item size in bytes for a data type");
 
   // =========================================================================
   // Shutdown function for proper cleanup
