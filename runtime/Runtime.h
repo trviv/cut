@@ -17,6 +17,7 @@ namespace cut {
 class VulkanInstance;
 class VulkanCompute;
 class Dispatcher;
+class Operations;
 
 /**
  * Backend type enum for runtime selection.
@@ -26,8 +27,12 @@ enum class BackendType { Vulkan };
 /**
  * Runtime class that manages compute backend lifecycle and operator execution.
  * Provides a unified interface for executing compute operations on Vulkan GPU.
+ * All compute operations should be issued through the Operations object
+ * returned by ops().
  */
 class Runtime {
+  friend class Operations;
+
 public:
   /**
    * Constructs a Runtime instance.
@@ -136,18 +141,15 @@ public:
                       size_t dstOffset = 0);
 
   // =========================================================================
-  // Operator Execution
+  // Operations
   // =========================================================================
 
   /**
-   * Encodes a compute operator using the Dispatcher.
-   * Infers dtype and workgroup size from buffer bindings.
-   *
-   * @param op The operator to execute (from OperatorEnum).
-   * @param bindings Vector of compute bindings (buffers and data).
+   * Returns a reference to the Operations object for issuing compute
+   * operations.
+   * @throws std::runtime_error if not initialized.
    */
-  void encodeOperator(OperatorEnum op,
-                      const std::vector<ComputeBinding> &bindings);
+  Operations &ops();
 
 private:
   BackendType backendType_ = BackendType::Vulkan;
@@ -162,6 +164,9 @@ private:
 
   // Dispatcher for encoding operators
   std::unique_ptr<Dispatcher> dispatcher_;
+
+  // High-level operations
+  std::unique_ptr<Operations> operations_;
 
   /**
    * Returns the underlying compute interface.
@@ -181,49 +186,23 @@ private:
 
   /**
    * Computes the execution size for an operator based on its bindings.
-   * Validates that all buffer bindings have matching execution sizes.
-   * For current operators (unary, binary vec-vec, binary vec-scalar),
-   * returns buffer.executionSize() which accounts for alignment.
-   *
-   * @param op The operator to execute.
-   * @param bindings Vector of compute bindings.
-   * @return The execution size (number of elements to process).
-   * @throws std::runtime_error if buffer sizes don't match or no buffers found.
    */
   size_t getExecutionSize(OperatorEnum op,
                           const std::vector<ComputeBinding> &bindings) const;
 
-  // =========================================================================
-  // Deferred Execution Support
-  // =========================================================================
-
   /**
-   * Returns true if the current backend is a GPU backend.
-   * GPU backends (Vulkan) execute commands lazily for better batching.
-   * CPU backend executes commands immediately.
+   * Encodes a compute operator using the Dispatcher.
+   * Infers dtype and workgroup size from buffer bindings.
    */
+  void encodeOperator(OperatorEnum op,
+                      const std::vector<ComputeBinding> &bindings);
+
   bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
 
-  /**
-   * Flushes any pending commands by submitting and waiting.
-   * No-op if there are no pending commands.
-   */
   void flushPendingCommands();
 
-  // =========================================================================
-  // Operator Execution
-  // =========================================================================
-
-  /**
-   * Submits the command buffer for execution.
-   * @return Handle to the submitted command buffer.
-   */
   ComputeHandle submit();
 
-  /**
-   * Waits for a command buffer to complete execution.
-   * @param cmdBuffer Handle to the command buffer.
-   */
   void wait(ComputeHandle cmdBuffer);
 };
 

@@ -14,22 +14,22 @@ namespace cut {
 // Operations
 // =========================================================================
 
-Operations::Operations(Runtime &runtime) : runtime_(runtime) {}
+Operations::Operations(Runtime &runtime) : runtime_(&runtime) {}
 
 ComputeHandle Operations::createOutput(const std::vector<uint32_t> &shape,
                                        DataType dtype) {
-  return runtime_.createTensorEmpty(shape, dtype);
+  return runtime_->createTensorEmpty(shape, dtype);
 }
 
 std::vector<uint32_t> Operations::getShape(const ComputeHandle &h) const {
-  auto shape = runtime_.getTensor(h).getShape();
+  auto shape = runtime_->getTensor(h).getShape();
   while (shape.size() > 1 && shape.back() == 1)
     shape.pop_back();
   return shape;
 }
 
 DataType Operations::getDtype(const ComputeHandle &h) const {
-  return runtime_.getTensor(h).getDtype();
+  return runtime_->getTensor(h).getDtype();
 }
 
 size_t Operations::shapeProduct(const std::vector<uint32_t> &shape) const {
@@ -98,7 +98,7 @@ void Operations::encodeCopy(const ComputeHandle &src,
   bindings.emplace_back(1, dst);
   bindings.emplace_back(2, DataReference(layoutData, sizeof(layoutData)));
 
-  runtime_.encodeOperator(OperatorEnum::Copy, bindings);
+  runtime_->encodeOperator(OperatorEnum::Copy, bindings);
 }
 
 // =========================================================================
@@ -108,8 +108,8 @@ void Operations::encodeCopy(const ComputeHandle &src,
 ComputeHandle Operations::binaryOp(OperatorEnum op,
                                    const ComputeHandle &a,
                                    const ComputeHandle &b) {
-  const auto &bufA = runtime_.getTensor(a);
-  const auto &bufB = runtime_.getTensor(b);
+  const auto &bufA = runtime_->getTensor(a);
+  const auto &bufB = runtime_->getTensor(b);
 
   if (bufA.calculateActualSize() != bufB.calculateActualSize()) {
     throw std::runtime_error(
@@ -126,7 +126,7 @@ ComputeHandle Operations::binaryOp(OperatorEnum op,
   bindings.emplace_back(1, b);
   bindings.emplace_back(2, output);
 
-  runtime_.encodeOperator(op, bindings);
+  runtime_->encodeOperator(op, bindings);
   return output;
 }
 
@@ -139,7 +139,7 @@ ComputeHandle Operations::unaryOp(OperatorEnum op, const ComputeHandle &a) {
   bindings.emplace_back(0, a);
   bindings.emplace_back(1, output);
 
-  runtime_.encodeOperator(op, bindings);
+  runtime_->encodeOperator(op, bindings);
   return output;
 }
 
@@ -167,7 +167,7 @@ Operations::vecScalarOp(OperatorEnum op, const ComputeHandle &a, float scalar) {
   bindings.emplace_back(1, output);
   bindings.push_back(std::move(scalarBinding));
 
-  runtime_.encodeOperator(op, bindings);
+  runtime_->encodeOperator(op, bindings);
   return output;
 }
 
@@ -182,10 +182,10 @@ float Operations::reduceScalar(OperatorEnum op, const ComputeHandle &a) {
   bindings.emplace_back(0, a);
   bindings.emplace_back(1, out);
 
-  runtime_.encodeOperator(op, bindings);
+  runtime_->encodeOperator(op, bindings);
 
   float result = 0.0f;
-  runtime_.copyFromTensor(out, &result, sizeof(float));
+  runtime_->copyFromTensor(out, &result, sizeof(float));
   return result;
 }
 
@@ -215,7 +215,7 @@ Operations::reduceDim(const ComputeHandle &a, int dim, OperatorEnum dimOp) {
   bindings.emplace_back(1, out);
   bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
 
-  runtime_.encodeOperator(dimOp, bindings);
+  runtime_->encodeOperator(dimOp, bindings);
   return out;
 }
 
@@ -252,7 +252,7 @@ ComputeHandle Operations::matmul(const ComputeHandle &a,
   bindings.emplace_back(2, output);
   bindings.emplace_back(3, DataReference(shapeData, sizeof(shapeData)));
 
-  runtime_.encodeOperator(OperatorEnum::MatMul, bindings);
+  runtime_->encodeOperator(OperatorEnum::MatMul, bindings);
   return output;
 }
 
@@ -274,13 +274,13 @@ ComputeHandle Operations::transpose(const ComputeHandle &a) {
   bindings.emplace_back(1, output);
   bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
 
-  runtime_.encodeOperator(OperatorEnum::Transpose, bindings);
+  runtime_->encodeOperator(OperatorEnum::Transpose, bindings);
   return output;
 }
 
 float Operations::dot(const ComputeHandle &a, const ComputeHandle &b) {
-  const auto &bufA = runtime_.getTensor(a);
-  const auto &bufB = runtime_.getTensor(b);
+  const auto &bufA = runtime_->getTensor(a);
+  const auto &bufB = runtime_->getTensor(b);
 
   if (bufA.calculateActualSize() != bufB.calculateActualSize()) {
     throw std::runtime_error(
@@ -301,10 +301,10 @@ float Operations::dot(const ComputeHandle &a, const ComputeHandle &b) {
   bindings.emplace_back(2, out);
   bindings.emplace_back(3, DataReference(countData, sizeof(countData)));
 
-  runtime_.encodeOperator(OperatorEnum::Dot, bindings);
+  runtime_->encodeOperator(OperatorEnum::Dot, bindings);
 
   float result = 0.0f;
-  runtime_.copyFromTensor(out, &result, sizeof(float));
+  runtime_->copyFromTensor(out, &result, sizeof(float));
   return result;
 }
 
@@ -342,16 +342,16 @@ Operations::clamp(const ComputeHandle &a, float minVal, float maxVal) {
   bindings.emplace_back(1, output);
   bindings.emplace_back(2, DataReference(clampBuf, clampSize));
 
-  runtime_.encodeOperator(OperatorEnum::TernaryClamp, bindings);
+  runtime_->encodeOperator(OperatorEnum::TernaryClamp, bindings);
   return output;
 }
 
 ComputeHandle Operations::where(const ComputeHandle &cond,
                                 const ComputeHandle &x,
                                 const ComputeHandle &y) {
-  const auto &bufCond = runtime_.getTensor(cond);
-  const auto &bufX = runtime_.getTensor(x);
-  const auto &bufY = runtime_.getTensor(y);
+  const auto &bufCond = runtime_->getTensor(cond);
+  const auto &bufX = runtime_->getTensor(x);
+  const auto &bufY = runtime_->getTensor(y);
 
   if (bufCond.calculateActualSize() != bufX.calculateActualSize() ||
       bufCond.calculateActualSize() != bufY.calculateActualSize()) {
@@ -368,7 +368,7 @@ ComputeHandle Operations::where(const ComputeHandle &cond,
   bindings.emplace_back(2, y);
   bindings.emplace_back(3, output);
 
-  runtime_.encodeOperator(OperatorEnum::TernarySelect, bindings);
+  runtime_->encodeOperator(OperatorEnum::TernarySelect, bindings);
   return output;
 }
 
@@ -392,7 +392,7 @@ Operations::cumOp(const ComputeHandle &a, int dim, OperatorEnum op) {
   bindings.emplace_back(1, out);
   bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
 
-  runtime_.encodeOperator(op, bindings);
+  runtime_->encodeOperator(op, bindings);
   return out;
 }
 
@@ -410,7 +410,7 @@ float Operations::varianceScalar(const ComputeHandle &a, int correction) {
 
   // Read data from GPU
   std::vector<float> data(n);
-  runtime_.copyFromTensor(a, data.data(), n * sizeof(float));
+  runtime_->copyFromTensor(a, data.data(), n * sizeof(float));
 
   // Compute variance on CPU
   double sum = 0.0;
@@ -439,9 +439,9 @@ Operations::varianceDim(const ComputeHandle &a, int dim, int correction) {
   std::vector<float> flatData(totalElements);
   std::vector<float> meanData(meanElements);
 
-  runtime_.copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
-  runtime_.copyFromTensor(meanHandle, meanData.data(),
-                          meanElements * sizeof(float));
+  runtime_->copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
+  runtime_->copyFromTensor(meanHandle, meanData.data(),
+                           meanElements * sizeof(float));
 
   // Compute variance on CPU
   std::vector<float> result(meanElements);
@@ -465,7 +465,7 @@ Operations::varianceDim(const ComputeHandle &a, int dim, int correction) {
 
   // Create output tensor and copy result
   ComputeHandle out = createOutput(params.outShape, dtype);
-  runtime_.copyToTensor(out, result.data(), result.size() * sizeof(float));
+  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
 }
 
@@ -492,9 +492,9 @@ ComputeHandle Operations::softmax(const ComputeHandle &a, int dim) {
   std::vector<float> flatData(totalElements);
   std::vector<float> maxData(maxElements);
 
-  runtime_.copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
-  runtime_.copyFromTensor(maxHandle, maxData.data(),
-                          maxElements * sizeof(float));
+  runtime_->copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
+  runtime_->copyFromTensor(maxHandle, maxData.data(),
+                           maxElements * sizeof(float));
 
   // Compute softmax on CPU
   std::vector<float> result(totalElements);
@@ -524,7 +524,7 @@ ComputeHandle Operations::softmax(const ComputeHandle &a, int dim) {
   }
 
   ComputeHandle out = createOutput(shape, dtype);
-  runtime_.copyToTensor(out, result.data(), result.size() * sizeof(float));
+  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
 }
 
@@ -547,9 +547,9 @@ ComputeHandle Operations::logSoftmax(const ComputeHandle &a, int dim) {
   std::vector<float> flatData(totalElements);
   std::vector<float> maxData(maxElements);
 
-  runtime_.copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
-  runtime_.copyFromTensor(maxHandle, maxData.data(),
-                          maxElements * sizeof(float));
+  runtime_->copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
+  runtime_->copyFromTensor(maxHandle, maxData.data(),
+                           maxElements * sizeof(float));
 
   // Compute log softmax on CPU
   std::vector<float> result(totalElements);
@@ -576,7 +576,7 @@ ComputeHandle Operations::logSoftmax(const ComputeHandle &a, int dim) {
   }
 
   ComputeHandle out = createOutput(shape, dtype);
-  runtime_.copyToTensor(out, result.data(), result.size() * sizeof(float));
+  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
 }
 
@@ -600,17 +600,17 @@ Operations::arange(float start, float end, float step, DataType dtype) {
     std::vector<int32_t> values(n);
     for (int i = 0; i < n; ++i)
       values[i] = static_cast<int32_t>(start + i * step);
-    return runtime_.createTensor(shape, dtype, values.data());
+    return runtime_->createTensor(shape, dtype, values.data());
   } else if (dtype == DataType::UInt32) {
     std::vector<uint32_t> values(n);
     for (int i = 0; i < n; ++i)
       values[i] = static_cast<uint32_t>(start + i * step);
-    return runtime_.createTensor(shape, dtype, values.data());
+    return runtime_->createTensor(shape, dtype, values.data());
   } else {
     std::vector<float> values(n);
     for (int i = 0; i < n; ++i)
       values[i] = start + i * step;
-    return runtime_.createTensor(shape, dtype, values.data());
+    return runtime_->createTensor(shape, dtype, values.data());
   }
 }
 
@@ -630,7 +630,7 @@ Operations::linspace(float start, float end, int steps, DataType dtype) {
   }
 
   std::vector<uint32_t> shape = {static_cast<uint32_t>(steps)};
-  return runtime_.createTensor(shape, dtype, values.data());
+  return runtime_->createTensor(shape, dtype, values.data());
 }
 
 ComputeHandle Operations::full(const std::vector<uint32_t> &shape,
@@ -640,13 +640,13 @@ ComputeHandle Operations::full(const std::vector<uint32_t> &shape,
 
   if (dtype == DataType::Int32) {
     std::vector<int32_t> values(totalSize, static_cast<int32_t>(fillValue));
-    return runtime_.createTensor(shape, dtype, values.data());
+    return runtime_->createTensor(shape, dtype, values.data());
   } else if (dtype == DataType::UInt32) {
     std::vector<uint32_t> values(totalSize, static_cast<uint32_t>(fillValue));
-    return runtime_.createTensor(shape, dtype, values.data());
+    return runtime_->createTensor(shape, dtype, values.data());
   } else {
     std::vector<float> values(totalSize, fillValue);
-    return runtime_.createTensor(shape, dtype, values.data());
+    return runtime_->createTensor(shape, dtype, values.data());
   }
 }
 
@@ -850,6 +850,45 @@ Operations::flatten(const ComputeHandle &a, int startDim, int endDim) {
 
 ComputeHandle Operations::normDim(const ComputeHandle &a, int dim) {
   return reduceDim(a, dim, OperatorEnum::NormDim);
+}
+
+// =========================================================================
+// Prefix scan
+// =========================================================================
+
+ComputeHandle Operations::prefixScan(const ComputeHandle &a, OperatorEnum op) {
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  ComputeHandle out = createOutput(shape, dtype);
+
+  std::vector<ComputeBinding> bindings;
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, out);
+
+  runtime_->encodeOperator(op, bindings);
+  return out;
+}
+
+// =========================================================================
+// Sort (in-place)
+// =========================================================================
+
+void Operations::sortBitonic(const ComputeHandle &keys,
+                             const ComputeHandle &vals) {
+  std::vector<ComputeBinding> bindings;
+  bindings.emplace_back(0, keys);
+  bindings.emplace_back(1, vals);
+
+  runtime_->encodeOperator(OperatorEnum::SortBitonic, bindings);
+}
+
+void Operations::sortRadix(const ComputeHandle &keys,
+                           const ComputeHandle &vals) {
+  std::vector<ComputeBinding> bindings;
+  bindings.emplace_back(0, keys);
+  bindings.emplace_back(1, vals);
+
+  runtime_->encodeOperator(OperatorEnum::SortRadix, bindings);
 }
 
 } // namespace cut

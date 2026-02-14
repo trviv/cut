@@ -588,16 +588,8 @@ builtins_sum = _builtins.sum
 
 def _create_binary_op(op_enum: OperatorEnum):
     """Create a binary vec-vec operation function using C++ backend."""
-    def binary_op(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
+    def binary_op(a: Tensor, b: Tensor) -> Tensor:
         _ensure_initialized()
-        if out is not None:
-            bindings = [
-                ComputeBinding(0, a._handle),
-                ComputeBinding(1, b._handle),
-                ComputeBinding(2, out._handle),
-            ]
-            _cut_compute.execute_operator(op_enum, bindings)
-            return out
         result = _cut_compute.ops_binary(op_enum, a._to_view(), b._to_view())
         return Tensor._from_view(result, a._dtype)
     return binary_op
@@ -605,15 +597,8 @@ def _create_binary_op(op_enum: OperatorEnum):
 
 def _create_unary_op(op_enum: OperatorEnum):
     """Create a unary operation function using C++ backend."""
-    def unary_op(a: Tensor, out: Optional[Tensor] = None) -> Tensor:
+    def unary_op(a: Tensor) -> Tensor:
         _ensure_initialized()
-        if out is not None:
-            bindings = [
-                ComputeBinding(0, a._handle),
-                ComputeBinding(1, out._handle),
-            ]
-            _cut_compute.execute_operator(op_enum, bindings)
-            return out
         result = _cut_compute.ops_unary(op_enum, a._to_view())
         return Tensor._from_view(result, a._dtype)
     return unary_op
@@ -621,27 +606,8 @@ def _create_unary_op(op_enum: OperatorEnum):
 
 def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
     """Create a binary vec-scalar operation function using C++ backend."""
-    def vec_scalar_op(
-        a: Tensor,
-        scalar: Union[int, float],
-        out: Optional[Tensor] = None
-    ) -> Tensor:
+    def vec_scalar_op(a: Tensor, scalar: Union[int, float]) -> Tensor:
         _ensure_initialized()
-        if out is not None:
-            dtype = a._dtype if a._dtype is not None else float32
-            if dtype == int32:
-                scalar_binding = ComputeBinding.from_int(2, int(scalar))
-            elif dtype == uint32:
-                scalar_binding = ComputeBinding.from_uint(2, int(scalar))
-            else:
-                scalar_binding = ComputeBinding.from_float(2, float(scalar))
-            bindings = [
-                ComputeBinding(0, a._handle),
-                ComputeBinding(1, out._handle),
-                scalar_binding,
-            ]
-            _cut_compute.execute_operator(op_enum, bindings)
-            return out
         result = _cut_compute.ops_vec_scalar(op_enum, a._to_view(), float(scalar))
         return Tensor._from_view(result, a._dtype)
     return vec_scalar_op

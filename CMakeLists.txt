@@ -86,6 +86,7 @@ set(LIB_HEADERS
     shaders/ShaderUtils.h
     runtime/Runtime.h
     runtime/Dispatcher.h
+    runtime/Operations.h
 )
 
 # Source files
@@ -108,6 +109,7 @@ set(LIB_SOURCES
     core/backends/vulkan/VulkanCommandBuffer.cpp
     runtime/Runtime.cpp
     runtime/Dispatcher.cpp
+    runtime/Operations.cpp
 )
 
 if (OPENL_CL_WITH_VULKAN)

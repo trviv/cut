@@ -1,6 +1,7 @@
 #include "Runtime.h"
 
 #include "Dispatcher.h"
+#include "Operations.h"
 #include "Shaders.h"
 #include "VulkanCompute.h"
 
@@ -21,7 +22,12 @@ Runtime::Runtime(Runtime &&other) noexcept
       vulkanAvailable_(other.vulkanAvailable_),
       vulkanChecked_(other.vulkanChecked_),
       pendingCommands_(other.pendingCommands_),
-      dispatcher_(std::move(other.dispatcher_)) {
+      dispatcher_(std::move(other.dispatcher_)),
+      operations_(std::move(other.operations_)) {
+  // Update the Operations pointer to this Runtime
+  if (operations_) {
+    operations_->runtime_ = this;
+  }
   other.backendType_ = BackendType::Vulkan;
   other.vulkanAvailable_ = false;
   other.vulkanChecked_ = false;
@@ -39,6 +45,12 @@ Runtime &Runtime::operator=(Runtime &&other) noexcept {
     vulkanChecked_ = other.vulkanChecked_;
     pendingCommands_ = other.pendingCommands_;
     dispatcher_ = std::move(other.dispatcher_);
+    operations_ = std::move(other.operations_);
+
+    // Update the Operations pointer to this Runtime
+    if (operations_) {
+      operations_->runtime_ = this;
+    }
 
     other.backendType_ = BackendType::Vulkan;
     other.vulkanAvailable_ = false;
@@ -74,11 +86,16 @@ void Runtime::init(BackendType backend) {
 
   // Create dispatcher with the initialized interface
   dispatcher_ = std::make_unique<Dispatcher>(interface_.get());
+
+  // Create operations object
+  operations_ = std::make_unique<Operations>(*this);
 }
 
 void Runtime::shutdown() {
   // Flush any pending commands before shutdown
   flushPendingCommands();
+  // Destroy operations before dispatcher (it holds a raw pointer to runtime)
+  operations_.reset();
   // Clear shader cache before destroying interface
   shaderCache_.clear();
   // Destroy dispatcher before interface (it holds a raw pointer)
@@ -92,6 +109,13 @@ void Runtime::shutdown() {
   vulkanChecked_ = false;
   backendType_ = BackendType::Vulkan;
   pendingCommands_ = false;
+}
+
+Operations &Runtime::ops() {
+  if (!operations_) {
+    throw std::runtime_error("Runtime not initialized. Call init() first.");
+  }
+  return *operations_;
 }
 
 ComputeInterface *Runtime::getInterface() {

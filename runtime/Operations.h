@@ -96,8 +96,18 @@ public:
 
   ComputeHandle normDim(const ComputeHandle &a, int dim);
 
+  // ===== Prefix scan =====
+
+  ComputeHandle prefixScan(const ComputeHandle &a, OperatorEnum op);
+
+  // ===== Sort (in-place) =====
+
+  void sortBitonic(const ComputeHandle &keys, const ComputeHandle &vals);
+  void sortRadix(const ComputeHandle &keys, const ComputeHandle &vals);
+
 private:
-  Runtime &runtime_;
+  friend class Runtime;
+  Runtime *runtime_;
 
   ComputeHandle createOutput(const std::vector<uint32_t> &shape,
                              DataType dtype);

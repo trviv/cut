@@ -616,19 +616,6 @@ PYBIND11_MODULE(_cut_compute, m) {
       "Must be called before program exit to avoid crashes.");
 
   // =========================================================================
-  // Unified operator execution
-  // =========================================================================
-
-  m.def(
-      "execute_operator",
-      [](cut::OperatorEnum op,
-         const std::vector<cut::ComputeBinding> &bindings) {
-        getRuntime().encodeOperator(op, bindings);
-      },
-      py::arg("op"), py::arg("bindings"),
-      "Execute an operator with the given bindings");
-
-  // =========================================================================
   // Helper function to get SPIR-V shaders (Vulkan)
   // =========================================================================
   m.def("get_shader", &cut::getShader,
@@ -665,11 +652,7 @@ PYBIND11_MODULE(_cut_compute, m) {
   // High-level Operations (C++ implementations of compute.py operations)
   // =========================================================================
 
-  // Operations singleton (uses the same Runtime singleton)
-  auto getOps = []() -> cut::Operations & {
-    static cut::Operations ops(getRuntime());
-    return ops;
-  };
+  auto getOps = []() -> cut::Operations & { return getRuntime().ops(); };
 
   // --- Generic element-wise ops ---
 
