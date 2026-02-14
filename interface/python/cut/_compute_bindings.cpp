@@ -21,6 +21,9 @@
 // Runtime class that manages all compute operations
 #include "Runtime.h"
 
+// High-level operations
+#include "Operations.h"
+
 // Shader access for Vulkan
 #include "Shaders.h"
 
@@ -729,4 +732,239 @@ PYBIND11_MODULE(_cut_compute, m) {
   // =========================================================================
   m.def("get_shader", &cut::getShader,
         "Get SPIR-V code for a built-in shader (Vulkan)");
+
+  // =========================================================================
+  // TensorView (lightweight handle + dtype + shape)
+  // =========================================================================
+
+  py::class_<cut::TensorView>(m, "TensorView", "Lightweight view of a tensor")
+      .def(py::init([](cut::ComputeHandle handle, cut::DataType dtype,
+                       std::vector<uint32_t> shape) {
+             return cut::TensorView{handle, dtype, std::move(shape)};
+           }),
+           py::arg("handle"), py::arg("dtype"), py::arg("shape"))
+      .def_readwrite("handle", &cut::TensorView::handle)
+      .def_readwrite("dtype", &cut::TensorView::dtype)
+      .def_readwrite("shape", &cut::TensorView::shape)
+      .def_property_readonly("num_elements", &cut::TensorView::numElements)
+      .def_property_readonly("size_bytes", &cut::TensorView::sizeBytes);
+
+  // =========================================================================
+  // High-level Operations (C++ implementations of compute.py operations)
+  // =========================================================================
+
+  // Operations singleton (uses the same Runtime singleton)
+  auto getOps = []() -> cut::Operations & {
+    static cut::Operations ops(getRuntime());
+    return ops;
+  };
+
+  // --- Generic element-wise ops ---
+
+  m.def(
+      "ops_binary",
+      [getOps](cut::OperatorEnum op, const cut::TensorView &a,
+               const cut::TensorView &b) {
+        return getOps().binaryOp(op, a, b);
+      },
+      py::arg("op"), py::arg("a"), py::arg("b"), "Binary vec-vec operation");
+
+  m.def(
+      "ops_unary",
+      [getOps](cut::OperatorEnum op, const cut::TensorView &a) {
+        return getOps().unaryOp(op, a);
+      },
+      py::arg("op"), py::arg("a"), "Unary operation");
+
+  m.def(
+      "ops_vec_scalar",
+      [getOps](cut::OperatorEnum op, const cut::TensorView &a, float scalar) {
+        return getOps().vecScalarOp(op, a, scalar);
+      },
+      py::arg("op"), py::arg("a"), py::arg("scalar"),
+      "Binary vec-scalar operation");
+
+  // --- Reduction ops ---
+
+  m.def(
+      "ops_reduce_scalar",
+      [getOps](cut::OperatorEnum op, const cut::TensorView &a) {
+        return getOps().reduceScalar(op, a);
+      },
+      py::arg("op"), py::arg("a"), "Global reduction returning float");
+
+  m.def(
+      "ops_reduce_bool",
+      [getOps](cut::OperatorEnum op, const cut::TensorView &a) {
+        return getOps().reduceBool(op, a);
+      },
+      py::arg("op"), py::arg("a"), "Global reduction returning bool");
+
+  m.def(
+      "ops_reduce_int",
+      [getOps](cut::OperatorEnum op, const cut::TensorView &a) {
+        return getOps().reduceInt(op, a);
+      },
+      py::arg("op"), py::arg("a"), "Global reduction returning int");
+
+  m.def(
+      "ops_reduce_dim",
+      [getOps](const cut::TensorView &a, int dim, cut::OperatorEnum dimOp) {
+        return getOps().reduceDim(a, dim, dimOp);
+      },
+      py::arg("a"), py::arg("dim"), py::arg("dim_op"),
+      "Dimension-wise reduction");
+
+  // --- Matrix ops ---
+
+  m.def(
+      "ops_matmul",
+      [getOps](const cut::TensorView &a, const cut::TensorView &b) {
+        return getOps().matmul(a, b);
+      },
+      py::arg("a"), py::arg("b"), "Matrix multiplication");
+
+  m.def(
+      "ops_transpose",
+      [getOps](const cut::TensorView &a) { return getOps().transpose(a); },
+      py::arg("a"), "Matrix transpose");
+
+  m.def(
+      "ops_dot",
+      [getOps](const cut::TensorView &a, const cut::TensorView &b) {
+        return getOps().dot(a, b);
+      },
+      py::arg("a"), py::arg("b"), "Dot product");
+
+  // --- Special ops ---
+
+  m.def(
+      "ops_clamp",
+      [getOps](const cut::TensorView &a, float min_val, float max_val) {
+        return getOps().clamp(a, min_val, max_val);
+      },
+      py::arg("a"), py::arg("min_val"), py::arg("max_val"), "Clamp values");
+
+  m.def(
+      "ops_where",
+      [getOps](const cut::TensorView &cond, const cut::TensorView &x,
+               const cut::TensorView &y) { return getOps().where(cond, x, y); },
+      py::arg("cond"), py::arg("x"), py::arg("y"), "Conditional select");
+
+  // --- Cumulative ops ---
+
+  m.def(
+      "ops_cumulative",
+      [getOps](const cut::TensorView &a, int dim, cut::OperatorEnum op) {
+        return getOps().cumOp(a, dim, op);
+      },
+      py::arg("a"), py::arg("dim"), py::arg("op"), "Cumulative operation");
+
+  // --- Statistical ops ---
+
+  m.def(
+      "ops_var_scalar",
+      [getOps](const cut::TensorView &a, int correction) {
+        return getOps().varianceScalar(a, correction);
+      },
+      py::arg("a"), py::arg("correction") = 1, "Global variance");
+
+  m.def(
+      "ops_var_dim",
+      [getOps](const cut::TensorView &a, int dim, int correction) {
+        return getOps().varianceDim(a, dim, correction);
+      },
+      py::arg("a"), py::arg("dim"), py::arg("correction") = 1,
+      "Dimension-wise variance");
+
+  // --- Softmax ---
+
+  m.def(
+      "ops_softmax",
+      [getOps](const cut::TensorView &a, int dim) {
+        return getOps().softmax(a, dim);
+      },
+      py::arg("a"), py::arg("dim") = -1, "Softmax");
+
+  m.def(
+      "ops_log_softmax",
+      [getOps](const cut::TensorView &a, int dim) {
+        return getOps().logSoftmax(a, dim);
+      },
+      py::arg("a"), py::arg("dim") = -1, "Log softmax");
+
+  // --- Tensor creation ---
+
+  m.def(
+      "ops_arange",
+      [getOps](float start, float end, float step, cut::DataType dtype) {
+        return getOps().arange(start, end, step, dtype);
+      },
+      py::arg("start"), py::arg("end"), py::arg("step"),
+      py::arg("dtype") = cut::DataType::Float32, "Create range tensor");
+
+  m.def(
+      "ops_linspace",
+      [getOps](float start, float end, int steps, cut::DataType dtype) {
+        return getOps().linspace(start, end, steps, dtype);
+      },
+      py::arg("start"), py::arg("end"), py::arg("steps"),
+      py::arg("dtype") = cut::DataType::Float32, "Create linspace tensor");
+
+  m.def(
+      "ops_full",
+      [getOps](std::vector<uint32_t> shape, float fill_value,
+               cut::DataType dtype) {
+        return getOps().full(shape, fill_value, dtype);
+      },
+      py::arg("shape"), py::arg("fill_value"),
+      py::arg("dtype") = cut::DataType::Float32,
+      "Create tensor filled with value");
+
+  // --- Shape ops ---
+
+  m.def(
+      "ops_reshape",
+      [getOps](const cut::TensorView &a, std::vector<int32_t> new_shape) {
+        return getOps().reshape(a, new_shape);
+      },
+      py::arg("a"), py::arg("new_shape"), "Reshape tensor (view)");
+
+  m.def(
+      "ops_squeeze",
+      [getOps](const cut::TensorView &a, std::optional<int> dim) {
+        return getOps().squeeze(a, dim);
+      },
+      py::arg("a"), py::arg("dim") = py::none(), "Squeeze dimensions");
+
+  m.def(
+      "ops_unsqueeze",
+      [getOps](const cut::TensorView &a, int dim) {
+        return getOps().unsqueeze(a, dim);
+      },
+      py::arg("a"), py::arg("dim"), "Unsqueeze dimension");
+
+  m.def(
+      "ops_unflatten",
+      [getOps](const cut::TensorView &a, int dim, std::vector<uint32_t> sizes) {
+        return getOps().unflatten(a, dim, sizes);
+      },
+      py::arg("a"), py::arg("dim"), py::arg("sizes"), "Unflatten dimension");
+
+  m.def(
+      "ops_flatten",
+      [getOps](const cut::TensorView &a, int start_dim, int end_dim) {
+        return getOps().flatten(a, start_dim, end_dim);
+      },
+      py::arg("a"), py::arg("start_dim") = 0, py::arg("end_dim") = -1,
+      "Flatten dimensions");
+
+  // --- Norm ---
+
+  m.def(
+      "ops_norm_dim",
+      [getOps](const cut::TensorView &a, int dim) {
+        return getOps().normDim(a, dim);
+      },
+      py::arg("a"), py::arg("dim"), "L2 norm along dimension");
 }

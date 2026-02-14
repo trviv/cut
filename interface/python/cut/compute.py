@@ -61,7 +61,7 @@ ShaderEnum = _cut_compute.OperatorEnum  # Alias for backward compatibility
 ThreadSize = _cut_compute.ThreadSize
 ComputeHandle = _cut_compute.ComputeHandle
 ComputeBinding = _cut_compute.ComputeBinding
-ComputeDispatch = _cut_compute.ComputeDispatch
+TensorView = _cut_compute.TensorView
 
 
 # Module state
@@ -333,6 +333,14 @@ _DTYPE_TO_CUT = {
     DType.int32: DataType.Int32,
 }
 
+# Reverse mapping from CUT DataType to DType
+_CUT_TO_DTYPE = {
+    DataType.Float32: DType.float32,
+    DataType.Float16: DType.float16,
+    DataType.UInt32: DType.uint32,
+    DataType.Int32: DType.int32,
+}
+
 
 class Tensor:
     """
@@ -414,6 +422,23 @@ class Tensor:
             raise ValueError("Either data or size must be provided")
 
         _live_tensors.add(self)
+
+    def _to_view(self):
+        """Convert this Tensor to a C++ TensorView for use with C++ operations."""
+        return _cut_compute.TensorView(
+            self._handle, self._dtype.to_cut_dtype(), list(self._shape)
+        )
+
+    @classmethod
+    def _from_view(cls, view, py_dtype=None):
+        """Create a Tensor from a C++ TensorView returned by an operation."""
+        t = object.__new__(cls)
+        t._handle = view.handle
+        t._shape = tuple(view.shape)
+        t._dtype = py_dtype if py_dtype is not None else _CUT_TO_DTYPE[view.dtype]
+        t._size = view.size_bytes
+        _live_tensors.add(t)
+        return t
 
     # Operator overloading - operations are looked up at call time to avoid circular imports
     def __add__(self, other):
@@ -554,78 +579,67 @@ import builtins as _builtins
 builtins_sum = _builtins.sum
 
 # =============================================================================
-# Operation Implementations
+# Operation Implementations - using C++ Operations layer
 # =============================================================================
 
 def _create_binary_op(op_enum: OperatorEnum):
-    """Create a binary vec-vec operation function."""
+    """Create a binary vec-vec operation function using C++ backend."""
     def binary_op(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
         _ensure_initialized()
-
-        if a.size != b.size:
-            raise ValueError(f"Size mismatch: {a.size} vs {b.size}")
-
-        if out is None:
-            out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
-
-        bindings = [
-            ComputeBinding(0, a._handle),
-            ComputeBinding(1, b._handle),
-            ComputeBinding(2, out._handle),
-        ]
-        _cut_compute.execute_operator(op_enum, bindings)
-        return out
-
+        if out is not None:
+            bindings = [
+                ComputeBinding(0, a._handle),
+                ComputeBinding(1, b._handle),
+                ComputeBinding(2, out._handle),
+            ]
+            _cut_compute.execute_operator(op_enum, bindings)
+            return out
+        result = _cut_compute.ops_binary(op_enum, a._to_view(), b._to_view())
+        return Tensor._from_view(result, a._dtype)
     return binary_op
 
 
 def _create_unary_op(op_enum: OperatorEnum):
-    """Create a unary operation function."""
+    """Create a unary operation function using C++ backend."""
     def unary_op(a: Tensor, out: Optional[Tensor] = None) -> Tensor:
         _ensure_initialized()
-
-        if out is None:
-            out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
-
-        bindings = [
-            ComputeBinding(0, a._handle),
-            ComputeBinding(1, out._handle),
-        ]
-        _cut_compute.execute_operator(op_enum, bindings)
-        return out
-
+        if out is not None:
+            bindings = [
+                ComputeBinding(0, a._handle),
+                ComputeBinding(1, out._handle),
+            ]
+            _cut_compute.execute_operator(op_enum, bindings)
+            return out
+        result = _cut_compute.ops_unary(op_enum, a._to_view())
+        return Tensor._from_view(result, a._dtype)
     return unary_op
 
 
 def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
-    """Create a binary vec-scalar operation function."""
+    """Create a binary vec-scalar operation function using C++ backend."""
     def vec_scalar_op(
         a: Tensor,
         scalar: Union[int, float],
         out: Optional[Tensor] = None
     ) -> Tensor:
         _ensure_initialized()
-
-        if out is None:
-            out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
-
-        dtype = a._dtype if a._dtype is not None else float32
-        # Inline scalar binding creation
-        if dtype == int32:
-            scalar_binding = ComputeBinding.from_int(2, int(scalar))
-        elif dtype == uint32:
-            scalar_binding = ComputeBinding.from_uint(2, int(scalar))
-        else:
-            scalar_binding = ComputeBinding.from_float(2, float(scalar))
-
-        bindings = [
-            ComputeBinding(0, a._handle),
-            ComputeBinding(1, out._handle),
-            scalar_binding,
-        ]
-        _cut_compute.execute_operator(op_enum, bindings)
-        return out
-
+        if out is not None:
+            dtype = a._dtype if a._dtype is not None else float32
+            if dtype == int32:
+                scalar_binding = ComputeBinding.from_int(2, int(scalar))
+            elif dtype == uint32:
+                scalar_binding = ComputeBinding.from_uint(2, int(scalar))
+            else:
+                scalar_binding = ComputeBinding.from_float(2, float(scalar))
+            bindings = [
+                ComputeBinding(0, a._handle),
+                ComputeBinding(1, out._handle),
+                scalar_binding,
+            ]
+            _cut_compute.execute_operator(op_enum, bindings)
+            return out
+        result = _cut_compute.ops_vec_scalar(op_enum, a._to_view(), float(scalar))
+        return Tensor._from_view(result, a._dtype)
     return vec_scalar_op
 
 
@@ -664,7 +678,7 @@ _register_operations()
 
 
 # =============================================================================
-# Special Operations (not auto-generated)
+# Special Operations - using C++ Operations layer
 # =============================================================================
 
 def sum(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -687,56 +701,10 @@ def sum(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> sum(x, dim=1)  # Returns Tensor([6, 15])
     """
     _ensure_initialized()
-
     if dim is not None:
-        return _dim_reduce(a, dim, OperatorEnum.ReduceDimSum)
-
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.ReduceSum, bindings)
-
-    return float(out.copy_to()[0])
-
-
-def _dim_reduce(a: Tensor, dim: int, dim_op_enum) -> Tensor:
-    """Helper for dimension-wise reduction ops."""
-    shape = a._shape
-    ndim = len(shape)
-
-    if dim < 0:
-        dim = ndim + dim
-    if dim < 0 or dim >= ndim:
-        raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
-
-    outer_size = 1
-    for i in range(dim):
-        outer_size *= shape[i]
-    reduce_size = shape[dim]
-    inner_size = 1
-    for i in range(dim + 1, ndim):
-        inner_size *= shape[i]
-
-    out_shape = tuple(s for i, s in enumerate(shape) if i != dim)
-    if not out_shape:
-        out_shape = (1,)
-
-    num_outputs = outer_size * inner_size
-    out = Tensor(size=num_outputs * a._dtype.itemsize, dtype=a._dtype, shape=out_shape)
-
-    shape_data = array.array('I', [outer_size, reduce_size, inner_size])
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-        ComputeBinding.from_bytes(2, shape_data),
-    ]
-    _cut_compute.execute_operator(dim_op_enum, bindings)
-
-    return out
+        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimSum)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_reduce_scalar(OperatorEnum.ReduceSum, a._to_view())
 
 
 def mean(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -758,19 +726,10 @@ def mean(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> mean(x, dim=0)  # Returns Tensor([2.5, 3.5, 4.5])
     """
     _ensure_initialized()
-
     if dim is not None:
-        return _dim_reduce(a, dim, OperatorEnum.ReduceDimMean)
-
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.ReduceMean, bindings)
-
-    return float(out.copy_to()[0])
+        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimMean)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_reduce_scalar(OperatorEnum.ReduceMean, a._to_view())
 
 
 def min(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -792,19 +751,10 @@ def min(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> min(x, dim=0)  # Returns Tensor([3, 1])
     """
     _ensure_initialized()
-
     if dim is not None:
-        return _dim_reduce(a, dim, OperatorEnum.ReduceDimMin)
-
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.ReduceMin, bindings)
-
-    return float(out.copy_to()[0])
+        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimMin)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_reduce_scalar(OperatorEnum.ReduceMin, a._to_view())
 
 
 def max(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -826,19 +776,10 @@ def max(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> max(x, dim=0)  # Returns Tensor([4, 2])
     """
     _ensure_initialized()
-
     if dim is not None:
-        return _dim_reduce(a, dim, OperatorEnum.ReduceDimMax)
-
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.ReduceMax, bindings)
-
-    return float(out.copy_to()[0])
+        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimMax)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_reduce_scalar(OperatorEnum.ReduceMax, a._to_view())
 
 
 def prod(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -860,19 +801,10 @@ def prod(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> prod(x, dim=0)  # Returns Tensor([3, 8])
     """
     _ensure_initialized()
-
     if dim is not None:
-        return _dim_reduce(a, dim, OperatorEnum.ReduceDimProd)
-
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.ReduceProd, bindings)
-
-    return float(out.copy_to()[0])
+        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimProd)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_reduce_scalar(OperatorEnum.ReduceProd, a._to_view())
 
 
 def any(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
@@ -894,19 +826,10 @@ def any(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
         >>> any(x, dim=0)  # Returns Tensor([0, 1])
     """
     _ensure_initialized()
-
     if dim is not None:
-        return _dim_reduce(a, dim, OperatorEnum.ReduceDimAny)
-
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.ReduceAny, bindings)
-
-    return bool(out.copy_to()[0] != 0.0)
+        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimAny)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_reduce_bool(OperatorEnum.ReduceAny, a._to_view())
 
 
 def all(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
@@ -928,19 +851,10 @@ def all(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
         >>> all(x, dim=0)  # Returns Tensor([1, 0])
     """
     _ensure_initialized()
-
     if dim is not None:
-        return _dim_reduce(a, dim, OperatorEnum.ReduceDimAll)
-
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.ReduceAll, bindings)
-
-    return bool(out.copy_to()[0] != 0.0)
+        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimAll)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_reduce_bool(OperatorEnum.ReduceAll, a._to_view())
 
 
 def matmul(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
@@ -961,31 +875,8 @@ def matmul(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
         >>> result = matmul(a, b)  # Returns [[19, 22], [43, 50]]
     """
     _ensure_initialized()
-
-    # Get shapes
-    if len(a.shape) != 2 or len(b.shape) != 2:
-        raise ValueError("matmul requires 2D matrices")
-
-    M, K = a.shape
-    K2, N = b.shape
-
-    if K != K2:
-        raise ValueError(f"Matrix dimension mismatch: A is {M}x{K}, B is {K2}x{N}")
-
-    if out is None:
-        out = Tensor(size=M * N * 4, dtype=float32, shape=(M, N))
-
-    # Create shape data binding
-    shape_data = array.array('I', [M, K, N])
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, b._handle),
-        ComputeBinding(2, out._handle),
-        ComputeBinding.from_bytes(3, shape_data),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.MatMul, bindings)
-    return out
+    result = _cut_compute.ops_matmul(a._to_view(), b._to_view())
+    return Tensor._from_view(result, float32)
 
 
 def transpose(a: Tensor, out: Optional[Tensor] = None) -> Tensor:
@@ -1004,25 +895,8 @@ def transpose(a: Tensor, out: Optional[Tensor] = None) -> Tensor:
         >>> result = transpose(a)  # Returns [[1, 4], [2, 5], [3, 6]]
     """
     _ensure_initialized()
-
-    if len(a.shape) != 2:
-        raise ValueError("transpose requires a 2D matrix")
-
-    M, N = a.shape
-
-    if out is None:
-        out = Tensor(size=M * N * 4, dtype=float32, shape=(N, M))
-
-    # Create shape data binding
-    shape_data = array.array('I', [M, N])
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-        ComputeBinding.from_bytes(2, shape_data),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.Transpose, bindings)
-    return out
+    result = _cut_compute.ops_transpose(a._to_view())
+    return Tensor._from_view(result, float32)
 
 
 def dot(a: Tensor, b: Tensor) -> float:
@@ -1042,26 +916,7 @@ def dot(a: Tensor, b: Tensor) -> float:
         >>> result = dot(a, b)  # Returns 32.0 (1*4 + 2*5 + 3*6)
     """
     _ensure_initialized()
-
-    if a.size != b.size:
-        raise ValueError(f"Vector size mismatch: {a.size} vs {b.size}")
-
-    count = _cut_compute.shape_product(list(a.shape))
-
-    # Create output tensor for single result
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    # Create count data binding
-    count_data = array.array('I', [count])
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, b._handle),
-        ComputeBinding(2, out._handle),
-        ComputeBinding.from_bytes(3, count_data),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.Dot, bindings)
-    return float(out.copy_to()[0])
+    return _cut_compute.ops_dot(a._to_view(), b._to_view())
 
 
 def clamp(a: Tensor, min_val: Union[int, float], max_val: Union[int, float],
@@ -1085,27 +940,8 @@ def clamp(a: Tensor, min_val: Union[int, float], max_val: Union[int, float],
         >>> result = clamp(a, 0, 5)  # Returns [0, 0, 5, 5]
     """
     _ensure_initialized()
-
-    if out is None:
-        out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
-
-    dtype = a._dtype if a._dtype is not None else float32
-
-    # Create data binding with min and max values packed as array
-    if dtype == int32:
-        clamp_data = array.array('i', [int(min_val), int(max_val)])
-    elif dtype == uint32:
-        clamp_data = array.array('I', [int(min_val), int(max_val)])
-    else:
-        clamp_data = array.array('f', [float(min_val), float(max_val)])
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-        ComputeBinding.from_bytes(2, clamp_data),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.TernaryClamp, bindings)
-    return out
+    result = _cut_compute.ops_clamp(a._to_view(), float(min_val), float(max_val))
+    return Tensor._from_view(result, a._dtype)
 
 
 def where(condition: Tensor, x: Tensor, y: Tensor, out: Optional[Tensor] = None) -> Tensor:
@@ -1131,22 +967,8 @@ def where(condition: Tensor, x: Tensor, y: Tensor, out: Optional[Tensor] = None)
         >>> result = where(cond, x, y)  # Returns [10, 2, 30, 4]
     """
     _ensure_initialized()
-
-    # Check shapes match
-    if condition.size != x.size or condition.size != y.size:
-        raise ValueError("condition, x, and y must have the same size")
-
-    if out is None:
-        out = Tensor(size=x.size, dtype=x._dtype, shape=x._shape)
-
-    bindings = [
-        ComputeBinding(0, condition._handle),
-        ComputeBinding(1, x._handle),
-        ComputeBinding(2, y._handle),
-        ComputeBinding(3, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.TernarySelect, bindings)
-    return out
+    result = _cut_compute.ops_where(condition._to_view(), x._to_view(), y._to_view())
+    return Tensor._from_view(result, x._dtype)
 
 
 def concat(tensors: List[Tensor], axis: int = 0, out: Optional[Tensor] = None) -> Tensor:
@@ -1278,48 +1100,10 @@ def flatten(input: Tensor, start_dim: int = 0, end_dim: int = -1, out: Optional[
         >>> result = flatten(a, start_dim=1)  # Shape: (2, 12)
     """
     _ensure_initialized()
-
     if input._shape is None or len(input._shape) == 0:
-        # Already flat
         return input
-
-    shape = list(input._shape)
-    ndim = len(shape)
-
-    # Handle negative indices
-    if end_dim < 0:
-        end_dim = ndim + end_dim
-
-    if start_dim < 0:
-        start_dim = ndim + start_dim
-
-    # Validate
-    if start_dim < 0 or start_dim >= ndim:
-        raise ValueError(f"start_dim {start_dim} out of range for {ndim}D tensor")
-    if end_dim < 0 or end_dim >= ndim:
-        raise ValueError(f"end_dim {end_dim} out of range for {ndim}D tensor")
-    if start_dim > end_dim:
-        raise ValueError(f"start_dim {start_dim} must be <= end_dim {end_dim}")
-
-    # Calculate new shape
-    if start_dim == 0 and end_dim == ndim - 1:
-        # Flatten everything
-        new_shape = [input.size]
-    else:
-        # Flatten only the specified dimensions
-        new_shape = shape[:start_dim]
-        flattened_size = 1
-        for i in range(start_dim, end_dim + 1):
-            flattened_size *= shape[i]
-        new_shape.append(flattened_size)
-        new_shape.extend(shape[end_dim + 1:])
-
-    if out is None:
-        out = Tensor(size=input.size, dtype=input._dtype, shape=new_shape)
-
-    # Copy data
-    out.from_list(input.tolist())
-    return out
+    result = _cut_compute.ops_flatten(input._to_view(), start_dim, end_dim)
+    return Tensor._from_view(result, input._dtype)
 
 
 def norm(input: Tensor, p: Union[float, str] = 2, dim: Optional[int] = None,
@@ -1350,7 +1134,8 @@ def norm(input: Tensor, p: Union[float, str] = 2, dim: Optional[int] = None,
 
     if dim is not None:
         if p == 2 or p == 'fro':
-            return _dim_reduce(input, dim, OperatorEnum.NormDim)
+            result = _cut_compute.ops_norm_dim(input._to_view(), dim)
+            return Tensor._from_view(result, input._dtype)
         else:
             raise NotImplementedError("Per-dimension norm only supports p=2 (L2 norm)")
 
@@ -1410,21 +1195,11 @@ def arange(start: Union[int, float], end: Optional[Union[int, float]] = None,
         end = start
         start = 0
 
-    # Calculate number of elements
-    if step == 0:
-        raise ValueError("step cannot be zero")
-
-    n = int((end - start) / step)
-    if n < 0:
-        n = 0
-
-    # Generate values
-    values = [start + i * step for i in range(n)]
-
     if dtype is None:
         dtype = float32
 
-    return Tensor(values, dtype=dtype)
+    result = _cut_compute.ops_arange(float(start), float(end), float(step), dtype.to_cut_dtype())
+    return Tensor._from_view(result, dtype)
 
 
 def linspace(start: Union[int, float], end: Union[int, float], steps: int = 100,
@@ -1449,19 +1224,11 @@ def linspace(start: Union[int, float], end: Union[int, float], steps: int = 100,
     """
     _ensure_initialized()
 
-    if steps < 1:
-        raise ValueError("steps must be at least 1")
-
-    if steps == 1:
-        values = [start]
-    else:
-        step_size = (end - start) / (steps - 1)
-        values = [start + i * step_size for i in range(steps)]
-
     if dtype is None:
         dtype = float32
 
-    return Tensor(values, dtype=dtype)
+    result = _cut_compute.ops_linspace(float(start), float(end), steps, dtype.to_cut_dtype())
+    return Tensor._from_view(result, dtype)
 
 
 def zeros(*size, dtype: Optional[DataType] = None, shape: Optional[List[int]] = None) -> Tensor:
@@ -1493,15 +1260,11 @@ def zeros(*size, dtype: Optional[DataType] = None, shape: Optional[List[int]] = 
         else:
             shape = list(size)
 
-    # Calculate total size
-    total_size = 1
-    for dim in shape:
-        total_size *= dim
-
     if dtype is None:
         dtype = float32
 
-    return Tensor([0] * total_size, dtype=dtype, shape=shape)
+    result = _cut_compute.ops_full([int(s) for s in shape], 0.0, dtype.to_cut_dtype())
+    return Tensor._from_view(result, dtype)
 
 
 def ones(*size, dtype: Optional[DataType] = None, shape: Optional[List[int]] = None) -> Tensor:
@@ -1533,15 +1296,11 @@ def ones(*size, dtype: Optional[DataType] = None, shape: Optional[List[int]] = N
         else:
             shape = list(size)
 
-    # Calculate total size
-    total_size = 1
-    for dim in shape:
-        total_size *= dim
-
     if dtype is None:
         dtype = float32
 
-    return Tensor([1] * total_size, dtype=dtype, shape=shape)
+    result = _cut_compute.ops_full([int(s) for s in shape], 1.0, dtype.to_cut_dtype())
+    return Tensor._from_view(result, dtype)
 
 
 def full(*size, fill_value: Union[int, float] = 0, dtype: Optional[DataType] = None,
@@ -1574,15 +1333,11 @@ def full(*size, fill_value: Union[int, float] = 0, dtype: Optional[DataType] = N
         else:
             shape = list(size)
 
-    # Calculate total size
-    total_size = 1
-    for dim in shape:
-        total_size *= dim
-
     if dtype is None:
         dtype = float32
 
-    return Tensor([fill_value] * total_size, dtype=dtype, shape=shape)
+    result = _cut_compute.ops_full([int(s) for s in shape], float(fill_value), dtype.to_cut_dtype())
+    return Tensor._from_view(result, dtype)
 
 
 def zeros_like(input: Tensor, dtype: Optional[DType] = None) -> Tensor:
@@ -1601,8 +1356,8 @@ def zeros_like(input: Tensor, dtype: Optional[DType] = None) -> Tensor:
         >>> result = zeros_like(a)  # [[0, 0], [0, 0]]
     """
     d = dtype if dtype is not None else input._dtype
-    total = _cut_compute.shape_product(list(input._shape))
-    return Tensor([0] * total, dtype=d, shape=input._shape)
+    result = _cut_compute.ops_full(list(input._shape), 0.0, d.to_cut_dtype())
+    return Tensor._from_view(result, d)
 
 
 def ones_like(input: Tensor, dtype: Optional[DType] = None) -> Tensor:
@@ -1621,8 +1376,8 @@ def ones_like(input: Tensor, dtype: Optional[DType] = None) -> Tensor:
         >>> result = ones_like(a)  # [[1, 1], [1, 1]]
     """
     d = dtype if dtype is not None else input._dtype
-    total = _cut_compute.shape_product(list(input._shape))
-    return Tensor([1] * total, dtype=d, shape=input._shape)
+    result = _cut_compute.ops_full(list(input._shape), 1.0, d.to_cut_dtype())
+    return Tensor._from_view(result, d)
 
 
 def full_like(input: Tensor, fill_value: Union[int, float], dtype: Optional[DType] = None) -> Tensor:
@@ -1642,8 +1397,8 @@ def full_like(input: Tensor, fill_value: Union[int, float], dtype: Optional[DTyp
         >>> result = full_like(a, 7.0)  # [[7, 7], [7, 7]]
     """
     d = dtype if dtype is not None else input._dtype
-    total = _cut_compute.shape_product(list(input._shape))
-    return Tensor([fill_value] * total, dtype=d, shape=input._shape)
+    result = _cut_compute.ops_full(list(input._shape), float(fill_value), d.to_cut_dtype())
+    return Tensor._from_view(result, d)
 
 
 def var(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[float, 'Tensor']:
@@ -1665,50 +1420,10 @@ def var(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[floa
         >>> var(a)  # 1.6667 (unbiased)
     """
     _ensure_initialized()
-
     if dim is not None:
-        shape = a._shape
-        ndim = len(shape)
-        if dim < 0:
-            dim = ndim + dim
-
-        outer_size = 1
-        for i in range(dim):
-            outer_size *= shape[i]
-        reduce_size = shape[dim]
-        inner_size = 1
-        for i in range(dim + 1, ndim):
-            inner_size *= shape[i]
-
-        # Use GPU to compute dim-wise mean, then compute variance in Python
-        m = mean(a, dim=dim)
-        mean_data = m.copy_to()
-        flat_data = a.copy_to()
-        result = []
-        for o in range(outer_size):
-            for i_inner in range(inner_size):
-                mean_val = mean_data[o * inner_size + i_inner]
-                s = 0.0
-                for r in range(reduce_size):
-                    idx = o * reduce_size * inner_size + r * inner_size + i_inner
-                    diff = flat_data[idx] - mean_val
-                    s += diff * diff
-                n = reduce_size - correction
-                result.append(s / n if n > 0 else 0.0)
-
-        out_shape = tuple(s for idx, s in enumerate(shape) if idx != dim)
-        if not out_shape:
-            out_shape = (1,)
-        return Tensor(result, dtype=a._dtype, shape=out_shape)
-
-    # Global variance using sum (more reliable)
-    total = sum(a)
-    flat = a.copy_to()
-    n = len(flat)
-    m = total / n
-    s = builtins_sum((x - m) ** 2 for x in flat)
-    denom = n - correction
-    return s / denom if denom > 0 else 0.0
+        result = _cut_compute.ops_var_dim(a._to_view(), dim, correction)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_var_scalar(a._to_view(), correction)
 
 
 def std(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[float, 'Tensor']:
@@ -1757,46 +1472,8 @@ def softmax(a: Tensor, dim: int = -1) -> Tensor:
         >>> result = softmax(a, dim=1)
     """
     _ensure_initialized()
-
-    shape = a._shape
-    ndim = len(shape)
-    if dim < 0:
-        dim = ndim + dim
-
-    # Compute max for numerical stability
-    m = _dim_reduce(a, dim, OperatorEnum.ReduceDimMax)
-
-    # We need to broadcast max back and subtract
-    # For now, implement in Python for correctness
-    flat_data = a.copy_to()
-    max_data = m.copy_to()
-
-    outer_size = 1
-    for i in range(dim):
-        outer_size *= shape[i]
-    reduce_size = shape[dim]
-    inner_size = 1
-    for i in range(dim + 1, ndim):
-        inner_size *= shape[i]
-
-    import math
-    result = [0.0] * len(flat_data)
-    for o in range(outer_size):
-        for i_inner in range(inner_size):
-            max_val = max_data[o * inner_size + i_inner]
-            # Compute exp(x - max) and sum
-            exp_sum = 0.0
-            for r in range(reduce_size):
-                idx = o * reduce_size * inner_size + r * inner_size + i_inner
-                e = math.exp(flat_data[idx] - max_val)
-                result[idx] = e
-                exp_sum += e
-            # Normalize
-            for r in range(reduce_size):
-                idx = o * reduce_size * inner_size + r * inner_size + i_inner
-                result[idx] /= exp_sum
-
-    return Tensor(result, dtype=a._dtype, shape=a._shape)
+    result = _cut_compute.ops_softmax(a._to_view(), dim)
+    return Tensor._from_view(result, a._dtype)
 
 
 def log_softmax(a: Tensor, dim: int = -1) -> Tensor:
@@ -1817,38 +1494,8 @@ def log_softmax(a: Tensor, dim: int = -1) -> Tensor:
         >>> result = log_softmax(a, dim=1)
     """
     _ensure_initialized()
-
-    shape = a._shape
-    ndim = len(shape)
-    if dim < 0:
-        dim = ndim + dim
-
-    flat_data = a.copy_to()
-    max_data = _dim_reduce(a, dim, OperatorEnum.ReduceDimMax).copy_to()
-
-    outer_size = 1
-    for i in range(dim):
-        outer_size *= shape[i]
-    reduce_size = shape[dim]
-    inner_size = 1
-    for i in range(dim + 1, ndim):
-        inner_size *= shape[i]
-
-    import math
-    result = [0.0] * len(flat_data)
-    for o in range(outer_size):
-        for i_inner in range(inner_size):
-            max_val = max_data[o * inner_size + i_inner]
-            exp_sum = 0.0
-            for r in range(reduce_size):
-                idx = o * reduce_size * inner_size + r * inner_size + i_inner
-                exp_sum += math.exp(flat_data[idx] - max_val)
-            log_sum = math.log(exp_sum) + max_val
-            for r in range(reduce_size):
-                idx = o * reduce_size * inner_size + r * inner_size + i_inner
-                result[idx] = flat_data[idx] - log_sum
-
-    return Tensor(result, dtype=a._dtype, shape=a._shape)
+    result = _cut_compute.ops_log_softmax(a._to_view(), dim)
+    return Tensor._from_view(result, a._dtype)
 
 
 def cumsum(a: Tensor, dim: int = 0) -> Tensor:
@@ -1869,35 +1516,8 @@ def cumsum(a: Tensor, dim: int = 0) -> Tensor:
         >>> cumsum(x, dim=0)  # Returns [[1, 2, 3], [5, 7, 9]]
     """
     _ensure_initialized()
-
-    shape = a._shape
-    ndim = len(shape)
-
-    if dim < 0:
-        dim = ndim + dim
-    if dim < 0 or dim >= ndim:
-        raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
-
-    outer_size = 1
-    for i in range(dim):
-        outer_size *= shape[i]
-    reduce_size = shape[dim]
-    inner_size = 1
-    for i in range(dim + 1, ndim):
-        inner_size *= shape[i]
-
-    out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
-
-    shape_data = array.array('I', [outer_size, reduce_size, inner_size])
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-        ComputeBinding.from_bytes(2, shape_data),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.CumSum, bindings)
-
-    return out
+    result = _cut_compute.ops_cumulative(a._to_view(), dim, OperatorEnum.CumSum)
+    return Tensor._from_view(result, a._dtype)
 
 
 def cumprod(a: Tensor, dim: int = 0) -> Tensor:
@@ -1918,35 +1538,8 @@ def cumprod(a: Tensor, dim: int = 0) -> Tensor:
         >>> cumprod(x, dim=0)  # Returns [[1, 2, 3], [4, 10, 18]]
     """
     _ensure_initialized()
-
-    shape = a._shape
-    ndim = len(shape)
-
-    if dim < 0:
-        dim = ndim + dim
-    if dim < 0 or dim >= ndim:
-        raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
-
-    outer_size = 1
-    for i in range(dim):
-        outer_size *= shape[i]
-    reduce_size = shape[dim]
-    inner_size = 1
-    for i in range(dim + 1, ndim):
-        inner_size *= shape[i]
-
-    out = Tensor(size=a.size, dtype=a._dtype, shape=a._shape)
-
-    shape_data = array.array('I', [outer_size, reduce_size, inner_size])
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-        ComputeBinding.from_bytes(2, shape_data),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.CumProd, bindings)
-
-    return out
+    result = _cut_compute.ops_cumulative(a._to_view(), dim, OperatorEnum.CumProd)
+    return Tensor._from_view(result, a._dtype)
 
 
 def argmax(a: Tensor, dim: Optional[int] = None) -> Union[int, 'Tensor']:
@@ -1969,19 +1562,10 @@ def argmax(a: Tensor, dim: Optional[int] = None) -> Union[int, 'Tensor']:
         >>> argmax(x, dim=0)  # Returns Tensor([1, 0])
     """
     _ensure_initialized()
-
     if dim is not None:
-        return _dim_reduce(a, dim, OperatorEnum.ReduceDimArgmax)
-
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.ReduceArgmax, bindings)
-
-    return int(out.copy_to()[0])
+        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimArgmax)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_reduce_int(OperatorEnum.ReduceArgmax, a._to_view())
 
 
 def argmin(a: Tensor, dim: Optional[int] = None) -> Union[int, 'Tensor']:
@@ -2004,30 +1588,10 @@ def argmin(a: Tensor, dim: Optional[int] = None) -> Union[int, 'Tensor']:
         >>> argmin(x, dim=0)  # Returns Tensor([0, 1])
     """
     _ensure_initialized()
-
     if dim is not None:
-        return _dim_reduce(a, dim, OperatorEnum.ReduceDimArgmin)
-
-    out = Tensor(size=4, dtype=float32, shape=(1,))
-
-    bindings = [
-        ComputeBinding(0, a._handle),
-        ComputeBinding(1, out._handle),
-    ]
-    _cut_compute.execute_operator(OperatorEnum.ReduceArgmin, bindings)
-
-    return int(out.copy_to()[0])
-
-
-def _view(a: Tensor, new_shape: tuple) -> Tensor:
-    """Create a view of a tensor with a new shape (shares GPU buffer)."""
-    result = object.__new__(Tensor)
-    result._handle = a._handle
-    result._size = a._size
-    result._dtype = a._dtype
-    result._shape = new_shape
-    _live_tensors.add(result)
-    return result
+        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimArgmin)
+        return Tensor._from_view(result, a._dtype)
+    return _cut_compute.ops_reduce_int(OperatorEnum.ReduceArgmin, a._to_view())
 
 
 def reshape(a: Tensor, *shape) -> Tensor:
@@ -2056,39 +1620,8 @@ def reshape(a: Tensor, *shape) -> Tensor:
     else:
         new_shape = list(shape)
 
-    old_total = _cut_compute.shape_product(list(a._shape))
-
-    # Handle -1 dimension (infer)
-    neg_idx = None
-    known_total = 1
-    for i, s in enumerate(new_shape):
-        if s == -1:
-            if neg_idx is not None:
-                raise ValueError("Only one dimension can be -1")
-            neg_idx = i
-        elif s < 0:
-            raise ValueError(f"Invalid shape dimension: {s}")
-        else:
-            known_total *= s
-
-    if neg_idx is not None:
-        if known_total == 0:
-            raise ValueError("Cannot infer dimension with other zero-size dimensions")
-        inferred = old_total // known_total
-        if inferred * known_total != old_total:
-            raise ValueError(
-                f"Shape {tuple(new_shape)} is invalid for tensor of size {old_total}"
-            )
-        new_shape[neg_idx] = inferred
-
-    new_total = _cut_compute.shape_product(new_shape)
-    if old_total != new_total:
-        raise ValueError(
-            f"Cannot reshape tensor of size {old_total} to shape {tuple(new_shape)} "
-            f"(size {new_total})"
-        )
-
-    return _view(a, tuple(new_shape))
+    result = _cut_compute.ops_reshape(a._to_view(), [int(s) for s in new_shape])
+    return Tensor._from_view(result, a._dtype)
 
 
 def view(a: Tensor, *shape) -> Tensor:
@@ -2126,26 +1659,8 @@ def squeeze(a: Tensor, dim: Optional[int] = None) -> Tensor:
         >>> squeeze(a, dim=0)  # Shape: (3, 1)
     """
     _ensure_initialized()
-
-    shape = list(a._shape)
-    ndim = len(shape)
-
-    if dim is not None:
-        if dim < 0:
-            dim = ndim + dim
-        if dim < 0 or dim >= ndim:
-            raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
-        if shape[dim] == 1:
-            new_shape = shape[:dim] + shape[dim + 1:]
-        else:
-            new_shape = shape  # no-op
-    else:
-        new_shape = [s for s in shape if s != 1]
-
-    if not new_shape:
-        new_shape = [1]
-
-    return _view(a, tuple(new_shape))
+    result = _cut_compute.ops_squeeze(a._to_view(), dim)
+    return Tensor._from_view(result, a._dtype)
 
 
 def unsqueeze(a: Tensor, dim: int) -> Tensor:
@@ -2167,21 +1682,8 @@ def unsqueeze(a: Tensor, dim: int) -> Tensor:
         >>> unsqueeze(a, -1)  # Shape: (3, 1)
     """
     _ensure_initialized()
-
-    shape = list(a._shape)
-    ndim = len(shape)
-
-    # dim can range from -(ndim+1) to ndim (inclusive)
-    if dim < 0:
-        dim = ndim + 1 + dim
-    if dim < 0 or dim > ndim:
-        raise ValueError(
-            f"dim {dim} out of range for tensor with {ndim} dimensions "
-            f"(valid range: [{-(ndim+1)}, {ndim}])"
-        )
-
-    new_shape = shape[:dim] + [1] + shape[dim:]
-    return _view(a, tuple(new_shape))
+    result = _cut_compute.ops_unsqueeze(a._to_view(), dim)
+    return Tensor._from_view(result, a._dtype)
 
 
 def unflatten(a: Tensor, dim: int, sizes: Sequence[int]) -> Tensor:
@@ -2203,26 +1705,8 @@ def unflatten(a: Tensor, dim: int, sizes: Sequence[int]) -> Tensor:
         >>> unflatten(b, 1, (2, 3))  # Shape: (2, 2, 3)
     """
     _ensure_initialized()
-
-    shape = list(a._shape)
-    ndim = len(shape)
-
-    if dim < 0:
-        dim = ndim + dim
-    if dim < 0 or dim >= ndim:
-        raise ValueError(f"dim {dim} out of range for tensor with {ndim} dimensions")
-
-    sizes = list(sizes)
-    expected = shape[dim]
-    actual = _cut_compute.shape_product(sizes)
-    if expected != actual:
-        raise ValueError(
-            f"Product of sizes {tuple(sizes)} ({actual}) must match "
-            f"dimension {dim} size ({expected})"
-        )
-
-    new_shape = shape[:dim] + sizes + shape[dim + 1:]
-    return _view(a, tuple(new_shape))
+    result = _cut_compute.ops_unflatten(a._to_view(), dim, [int(s) for s in sizes])
+    return Tensor._from_view(result, a._dtype)
 
 
 def mse_loss(input: Tensor, target: Tensor, reduction: str = 'mean') -> Union[float, 'Tensor']:
@@ -2358,10 +1842,10 @@ __all__ = [
     "ShaderEnum",
     # Classes
     "Tensor",
+    "TensorView",
     "ThreadSize",
     "ComputeHandle",
     "ComputeBinding",
-    "ComputeDispatch",
     # Core functions
     "get_shader",
     # Special operations
