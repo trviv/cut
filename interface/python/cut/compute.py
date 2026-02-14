@@ -61,7 +61,6 @@ ShaderEnum = _cut_compute.OperatorEnum  # Alias for backward compatibility
 ThreadSize = _cut_compute.ThreadSize
 ComputeHandle = _cut_compute.ComputeHandle
 ComputeBinding = _cut_compute.ComputeBinding
-TensorView = _cut_compute.TensorView
 
 
 # Module state
@@ -424,19 +423,24 @@ class Tensor:
         _live_tensors.add(self)
 
     def _to_view(self):
-        """Convert this Tensor to a C++ TensorView for use with C++ operations."""
-        return _cut_compute.TensorView(
-            self._handle, self._dtype.to_cut_dtype(), list(self._shape)
-        )
+        """Return the ComputeHandle for use with C++ operations."""
+        return self._handle
 
     @classmethod
-    def _from_view(cls, view, py_dtype=None):
-        """Create a Tensor from a C++ TensorView returned by an operation."""
+    def _from_view(cls, handle, py_dtype=None):
+        """Create a Tensor from a ComputeHandle returned by an operation."""
         t = object.__new__(cls)
-        t._handle = view.handle
-        t._shape = tuple(view.shape)
-        t._dtype = py_dtype if py_dtype is not None else _CUT_TO_DTYPE[view.dtype]
-        t._size = view.size_bytes
+        t._handle = handle
+        buf_shape = _cut_compute.get_buffer_shape(handle)
+        # Strip trailing 1s from the 4-dim padded shape
+        while len(buf_shape) > 1 and buf_shape[-1] == 1:
+            buf_shape = buf_shape[:-1]
+        t._shape = tuple(buf_shape)
+        if py_dtype is not None:
+            t._dtype = py_dtype
+        else:
+            t._dtype = _CUT_TO_DTYPE[_cut_compute.get_buffer_dtype(handle)]
+        t._size = _cut_compute.get_buffer_size_bytes(handle)
         _live_tensors.add(t)
         return t
 
@@ -1842,7 +1846,6 @@ __all__ = [
     "ShaderEnum",
     # Classes
     "Tensor",
-    "TensorView",
     "ThreadSize",
     "ComputeHandle",
     "ComputeBinding",

@@ -355,6 +355,8 @@ const char *operatorName(OperatorEnum op) {
     return "Ones";
   case Full:
     return "Full";
+  case Copy:
+    return "Copy";
 
   // Prefix scan operations
   case PrefixScanExclusiveSum:

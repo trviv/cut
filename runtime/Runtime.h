@@ -114,6 +114,13 @@ public:
                     size_t dstOffset = 0);
 
   /**
+   * Returns buffer metadata (shape, dtype, size) for a tensor handle.
+   * @param handle Tensor handle.
+   * @return Const reference to the ComputeBuffer.
+   */
+  const ComputeBuffer &getTensor(const ComputeHandle &handle) const;
+
+  /**
    * Copies data from a tensor to host memory.
    * Automatically flushes any pending GPU commands before reading.
    * @param handle Tensor handle.

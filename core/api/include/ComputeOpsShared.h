@@ -310,5 +310,6 @@
 #define OP_ZEROS 152
 #define OP_ONES 153
 #define OP_FULL 154
+#define OP_COPY 155
 
 #endif // COMPUTE_OPS_SHARED

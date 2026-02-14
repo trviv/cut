@@ -11,35 +11,25 @@
 namespace cut {
 
 // =========================================================================
-// TensorView
-// =========================================================================
-
-size_t TensorView::numElements() const {
-  if (shape.empty())
-    return 0;
-  size_t prod = 1;
-  for (uint32_t dim : shape)
-    prod *= dim;
-  return prod;
-}
-
-size_t TensorView::sizeBytes() const {
-  return numElements() * dataTypeSize(dtype);
-}
-
-// =========================================================================
 // Operations
 // =========================================================================
 
 Operations::Operations(Runtime &runtime) : runtime_(runtime) {}
 
-TensorView Operations::createOutput(const std::vector<uint32_t> &shape,
-                                    DataType dtype) {
-  TensorView out;
-  out.handle = runtime_.createTensorEmpty(shape, dtype);
-  out.dtype = dtype;
-  out.shape = shape;
-  return out;
+ComputeHandle Operations::createOutput(const std::vector<uint32_t> &shape,
+                                       DataType dtype) {
+  return runtime_.createTensorEmpty(shape, dtype);
+}
+
+std::vector<uint32_t> Operations::getShape(const ComputeHandle &h) const {
+  auto shape = runtime_.getTensor(h).getShape();
+  while (shape.size() > 1 && shape.back() == 1)
+    shape.pop_back();
+  return shape;
+}
+
+DataType Operations::getDtype(const ComputeHandle &h) const {
+  return runtime_.getTensor(h).getDtype();
 }
 
 size_t Operations::shapeProduct(const std::vector<uint32_t> &shape) const {
@@ -79,50 +69,92 @@ Operations::computeDimParams(const std::vector<uint32_t> &shape, int dim) {
   return params;
 }
 
+void Operations::encodeCopy(const ComputeHandle &src,
+                            const ComputeHandle &dst,
+                            const std::vector<uint32_t> &srcShape,
+                            const std::vector<uint32_t> &dstShape) {
+  // Compute innermost dim and alignment for source
+  uint32_t srcInner = srcShape.empty() ? 1 : srcShape.back();
+  uint32_t srcAlignedInner = (srcInner + 3) & ~static_cast<uint32_t>(3);
+
+  // Compute innermost dim and alignment for destination
+  uint32_t dstInner = dstShape.empty() ? 1 : dstShape.back();
+  uint32_t dstAlignedInner = (dstInner + 3) & ~static_cast<uint32_t>(3);
+
+  // Compute actual inner dim and number of rows
+  // actualInnerDim is the unpadded innermost dim of the destination
+  uint32_t actualInnerDim = dstInner;
+  uint32_t numRows = 1;
+  for (size_t i = 0; i + 1 < dstShape.size(); ++i)
+    numRows *= dstShape[i];
+  if (dstShape.empty())
+    numRows = 1;
+
+  uint32_t layoutData[4] = {srcAlignedInner, dstAlignedInner, actualInnerDim,
+                            numRows};
+
+  std::vector<ComputeBinding> bindings;
+  bindings.emplace_back(0, src);
+  bindings.emplace_back(1, dst);
+  bindings.emplace_back(2, DataReference(layoutData, sizeof(layoutData)));
+
+  runtime_.encodeOperator(OperatorEnum::Copy, bindings);
+}
+
 // =========================================================================
 // Generic element-wise ops
 // =========================================================================
 
-TensorView Operations::binaryOp(OperatorEnum op,
-                                const TensorView &a,
-                                const TensorView &b) {
-  if (a.sizeBytes() != b.sizeBytes()) {
-    throw std::runtime_error("Size mismatch: " + std::to_string(a.sizeBytes()) +
-                             " vs " + std::to_string(b.sizeBytes()));
+ComputeHandle Operations::binaryOp(OperatorEnum op,
+                                   const ComputeHandle &a,
+                                   const ComputeHandle &b) {
+  const auto &bufA = runtime_.getTensor(a);
+  const auto &bufB = runtime_.getTensor(b);
+
+  if (bufA.calculateActualSize() != bufB.calculateActualSize()) {
+    throw std::runtime_error(
+        "Size mismatch: " + std::to_string(bufA.calculateActualSize()) +
+        " vs " + std::to_string(bufB.calculateActualSize()));
   }
 
-  TensorView output = createOutput(a.shape, a.dtype);
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  ComputeHandle output = createOutput(shape, dtype);
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, b.handle);
-  bindings.emplace_back(2, output.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, b);
+  bindings.emplace_back(2, output);
 
   runtime_.encodeOperator(op, bindings);
   return output;
 }
 
-TensorView Operations::unaryOp(OperatorEnum op, const TensorView &a) {
-  TensorView output = createOutput(a.shape, a.dtype);
+ComputeHandle Operations::unaryOp(OperatorEnum op, const ComputeHandle &a) {
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  ComputeHandle output = createOutput(shape, dtype);
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, output.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, output);
 
   runtime_.encodeOperator(op, bindings);
   return output;
 }
 
-TensorView
-Operations::vecScalarOp(OperatorEnum op, const TensorView &a, float scalar) {
-  TensorView output = createOutput(a.shape, a.dtype);
+ComputeHandle
+Operations::vecScalarOp(OperatorEnum op, const ComputeHandle &a, float scalar) {
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  ComputeHandle output = createOutput(shape, dtype);
 
   // Create scalar binding based on dtype
   ComputeBinding scalarBinding = [&]() -> ComputeBinding {
-    if (a.dtype == DataType::Int32) {
+    if (dtype == DataType::Int32) {
       int32_t val = static_cast<int32_t>(scalar);
       return ComputeBinding(2, DataReference(&val, sizeof(val)));
-    } else if (a.dtype == DataType::UInt32) {
+    } else if (dtype == DataType::UInt32) {
       uint32_t val = static_cast<uint32_t>(scalar);
       return ComputeBinding(2, DataReference(&val, sizeof(val)));
     } else {
@@ -131,8 +163,8 @@ Operations::vecScalarOp(OperatorEnum op, const TensorView &a, float scalar) {
   }();
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, output.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, output);
   bindings.push_back(std::move(scalarBinding));
 
   runtime_.encodeOperator(op, bindings);
@@ -143,42 +175,44 @@ Operations::vecScalarOp(OperatorEnum op, const TensorView &a, float scalar) {
 // Reduction ops
 // =========================================================================
 
-float Operations::reduceScalar(OperatorEnum op, const TensorView &a) {
-  TensorView out = createOutput({1}, DataType::Float32);
+float Operations::reduceScalar(OperatorEnum op, const ComputeHandle &a) {
+  ComputeHandle out = createOutput({1}, DataType::Float32);
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, out.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, out);
 
   runtime_.encodeOperator(op, bindings);
 
   float result = 0.0f;
-  runtime_.copyFromTensor(out.handle, &result, sizeof(float));
+  runtime_.copyFromTensor(out, &result, sizeof(float));
   return result;
 }
 
-bool Operations::reduceBool(OperatorEnum op, const TensorView &a) {
+bool Operations::reduceBool(OperatorEnum op, const ComputeHandle &a) {
   float val = reduceScalar(op, a);
   return val != 0.0f;
 }
 
-int Operations::reduceInt(OperatorEnum op, const TensorView &a) {
+int Operations::reduceInt(OperatorEnum op, const ComputeHandle &a) {
   float val = reduceScalar(op, a);
   return static_cast<int>(val);
 }
 
-TensorView
-Operations::reduceDim(const TensorView &a, int dim, OperatorEnum dimOp) {
-  auto params = computeDimParams(a.shape, dim);
+ComputeHandle
+Operations::reduceDim(const ComputeHandle &a, int dim, OperatorEnum dimOp) {
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  auto params = computeDimParams(shape, dim);
 
-  TensorView out = createOutput(params.outShape, a.dtype);
+  ComputeHandle out = createOutput(params.outShape, dtype);
 
   uint32_t shapeData[3] = {params.outerSize, params.reduceSize,
                            params.innerSize};
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, out.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, out);
   bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
 
   runtime_.encodeOperator(dimOp, bindings);
@@ -189,13 +223,17 @@ Operations::reduceDim(const TensorView &a, int dim, OperatorEnum dimOp) {
 // Matrix ops
 // =========================================================================
 
-TensorView Operations::matmul(const TensorView &a, const TensorView &b) {
-  if (a.shape.size() != 2 || b.shape.size() != 2) {
+ComputeHandle Operations::matmul(const ComputeHandle &a,
+                                 const ComputeHandle &b) {
+  auto shapeA = getShape(a);
+  auto shapeB = getShape(b);
+
+  if (shapeA.size() != 2 || shapeB.size() != 2) {
     throw std::runtime_error("matmul requires 2D matrices");
   }
 
-  uint32_t M = a.shape[0], K = a.shape[1];
-  uint32_t K2 = b.shape[0], N = b.shape[1];
+  uint32_t M = shapeA[0], K = shapeA[1];
+  uint32_t K2 = shapeB[0], N = shapeB[1];
 
   if (K != K2) {
     throw std::runtime_error("Matrix dimension mismatch: A is " +
@@ -204,63 +242,69 @@ TensorView Operations::matmul(const TensorView &a, const TensorView &b) {
                              std::to_string(N));
   }
 
-  TensorView output = createOutput({M, N}, DataType::Float32);
+  ComputeHandle output = createOutput({M, N}, DataType::Float32);
 
   uint32_t shapeData[3] = {M, K, N};
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, b.handle);
-  bindings.emplace_back(2, output.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, b);
+  bindings.emplace_back(2, output);
   bindings.emplace_back(3, DataReference(shapeData, sizeof(shapeData)));
 
   runtime_.encodeOperator(OperatorEnum::MatMul, bindings);
   return output;
 }
 
-TensorView Operations::transpose(const TensorView &a) {
-  if (a.shape.size() != 2) {
+ComputeHandle Operations::transpose(const ComputeHandle &a) {
+  auto shape = getShape(a);
+
+  if (shape.size() != 2) {
     throw std::runtime_error("transpose requires a 2D matrix");
   }
 
-  uint32_t M = a.shape[0], N = a.shape[1];
+  uint32_t M = shape[0], N = shape[1];
 
-  TensorView output = createOutput({N, M}, DataType::Float32);
+  ComputeHandle output = createOutput({N, M}, DataType::Float32);
 
   uint32_t shapeData[2] = {M, N};
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, output.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, output);
   bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
 
   runtime_.encodeOperator(OperatorEnum::Transpose, bindings);
   return output;
 }
 
-float Operations::dot(const TensorView &a, const TensorView &b) {
-  if (a.sizeBytes() != b.sizeBytes()) {
+float Operations::dot(const ComputeHandle &a, const ComputeHandle &b) {
+  const auto &bufA = runtime_.getTensor(a);
+  const auto &bufB = runtime_.getTensor(b);
+
+  if (bufA.calculateActualSize() != bufB.calculateActualSize()) {
     throw std::runtime_error(
-        "Vector size mismatch: " + std::to_string(a.sizeBytes()) + " vs " +
-        std::to_string(b.sizeBytes()));
+        "Vector size mismatch: " + std::to_string(bufA.calculateActualSize()) +
+        " vs " + std::to_string(bufB.calculateActualSize()));
   }
 
-  uint32_t count = static_cast<uint32_t>(shapeProduct(a.shape));
+  auto shape = getShape(a);
+  uint32_t count = static_cast<uint32_t>(shapeProduct(shape));
 
-  TensorView out = createOutput({1}, DataType::Float32);
+  ComputeHandle out = createOutput({1}, DataType::Float32);
 
   uint32_t countData[1] = {count};
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, b.handle);
-  bindings.emplace_back(2, out.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, b);
+  bindings.emplace_back(2, out);
   bindings.emplace_back(3, DataReference(countData, sizeof(countData)));
 
   runtime_.encodeOperator(OperatorEnum::Dot, bindings);
 
   float result = 0.0f;
-  runtime_.copyFromTensor(out.handle, &result, sizeof(float));
+  runtime_.copyFromTensor(out, &result, sizeof(float));
   return result;
 }
 
@@ -268,18 +312,21 @@ float Operations::dot(const TensorView &a, const TensorView &b) {
 // Special ops
 // =========================================================================
 
-TensorView Operations::clamp(const TensorView &a, float minVal, float maxVal) {
-  TensorView output = createOutput(a.shape, a.dtype);
+ComputeHandle
+Operations::clamp(const ComputeHandle &a, float minVal, float maxVal) {
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  ComputeHandle output = createOutput(shape, dtype);
 
   // Pack min/max as typed data
   uint8_t clampBuf[8];
   uint32_t clampSize = 0;
-  if (a.dtype == DataType::Int32) {
+  if (dtype == DataType::Int32) {
     int32_t vals[2] = {static_cast<int32_t>(minVal),
                        static_cast<int32_t>(maxVal)};
     std::memcpy(clampBuf, vals, sizeof(vals));
     clampSize = sizeof(vals);
-  } else if (a.dtype == DataType::UInt32) {
+  } else if (dtype == DataType::UInt32) {
     uint32_t vals[2] = {static_cast<uint32_t>(minVal),
                         static_cast<uint32_t>(maxVal)};
     std::memcpy(clampBuf, vals, sizeof(vals));
@@ -291,28 +338,35 @@ TensorView Operations::clamp(const TensorView &a, float minVal, float maxVal) {
   }
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, output.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, output);
   bindings.emplace_back(2, DataReference(clampBuf, clampSize));
 
   runtime_.encodeOperator(OperatorEnum::TernaryClamp, bindings);
   return output;
 }
 
-TensorView Operations::where(const TensorView &cond,
-                             const TensorView &x,
-                             const TensorView &y) {
-  if (cond.sizeBytes() != x.sizeBytes() || cond.sizeBytes() != y.sizeBytes()) {
+ComputeHandle Operations::where(const ComputeHandle &cond,
+                                const ComputeHandle &x,
+                                const ComputeHandle &y) {
+  const auto &bufCond = runtime_.getTensor(cond);
+  const auto &bufX = runtime_.getTensor(x);
+  const auto &bufY = runtime_.getTensor(y);
+
+  if (bufCond.calculateActualSize() != bufX.calculateActualSize() ||
+      bufCond.calculateActualSize() != bufY.calculateActualSize()) {
     throw std::runtime_error("condition, x, and y must have the same size");
   }
 
-  TensorView output = createOutput(x.shape, x.dtype);
+  auto shape = getShape(x);
+  auto dtype = getDtype(x);
+  ComputeHandle output = createOutput(shape, dtype);
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, cond.handle);
-  bindings.emplace_back(1, x.handle);
-  bindings.emplace_back(2, y.handle);
-  bindings.emplace_back(3, output.handle);
+  bindings.emplace_back(0, cond);
+  bindings.emplace_back(1, x);
+  bindings.emplace_back(2, y);
+  bindings.emplace_back(3, output);
 
   runtime_.encodeOperator(OperatorEnum::TernarySelect, bindings);
   return output;
@@ -322,17 +376,20 @@ TensorView Operations::where(const TensorView &cond,
 // Cumulative ops
 // =========================================================================
 
-TensorView Operations::cumOp(const TensorView &a, int dim, OperatorEnum op) {
-  auto params = computeDimParams(a.shape, dim);
+ComputeHandle
+Operations::cumOp(const ComputeHandle &a, int dim, OperatorEnum op) {
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  auto params = computeDimParams(shape, dim);
 
-  TensorView out = createOutput(a.shape, a.dtype);
+  ComputeHandle out = createOutput(shape, dtype);
 
   uint32_t shapeData[3] = {params.outerSize, params.reduceSize,
                            params.innerSize};
 
   std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a.handle);
-  bindings.emplace_back(1, out.handle);
+  bindings.emplace_back(0, a);
+  bindings.emplace_back(1, out);
   bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
 
   runtime_.encodeOperator(op, bindings);
@@ -343,15 +400,17 @@ TensorView Operations::cumOp(const TensorView &a, int dim, OperatorEnum op) {
 // Statistical ops
 // =========================================================================
 
-float Operations::varianceScalar(const TensorView &a, int correction) {
+float Operations::varianceScalar(const ComputeHandle &a, int correction) {
+  auto shape = getShape(a);
+
   // Compute mean on GPU
   float total = reduceScalar(OperatorEnum::ReduceSum, a);
-  size_t n = shapeProduct(a.shape);
+  size_t n = shapeProduct(shape);
   float m = total / static_cast<float>(n);
 
   // Read data from GPU
   std::vector<float> data(n);
-  runtime_.copyFromTensor(a.handle, data.data(), n * sizeof(float));
+  runtime_.copyFromTensor(a, data.data(), n * sizeof(float));
 
   // Compute variance on CPU
   double sum = 0.0;
@@ -364,23 +423,24 @@ float Operations::varianceScalar(const TensorView &a, int correction) {
   return denom > 0 ? static_cast<float>(sum / denom) : 0.0f;
 }
 
-TensorView
-Operations::varianceDim(const TensorView &a, int dim, int correction) {
-  auto params = computeDimParams(a.shape, dim);
+ComputeHandle
+Operations::varianceDim(const ComputeHandle &a, int dim, int correction) {
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  auto params = computeDimParams(shape, dim);
 
   // Compute mean along dim using GPU
-  TensorView meanView = reduceDim(a, dim, OperatorEnum::ReduceDimMean);
+  ComputeHandle meanHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMean);
 
   // Read input and mean data from GPU
-  size_t totalElements = shapeProduct(a.shape);
+  size_t totalElements = shapeProduct(shape);
   size_t meanElements = params.outerSize * params.innerSize;
 
   std::vector<float> flatData(totalElements);
   std::vector<float> meanData(meanElements);
 
-  runtime_.copyFromTensor(a.handle, flatData.data(),
-                          totalElements * sizeof(float));
-  runtime_.copyFromTensor(meanView.handle, meanData.data(),
+  runtime_.copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
+  runtime_.copyFromTensor(meanHandle, meanData.data(),
                           meanElements * sizeof(float));
 
   // Compute variance on CPU
@@ -404,9 +464,8 @@ Operations::varianceDim(const TensorView &a, int dim, int correction) {
   }
 
   // Create output tensor and copy result
-  TensorView out = createOutput(params.outShape, a.dtype);
-  runtime_.copyToTensor(out.handle, result.data(),
-                        result.size() * sizeof(float));
+  ComputeHandle out = createOutput(params.outShape, dtype);
+  runtime_.copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
 }
 
@@ -414,26 +473,27 @@ Operations::varianceDim(const TensorView &a, int dim, int correction) {
 // Softmax
 // =========================================================================
 
-TensorView Operations::softmax(const TensorView &a, int dim) {
-  int ndim = static_cast<int>(a.shape.size());
+ComputeHandle Operations::softmax(const ComputeHandle &a, int dim) {
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  int ndim = static_cast<int>(shape.size());
   if (dim < 0)
     dim = ndim + dim;
 
-  auto params = computeDimParams(a.shape, dim);
+  auto params = computeDimParams(shape, dim);
 
   // Compute dim-wise max for numerical stability (on GPU)
-  TensorView maxVals = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
+  ComputeHandle maxHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
 
   // Read data from GPU
-  size_t totalElements = shapeProduct(a.shape);
+  size_t totalElements = shapeProduct(shape);
   size_t maxElements = params.outerSize * params.innerSize;
 
   std::vector<float> flatData(totalElements);
   std::vector<float> maxData(maxElements);
 
-  runtime_.copyFromTensor(a.handle, flatData.data(),
-                          totalElements * sizeof(float));
-  runtime_.copyFromTensor(maxVals.handle, maxData.data(),
+  runtime_.copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
+  runtime_.copyFromTensor(maxHandle, maxData.data(),
                           maxElements * sizeof(float));
 
   // Compute softmax on CPU
@@ -463,32 +523,32 @@ TensorView Operations::softmax(const TensorView &a, int dim) {
     }
   }
 
-  TensorView out = createOutput(a.shape, a.dtype);
-  runtime_.copyToTensor(out.handle, result.data(),
-                        result.size() * sizeof(float));
+  ComputeHandle out = createOutput(shape, dtype);
+  runtime_.copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
 }
 
-TensorView Operations::logSoftmax(const TensorView &a, int dim) {
-  int ndim = static_cast<int>(a.shape.size());
+ComputeHandle Operations::logSoftmax(const ComputeHandle &a, int dim) {
+  auto shape = getShape(a);
+  auto dtype = getDtype(a);
+  int ndim = static_cast<int>(shape.size());
   if (dim < 0)
     dim = ndim + dim;
 
-  auto params = computeDimParams(a.shape, dim);
+  auto params = computeDimParams(shape, dim);
 
   // Compute dim-wise max for numerical stability (on GPU)
-  TensorView maxVals = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
+  ComputeHandle maxHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
 
   // Read data from GPU
-  size_t totalElements = shapeProduct(a.shape);
+  size_t totalElements = shapeProduct(shape);
   size_t maxElements = params.outerSize * params.innerSize;
 
   std::vector<float> flatData(totalElements);
   std::vector<float> maxData(maxElements);
 
-  runtime_.copyFromTensor(a.handle, flatData.data(),
-                          totalElements * sizeof(float));
-  runtime_.copyFromTensor(maxVals.handle, maxData.data(),
+  runtime_.copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
+  runtime_.copyFromTensor(maxHandle, maxData.data(),
                           maxElements * sizeof(float));
 
   // Compute log softmax on CPU
@@ -515,9 +575,8 @@ TensorView Operations::logSoftmax(const TensorView &a, int dim) {
     }
   }
 
-  TensorView out = createOutput(a.shape, a.dtype);
-  runtime_.copyToTensor(out.handle, result.data(),
-                        result.size() * sizeof(float));
+  ComputeHandle out = createOutput(shape, dtype);
+  runtime_.copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
 }
 
@@ -525,7 +584,7 @@ TensorView Operations::logSoftmax(const TensorView &a, int dim) {
 // Tensor creation
 // =========================================================================
 
-TensorView
+ComputeHandle
 Operations::arange(float start, float end, float step, DataType dtype) {
   if (step == 0.0f) {
     throw std::runtime_error("step cannot be zero");
@@ -541,24 +600,21 @@ Operations::arange(float start, float end, float step, DataType dtype) {
     std::vector<int32_t> values(n);
     for (int i = 0; i < n; ++i)
       values[i] = static_cast<int32_t>(start + i * step);
-    return TensorView{runtime_.createTensor(shape, dtype, values.data()), dtype,
-                      shape};
+    return runtime_.createTensor(shape, dtype, values.data());
   } else if (dtype == DataType::UInt32) {
     std::vector<uint32_t> values(n);
     for (int i = 0; i < n; ++i)
       values[i] = static_cast<uint32_t>(start + i * step);
-    return TensorView{runtime_.createTensor(shape, dtype, values.data()), dtype,
-                      shape};
+    return runtime_.createTensor(shape, dtype, values.data());
   } else {
     std::vector<float> values(n);
     for (int i = 0; i < n; ++i)
       values[i] = start + i * step;
-    return TensorView{runtime_.createTensor(shape, dtype, values.data()), dtype,
-                      shape};
+    return runtime_.createTensor(shape, dtype, values.data());
   }
 }
 
-TensorView
+ComputeHandle
 Operations::linspace(float start, float end, int steps, DataType dtype) {
   if (steps < 1) {
     throw std::runtime_error("steps must be at least 1");
@@ -574,37 +630,35 @@ Operations::linspace(float start, float end, int steps, DataType dtype) {
   }
 
   std::vector<uint32_t> shape = {static_cast<uint32_t>(steps)};
-  return TensorView{runtime_.createTensor(shape, dtype, values.data()), dtype,
-                    shape};
+  return runtime_.createTensor(shape, dtype, values.data());
 }
 
-TensorView Operations::full(const std::vector<uint32_t> &shape,
-                            float fillValue,
-                            DataType dtype) {
+ComputeHandle Operations::full(const std::vector<uint32_t> &shape,
+                               float fillValue,
+                               DataType dtype) {
   size_t totalSize = shapeProduct(shape);
 
   if (dtype == DataType::Int32) {
     std::vector<int32_t> values(totalSize, static_cast<int32_t>(fillValue));
-    return TensorView{runtime_.createTensor(shape, dtype, values.data()), dtype,
-                      shape};
+    return runtime_.createTensor(shape, dtype, values.data());
   } else if (dtype == DataType::UInt32) {
     std::vector<uint32_t> values(totalSize, static_cast<uint32_t>(fillValue));
-    return TensorView{runtime_.createTensor(shape, dtype, values.data()), dtype,
-                      shape};
+    return runtime_.createTensor(shape, dtype, values.data());
   } else {
     std::vector<float> values(totalSize, fillValue);
-    return TensorView{runtime_.createTensor(shape, dtype, values.data()), dtype,
-                      shape};
+    return runtime_.createTensor(shape, dtype, values.data());
   }
 }
 
 // =========================================================================
-// Shape ops (views - same handle, new shape)
+// Shape ops (copy data to new buffer with new shape)
 // =========================================================================
 
-TensorView Operations::reshape(const TensorView &a,
-                               const std::vector<int32_t> &newShape) {
-  size_t oldTotal = shapeProduct(a.shape);
+ComputeHandle Operations::reshape(const ComputeHandle &a,
+                                  const std::vector<int32_t> &newShape) {
+  auto oldShape = getShape(a);
+  auto dtype = getDtype(a);
+  size_t oldTotal = shapeProduct(oldShape);
 
   std::vector<uint32_t> resolved;
   int negIdx = -1;
@@ -643,16 +697,21 @@ TensorView Operations::reshape(const TensorView &a,
                                 std::to_string(oldTotal) + " to new shape");
   }
 
-  return TensorView{a.handle, a.dtype, resolved};
+  ComputeHandle output = createOutput(resolved, dtype);
+  encodeCopy(a, output, oldShape, resolved);
+  return output;
 }
 
-TensorView Operations::squeeze(const TensorView &a, std::optional<int> dim) {
+ComputeHandle Operations::squeeze(const ComputeHandle &a,
+                                  std::optional<int> dim) {
+  auto oldShape = getShape(a);
+  auto dtype = getDtype(a);
   std::vector<uint32_t> newShape;
-  int ndim = static_cast<int>(a.shape.size());
+  int ndim = static_cast<int>(oldShape.size());
 
   if (!dim.has_value()) {
     // Squeeze all size-1 dims
-    for (uint32_t s : a.shape) {
+    for (uint32_t s : oldShape) {
       if (s != 1)
         newShape.push_back(s);
     }
@@ -666,20 +725,24 @@ TensorView Operations::squeeze(const TensorView &a, std::optional<int> dim) {
                                std::to_string(ndim) + " dimensions");
     }
     for (int i = 0; i < ndim; ++i) {
-      if (i == d && a.shape[i] == 1)
+      if (i == d && oldShape[i] == 1)
         continue;
-      newShape.push_back(a.shape[i]);
+      newShape.push_back(oldShape[i]);
     }
   }
 
   if (newShape.empty())
     newShape.push_back(1);
 
-  return TensorView{a.handle, a.dtype, newShape};
+  ComputeHandle output = createOutput(newShape, dtype);
+  encodeCopy(a, output, oldShape, newShape);
+  return output;
 }
 
-TensorView Operations::unsqueeze(const TensorView &a, int dim) {
-  int ndim = static_cast<int>(a.shape.size());
+ComputeHandle Operations::unsqueeze(const ComputeHandle &a, int dim) {
+  auto oldShape = getShape(a);
+  auto dtype = getDtype(a);
+  int ndim = static_cast<int>(oldShape.size());
 
   if (dim < 0)
     dim = ndim + 1 + dim;
@@ -690,17 +753,21 @@ TensorView Operations::unsqueeze(const TensorView &a, int dim) {
         std::to_string(-(ndim + 1)) + ", " + std::to_string(ndim) + "])");
   }
 
-  std::vector<uint32_t> newShape(a.shape.begin(), a.shape.begin() + dim);
+  std::vector<uint32_t> newShape(oldShape.begin(), oldShape.begin() + dim);
   newShape.push_back(1);
-  newShape.insert(newShape.end(), a.shape.begin() + dim, a.shape.end());
+  newShape.insert(newShape.end(), oldShape.begin() + dim, oldShape.end());
 
-  return TensorView{a.handle, a.dtype, newShape};
+  ComputeHandle output = createOutput(newShape, dtype);
+  encodeCopy(a, output, oldShape, newShape);
+  return output;
 }
 
-TensorView Operations::unflatten(const TensorView &a,
-                                 int dim,
-                                 const std::vector<uint32_t> &sizes) {
-  int ndim = static_cast<int>(a.shape.size());
+ComputeHandle Operations::unflatten(const ComputeHandle &a,
+                                    int dim,
+                                    const std::vector<uint32_t> &sizes) {
+  auto oldShape = getShape(a);
+  auto dtype = getDtype(a);
+  int ndim = static_cast<int>(oldShape.size());
   if (dim < 0)
     dim = ndim + dim;
   if (dim < 0 || dim >= ndim) {
@@ -709,7 +776,7 @@ TensorView Operations::unflatten(const TensorView &a,
                                 std::to_string(ndim) + " dimensions");
   }
 
-  size_t expected = a.shape[dim];
+  size_t expected = oldShape[dim];
   size_t actual = 1;
   for (uint32_t s : sizes)
     actual *= s;
@@ -721,17 +788,26 @@ TensorView Operations::unflatten(const TensorView &a,
                                 std::to_string(expected) + ")");
   }
 
-  std::vector<uint32_t> newShape(a.shape.begin(), a.shape.begin() + dim);
+  std::vector<uint32_t> newShape(oldShape.begin(), oldShape.begin() + dim);
   newShape.insert(newShape.end(), sizes.begin(), sizes.end());
-  newShape.insert(newShape.end(), a.shape.begin() + dim + 1, a.shape.end());
+  newShape.insert(newShape.end(), oldShape.begin() + dim + 1, oldShape.end());
 
-  return TensorView{a.handle, a.dtype, newShape};
+  ComputeHandle output = createOutput(newShape, dtype);
+  encodeCopy(a, output, oldShape, newShape);
+  return output;
 }
 
-TensorView Operations::flatten(const TensorView &a, int startDim, int endDim) {
-  int ndim = static_cast<int>(a.shape.size());
-  if (ndim == 0)
-    return a;
+ComputeHandle
+Operations::flatten(const ComputeHandle &a, int startDim, int endDim) {
+  auto oldShape = getShape(a);
+  auto dtype = getDtype(a);
+  int ndim = static_cast<int>(oldShape.size());
+  if (ndim == 0) {
+    // Return a copy for empty shape
+    ComputeHandle output = createOutput(oldShape, dtype);
+    encodeCopy(a, output, oldShape, oldShape);
+    return output;
+  }
 
   if (endDim < 0)
     endDim = ndim + endDim;
@@ -751,26 +827,28 @@ TensorView Operations::flatten(const TensorView &a, int startDim, int endDim) {
 
   std::vector<uint32_t> newShape;
   if (startDim == 0 && endDim == ndim - 1) {
-    newShape.push_back(static_cast<uint32_t>(shapeProduct(a.shape)));
+    newShape.push_back(static_cast<uint32_t>(shapeProduct(oldShape)));
   } else {
-    newShape.insert(newShape.end(), a.shape.begin(),
-                    a.shape.begin() + startDim);
+    newShape.insert(newShape.end(), oldShape.begin(),
+                    oldShape.begin() + startDim);
     uint32_t flattenedSize = 1;
     for (int i = startDim; i <= endDim; ++i)
-      flattenedSize *= a.shape[i];
+      flattenedSize *= oldShape[i];
     newShape.push_back(flattenedSize);
-    newShape.insert(newShape.end(), a.shape.begin() + endDim + 1,
-                    a.shape.end());
+    newShape.insert(newShape.end(), oldShape.begin() + endDim + 1,
+                    oldShape.end());
   }
 
-  return TensorView{a.handle, a.dtype, newShape};
+  ComputeHandle output = createOutput(newShape, dtype);
+  encodeCopy(a, output, oldShape, newShape);
+  return output;
 }
 
 // =========================================================================
 // Norm
 // =========================================================================
 
-TensorView Operations::normDim(const TensorView &a, int dim) {
+ComputeHandle Operations::normDim(const ComputeHandle &a, int dim) {
   return reduceDim(a, dim, OperatorEnum::NormDim);
 }
 

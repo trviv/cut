@@ -101,7 +101,8 @@ static bool isMultiPassOp(OperatorEnum op) {
 /// Matrix ops and tensor creation ops have mismatched buffer sizes by design.
 static bool isMismatchedSizeOp(OperatorEnum op) {
   return op == MatMul || op == Transpose || op == Dot || op == Zeros ||
-         op == Ones || op == Full || op == Arange || op == Linspace;
+         op == Ones || op == Full || op == Arange || op == Linspace ||
+         op == Copy;
 }
 
 size_t validateExecutionSize(OperatorEnum op,

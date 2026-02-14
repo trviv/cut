@@ -444,6 +444,12 @@ void Dispatcher::encode(OperatorEnum op,
       throw std::runtime_error(
           "Sort operation requires exactly 2 bindings (keys, values)");
     }
+  } else if (op == Copy) {
+    // Copy: source, destination + push constant data
+    if (bindings.size() != 3) {
+      throw std::runtime_error(
+          "Copy operation requires exactly 3 bindings (src, dst, layout_data)");
+    }
   } else {
     throw std::runtime_error(std::string("Unknown operator: ") +
                              operatorName(op));
@@ -780,6 +786,41 @@ void Dispatcher::encode(OperatorEnum op,
     rangeDispatch.bindData(DataReference(&pushData, sizeof(pushData)),
                            static_cast<uint32_t>(handleBindingsOnly.size()));
     iface_->encode(std::move(rangeDispatch));
+    return;
+  } else if (op == Copy) {
+    // Copy: src handle, dst handle, layout data (push constants)
+    std::vector<ComputeBinding> copyHandleBindings;
+    uint32_t srcAlignedInner = 0, dstAlignedInner = 0, actualInnerDim = 0,
+             numRows = 0;
+
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        copyHandleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        const auto &data = binding.getData();
+        if (data.size() >= 4 * sizeof(uint32_t)) {
+          const uint32_t *params =
+              reinterpret_cast<const uint32_t *>(data.data());
+          srcAlignedInner = params[0];
+          dstAlignedInner = params[1];
+          actualInnerDim = params[2];
+          numRows = params[3];
+        }
+      }
+    }
+
+    uint32_t totalElements = numRows * actualInnerDim;
+    ThreadSize copyWorkgroupSize{totalElements, 1, 1};
+    ComputeDispatch copyDispatch(shader, copyWorkgroupSize, copyHandleBindings);
+    struct CopyPushConstants {
+      uint32_t srcAlignedInner;
+      uint32_t dstAlignedInner;
+      uint32_t actualInnerDim;
+      uint32_t numRows;
+    } copyPushData{srcAlignedInner, dstAlignedInner, actualInnerDim, numRows};
+    copyDispatch.bindData(DataReference(&copyPushData, sizeof(copyPushData)),
+                          static_cast<uint32_t>(copyHandleBindings.size()));
+    iface_->encode(std::move(copyDispatch));
     return;
   } else if (isPrefixScanOp(op)) {
     encodePrefixScan(op, bindings, executionSize);

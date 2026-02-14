@@ -106,6 +106,10 @@ ComputeInterface *Runtime::getInterface() {
 // Tensor Operations
 // =========================================================================
 
+const ComputeBuffer &Runtime::getTensor(const ComputeHandle &handle) const {
+  return interface_->getBuffer(handle);
+}
+
 ComputeHandle Runtime::createTensor(const std::vector<uint32_t> &shape,
                                     DataType dtype,
                                     const void *srcPtr,
