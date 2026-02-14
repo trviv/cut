@@ -56,7 +56,7 @@ constexpr std::array<OperatorEnum, 29> kBinaryVecVecOps = {
     BinaryVecVecLogaddexp, BinaryVecVecLogaddexp2};
 
 // All binary vec-scalar operators
-constexpr std::array<OperatorEnum, 34> kBinaryVecScalarOps = {
+constexpr std::array<OperatorEnum, 33> kBinaryVecScalarOps = {
     // Arithmetic
     BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
     BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarPow,
@@ -1262,13 +1262,13 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Float32) {
       auto dataA = generateTestData<float>(elements, 42);
       auto dataB = generateTestData<float>(elements, 123);
 
+      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+      auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
       for (OperatorEnum op : kBinaryVecVecOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
                                       ComputeBinding(1, bufferB),
@@ -1329,21 +1329,23 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Int32) {
         v = v % 16;
       }
 
+      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+      auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+      auto bufferBShift =
+          runtime_->createTensor(shape, dtype, dataBShift.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
       for (OperatorEnum op : kInt32BinaryVecVecOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        const auto &rhsData =
-            (op == BinaryVecVecLeftShift || op == BinaryVecVecRightShift)
-                ? dataBShift
-                : dataB;
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferB = runtime_->createTensor(shape, dtype, rhsData.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+        bool isShift =
+            (op == BinaryVecVecLeftShift || op == BinaryVecVecRightShift);
+        const auto &rhsData = isShift ? dataBShift : dataB;
+        const auto &rhsBuf = isShift ? bufferBShift : bufferB;
 
         runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
-                                      ComputeBinding(1, bufferB),
+                                      ComputeBinding(1, rhsBuf),
                                       ComputeBinding(2, bufferOut)});
 
         std::vector<int32_t> output(elements);
@@ -1392,21 +1394,23 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_UInt32) {
         v = v % 16;
       }
 
+      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+      auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+      auto bufferBShift =
+          runtime_->createTensor(shape, dtype, dataBShift.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
       for (OperatorEnum op : kUInt32BinaryVecVecOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        const auto &rhsData =
-            (op == BinaryVecVecLeftShift || op == BinaryVecVecRightShift)
-                ? dataBShift
-                : dataB;
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferB = runtime_->createTensor(shape, dtype, rhsData.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+        bool isShift =
+            (op == BinaryVecVecLeftShift || op == BinaryVecVecRightShift);
+        const auto &rhsData = isShift ? dataBShift : dataB;
+        const auto &rhsBuf = isShift ? bufferBShift : bufferB;
 
         runtime_->encodeOperator(op, {ComputeBinding(0, bufferA),
-                                      ComputeBinding(1, bufferB),
+                                      ComputeBinding(1, rhsBuf),
                                       ComputeBinding(2, bufferOut)});
 
         std::vector<uint32_t> output(elements);
@@ -1436,12 +1440,12 @@ TEST_F(VulkanBackendTest, UnaryOperators_Float32) {
         v = std::clamp(v, 0.1f, 0.9f);
       }
 
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
       for (OperatorEnum op : kUnaryOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
@@ -1478,12 +1482,12 @@ TEST_F(VulkanBackendTest, UnaryOperators_Int32) {
 
       auto dataIn = generateTestData<int32_t>(elements, 42);
 
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
       for (OperatorEnum op : kInt32UnaryOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
@@ -1513,12 +1517,12 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
 
       auto dataA = generateTestData<float>(elements, 42);
 
+      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
       for (OperatorEnum op : kBinaryVecScalarOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
@@ -2193,12 +2197,12 @@ TEST_F(VulkanBackendTest, ReductionOperators_Float32) {
 
       auto dataIn = generateTestData<float>(elements, 42);
 
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
       for (OperatorEnum op : kReductionOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
 
         // Initialize output to identity element
         float initVal = 0.0f;
@@ -2424,14 +2428,14 @@ TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim0) {
     uint32_t reduceSize = tc.rows;
     uint32_t innerSize = tc.cols;
 
+    auto bufferIn =
+        runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
+    auto bufferOut = runtime_->createTensorEmpty({tc.cols}, dtype);
+
     for (OperatorEnum op : kDimReductionOps) {
       SCOPED_TRACE(std::string("Op: ") + operatorName(op) + " Shape: [" +
                    std::to_string(tc.rows) + ", " + std::to_string(tc.cols) +
                    "] dim=0");
-
-      auto bufferIn =
-          runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
-      auto bufferOut = runtime_->createTensorEmpty({tc.cols}, dtype);
 
       uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
       runtime_->encodeOperator(
@@ -2473,14 +2477,14 @@ TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim1) {
     uint32_t reduceSize = tc.cols;
     uint32_t innerSize = 1;
 
+    auto bufferIn =
+        runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
+    auto bufferOut = runtime_->createTensorEmpty({tc.rows}, dtype);
+
     for (OperatorEnum op : kDimReductionOps) {
       SCOPED_TRACE(std::string("Op: ") + operatorName(op) + " Shape: [" +
                    std::to_string(tc.rows) + ", " + std::to_string(tc.cols) +
                    "] dim=1");
-
-      auto bufferIn =
-          runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
-      auto bufferOut = runtime_->createTensorEmpty({tc.rows}, dtype);
 
       uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
       runtime_->encodeOperator(
@@ -2515,12 +2519,12 @@ TEST_F(VulkanBackendTest, DimReductionOperators_3D_MiddleDim) {
   uint32_t innerSize = d2;
   uint32_t numOutputs = outerSize * innerSize;
 
+  auto bufferIn = runtime_->createTensor({d0, d1, d2}, dtype, dataIn.data());
+  auto bufferOut = runtime_->createTensorEmpty({d0, d2}, dtype);
+
   for (OperatorEnum op : kDimReductionOps) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                  " Shape: [3, 5, 4] dim=1");
-
-    auto bufferIn = runtime_->createTensor({d0, d1, d2}, dtype, dataIn.data());
-    auto bufferOut = runtime_->createTensorEmpty({d0, d2}, dtype);
 
     uint32_t shapeData[3] = {outerSize, reduceSize, innerSize};
     runtime_->encodeOperator(
@@ -3058,11 +3062,11 @@ TEST_F(NewOpsShaderCompileTest, AllNewUnaryActivations_Compile) {
   const uint32_t elements = static_cast<uint32_t>(dataIn.size());
   const size_t bufferSize = elements * sizeof(float);
 
+  auto bufferIn = runtime_->createTensor({elements}, dtype, dataIn.data());
+  auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
   for (OperatorEnum op : kNewUnaryActivations) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op));
-
-    auto bufferIn = runtime_->createTensor({elements}, dtype, dataIn.data());
-    auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
 
     EXPECT_NO_THROW(runtime_->encodeOperator(
         op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)}));
@@ -3092,11 +3096,11 @@ TEST_F(NewOpsShaderCompileTest, AllNewUnaryMath_Compile) {
   const uint32_t elements = static_cast<uint32_t>(dataIn.size());
   const size_t bufferSize = elements * sizeof(float);
 
+  auto bufferIn = runtime_->createTensor({elements}, dtype, dataIn.data());
+  auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
+
   for (OperatorEnum op : kNewUnaryMath) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op));
-
-    auto bufferIn = runtime_->createTensor({elements}, dtype, dataIn.data());
-    auto bufferOut = runtime_->createTensorEmpty({elements}, dtype);
 
     EXPECT_NO_THROW(runtime_->encodeOperator(
         op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)}));
@@ -3122,12 +3126,12 @@ TEST_F(NewOpsShaderCompileTest, NewBinaryVecVec_Logaddexp) {
   const uint32_t elements = static_cast<uint32_t>(dataA.size());
   const size_t bufferSize = elements * sizeof(float);
 
+  auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
+  auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
+  auto bufOut = runtime_->createTensorEmpty({elements}, dtype);
+
   for (OperatorEnum op : {BinaryVecVecLogaddexp, BinaryVecVecLogaddexp2}) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op));
-
-    auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
-    auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
-    auto bufOut = runtime_->createTensorEmpty({elements}, dtype);
 
     runtime_->encodeOperator(op,
                              {ComputeBinding(0, bufA), ComputeBinding(1, bufB),
@@ -3152,13 +3156,13 @@ TEST_F(NewOpsShaderCompileTest, NewBinaryVecScalar_ParameterizedActivations) {
   const size_t bufferSize = elements * sizeof(float);
   const float scalar = 0.5f;
 
+  auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
+  auto bufOut = runtime_->createTensorEmpty({elements}, dtype);
+
   for (OperatorEnum op : {BinaryVecScalarPrelu, BinaryVecScalarHardshrink,
                           BinaryVecScalarSoftshrink, BinaryVecScalarLogaddexp,
                           BinaryVecScalarLogaddexp2}) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op));
-
-    auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
-    auto bufOut = runtime_->createTensorEmpty({elements}, dtype);
 
     runtime_->encodeOperator(op, {ComputeBinding(0, bufA),
                                   ComputeBinding(1, bufOut),
@@ -3824,15 +3828,13 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Int32) {
 
       auto dataA = generateTestData<int32_t>(elements, 42);
 
+      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+      float scalarF = static_cast<float>(scalar);
+
       for (OperatorEnum op : kInt32BinaryVecScalarOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        // Pass scalar as float through DataReference (GPU reads as float)
-        float scalarF = static_cast<float>(scalar);
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
@@ -3879,14 +3881,13 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_UInt32) {
 
       auto dataA = generateTestData<uint32_t>(elements, 42);
 
+      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+      float scalarF = static_cast<float>(scalar);
+
       for (OperatorEnum op : kUInt32BinaryVecScalarOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        float scalarF = static_cast<float>(scalar);
-
-        auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferA), ComputeBinding(1, bufferOut),
@@ -3923,12 +3924,12 @@ TEST_F(VulkanBackendTest, UnaryOperators_UInt32) {
 
       auto dataIn = generateTestData<uint32_t>(elements, 42);
 
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
+
       for (OperatorEnum op : kUInt32UnaryOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty(shape, dtype);
 
         runtime_->encodeOperator(
             op, {ComputeBinding(0, bufferIn), ComputeBinding(1, bufferOut)});
@@ -4122,12 +4123,12 @@ TEST_F(VulkanBackendTest, ReductionOperators_Int32) {
       for (auto &v : dataIn)
         v = dist(gen);
 
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
       for (OperatorEnum op : kInt32ReductionOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
 
         int32_t initVal = 0;
         if (op == ReduceProd || op == ReduceAll)
@@ -4167,12 +4168,12 @@ TEST_F(VulkanBackendTest, ReductionOperators_UInt32) {
       for (auto &v : dataIn)
         v = dist(gen);
 
+      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
+
       for (OperatorEnum op : kUInt32ReductionOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
-
-        auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-        auto bufferOut = runtime_->createTensorEmpty({1}, dtype);
 
         uint32_t initVal = 0;
         if (op == ReduceProd || op == ReduceAll)
