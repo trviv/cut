@@ -173,7 +173,8 @@ Operations::vecScalarOp(OperatorEnum op, const ComputeHandle &a, float scalar) {
 // =========================================================================
 
 float Operations::reduceScalar(OperatorEnum op, const ComputeHandle &a) {
-  ComputeHandle out = createOutput({1}, DataType::Float32);
+  auto dtype = getDtype(a);
+  ComputeHandle out = createOutput({1}, dtype);
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
@@ -181,9 +182,19 @@ float Operations::reduceScalar(OperatorEnum op, const ComputeHandle &a) {
 
   runtime_->encodeOperator(op, bindings);
 
-  float result = 0.0f;
-  runtime_->copyFromTensor(out, &result, sizeof(float));
-  return result;
+  if (dtype == DataType::Int32) {
+    int32_t result = 0;
+    runtime_->copyFromTensor(out, &result, sizeof(int32_t));
+    return static_cast<float>(result);
+  } else if (dtype == DataType::UInt32) {
+    uint32_t result = 0;
+    runtime_->copyFromTensor(out, &result, sizeof(uint32_t));
+    return static_cast<float>(result);
+  } else {
+    float result = 0.0f;
+    runtime_->copyFromTensor(out, &result, sizeof(float));
+    return result;
+  }
 }
 
 bool Operations::reduceBool(OperatorEnum op, const ComputeHandle &a) {

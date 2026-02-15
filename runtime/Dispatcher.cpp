@@ -466,18 +466,15 @@ void Dispatcher::encode(OperatorEnum op,
   // For binary vec-scalar ops, filter out data bindings (scalar) from handle
   // bindings since we'll pack them into push constants with numElements
   std::vector<ComputeBinding> handleBindings;
-  float scalarFloat = 0.0f;
+  std::vector<uint8_t> scalarRawData;
 
   if (isBinaryVecScalarOp(op)) {
     for (const auto &binding : bindings) {
       if (binding.isHandle()) {
         handleBindings.push_back(binding);
       } else if (binding.isData()) {
-        // Extract scalar value from data binding (always passed as float)
-        const auto &data = binding.getData();
-        if (data.size() >= sizeof(float)) {
-          scalarFloat = *reinterpret_cast<const float *>(data.data());
-        }
+        // Store raw scalar bytes (already correctly typed by Operations)
+        scalarRawData = binding.getData();
       }
     }
   }
@@ -493,62 +490,45 @@ void Dispatcher::encode(OperatorEnum op,
   if (isBinaryVecScalarOp(op)) {
     // Pack scalar + numElements into push constant data
     // Shader layout: scalar (4 bytes, type matches dtype) then numElements
-    // For integer types, convert the float scalar to the correct integer type
+    // The scalar bytes are already correctly typed by Operations, so copy raw
     struct PushConstants {
       uint32_t scalarBits;
       uint32_t numElements;
     } pushData{0, numElements};
-    if (dtype == DataType::Int32) {
-      int32_t intScalar = static_cast<int32_t>(scalarFloat);
-      std::memcpy(&pushData.scalarBits, &intScalar, sizeof(int32_t));
-    } else if (dtype == DataType::UInt32) {
-      uint32_t uintScalar = static_cast<uint32_t>(scalarFloat);
-      pushData.scalarBits = uintScalar;
-    } else {
-      std::memcpy(&pushData.scalarBits, &scalarFloat, sizeof(float));
+    if (scalarRawData.size() >= sizeof(uint32_t)) {
+      std::memcpy(&pushData.scalarBits, scalarRawData.data(), sizeof(uint32_t));
     }
     dispatch.bindData(DataReference(&pushData, sizeof(pushData)),
                       static_cast<uint32_t>(handleBindings.size()));
   } else if (op == TernaryClamp) {
     // Ternary clamp needs min and max values from data bindings
-    float minVal = 0.0f;
-    float maxVal = 0.0f;
     std::vector<ComputeBinding> ternaryHandleBindings;
+    std::vector<uint8_t> clampRawData;
 
     for (const auto &binding : bindings) {
       if (binding.isHandle()) {
         ternaryHandleBindings.push_back(binding);
       } else if (binding.isData()) {
-        const auto &data = binding.getData();
-        if (data.size() >= 2 * sizeof(float)) {
-          // Expect [minVal, maxVal] in data
-          const float *vals = reinterpret_cast<const float *>(data.data());
-          minVal = vals[0];
-          maxVal = vals[1];
-        }
+        // Store raw clamp bytes (already correctly typed by Operations)
+        clampRawData = binding.getData();
       }
     }
 
     // Recreate dispatch with only handle bindings
     ComputeDispatch ternaryDispatch(shader, workgroupSize,
                                     ternaryHandleBindings);
-    // Pack min/max as correct type (shader uses %SCALAR_DTYPE%)
+    // Pack min/max + numElements as push constants
+    // The min/max bytes are already correctly typed by Operations, copy raw
     struct ClampPushConstants {
       uint32_t minBits;
       uint32_t maxBits;
       uint32_t numElements;
     } clampPushData{0, 0, numElements};
-    if (dtype == DataType::Int32) {
-      int32_t iMin = static_cast<int32_t>(minVal);
-      int32_t iMax = static_cast<int32_t>(maxVal);
-      std::memcpy(&clampPushData.minBits, &iMin, sizeof(int32_t));
-      std::memcpy(&clampPushData.maxBits, &iMax, sizeof(int32_t));
-    } else if (dtype == DataType::UInt32) {
-      clampPushData.minBits = static_cast<uint32_t>(minVal);
-      clampPushData.maxBits = static_cast<uint32_t>(maxVal);
-    } else {
-      std::memcpy(&clampPushData.minBits, &minVal, sizeof(float));
-      std::memcpy(&clampPushData.maxBits, &maxVal, sizeof(float));
+    if (clampRawData.size() >= 2 * sizeof(uint32_t)) {
+      std::memcpy(&clampPushData.minBits, clampRawData.data(),
+                  sizeof(uint32_t));
+      std::memcpy(&clampPushData.maxBits,
+                  clampRawData.data() + sizeof(uint32_t), sizeof(uint32_t));
     }
     ternaryDispatch.bindData(
         DataReference(&clampPushData, sizeof(clampPushData)),
