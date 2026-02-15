@@ -4349,5 +4349,212 @@ TEST_F(TensorCreationTest, Ones_UInt32) {
   }
 }
 
+// ============================================================================
+// Temporary Tensor Deallocation Tests
+// ============================================================================
+
+// Verify that temporary tensors created by ops are deallocated after use.
+// Operations like reduceScalar, dot, softmax, etc. create intermediate
+// GPU buffers internally. These must be freed when their handles go out of
+// scope so that GPU memory doesn't leak.
+//
+// Note: GPU operations are batched in a command buffer which holds references
+// to bound buffers. flush() must be called to submit and release the command
+// buffer before checking that buffers are freed.
+
+TEST_F(VulkanBackendTest, TemporaryTensors_BinaryOp) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_->createTensor({4}, DataType::Float32, data.data());
+  auto b = runtime_->createTensor({4}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto result = runtime_->ops().binaryOp(BinaryVecVecAdd, a, b);
+    runtime_->flush();
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  // After scope, the result handle is destroyed and buffer should be freed
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_UnaryOp) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_->createTensor({4}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto result = runtime_->ops().unaryOp(UnaryNeg, a);
+    runtime_->flush();
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_ReduceScalar) {
+  // reduceScalar creates a temporary 1-element output buffer internally.
+  // copyFromTensor triggers flush internally, so temporaries are freed.
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_->createTensor({4}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  float sum = runtime_->ops().reduceScalar(ReduceSum, a);
+  EXPECT_FLOAT_EQ(sum, 10.0f);
+  // The temporary output buffer should have been freed
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_Dot) {
+  // dot creates a temporary 1-element output buffer internally
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_->createTensor({4}, DataType::Float32, data.data());
+  auto b = runtime_->createTensor({4}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  float result = runtime_->ops().dot(a, b);
+  (void)result; // Result correctness tested elsewhere
+  // The temporary output buffer should have been freed
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_VarianceScalar) {
+  // varianceScalar calls reduceScalar internally (temporary buffer)
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_->createTensor({4}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  float var = runtime_->ops().varianceScalar(a, 0);
+  (void)var;
+  // All temporary buffers should have been freed
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_VarianceDim) {
+  // varianceDim creates a meanHandle intermediate tensor via reduceDim.
+  // It calls copyFromTensor which flushes, so intermediates are released.
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto result = runtime_->ops().varianceDim(a, 1, 0);
+    // Only the returned output should exist (meanHandle intermediate freed)
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  // After scope, the returned output is also freed
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_Softmax) {
+  // softmax creates a maxHandle intermediate tensor via reduceDim
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto result = runtime_->ops().softmax(a, 1);
+    // Only the returned output should exist (maxHandle intermediate freed)
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  // After scope, all buffers freed
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_LogSoftmax) {
+  // logSoftmax creates a maxHandle intermediate tensor via reduceDim
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto result = runtime_->ops().logSoftmax(a, 1);
+    // Only the returned output should exist (maxHandle intermediate freed)
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_ReduceDim) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto result = runtime_->ops().reduceDim(a, 1, ReduceDimSum);
+    runtime_->flush();
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_Reshape) {
+  // reshape creates a new output buffer and uses encodeCopy
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto result = runtime_->ops().reshape(a, {3, 2});
+    runtime_->flush();
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_ChainedOps) {
+  // Chained operations: each intermediate should be freed when no longer held
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_->createTensor({4}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto neg = runtime_->ops().unaryOp(UnaryNeg, a);
+    auto added = runtime_->ops().vecScalarOp(BinaryVecScalarAdd, neg, 10.0f);
+    runtime_->flush();
+    EXPECT_EQ(runtime_->bufferCount(), before + 2);
+  }
+  // Both intermediate buffers should be freed
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_Matmul) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_->createTensor({2, 2}, DataType::Float32, data.data());
+  auto b = runtime_->createTensor({2, 2}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto result = runtime_->ops().matmul(a, b);
+    runtime_->flush();
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
+TEST_F(VulkanBackendTest, TemporaryTensors_Transpose) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
+  runtime_->flush();
+  size_t before = runtime_->bufferCount();
+
+  {
+    auto result = runtime_->ops().transpose(a);
+    runtime_->flush();
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  EXPECT_EQ(runtime_->bufferCount(), before);
+}
+
 } // namespace
 } // namespace cut

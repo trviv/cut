@@ -631,7 +631,7 @@ PYBIND11_MODULE(_cut_compute, m) {
         const auto &buf = getRuntime().getTensor(handle);
         return buf.getShape();
       },
-      py::arg("handle"), "Get the shape of a buffer (padded to 4 dims)");
+      py::arg("handle"), "Get the shape of a buffer");
 
   m.def(
       "get_buffer_dtype",

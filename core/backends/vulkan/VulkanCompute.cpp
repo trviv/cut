@@ -506,6 +506,10 @@ VulkanCompute::getBuffer(const ComputeHandle &bufferHandle) const {
   return containers_->bufferContainer.getBuffer(bufferHandle);
 }
 
+size_t VulkanCompute::bufferCount() const {
+  return containers_->bufferContainer.size();
+}
+
 // Debug callback for validation layer messages
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,

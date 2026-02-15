@@ -68,6 +68,8 @@ public:
     return dummyBuffer;
   }
 
+  size_t bufferCount() const override { return 0; }
+
 private:
   MockContainer bufferContainer_;
   MockContainer shaderContainer_;

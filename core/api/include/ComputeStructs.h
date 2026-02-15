@@ -67,6 +67,18 @@ private:
 /**
  * Base struct for compute buffers across all backends.
  * Contains common metadata shared by all buffer implementations.
+ *
+ * Shape convention:
+ *   shape_.size() defines the total number of dimensions.
+ *   shape_[0] is the most significant (outermost) dimension.
+ *   shape_[shape_.size() - 1] is the least significant (innermost) dimension.
+ *   e.g. for a 3D buffer: shape_[0] = Z, shape_[1] = Y, shape_[2] = X.
+ *
+ * Alignment:
+ *   The least significant (innermost) dimension is always aligned to a
+ *   multiple of 4 when allocating memory and storing data. This must be
+ *   considered in shaders, dispatch sizing, copy operations, and any code
+ *   that computes offsets or strides.
  */
 struct ComputeBuffer {
   void *data = nullptr; ///< Pointer to mapped/accessible data.
@@ -75,15 +87,13 @@ struct ComputeBuffer {
 
   /**
    * Returns the shape of the buffer.
-   * Shape is always padded to exactly 4 dimensions.
    */
   const std::vector<uint32_t> getShape() const { return shape_; }
 
   /**
    * Sets the shape of the buffer.
-   * If size < 4, pads with 1s at the end.
-   * @param newShape The new shape (must have size <= 4).
-   * @throws std::runtime_error if newShape.size() > 4.
+   * @param newShape The new shape (must have 1-4 dimensions).
+   * @throws std::runtime_error if newShape is empty or size > 4.
    */
   void setShape(const std::vector<uint32_t> &newShape);
 
@@ -182,7 +192,7 @@ struct ComputeBuffer {
                                 F &&getBuffer);
 
 private:
-  std::vector<uint32_t> shape_; ///< Dimension-wise sizes (always size 4).
+  std::vector<uint32_t> shape_; ///< Dimension-wise sizes (1-4 dimensions).
   DataType dtype_ = DataType::Float32; ///< Element data type.
   size_t size_ = 0;                    ///< Size in bytes.
   size_t executionElementCount_ = 0;

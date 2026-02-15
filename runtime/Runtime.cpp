@@ -111,6 +111,17 @@ void Runtime::shutdown() {
   pendingCommands_ = false;
 }
 
+size_t Runtime::bufferCount() const {
+  if (!interface_) {
+    return 0;
+  }
+  return interface_->bufferCount();
+}
+
+void Runtime::flush() {
+  flushPendingCommands();
+}
+
 Operations &Runtime::ops() {
   if (!operations_) {
     throw std::runtime_error("Runtime not initialized. Call init() first.");

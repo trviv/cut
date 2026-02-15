@@ -8,16 +8,15 @@
 namespace cut {
 
 void ComputeBuffer::setShape(const std::vector<uint32_t> &newShape) {
+  if (newShape.empty()) {
+    throw std::runtime_error("Shape must not be empty");
+  }
   if (newShape.size() > 4) {
     throw std::runtime_error("Shape size must be <= 4, got " +
                              std::to_string(newShape.size()));
   }
 
-  // Prepend 1s to ensure size is exactly 4, keeping innermost dimension at back
-  shape_.reserve(4);
-  const size_t padCount = 4 - newShape.size();
-  shape_.assign(padCount, 1);
-  shape_.insert(shape_.end(), newShape.begin(), newShape.end());
+  shape_ = newShape;
 
   executionElementCount_ = calculateAlignedElements(shape_);
 

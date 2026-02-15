@@ -68,6 +68,8 @@ public:
     static ComputeBuffer dummyBuffer;
     return dummyBuffer;
   }
+
+  size_t bufferCount() const override { return 0; }
 };
 
 class ComputeContainersTest : public ::testing::Test {

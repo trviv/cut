@@ -145,6 +145,17 @@ public:
   // =========================================================================
 
   /**
+   * Returns the number of active (in-use) GPU buffers.
+   */
+  size_t bufferCount() const;
+
+  /**
+   * Flushes any pending GPU commands.
+   * Submits and waits for all batched operations to complete.
+   */
+  void flush();
+
+  /**
    * Returns a reference to the Operations object for issuing compute
    * operations.
    * @throws std::runtime_error if not initialized.

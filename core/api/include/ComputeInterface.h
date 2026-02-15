@@ -100,6 +100,11 @@ public:
   getBuffer(const ComputeHandle &bufferHandle) const = 0;
 
   /**
+   * Returns the number of active (in-use) buffers.
+   */
+  virtual size_t bufferCount() const = 0;
+
+  /**
    * Encodes a compute dispatch to the active command buffer.
    * If no command buffer is currently recording, one will be created.
    * @param dispatch The compute dispatch object to encode (moved).

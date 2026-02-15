@@ -22,10 +22,7 @@ ComputeHandle Operations::createOutput(const std::vector<uint32_t> &shape,
 }
 
 std::vector<uint32_t> Operations::getShape(const ComputeHandle &h) const {
-  auto shape = runtime_->getTensor(h).getShape();
-  while (shape.size() > 1 && shape.back() == 1)
-    shape.pop_back();
-  return shape;
+  return runtime_->getTensor(h).getShape();
 }
 
 DataType Operations::getDtype(const ComputeHandle &h) const {

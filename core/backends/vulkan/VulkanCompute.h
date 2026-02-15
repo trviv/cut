@@ -52,6 +52,9 @@ public:
   const ComputeBuffer &
   getBuffer(const ComputeHandle &bufferHandle) const override;
 
+  /// Returns the number of active (in-use) buffers.
+  size_t bufferCount() const override;
+
   /// Constructs a VulkanCompute instance with the given Vulkan instance and
   /// configuration.
   VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
