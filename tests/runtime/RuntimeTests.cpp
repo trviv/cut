@@ -2168,21 +2168,21 @@ TEST_F(VulkanBackendTest, TernaryClamp_Float32) {
       const size_t bufferSize = elements * sizeof(float);
 
       auto dataIn = generateTestData<float>(elements, 42);
-      float minVal = 2.0f;
-      float maxVal = 8.0f;
+      float clampVals[2] = {2.0f, 8.0f};
 
       SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
 
       auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
 
-      auto bufferOut = runtime_->ops().clamp(bufferIn, minVal, maxVal);
+      auto bufferOut =
+          runtime_->ops().clamp(bufferIn, DataReference(clampVals));
 
       std::vector<float> output(elements);
       runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
       // Verify results
       for (uint32_t i = 0; i < elements; ++i) {
-        float expected = ternaryClampRef(dataIn[i], minVal, maxVal);
+        float expected = ternaryClampRef(dataIn[i], clampVals[0], clampVals[1]);
         EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
       }
     }
@@ -3576,13 +3576,12 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Int32) {
       auto dataA = generateTestData<int32_t>(elements, 42);
 
       auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-      float scalarF = static_cast<float>(scalar);
 
       for (OperatorEnum op : kInt32BinaryVecScalarOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarF);
+        auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalar);
 
         std::vector<int32_t> output(elements);
         runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -3626,13 +3625,12 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_UInt32) {
       auto dataA = generateTestData<uint32_t>(elements, 42);
 
       auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-      float scalarF = static_cast<float>(scalar);
 
       for (OperatorEnum op : kUInt32BinaryVecScalarOps) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarF);
+        auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalar);
 
         std::vector<uint32_t> output(elements);
         runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -3699,22 +3697,21 @@ TEST_F(VulkanBackendTest, TernaryClamp_Int32) {
       const size_t bufferSize = elements * sizeof(int32_t);
 
       auto dataIn = generateTestData<int32_t>(elements, 42);
-      float minVal = 20.0f;
-      float maxVal = 80.0f;
+      int32_t clampVals[2] = {20, 80};
 
       SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
 
       auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
 
-      auto bufferOut = runtime_->ops().clamp(bufferIn, minVal, maxVal);
+      auto bufferOut =
+          runtime_->ops().clamp(bufferIn, DataReference(clampVals));
 
       std::vector<int32_t> output(elements);
       runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
       for (uint32_t i = 0; i < elements; ++i) {
         int32_t expected =
-            ternaryClampRef(dataIn[i], static_cast<int32_t>(minVal),
-                            static_cast<int32_t>(maxVal));
+            ternaryClampRef(dataIn[i], clampVals[0], clampVals[1]);
         EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
       }
     }
@@ -3730,22 +3727,21 @@ TEST_F(VulkanBackendTest, TernaryClamp_UInt32) {
       const size_t bufferSize = elements * sizeof(uint32_t);
 
       auto dataIn = generateTestData<uint32_t>(elements, 42);
-      float minVal = 20.0f;
-      float maxVal = 80.0f;
+      uint32_t clampVals[2] = {20, 80};
 
       SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
 
       auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
 
-      auto bufferOut = runtime_->ops().clamp(bufferIn, minVal, maxVal);
+      auto bufferOut =
+          runtime_->ops().clamp(bufferIn, DataReference(clampVals));
 
       std::vector<uint32_t> output(elements);
       runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
       for (uint32_t i = 0; i < elements; ++i) {
         uint32_t expected =
-            ternaryClampRef(dataIn[i], static_cast<uint32_t>(minVal),
-                            static_cast<uint32_t>(maxVal));
+            ternaryClampRef(dataIn[i], clampVals[0], clampVals[1]);
         EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
       }
     }
@@ -4323,7 +4319,9 @@ TEST_F(TensorCreationTest, Zeros_Int32) {
   const DataType dtype = DataType::Int32;
 
   const uint32_t elements = 16;
-  auto bufferOut = runtime_->ops().full({elements}, 0.0f, dtype);
+  int32_t fillVal = 0;
+  auto bufferOut =
+      runtime_->ops().full({elements}, DataReference(fillVal), dtype);
 
   std::vector<int32_t> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(),
@@ -4338,7 +4336,9 @@ TEST_F(TensorCreationTest, Ones_UInt32) {
   const DataType dtype = DataType::UInt32;
 
   const uint32_t elements = 16;
-  auto bufferOut = runtime_->ops().full({elements}, 1.0f, dtype);
+  uint32_t fillVal = 1;
+  auto bufferOut =
+      runtime_->ops().full({elements}, DataReference(fillVal), dtype);
 
   std::vector<uint32_t> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(),

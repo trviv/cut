@@ -674,7 +674,19 @@ PYBIND11_MODULE(_cut_compute, m) {
   m.def(
       "ops_vec_scalar",
       [getOps](cut::OperatorEnum op, const cut::ComputeHandle &a,
-               float scalar) { return getOps().vecScalarOp(op, a, scalar); },
+               py::object scalar) {
+        auto dtype = getRuntime().getTensor(a).getDtype();
+        if (dtype == cut::DataType::Int32) {
+          int32_t val = scalar.cast<int32_t>();
+          return getOps().vecScalarOp(op, a, cut::DataReference(val));
+        } else if (dtype == cut::DataType::UInt32) {
+          uint32_t val = scalar.cast<uint32_t>();
+          return getOps().vecScalarOp(op, a, cut::DataReference(val));
+        } else {
+          float val = scalar.cast<float>();
+          return getOps().vecScalarOp(op, a, cut::DataReference(val));
+        }
+      },
       py::arg("op"), py::arg("a"), py::arg("scalar"),
       "Binary vec-scalar operation");
 
@@ -734,8 +746,20 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_clamp",
-      [getOps](const cut::ComputeHandle &a, float min_val, float max_val) {
-        return getOps().clamp(a, min_val, max_val);
+      [getOps](const cut::ComputeHandle &a, py::object min_val,
+               py::object max_val) {
+        auto dtype = getRuntime().getTensor(a).getDtype();
+        if (dtype == cut::DataType::Int32) {
+          int32_t vals[2] = {min_val.cast<int32_t>(), max_val.cast<int32_t>()};
+          return getOps().clamp(a, cut::DataReference(vals));
+        } else if (dtype == cut::DataType::UInt32) {
+          uint32_t vals[2] = {min_val.cast<uint32_t>(),
+                              max_val.cast<uint32_t>()};
+          return getOps().clamp(a, cut::DataReference(vals));
+        } else {
+          float vals[2] = {min_val.cast<float>(), max_val.cast<float>()};
+          return getOps().clamp(a, cut::DataReference(vals));
+        }
       },
       py::arg("a"), py::arg("min_val"), py::arg("max_val"), "Clamp values");
 
@@ -793,25 +817,57 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_arange",
-      [getOps](float start, float end, float step, cut::DataType dtype) {
-        return getOps().arange(start, end, step, dtype);
+      [getOps](py::object start, py::object end, py::object step,
+               cut::DataType dtype) {
+        if (dtype == cut::DataType::Int32) {
+          int32_t s = start.cast<int32_t>();
+          int32_t e = end.cast<int32_t>();
+          int32_t st = step.cast<int32_t>();
+          return getOps().arange(cut::DataReference(s), cut::DataReference(e),
+                                 cut::DataReference(st), dtype);
+        } else if (dtype == cut::DataType::UInt32) {
+          uint32_t s = start.cast<uint32_t>();
+          uint32_t e = end.cast<uint32_t>();
+          uint32_t st = step.cast<uint32_t>();
+          return getOps().arange(cut::DataReference(s), cut::DataReference(e),
+                                 cut::DataReference(st), dtype);
+        } else {
+          float s = start.cast<float>();
+          float e = end.cast<float>();
+          float st = step.cast<float>();
+          return getOps().arange(cut::DataReference(s), cut::DataReference(e),
+                                 cut::DataReference(st), dtype);
+        }
       },
       py::arg("start"), py::arg("end"), py::arg("step"),
       py::arg("dtype") = cut::DataType::Float32, "Create range tensor");
 
   m.def(
       "ops_linspace",
-      [getOps](float start, float end, int steps, cut::DataType dtype) {
-        return getOps().linspace(start, end, steps, dtype);
+      [getOps](py::object start, py::object end, int steps,
+               cut::DataType dtype) {
+        float s = start.cast<float>();
+        float e = end.cast<float>();
+        return getOps().linspace(cut::DataReference(s), cut::DataReference(e),
+                                 steps, dtype);
       },
       py::arg("start"), py::arg("end"), py::arg("steps"),
       py::arg("dtype") = cut::DataType::Float32, "Create linspace tensor");
 
   m.def(
       "ops_full",
-      [getOps](std::vector<uint32_t> shape, float fill_value,
+      [getOps](std::vector<uint32_t> shape, py::object fill_value,
                cut::DataType dtype) {
-        return getOps().full(shape, fill_value, dtype);
+        if (dtype == cut::DataType::Int32) {
+          int32_t val = fill_value.cast<int32_t>();
+          return getOps().full(shape, cut::DataReference(val), dtype);
+        } else if (dtype == cut::DataType::UInt32) {
+          uint32_t val = fill_value.cast<uint32_t>();
+          return getOps().full(shape, cut::DataReference(val), dtype);
+        } else {
+          float val = fill_value.cast<float>();
+          return getOps().full(shape, cut::DataReference(val), dtype);
+        }
       },
       py::arg("shape"), py::arg("fill_value"),
       py::arg("dtype") = cut::DataType::Float32,

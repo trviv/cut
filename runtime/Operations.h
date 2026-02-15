@@ -30,7 +30,7 @@ public:
   ComputeHandle unaryOp(OperatorEnum op, const ComputeHandle &a);
 
   ComputeHandle
-  vecScalarOp(OperatorEnum op, const ComputeHandle &a, float scalar);
+  vecScalarOp(OperatorEnum op, const ComputeHandle &a, DataReference scalar);
 
   // ===== Reduction ops =====
 
@@ -54,7 +54,7 @@ public:
 
   // ===== Special ops =====
 
-  ComputeHandle clamp(const ComputeHandle &a, float minVal, float maxVal);
+  ComputeHandle clamp(const ComputeHandle &a, DataReference clampData);
 
   ComputeHandle where(const ComputeHandle &cond,
                       const ComputeHandle &x,
@@ -76,10 +76,15 @@ public:
 
   // ===== Tensor creation =====
 
-  ComputeHandle arange(float start, float end, float step, DataType dtype);
-  ComputeHandle linspace(float start, float end, int steps, DataType dtype);
+  ComputeHandle arange(DataReference start,
+                       DataReference end,
+                       DataReference step,
+                       DataType dtype);
   ComputeHandle
-  full(const std::vector<uint32_t> &shape, float fillValue, DataType dtype);
+  linspace(DataReference start, DataReference end, int steps, DataType dtype);
+  ComputeHandle full(const std::vector<uint32_t> &shape,
+                     DataReference fillValue,
+                     DataType dtype);
 
   // ===== Shape ops (copy data to new buffer with new shape) =====
 

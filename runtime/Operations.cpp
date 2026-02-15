@@ -140,29 +140,17 @@ ComputeHandle Operations::unaryOp(OperatorEnum op, const ComputeHandle &a) {
   return output;
 }
 
-ComputeHandle
-Operations::vecScalarOp(OperatorEnum op, const ComputeHandle &a, float scalar) {
+ComputeHandle Operations::vecScalarOp(OperatorEnum op,
+                                      const ComputeHandle &a,
+                                      DataReference scalar) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
   ComputeHandle output = createOutput(shape, dtype);
 
-  // Create scalar binding based on dtype
-  ComputeBinding scalarBinding = [&]() -> ComputeBinding {
-    if (dtype == DataType::Int32) {
-      int32_t val = static_cast<int32_t>(scalar);
-      return ComputeBinding(2, DataReference(&val, sizeof(val)));
-    } else if (dtype == DataType::UInt32) {
-      uint32_t val = static_cast<uint32_t>(scalar);
-      return ComputeBinding(2, DataReference(&val, sizeof(val)));
-    } else {
-      return ComputeBinding(2, DataReference(&scalar, sizeof(scalar)));
-    }
-  }();
-
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
   bindings.emplace_back(1, output);
-  bindings.push_back(std::move(scalarBinding));
+  bindings.emplace_back(2, scalar);
 
   runtime_->encodeOperator(op, bindings);
   return output;
@@ -320,35 +308,16 @@ float Operations::dot(const ComputeHandle &a, const ComputeHandle &b) {
 // Special ops
 // =========================================================================
 
-ComputeHandle
-Operations::clamp(const ComputeHandle &a, float minVal, float maxVal) {
+ComputeHandle Operations::clamp(const ComputeHandle &a,
+                                DataReference clampData) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
   ComputeHandle output = createOutput(shape, dtype);
 
-  // Pack min/max as typed data
-  uint8_t clampBuf[8];
-  uint32_t clampSize = 0;
-  if (dtype == DataType::Int32) {
-    int32_t vals[2] = {static_cast<int32_t>(minVal),
-                       static_cast<int32_t>(maxVal)};
-    std::memcpy(clampBuf, vals, sizeof(vals));
-    clampSize = sizeof(vals);
-  } else if (dtype == DataType::UInt32) {
-    uint32_t vals[2] = {static_cast<uint32_t>(minVal),
-                        static_cast<uint32_t>(maxVal)};
-    std::memcpy(clampBuf, vals, sizeof(vals));
-    clampSize = sizeof(vals);
-  } else {
-    float vals[2] = {minVal, maxVal};
-    std::memcpy(clampBuf, vals, sizeof(vals));
-    clampSize = sizeof(vals);
-  }
-
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
   bindings.emplace_back(1, output);
-  bindings.emplace_back(2, DataReference(clampBuf, clampSize));
+  bindings.emplace_back(2, clampData);
 
   runtime_->encodeOperator(OperatorEnum::TernaryClamp, bindings);
   return output;
@@ -592,49 +561,77 @@ ComputeHandle Operations::logSoftmax(const ComputeHandle &a, int dim) {
 // Tensor creation
 // =========================================================================
 
-ComputeHandle
-Operations::arange(float start, float end, float step, DataType dtype) {
-  if (step == 0.0f) {
-    throw std::runtime_error("step cannot be zero");
-  }
-
-  int n = static_cast<int>((end - start) / step);
-  if (n < 0)
-    n = 0;
-
-  std::vector<uint32_t> shape = {static_cast<uint32_t>(n)};
-
+ComputeHandle Operations::arange(DataReference start,
+                                 DataReference end,
+                                 DataReference step,
+                                 DataType dtype) {
   if (dtype == DataType::Int32) {
+    int32_t s, e, st;
+    std::memcpy(&s, start.ptr, sizeof(int32_t));
+    std::memcpy(&e, end.ptr, sizeof(int32_t));
+    std::memcpy(&st, step.ptr, sizeof(int32_t));
+    if (st == 0)
+      throw std::runtime_error("step cannot be zero");
+    int n = (e - s) / st;
+    if (n < 0)
+      n = 0;
+    std::vector<uint32_t> shape = {static_cast<uint32_t>(n)};
     std::vector<int32_t> values(n);
     for (int i = 0; i < n; ++i)
-      values[i] = static_cast<int32_t>(start + i * step);
+      values[i] = s + i * st;
     return runtime_->createTensor(shape, dtype, values.data());
   } else if (dtype == DataType::UInt32) {
+    uint32_t s, e, st;
+    std::memcpy(&s, start.ptr, sizeof(uint32_t));
+    std::memcpy(&e, end.ptr, sizeof(uint32_t));
+    std::memcpy(&st, step.ptr, sizeof(uint32_t));
+    if (st == 0)
+      throw std::runtime_error("step cannot be zero");
+    int n = static_cast<int>((e - s) / st);
+    if (n < 0)
+      n = 0;
+    std::vector<uint32_t> shape = {static_cast<uint32_t>(n)};
     std::vector<uint32_t> values(n);
     for (int i = 0; i < n; ++i)
-      values[i] = static_cast<uint32_t>(start + i * step);
+      values[i] = s + i * st;
     return runtime_->createTensor(shape, dtype, values.data());
   } else {
+    float s, e, st;
+    std::memcpy(&s, start.ptr, sizeof(float));
+    std::memcpy(&e, end.ptr, sizeof(float));
+    std::memcpy(&st, step.ptr, sizeof(float));
+    if (st == 0.0f)
+      throw std::runtime_error("step cannot be zero");
+    int n = static_cast<int>((e - s) / st);
+    if (n < 0)
+      n = 0;
+    std::vector<uint32_t> shape = {static_cast<uint32_t>(n)};
     std::vector<float> values(n);
     for (int i = 0; i < n; ++i)
-      values[i] = start + i * step;
+      values[i] = s + i * st;
     return runtime_->createTensor(shape, dtype, values.data());
   }
 }
 
-ComputeHandle
-Operations::linspace(float start, float end, int steps, DataType dtype) {
+ComputeHandle Operations::linspace(DataReference start,
+                                   DataReference end,
+                                   int steps,
+                                   DataType dtype) {
   if (steps < 1) {
     throw std::runtime_error("steps must be at least 1");
   }
 
+  float s, e;
+  std::memcpy(&s, start.ptr, sizeof(float));
+  std::memcpy(&e, end.ptr, sizeof(float));
+
   std::vector<float> values(steps);
   if (steps == 1) {
-    values[0] = start;
+    values[0] = s;
   } else {
-    float stepSize = (end - start) / (steps - 1);
+    float stepSize = (e - s) / (steps - 1);
     for (int i = 0; i < steps; ++i)
-      values[i] = start + i * stepSize;
+      values[i] = s + i * stepSize;
   }
 
   std::vector<uint32_t> shape = {static_cast<uint32_t>(steps)};
@@ -642,18 +639,24 @@ Operations::linspace(float start, float end, int steps, DataType dtype) {
 }
 
 ComputeHandle Operations::full(const std::vector<uint32_t> &shape,
-                               float fillValue,
+                               DataReference fillValue,
                                DataType dtype) {
   size_t totalSize = shapeProduct(shape);
 
   if (dtype == DataType::Int32) {
-    std::vector<int32_t> values(totalSize, static_cast<int32_t>(fillValue));
+    int32_t val;
+    std::memcpy(&val, fillValue.ptr, sizeof(int32_t));
+    std::vector<int32_t> values(totalSize, val);
     return runtime_->createTensor(shape, dtype, values.data());
   } else if (dtype == DataType::UInt32) {
-    std::vector<uint32_t> values(totalSize, static_cast<uint32_t>(fillValue));
+    uint32_t val;
+    std::memcpy(&val, fillValue.ptr, sizeof(uint32_t));
+    std::vector<uint32_t> values(totalSize, val);
     return runtime_->createTensor(shape, dtype, values.data());
   } else {
-    std::vector<float> values(totalSize, fillValue);
+    float val;
+    std::memcpy(&val, fillValue.ptr, sizeof(float));
+    std::vector<float> values(totalSize, val);
     return runtime_->createTensor(shape, dtype, values.data());
   }
 }
