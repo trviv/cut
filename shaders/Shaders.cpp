@@ -95,6 +95,10 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledFill(datatype);
   } else if (shader == Copy) {
     compiled = compiledCopy(datatype);
+  } else if (shader == InternalPartialReduce) {
+    compiled = compiledPartialReduce(datatype);
+  } else if (shader == InternalFinalReduce) {
+    compiled = compiledFinalReduce(datatype);
   } else if (shader >= InternalScanPerWg && shader <= InternalScanUint) {
     switch (shader) {
     case InternalScanPerWg:

@@ -4,7 +4,6 @@
 #include <ComputeOps.h>
 #include <ComputeStructs.h>
 
-#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -59,7 +58,7 @@ private:
   /// Temporary buffers currently in use by the current multi-pass operation.
   std::vector<ComputeHandle> activeTempBuffers_;
 
-  /// Internal shader cache keyed by hash of GLSL source.
+  /// Internal shader cache keyed by (op, dtype) composite key.
   std::unordered_map<size_t, ComputeHandle> internalShaderCache_;
 
   /**
@@ -77,21 +76,14 @@ private:
   void encodeBarrier();
 
   /**
-   * Gets or creates an internal shader from GLSL source.
-   * Compiles the source to SPIR-V and caches the result.
-   * @param glslSource The GLSL source code.
-   * @return Handle to the shader module.
-   */
-  ComputeHandle getOrCreateInternalShader(const std::string &glslSource);
-
-  /**
    * Gets or creates an internal shader by OperatorEnum.
    * Uses the shader generation system (getShader) to compile, then caches.
-   * Only works for non-parameterized internal shader templates.
-   * @param op The internal operator enum (e.g., InternalScanPerWg).
+   * @param op The operator enum (e.g., InternalScanPerWg).
+   * @param dtype Data type for dtype-parameterized shaders.
    * @return Handle to the shader module.
    */
-  ComputeHandle getOrCreateInternalShader(OperatorEnum op);
+  ComputeHandle getOrCreateInternalShader(OperatorEnum op,
+                                          DataType dtype = DataType::Float32);
 
   /**
    * Dispatches an internal shader with the given bindings and push constants.

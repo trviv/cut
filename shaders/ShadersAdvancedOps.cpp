@@ -1123,11 +1123,6 @@ void main() {
   // Dispatcher internal shader templates
   // =============================================================================
 
-  // Note: InternalPartialReduce and InternalFinalReduce are parameterized
-  // templates with %PLACEHOLDER% tokens. They cannot be compiled directly
-  // and are accessed via the extern kPartialReduceTemplate/kFinalReduceTemplate
-  // variables for runtime substitution in the Dispatcher.
-
   // Prefix scan templates
   case InternalScanPerWg: {
     shaderSource = kScanPerWgTemplate;
@@ -1235,114 +1230,7 @@ void main() {
 }
 
 // =============================================================================
-// Dispatcher internal shader templates
-// (multi-workgroup reduce, prefix scan, bitonic sort, radix sort)
-// =============================================================================
-
-/// Partial reduce shader template: each workgroup reduces its batch and writes
-/// one partial result to dataOut[gl_WorkGroupID.x].
-const char *kPartialReduceTemplate = R"(#version 450
-
-#define WG_SIZE 256
-layout(local_size_x = WG_SIZE, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
-    uint numElements;
-    uint groupCount;
-};
-
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    %SCALAR_DTYPE% dataIn[];
-};
-
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    %SCALAR_DTYPE% dataOut[];
-};
-
-shared %SCALAR_DTYPE% sharedData[WG_SIZE];
-
-void main() {
-    uint tid = gl_LocalInvocationID.x;
-    uint gid = gl_WorkGroupID.x;
-    uint globalId = gid * WG_SIZE + tid;
-
-    // Each thread reduces multiple elements via strided loop
-    %SCALAR_DTYPE% localVal = %SCALAR_DTYPE%(%IDENTITY%);
-    for (uint i = globalId; i < numElements; i += WG_SIZE * groupCount) {
-        %SCALAR_DTYPE% a = localVal;
-        %SCALAR_DTYPE% b = dataIn[i];
-        localVal = %SCALAR_DTYPE%(%REDUCE_OP%);
-    }
-    sharedData[tid] = localVal;
-    barrier();
-
-    // Parallel reduction in shared memory
-    for (uint stride = WG_SIZE / 2; stride > 0; stride >>= 1) {
-        if (tid < stride) {
-            %SCALAR_DTYPE% a = sharedData[tid];
-            %SCALAR_DTYPE% b = sharedData[tid + stride];
-            sharedData[tid] = %SCALAR_DTYPE%(%REDUCE_OP%);
-        }
-        barrier();
-    }
-
-    if (tid == 0) {
-        dataOut[gid] = sharedData[0];
-    }
-}
-)";
-
-/// Final reduce shader template: single workgroup reduces partial sums.
-/// Optionally divides by originalNumElements for mean.
-const char *kFinalReduceTemplate = R"(#version 450
-
-#define WG_SIZE 256
-layout(local_size_x = WG_SIZE, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
-    uint numElements;
-    uint originalNumElements;
-};
-
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    %SCALAR_DTYPE% dataIn[];
-};
-
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    %SCALAR_DTYPE% dataOut[];
-};
-
-shared %SCALAR_DTYPE% sharedData[WG_SIZE];
-
-void main() {
-    uint tid = gl_LocalInvocationID.x;
-
-    %SCALAR_DTYPE% localVal = %SCALAR_DTYPE%(%IDENTITY%);
-    for (uint i = tid; i < numElements; i += WG_SIZE) {
-        %SCALAR_DTYPE% a = localVal;
-        %SCALAR_DTYPE% b = dataIn[i];
-        localVal = %SCALAR_DTYPE%(%REDUCE_OP%);
-    }
-    sharedData[tid] = localVal;
-    barrier();
-
-    for (uint stride = WG_SIZE / 2; stride > 0; stride >>= 1) {
-        if (tid < stride) {
-            %SCALAR_DTYPE% a = sharedData[tid];
-            %SCALAR_DTYPE% b = sharedData[tid + stride];
-            sharedData[tid] = %SCALAR_DTYPE%(%REDUCE_OP%);
-        }
-        barrier();
-    }
-
-    if (tid == 0) {
-        %FINAL_WRITE%
-    }
-}
-)";
-
-// =============================================================================
-// Prefix Scan Shader Templates (three-pass approach)
+// Dispatcher internal shader templates (prefix scan, bitonic sort, radix sort)
 // =============================================================================
 
 /// Pass 1: Per-workgroup Hillis-Steele inclusive scan.

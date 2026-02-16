@@ -17,8 +17,6 @@ extern const char *reductionDimShaderTemplate;
 
 // Dispatcher internal shader templates (multi-workgroup reduce, prefix scan,
 // bitonic sort, radix sort)
-extern const char *kPartialReduceTemplate;
-extern const char *kFinalReduceTemplate;
 extern const char *kScanPerWgTemplate;
 extern const char *kScanPartialSumsTemplate;
 extern const char *kScanPropagateTemplate;

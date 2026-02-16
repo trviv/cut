@@ -1,6 +1,5 @@
 #include "Dispatcher.h"
 
-#include "ShaderUtils.h"
 #include "Shaders.h"
 #include <ComputeInterface.h>
 
@@ -245,75 +244,6 @@ bool isMatrixOp(OperatorEnum op) {
 
 /// Threshold for switching from single-workgroup to multi-workgroup reduce.
 constexpr uint32_t kMultiReduceThreshold = 65536;
-
-/// Returns GLSL scalar type name for a DataType.
-const char *scalarTypeName(DataType dtype) {
-  switch (dtype) {
-  case DataType::Float32:
-    return "float";
-  case DataType::Float16:
-    return "float";
-  case DataType::UInt32:
-    return "uint";
-  case DataType::Int32:
-    return "int";
-  default:
-    return "float";
-  }
-}
-
-/// Simple string replacement helper.
-std::string
-replaceAllStr(std::string str, const std::string &from, const std::string &to) {
-  size_t pos = 0;
-  while ((pos = str.find(from, pos)) != std::string::npos) {
-    str.replace(pos, from.length(), to);
-    pos += to.length();
-  }
-  return str;
-}
-
-/// Parameters for a reduction operation.
-struct ReduceParams {
-  const char *identity;
-  const char *reduceOp;
-  bool isMean;
-};
-
-/// Returns the identity value and reduce operation for a given reduction op.
-ReduceParams getReduceParams(OperatorEnum op,
-                             DataType dtype = DataType::Float32) {
-  bool isInt = dtype == DataType::Int32 || dtype == DataType::UInt32;
-  bool isUint = dtype == DataType::UInt32;
-  const char *minIdentity =
-      isUint ? "4294967295u" : (isInt ? "2147483647" : "3.402823466e+38");
-  const char *maxIdentity =
-      isUint ? "0u" : (isInt ? "-2147483648" : "-3.402823466e+38");
-  switch (op) {
-  case ReduceSum:
-    return {isInt ? "0" : "0.0", "a + b", false};
-  case ReduceMean:
-    return {isInt ? "0" : "0.0", "a + b", true};
-  case ReduceMin:
-    return {minIdentity, "min(a, b)", false};
-  case ReduceMax:
-    return {maxIdentity, "max(a, b)", false};
-  case ReduceProd:
-    return {isInt ? "1" : "1.0", "a * b", false};
-  case ReduceAny:
-    return {isInt ? "0" : "0.0",
-            isInt ? "((a != 0 || b != 0) ? 1 : 0)"
-                  : "((a != 0.0 || b != 0.0) ? 1.0 : 0.0)",
-            false};
-  case ReduceAll:
-    return {isInt ? "1" : "1.0",
-            isInt ? "((a != 0 && b != 0) ? 1 : 0)"
-                  : "((a != 0.0 && b != 0.0) ? 1.0 : 0.0)",
-            false};
-  default:
-    return {isInt ? "0" : "0.0", "a + b", false};
-  }
-}
 
 /// Checks if a reduction op supports multi-workgroup (excludes argmax/argmin).
 bool isMultiReduceCapable(OperatorEnum op) {
@@ -1023,9 +953,7 @@ void Dispatcher::encodeMultiWorkgroupReduce(
         return iface_->getBuffer(h);
       });
 
-  auto params = getReduceParams(op, dtype);
   uint32_t numElements = static_cast<uint32_t>(executionSize);
-  const char *scalarType = scalarTypeName(dtype);
 
   // Each WG of 256 threads processes ~1024 elements, cap at 256 workgroups
   uint32_t groupCount = (numElements + 1023) / 1024;
@@ -1043,28 +971,10 @@ void Dispatcher::encodeMultiWorkgroupReduce(
       outputHandle = b.getHandle();
   }
 
-  // Generate and cache partial reduce shader
-  std::string partialSrc = kPartialReduceTemplate;
-  partialSrc = replaceAllStr(partialSrc, "%SCALAR_DTYPE%", scalarType);
-  partialSrc = replaceAllStr(partialSrc, "%IDENTITY%", params.identity);
-  partialSrc = replaceAllStr(partialSrc, "%REDUCE_OP%", params.reduceOp);
-  ComputeHandle partialShader = getOrCreateInternalShader(partialSrc);
-
-  // Generate and cache final reduce shader
-  std::string finalSrc = kFinalReduceTemplate;
-  finalSrc = replaceAllStr(finalSrc, "%SCALAR_DTYPE%", scalarType);
-  finalSrc = replaceAllStr(finalSrc, "%IDENTITY%", params.identity);
-  finalSrc = replaceAllStr(finalSrc, "%REDUCE_OP%", params.reduceOp);
-  if (params.isMean) {
-    finalSrc =
-        replaceAllStr(finalSrc, "%FINAL_WRITE%",
-                      "dataOut[0] = sharedData[0] / " +
-                          std::string(scalarType) + "(originalNumElements);");
-  } else {
-    finalSrc =
-        replaceAllStr(finalSrc, "%FINAL_WRITE%", "dataOut[0] = sharedData[0];");
-  }
-  ComputeHandle finalShader = getOrCreateInternalShader(finalSrc);
+  ComputeHandle partialShader =
+      getOrCreateInternalShader(InternalPartialReduce, dtype);
+  ComputeHandle finalShader =
+      getOrCreateInternalShader(InternalFinalReduce, dtype);
 
   ComputeHandle partialSums = acquireTempBuffer(groupCount, dtype);
 
@@ -1072,7 +982,8 @@ void Dispatcher::encodeMultiWorkgroupReduce(
   struct PartialPC {
     uint32_t numElements;
     uint32_t groupCount;
-  } partialPC{numElements, groupCount};
+    uint32_t reduceOp;
+  } partialPC{numElements, groupCount, static_cast<uint32_t>(op)};
   dispatchInternal(partialShader, {{0u, inputHandle}, {1u, partialSums}},
                    {256 * groupCount, 1, 1}, partialPC);
   encodeBarrier();
@@ -1081,7 +992,8 @@ void Dispatcher::encodeMultiWorkgroupReduce(
   struct FinalPC {
     uint32_t numElements;
     uint32_t originalNumElements;
-  } finalPC{groupCount, numElements};
+    uint32_t reduceOp;
+  } finalPC{groupCount, numElements, static_cast<uint32_t>(op)};
   dispatchInternal(finalShader, {{0u, partialSums}, {1u, outputHandle}},
                    {256, 1, 1}, finalPC);
 
@@ -1123,24 +1035,6 @@ void Dispatcher::encodeBarrier() {
   iface_->encode(ComputeDispatch::createBarrier());
 }
 
-ComputeHandle
-Dispatcher::getOrCreateInternalShader(const std::string &glslSource) {
-  // Hash the source string for cache lookup
-  std::hash<std::string> hasher;
-  size_t key = hasher(glslSource);
-
-  auto it = internalShaderCache_.find(key);
-  if (it != internalShaderCache_.end()) {
-    return it->second;
-  }
-
-  // Compile GLSL to SPIR-V and create shader module
-  auto spirv = compileShaderToSpirv(glslSource, "internal_shader");
-  ComputeHandle handle = iface_->createShaderModule(spirv);
-  internalShaderCache_[key] = handle;
-  return handle;
-}
-
 void Dispatcher::dispatchInternal(const ComputeHandle &shader,
                                   const std::vector<ComputeBinding> &bindings,
                                   ThreadSize threadSize,
@@ -1158,9 +1052,10 @@ void Dispatcher::dispatchInternal(OperatorEnum op,
                    pushData);
 }
 
-ComputeHandle Dispatcher::getOrCreateInternalShader(OperatorEnum op) {
-  // Use enum value with high-bit offset to avoid collision with string hashes
-  size_t key = static_cast<size_t>(op) | (size_t(1) << 48);
+ComputeHandle Dispatcher::getOrCreateInternalShader(OperatorEnum op,
+                                                    DataType dtype) {
+  size_t key = static_cast<size_t>(op) | (static_cast<size_t>(dtype) << 16) |
+               (size_t(1) << 48);
 
   auto it = internalShaderCache_.find(key);
   if (it != internalShaderCache_.end()) {
@@ -1168,7 +1063,7 @@ ComputeHandle Dispatcher::getOrCreateInternalShader(OperatorEnum op) {
   }
 
   // Compile via the shader generation system
-  auto spirv = getShader(op);
+  auto spirv = getShader(op, dtype);
   ComputeHandle handle = iface_->createShaderModule(spirv);
   internalShaderCache_[key] = handle;
   return handle;

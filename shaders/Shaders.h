@@ -89,6 +89,12 @@ compiledCopy(const DataType datatype = DataType::Float32);
 // Dispatcher internal compiled shaders (prefix scan, bitonic sort, radix sort,
 // utility)
 std::optional<std::vector<uint32_t>>
+compiledPartialReduce(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledFinalReduce(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
 compiledScanPerWg(const DataType datatype = DataType::Float32);
 
 std::optional<std::vector<uint32_t>>

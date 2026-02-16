@@ -279,7 +279,7 @@
 // Dispatcher internal shader templates (280-291)
 // =============================================================================
 
-// Multi-workgroup reduce (parameterized templates)
+// Multi-workgroup reduce
 #define OP_INTERNAL_PARTIAL_REDUCE 280
 #define OP_INTERNAL_FINAL_REDUCE 281
 
