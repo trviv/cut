@@ -65,6 +65,12 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledUnary(datatype);
   } else if (shader >= UnaryRelu6 && shader <= UnaryIsFinite) {
     compiled = compiledUnary(datatype);
+  } else if (shader == MatMul) {
+    compiled = compiledMatMul(datatype);
+  } else if (shader == Transpose) {
+    compiled = compiledTranspose(datatype);
+  } else if (shader >= ReduceSum && shader <= ReduceAll) {
+    compiled = compiledReduce(datatype);
   }
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
