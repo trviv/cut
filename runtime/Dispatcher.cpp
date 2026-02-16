@@ -710,41 +710,35 @@ void Dispatcher::encode(OperatorEnum op,
                           static_cast<uint32_t>(bindings.size()));
     iface_->encode(std::move(normDispatch));
     return;
-  } else if (op == Zeros || op == Ones) {
-    // Tensor creation: output buffer only, numElements as push constant
-    std::vector<ComputeBinding> handleBindingsOnly;
-    for (const auto &binding : bindings) {
-      if (binding.isHandle()) {
-        handleBindingsOnly.push_back(binding);
-      }
-    }
-    ComputeDispatch creationDispatch(shader, workgroupSize, handleBindingsOnly);
-    creationDispatch.bindData(DataReference(numElements),
-                              static_cast<uint32_t>(handleBindingsOnly.size()));
-    iface_->encode(std::move(creationDispatch));
-    return;
-  } else if (op == Full) {
-    // Full: output buffer + fill value from DataReference
+  } else if (op == Zeros || op == Ones || op == Full) {
+    // Unified fill: output buffer + fillValue + numElements as push constants
     std::vector<ComputeBinding> handleBindingsOnly;
     float fillValue = 0.0f;
-    for (const auto &binding : bindings) {
-      if (binding.isHandle()) {
-        handleBindingsOnly.push_back(binding);
-      } else if (binding.isData()) {
-        const auto &data = binding.getData();
-        if (data.size() >= sizeof(float)) {
-          fillValue = *reinterpret_cast<const float *>(data.data());
+    if (op == Ones) {
+      fillValue = 1.0f;
+    } else if (op == Full) {
+      for (const auto &binding : bindings) {
+        if (binding.isData()) {
+          const auto &data = binding.getData();
+          if (data.size() >= sizeof(float)) {
+            fillValue = *reinterpret_cast<const float *>(data.data());
+          }
         }
       }
     }
-    ComputeDispatch fullDispatch(shader, workgroupSize, handleBindingsOnly);
-    struct FullPushConstants {
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        handleBindingsOnly.push_back(binding);
+      }
+    }
+    ComputeDispatch fillDispatch(shader, workgroupSize, handleBindingsOnly);
+    struct FillPushConstants {
       float fillValue;
       uint32_t numElements;
     } pushData{fillValue, numElements};
-    fullDispatch.bindData(DataReference(&pushData, sizeof(pushData)),
+    fillDispatch.bindData(DataReference(&pushData, sizeof(pushData)),
                           static_cast<uint32_t>(handleBindingsOnly.size()));
-    iface_->encode(std::move(fullDispatch));
+    iface_->encode(std::move(fillDispatch));
     return;
   } else if (op == Arange || op == Linspace) {
     // Arange/Linspace: output buffer + [start, step] from DataReference

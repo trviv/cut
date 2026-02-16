@@ -573,7 +573,7 @@ VulkanInstance::VulkanInstance() {
     for (auto &extensionProperty : extensionProperties) {
       supportedExtensions.emplace_back(extensionProperty.extensionName);
     }
-    logMsg("Supported extensions", supportedExtensions);
+    // logMsg("Supported extensions", supportedExtensions);
   }
 
   std::vector<const char *> extensions;
@@ -634,7 +634,7 @@ VulkanInstance::VulkanInstance() {
       layerNames.push_back(layer.layerName);
     }
 
-    logMsg("Instance Layers", layerNames);
+    // logMsg("Instance Layers", layerNames);
 
     bool validationLayerPresent = false;
     for (const auto &layer : instanceLayerProperties) {

@@ -53,6 +53,39 @@ compiledTranspose(const DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>>
 compiledReduce(const DataType datatype = DataType::Float32);
 
+std::optional<std::vector<uint32_t>>
+compiledReduceDim(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledReduceArg(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledReduceDimArg(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledCumOp(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledDot(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledTernaryClamp(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledTernarySelect(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledNorm(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledArange(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledFill(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledCopy(const DataType datatype = DataType::Float32);
+
 // Dispatcher internal compiled shaders (prefix scan, bitonic sort, radix sort,
 // utility)
 std::optional<std::vector<uint32_t>>

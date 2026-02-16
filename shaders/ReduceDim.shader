@@ -1,0 +1,117 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "ComputeOpsShared.h"
+
+%DTYPE_DEFINES%
+
+// Specialization constants
+layout(constant_id = 1) const uint op_enum = OP_REDUCE_DIM_SUM;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint outerSize;
+    uint reduceSize;
+    uint innerSize;
+    uint inOuterStride;
+    uint inReduceStride;
+};
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
+    %SCALAR_DTYPE% dataIn[];
+};
+
+layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
+    %SCALAR_DTYPE% dataOut[];
+};
+
+%SCALAR_DTYPE% identity() {
+    switch (op_enum) {
+        case OP_REDUCE_DIM_SUM:
+        case OP_REDUCE_DIM_MEAN:
+        case OP_REDUCE_DIM_ANY:
+        case OP_NORM_DIM:
+            return %SCALAR_DTYPE%(0);
+        case OP_REDUCE_DIM_PROD:
+        case OP_REDUCE_DIM_ALL:
+            return %SCALAR_DTYPE%(1);
+        case OP_REDUCE_DIM_MIN:
+#ifdef DTYPE_IS_FLOAT
+            return 3.402823466e+38;
+#elif defined(DTYPE_IS_UINT)
+            return 4294967295u;
+#else
+            return 2147483647;
+#endif
+        case OP_REDUCE_DIM_MAX:
+#ifdef DTYPE_IS_FLOAT
+            return -3.402823466e+38;
+#elif defined(DTYPE_IS_UINT)
+            return 0u;
+#else
+            return -2147483648;
+#endif
+        default:
+            return %SCALAR_DTYPE%(0);
+    }
+}
+
+%SCALAR_DTYPE% reduceOp(%SCALAR_DTYPE% a, %SCALAR_DTYPE% b) {
+    switch (op_enum) {
+        case OP_REDUCE_DIM_SUM:
+        case OP_REDUCE_DIM_MEAN:
+            return a + b;
+        case OP_REDUCE_DIM_PROD:
+            return a * b;
+        case OP_REDUCE_DIM_MIN:
+            return min(a, b);
+        case OP_REDUCE_DIM_MAX:
+            return max(a, b);
+        case OP_REDUCE_DIM_ANY:
+#ifdef DTYPE_IS_FLOAT
+            return (a != 0.0 || b != 0.0) ? 1.0 : 0.0;
+#else
+            return (a != 0 || b != 0) ? 1 : 0;
+#endif
+        case OP_REDUCE_DIM_ALL:
+#ifdef DTYPE_IS_FLOAT
+            return (a != 0.0 && b != 0.0) ? 1.0 : 0.0;
+#else
+            return (a != 0 && b != 0) ? 1 : 0;
+#endif
+        case OP_NORM_DIM:
+            return a + b * b;
+        default:
+            return a + b;
+    }
+}
+
+void main() {
+    uint outIdx = gl_GlobalInvocationID.x;
+    uint numOutputs = outerSize * innerSize;
+
+    if (outIdx >= numOutputs) {
+        return;
+    }
+
+    uint outer = outIdx / innerSize;
+    uint inner = outIdx % innerSize;
+
+    %SCALAR_DTYPE% val = identity();
+    for (uint r = 0; r < reduceSize; r++) {
+        uint inIdx = outer * inOuterStride + r * inReduceStride + inner;
+        val = reduceOp(val, dataIn[inIdx]);
+    }
+
+    // Finalization
+    if (op_enum == OP_REDUCE_DIM_MEAN) {
+        val = val / %SCALAR_DTYPE%(reduceSize);
+    } else if (op_enum == OP_NORM_DIM) {
+#ifdef DTYPE_IS_FLOAT
+        val = sqrt(val);
+#endif
+    }
+
+    dataOut[outIdx] = val;
+}

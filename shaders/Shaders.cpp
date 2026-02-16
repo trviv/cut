@@ -72,6 +72,29 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledTranspose(datatype);
   } else if (shader >= ReduceSum && shader <= ReduceAll) {
     compiled = compiledReduce(datatype);
+  } else if ((shader >= ReduceDimSum && shader <= ReduceDimAll) ||
+             shader == NormDim) {
+    compiled = compiledReduceDim(datatype);
+  } else if (shader == ReduceArgmax || shader == ReduceArgmin) {
+    compiled = compiledReduceArg(datatype);
+  } else if (shader == ReduceDimArgmax || shader == ReduceDimArgmin) {
+    compiled = compiledReduceDimArg(datatype);
+  } else if (shader == CumSum || shader == CumProd) {
+    compiled = compiledCumOp(datatype);
+  } else if (shader == Dot) {
+    compiled = compiledDot(datatype);
+  } else if (shader == TernaryClamp) {
+    compiled = compiledTernaryClamp(datatype);
+  } else if (shader == TernarySelect) {
+    compiled = compiledTernarySelect(datatype);
+  } else if (shader == Norm) {
+    compiled = compiledNorm(datatype);
+  } else if (shader == Arange || shader == Linspace) {
+    compiled = compiledArange(datatype);
+  } else if (shader == Zeros || shader == Ones || shader == Full) {
+    compiled = compiledFill(datatype);
+  } else if (shader == Copy) {
+    compiled = compiledCopy(datatype);
   } else if (shader >= InternalScanPerWg && shader <= InternalScanUint) {
     switch (shader) {
     case InternalScanPerWg:
