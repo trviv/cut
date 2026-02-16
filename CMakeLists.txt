@@ -93,9 +93,6 @@ set(LIB_HEADERS
 set(LIB_SOURCES
     shaders/Shaders.cpp
     shaders/ShaderUtils.cpp
-    shaders/ShadersGenerated.cpp
-    shaders/ShadersBasicOps.cpp
-    shaders/ShadersAdvancedOps.cpp
     shaders/CompiledShaders.cpp
     core/api/src/ComputeCommon.cpp
     core/api/src/ComputeHandle.cpp

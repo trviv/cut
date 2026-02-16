@@ -4,10 +4,7 @@
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <cstdint>
-#include <fstream>
 #include <optional>
-#include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace cut {
@@ -20,14 +17,6 @@ using ShaderEnum = OperatorEnum;
  */
 std::vector<uint32_t> getShader(const OperatorEnum shader,
                                 const DataType datatype = DataType::Float32);
-
-/*
- * Function returns spirv encoding for a runtime-generated shader.
- * Returns std::nullopt if the shader enum is not handled by ShadersGenerated.
- */
-std::optional<std::vector<uint32_t>>
-getGeneratedShader(const OperatorEnum shader,
-                   const DataType datatype = DataType::Float32);
 
 /*
  * Pre-compiled shader functions.
