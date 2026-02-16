@@ -642,6 +642,11 @@ void Dispatcher::encode(OperatorEnum op,
               reinterpret_cast<const uint32_t *>(data.data());
           M = dims[0];
           N = dims[1];
+        } else if (data.size() >= sizeof(uint32_t)) {
+          // Single element count (used by Dot)
+          const uint32_t *dims =
+              reinterpret_cast<const uint32_t *>(data.data());
+          M = dims[0];
         }
       }
     }

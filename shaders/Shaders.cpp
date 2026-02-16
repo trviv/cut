@@ -59,7 +59,8 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
   std::optional<std::vector<uint32_t>> compiled;
   if (shader >= BinaryVecVecAdd && shader <= BinaryVecVecLogaddexp2) {
     compiled = compiledBinaryVecVec(datatype);
-  } else if (shader >= BinaryVecScalarAdd && shader <= BinaryVecScalarMax) {
+  } else if (shader >= BinaryVecScalarAdd &&
+             shader <= BinaryVecScalarLogaddexp2) {
     compiled = compiledBinaryVecScalar(datatype);
   } else if (shader >= UnaryNeg && shader <= UnaryIsInf) {
     compiled = compiledUnary(datatype);
@@ -71,6 +72,41 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledTranspose(datatype);
   } else if (shader >= ReduceSum && shader <= ReduceAll) {
     compiled = compiledReduce(datatype);
+  } else if (shader >= InternalScanPerWg && shader <= InternalScanUint) {
+    switch (shader) {
+    case InternalScanPerWg:
+      compiled = compiledScanPerWg(datatype);
+      break;
+    case InternalScanPartialSums:
+      compiled = compiledScanPartialSums(datatype);
+      break;
+    case InternalScanPropagate:
+      compiled = compiledScanPropagate(datatype);
+      break;
+    case InternalBitonicStep:
+      compiled = compiledBitonicStep(datatype);
+      break;
+    case InternalBitonicPadInit:
+      compiled = compiledBitonicPadInit(datatype);
+      break;
+    case InternalBitonicCopyBack:
+      compiled = compiledBitonicCopyBack(datatype);
+      break;
+    case InternalRadixHistogram:
+      compiled = compiledRadixHistogram(datatype);
+      break;
+    case InternalRadixScatter:
+      compiled = compiledRadixScatter(datatype);
+      break;
+    case InternalFillUint:
+      compiled = compiledFillUint(datatype);
+      break;
+    case InternalScanUint:
+      compiled = compiledScanUint(datatype);
+      break;
+    default:
+      break;
+    }
   }
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());

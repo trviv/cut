@@ -241,7 +241,6 @@ void main() {
 )";
 
 const char *dotShaderTemplate = R"(#version 450
-#extension GL_EXT_shader_atomic_float : require
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
@@ -283,9 +282,9 @@ void main() {
         barrier();
     }
 
-    // Atomically add to output
+    // Write per-workgroup partial sum (no float atomics needed)
     if (tid == 0) {
-        atomicAdd(dataOut[0], sharedData[0]);
+        dataOut[gl_WorkGroupID.x] = sharedData[0];
     }
 }
 )";

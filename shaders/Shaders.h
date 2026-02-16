@@ -53,6 +53,38 @@ compiledTranspose(const DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>>
 compiledReduce(const DataType datatype = DataType::Float32);
 
+// Dispatcher internal compiled shaders (prefix scan, bitonic sort, radix sort,
+// utility)
+std::optional<std::vector<uint32_t>>
+compiledScanPerWg(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledScanPartialSums(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledScanPropagate(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledBitonicStep(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledBitonicPadInit(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledBitonicCopyBack(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledRadixHistogram(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledRadixScatter(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledFillUint(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledScanUint(const DataType datatype = DataType::Float32);
+
 /*
  * Validates execution sizes for an operator and returns the resolved size.
  * For elementwise operators (unary, binary, ternary), all buffer execution

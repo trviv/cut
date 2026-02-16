@@ -95,6 +95,120 @@ void main() {
         case OP_BINARY_VEC_SCALAR_MAX:
             result = max(a, s);
             break;
+        case OP_BINARY_VEC_SCALAR_BITWISE_AND:
+#ifdef DTYPE_IS_FLOAT
+            result = intBitsToFloat(floatBitsToInt(a) & floatBitsToInt(s));
+#else
+            result = a & s;
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_BITWISE_OR:
+#ifdef DTYPE_IS_FLOAT
+            result = intBitsToFloat(floatBitsToInt(a) | floatBitsToInt(s));
+#else
+            result = a | s;
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_BITWISE_XOR:
+#ifdef DTYPE_IS_FLOAT
+            result = intBitsToFloat(floatBitsToInt(a) ^ floatBitsToInt(s));
+#else
+            result = a ^ s;
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_LEFT_SHIFT:
+#ifdef DTYPE_IS_FLOAT
+            result = intBitsToFloat(floatBitsToInt(a) << floatBitsToInt(s));
+#else
+            result = a << s;
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_RIGHT_SHIFT:
+#ifdef DTYPE_IS_FLOAT
+            result = intBitsToFloat(floatBitsToInt(a) >> floatBitsToInt(s));
+#else
+            result = a >> s;
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_LOGICAL_AND:
+            result = %VEC_DTYPE%(notEqual(a, %VEC_DTYPE%(0))) * %VEC_DTYPE%(notEqual(s, %VEC_DTYPE%(0)));
+            break;
+        case OP_BINARY_VEC_SCALAR_LOGICAL_OR:
+            result = min(%VEC_DTYPE%(notEqual(a, %VEC_DTYPE%(0))) + %VEC_DTYPE%(notEqual(s, %VEC_DTYPE%(0))), %VEC_DTYPE%(1));
+            break;
+        case OP_BINARY_VEC_SCALAR_LOGICAL_XOR:
+            result = %VEC_DTYPE%(notEqual(notEqual(a, %VEC_DTYPE%(0)), notEqual(s, %VEC_DTYPE%(0))));
+            break;
+        case OP_BINARY_VEC_SCALAR_ATAN2:
+#ifdef DTYPE_IS_FLOAT
+            result = atan(a, s);
+#else
+            result = %VEC_DTYPE%(0);
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_HYPOT:
+#ifdef DTYPE_IS_FLOAT
+            result = sqrt(a * a + s * s);
+#else
+            result = %VEC_DTYPE%(0);
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_COPYSIGN:
+#ifdef DTYPE_IS_FLOAT
+            result = sign(s) * abs(a);
+#else
+            result = %VEC_DTYPE%(0);
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_FMOD:
+#ifdef DTYPE_IS_FLOAT
+            result = mod(a, s);
+#else
+            result = a % s;
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_LEAKY_RELU:
+#ifdef DTYPE_IS_FLOAT
+            result = mix(s * a, a, %VEC_DTYPE%(greaterThan(a, %VEC_DTYPE%(0.0))));
+#else
+            result = %VEC_DTYPE%(0);
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_PRELU:
+#ifdef DTYPE_IS_FLOAT
+            result = mix(s * a, a, %VEC_DTYPE%(greaterThanEqual(a, %VEC_DTYPE%(0.0))));
+#else
+            result = %VEC_DTYPE%(0);
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_HARDSHRINK:
+#ifdef DTYPE_IS_FLOAT
+            result = mix(%VEC_DTYPE%(0.0), a, %VEC_DTYPE%(greaterThan(abs(a), s)));
+#else
+            result = %VEC_DTYPE%(0);
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_SOFTSHRINK:
+#ifdef DTYPE_IS_FLOAT
+            result = sign(a) * max(abs(a) - s, %VEC_DTYPE%(0.0));
+#else
+            result = %VEC_DTYPE%(0);
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_LOGADDEXP:
+#ifdef DTYPE_IS_FLOAT
+            result = max(a, s) + log(1.0 + exp(-abs(a - s)));
+#else
+            result = %VEC_DTYPE%(0);
+#endif
+            break;
+        case OP_BINARY_VEC_SCALAR_LOGADDEXP2:
+#ifdef DTYPE_IS_FLOAT
+            result = max(a, s) + log2(1.0 + exp2(-abs(a - s)));
+#else
+            result = %VEC_DTYPE%(0);
+#endif
+            break;
         default:
             result = %VEC_DTYPE%(0);
             break;

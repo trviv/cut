@@ -2578,14 +2578,16 @@ TEST_F(GeneratedShadersTest, BinaryVecVecFmod) {
 TEST_F(GeneratedShadersTest, BinaryVecScalarBitwiseAnd) {
   std::vector<float> dataA(elements);
   std::vector<float> expected(elements);
-  // Shader does int(scalar) then bitwise op on floatBitsToInt(a)
+  // Shader does floatBitsToInt on both operands, then bitwise op
   int32_t scalarInt = 0x0F;
   float scalar = static_cast<float>(scalarInt);
+  int32_t scalarBits;
+  memcpy(&scalarBits, &scalar, sizeof(int32_t));
   for (uint32_t i = 0; i < elements; ++i) {
     uint32_t a = i * 17 + 3;
     dataA[i] = *reinterpret_cast<float *>(&a);
     int32_t ai = static_cast<int32_t>(a);
-    int32_t r = ai & scalarInt;
+    int32_t r = ai & scalarBits;
     expected[i] = *reinterpret_cast<float *>(&r);
   }
   std::vector<float> output;
@@ -2601,11 +2603,13 @@ TEST_F(GeneratedShadersTest, BinaryVecScalarBitwiseOr) {
   std::vector<float> expected(elements);
   int32_t scalarInt = 0xFF;
   float scalar = static_cast<float>(scalarInt);
+  int32_t scalarBits;
+  memcpy(&scalarBits, &scalar, sizeof(int32_t));
   for (uint32_t i = 0; i < elements; ++i) {
     uint32_t a = i * 17;
     dataA[i] = *reinterpret_cast<float *>(&a);
     int32_t ai = static_cast<int32_t>(a);
-    int32_t r = ai | scalarInt;
+    int32_t r = ai | scalarBits;
     expected[i] = *reinterpret_cast<float *>(&r);
   }
   std::vector<float> output;
@@ -2621,11 +2625,13 @@ TEST_F(GeneratedShadersTest, BinaryVecScalarBitwiseXor) {
   std::vector<float> expected(elements);
   int32_t scalarInt = 0xFF;
   float scalar = static_cast<float>(scalarInt);
+  int32_t scalarBits;
+  memcpy(&scalarBits, &scalar, sizeof(int32_t));
   for (uint32_t i = 0; i < elements; ++i) {
     uint32_t a = i * 17 + 3;
     dataA[i] = *reinterpret_cast<float *>(&a);
     int32_t ai = static_cast<int32_t>(a);
-    int32_t r = ai ^ scalarInt;
+    int32_t r = ai ^ scalarBits;
     expected[i] = *reinterpret_cast<float *>(&r);
   }
   std::vector<float> output;
@@ -2641,11 +2647,14 @@ TEST_F(GeneratedShadersTest, BinaryVecScalarLeftShift) {
   std::vector<float> expected(elements);
   int32_t shiftAmt = 2;
   float scalar = static_cast<float>(shiftAmt);
+  int32_t scalarBits;
+  memcpy(&scalarBits, &scalar, sizeof(int32_t));
+  int32_t effectiveShift = static_cast<uint32_t>(scalarBits) & 31u;
   for (uint32_t i = 0; i < elements; ++i) {
     uint32_t a = i + 1;
     dataA[i] = *reinterpret_cast<float *>(&a);
     int32_t ai = static_cast<int32_t>(a);
-    int32_t r = ai << shiftAmt;
+    int32_t r = ai << effectiveShift;
     expected[i] = *reinterpret_cast<float *>(&r);
   }
   std::vector<float> output;
@@ -2661,11 +2670,14 @@ TEST_F(GeneratedShadersTest, BinaryVecScalarRightShift) {
   std::vector<float> expected(elements);
   int32_t shiftAmt = 2;
   float scalar = static_cast<float>(shiftAmt);
+  int32_t scalarBits;
+  memcpy(&scalarBits, &scalar, sizeof(int32_t));
+  int32_t effectiveShift = static_cast<uint32_t>(scalarBits) & 31u;
   for (uint32_t i = 0; i < elements; ++i) {
     uint32_t a = (i + 1) * 256;
     dataA[i] = *reinterpret_cast<float *>(&a);
     int32_t ai = static_cast<int32_t>(a);
-    int32_t r = ai >> shiftAmt;
+    int32_t r = ai >> effectiveShift;
     expected[i] = *reinterpret_cast<float *>(&r);
   }
   std::vector<float> output;

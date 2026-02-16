@@ -287,7 +287,11 @@ float Operations::dot(const ComputeHandle &a, const ComputeHandle &b) {
   auto shape = getShape(a);
   uint32_t count = static_cast<uint32_t>(shapeProduct(shape));
 
-  ComputeHandle out = createOutput({1}, DataType::Float32);
+  // Each workgroup of 256 threads produces one partial sum
+  constexpr uint32_t kWorkgroupSize = 256;
+  uint32_t numWorkgroups = (count + kWorkgroupSize - 1) / kWorkgroupSize;
+
+  ComputeHandle out = createOutput({numWorkgroups}, DataType::Float32);
 
   uint32_t countData[1] = {count};
 
@@ -299,8 +303,13 @@ float Operations::dot(const ComputeHandle &a, const ComputeHandle &b) {
 
   runtime_->encodeOperator(OperatorEnum::Dot, bindings);
 
+  // Read back per-workgroup partial sums and accumulate on CPU
+  std::vector<float> partials(numWorkgroups);
+  runtime_->copyFromTensor(out, partials.data(), numWorkgroups * sizeof(float));
   float result = 0.0f;
-  runtime_->copyFromTensor(out, &result, sizeof(float));
+  for (uint32_t i = 0; i < numWorkgroups; ++i) {
+    result += partials[i];
+  }
   return result;
 }
 

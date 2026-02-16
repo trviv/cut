@@ -611,15 +611,16 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
     return std::min(a, scalar);
   case BinaryVecScalarMax:
     return std::max(a, scalar);
-  // Bitwise operations — GPU shader uses int(scalar) (value truncation) for the
-  // scalar, but floatBitsToInt(a) (bit reinterpretation) for the vector element
+  // Bitwise operations — GPU shader uses floatBitsToInt (bit reinterpretation)
+  // for both the vector element and the scalar
   case BinaryVecScalarBitwiseAnd:
     if constexpr (std::is_integral_v<T>) {
       return a & static_cast<T>(scalar);
     } else {
-      int ia, ir;
+      int ia, is, ir;
       memcpy(&ia, &a, sizeof(int));
-      ir = ia & static_cast<int>(scalar);
+      memcpy(&is, &scalar, sizeof(int));
+      ir = ia & is;
       T r;
       memcpy(&r, &ir, sizeof(T));
       return r;
@@ -628,9 +629,10 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
     if constexpr (std::is_integral_v<T>) {
       return a | static_cast<T>(scalar);
     } else {
-      int ia, ir;
+      int ia, is, ir;
       memcpy(&ia, &a, sizeof(int));
-      ir = ia | static_cast<int>(scalar);
+      memcpy(&is, &scalar, sizeof(int));
+      ir = ia | is;
       T r;
       memcpy(&r, &ir, sizeof(T));
       return r;
@@ -639,9 +641,10 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
     if constexpr (std::is_integral_v<T>) {
       return a ^ static_cast<T>(scalar);
     } else {
-      int ia, ir;
+      int ia, is, ir;
       memcpy(&ia, &a, sizeof(int));
-      ir = ia ^ static_cast<int>(scalar);
+      memcpy(&is, &scalar, sizeof(int));
+      ir = ia ^ is;
       T r;
       memcpy(&r, &ir, sizeof(T));
       return r;
@@ -650,22 +653,24 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
     if constexpr (std::is_integral_v<T>) {
       return a << static_cast<int>(scalar);
     } else {
-      uint32_t ua, ur;
-      memcpy(&ua, &a, sizeof(uint32_t));
-      ur = ua << (static_cast<uint32_t>(static_cast<int>(scalar)) & 31u);
+      int ia, is;
+      memcpy(&ia, &a, sizeof(int));
+      memcpy(&is, &scalar, sizeof(int));
+      int ir = ia << (static_cast<uint32_t>(is) & 31u);
       T r;
-      memcpy(&r, &ur, sizeof(T));
+      memcpy(&r, &ir, sizeof(T));
       return r;
     }
   case BinaryVecScalarRightShift:
     if constexpr (std::is_integral_v<T>) {
       return a >> static_cast<int>(scalar);
     } else {
-      uint32_t ua, ur;
-      memcpy(&ua, &a, sizeof(uint32_t));
-      ur = ua >> (static_cast<uint32_t>(static_cast<int>(scalar)) & 31u);
+      int ia, is;
+      memcpy(&ia, &a, sizeof(int));
+      memcpy(&is, &scalar, sizeof(int));
+      int ir = ia >> (static_cast<uint32_t>(is) & 31u);
       T r;
-      memcpy(&r, &ur, sizeof(T));
+      memcpy(&r, &ir, sizeof(T));
       return r;
     }
   // Logical operations
