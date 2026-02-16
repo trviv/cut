@@ -40,28 +40,27 @@ static constexpr int kAdvOpTableSize = OP_BINARY_VEC_SCALAR_HARDSHRINK + 1;
 
 // clang-format off
 static const AdvOpEntry advOpTable[kAdvOpTableSize] = {
-    // 15-19: Binary vec-vec bitwise
+    // Binary vec-vec bitwise
     [BinaryVecVecBitwiseAnd]      = {generateBitwiseVecVec,             "&",                      "binary_vec_vec_bitwise_and"},
     [BinaryVecVecBitwiseOr]       = {generateBitwiseVecVec,             "|",                      "binary_vec_vec_bitwise_or"},
     [BinaryVecVecBitwiseXor]      = {generateBitwiseVecVec,             "^",                      "binary_vec_vec_bitwise_xor"},
     [BinaryVecVecLeftShift]       = {generateBitwiseVecVec,             "<<",                     "binary_vec_vec_left_shift"},
     [BinaryVecVecRightShift]      = {generateBitwiseVecVec,             ">>",                     "binary_vec_vec_right_shift"},
-    // 20-22: Binary vec-vec logical -> special case (switch)
-    // 23-26: Binary vec-vec special math
+    // Binary vec-vec logical -> special case (switch)
+    // Binary vec-vec special math
     [BinaryVecVecAtan2]           = {generateBinaryVecVecFuncShader,    "atan",                   "binary_vec_vec_atan2"},
     [BinaryVecVecHypot]           = {generateBinaryVecVecCustom,        "sqrt(a * a + b * b)",    "binary_vec_vec_hypot"},
     [BinaryVecVecCopysign]        = {generateBinaryVecVecCustom,        "sign(b) * abs(a)",       "binary_vec_vec_copysign"},
     [BinaryVecVecFmod]            = {generateBinaryVecVecFuncShader,    "mod",                    "binary_vec_vec_fmod"},
-    // 27-29: gap
-    // 30-44: handled by ShadersBasicOps
-    // 45-49: Binary vec-scalar bitwise
+    // handled by ShadersBasicOps
+    // Binary vec-scalar bitwise
     [BinaryVecScalarBitwiseAnd]   = {generateBitwiseVecScalar,          "&",                      "binary_vec_scalar_bitwise_and"},
     [BinaryVecScalarBitwiseOr]    = {generateBitwiseVecScalar,          "|",                      "binary_vec_scalar_bitwise_or"},
     [BinaryVecScalarBitwiseXor]   = {generateBitwiseVecScalar,          "^",                      "binary_vec_scalar_bitwise_xor"},
     [BinaryVecScalarLeftShift]    = {generateBitwiseVecScalar,          "<<",                     "binary_vec_scalar_left_shift"},
     [BinaryVecScalarRightShift]   = {generateBitwiseVecScalar,          ">>",                     "binary_vec_scalar_right_shift"},
-    // 50-52: Binary vec-scalar logical -> special case (switch)
-    // 53-56: Binary vec-scalar special math
+    // Binary vec-scalar logical -> special case (switch)
+    // Binary vec-scalar special math
     [BinaryVecScalarAtan2]        = {generateBinaryVecScalarFuncShader, "atan",                   "binary_vec_scalar_atan2"},
     [BinaryVecScalarHypot]        = {generateBinaryVecScalarCustom,     "sqrt(a * a + b * b)",    "binary_vec_scalar_hypot"},
     [BinaryVecScalarCopysign]     = {generateBinaryVecScalarCustom,     "sign(b) * abs(a)",       "binary_vec_scalar_copysign"},

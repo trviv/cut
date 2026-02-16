@@ -21,59 +21,57 @@ struct OpEntry {
   const char *name;
 };
 
-static constexpr int kOpTableSize = OP_TERNARY_CLAMP + 1;
+static constexpr int kOpTableSize = OP_UNARY_SOFTPLUS + 1;
 
 // clang-format off
 static const OpEntry opTable[kOpTableSize] = {
-    // 0-6: Binary vec-vec arithmetic
+    // Binary vec-vec arithmetic
     [BinaryVecVecAdd]             = {generateBinaryVecVecOpShader,      "+",                      "binary_vec_vec_add"},
     [BinaryVecVecSub]             = {generateBinaryVecVecOpShader,      "-",                      "binary_vec_vec_sub"},
     [BinaryVecVecMul]             = {generateBinaryVecVecOpShader,      "*",                      "binary_vec_vec_mul"},
     [BinaryVecVecDiv]             = {generateBinaryVecVecOpShader,      "/",                      "binary_vec_vec_div"},
     [BinaryVecVecMod]             = {generateBinaryVecVecFuncShader,    "mod",                    "binary_vec_vec_mod"},
     [BinaryVecVecPow]             = {generateBinaryVecVecFuncShader,    "pow",                    "binary_vec_vec_pow"},
-    // 6: BinaryVecVecFloorDiv -> special case (switch)
-    // 7-12: Binary vec-vec comparison
+    // BinaryVecVecFloorDiv -> special case (switch)
+    // Binary vec-vec comparison
     [BinaryVecVecEqual]           = {generateBinaryVecVecCompareShader, "equal",                  "binary_vec_vec_equal"},
     [BinaryVecVecNotEqual]        = {generateBinaryVecVecCompareShader, "notEqual",               "binary_vec_vec_not_equal"},
     [BinaryVecVecLess]            = {generateBinaryVecVecCompareShader, "lessThan",               "binary_vec_vec_less"},
     [BinaryVecVecLessEqual]       = {generateBinaryVecVecCompareShader, "lessThanEqual",          "binary_vec_vec_less_equal"},
     [BinaryVecVecGreater]         = {generateBinaryVecVecCompareShader, "greaterThan",            "binary_vec_vec_greater"},
     [BinaryVecVecGreaterEqual]    = {generateBinaryVecVecCompareShader, "greaterThanEqual",       "binary_vec_vec_greater_equal"},
-    // 13-14: Binary vec-vec min/max
+    // Binary vec-vec min/max
     [BinaryVecVecMin]             = {generateBinaryVecVecFuncShader,    "min",                    "binary_vec_vec_min"},
     [BinaryVecVecMax]             = {generateBinaryVecVecFuncShader,    "max",                    "binary_vec_vec_max"},
-    // 15-22: Bitwise/Logical -> null (not handled here)
-    // 23-26: Binary vec-vec math -> null (not handled here)
-    // 27-29: gap
-    // 30-35: Binary vec-scalar arithmetic
+    // Bitwise/Logical -> null (not handled here)
+    // Binary vec-vec math -> null (not handled here)
+    // Binary vec-scalar arithmetic
     [BinaryVecScalarAdd]          = {generateBinaryVecScalarOpShader,   "+",                      "binary_vec_scalar_add"},
     [BinaryVecScalarSub]          = {generateBinaryVecScalarOpShader,   "-",                      "binary_vec_scalar_sub"},
     [BinaryVecScalarMul]          = {generateBinaryVecScalarOpShader,   "*",                      "binary_vec_scalar_mul"},
     [BinaryVecScalarDiv]          = {generateBinaryVecScalarOpShader,   "/",                      "binary_vec_scalar_div"},
     [BinaryVecScalarMod]          = {generateBinaryVecScalarFuncShader, "mod",                    "binary_vec_scalar_mod"},
     [BinaryVecScalarPow]          = {generateBinaryVecScalarFuncShader, "pow",                    "binary_vec_scalar_pow"},
-    // 36: BinaryVecScalarFloorDiv -> special case (switch)
-    // 37-42: Binary vec-scalar comparison
+    // BinaryVecScalarFloorDiv -> special case (switch)
+    // Binary vec-scalar comparison
     [BinaryVecScalarEqual]        = {generateBinaryVecScalarCompareShader, "equal",               "binary_vec_scalar_equal"},
     [BinaryVecScalarNotEqual]     = {generateBinaryVecScalarCompareShader, "notEqual",            "binary_vec_scalar_not_equal"},
     [BinaryVecScalarLess]         = {generateBinaryVecScalarCompareShader, "lessThan",            "binary_vec_scalar_less"},
     [BinaryVecScalarLessEqual]    = {generateBinaryVecScalarCompareShader, "lessThanEqual",       "binary_vec_scalar_less_equal"},
     [BinaryVecScalarGreater]      = {generateBinaryVecScalarCompareShader, "greaterThan",         "binary_vec_scalar_greater"},
     [BinaryVecScalarGreaterEqual] = {generateBinaryVecScalarCompareShader, "greaterThanEqual",    "binary_vec_scalar_greater_equal"},
-    // 43-44: Binary vec-scalar min/max
+    // Binary vec-scalar min/max
     [BinaryVecScalarMin]          = {generateBinaryVecScalarFuncShader, "min",                    "binary_vec_scalar_min"},
     [BinaryVecScalarMax]          = {generateBinaryVecScalarFuncShader, "max",                    "binary_vec_scalar_max"},
-    // 45-57: Bitwise/Logical/Math/Activation -> null (not handled here)
-    // 58-59: gap
-    // 60-65: Unary basic math
+    // Bitwise/Logical/Math/Activation -> null (not handled here)
+    // Unary basic math
     [UnaryNeg]                    = {generateUnaryShader,               "-a",                     "unary_neg"},
     [UnaryAbs]                    = {generateUnaryShader,               "abs(a)",                 "unary_abs"},
     [UnarySqrt]                   = {generateUnaryShader,               "sqrt(a)",                "unary_sqrt"},
     [UnarySquare]                 = {generateUnaryShader,               "a * a",                  "unary_square"},
     [UnaryReciprocal]             = {generateUnaryShader,               "1.0 / a",                "unary_reciprocal"},
     [UnarySign]                   = {generateUnaryShader,               "sign(a)",                "unary_sign"},
-    // 66-72: Exponential/Logarithmic
+    // Exponential/Logarithmic
     [UnaryExp]                    = {generateUnaryShader,               "exp(a)",                 "unary_exp"},
     [UnaryExp2]                   = {generateUnaryShader,               "exp2(a)",                "unary_exp2"},
     [UnaryExpm1]                  = {generateUnaryShader,               "exp(a) - 1.0",           "unary_expm1"},
@@ -81,34 +79,33 @@ static const OpEntry opTable[kOpTableSize] = {
     [UnaryLog2]                   = {generateUnaryShader,               "log2(a)",                "unary_log2"},
     [UnaryLog10]                  = {generateUnaryShader,               "log(a) * 0.4342944819",  "unary_log10"},
     [UnaryLog1p]                  = {generateUnaryShader,               "log(1.0 + a)",           "unary_log1p"},
-    // 73-78: Trigonometric
+    // Trigonometric
     [UnarySin]                    = {generateUnaryShader,               "sin(a)",                 "unary_sin"},
     [UnaryCos]                    = {generateUnaryShader,               "cos(a)",                 "unary_cos"},
     [UnaryTan]                    = {generateUnaryShader,               "tan(a)",                 "unary_tan"},
     [UnaryAsin]                   = {generateUnaryShader,               "asin(a)",                "unary_asin"},
     [UnaryAcos]                   = {generateUnaryShader,               "acos(a)",                "unary_acos"},
     [UnaryAtan]                   = {generateUnaryShader,               "atan(a)",                "unary_atan"},
-    // 79-81: Hyperbolic
+    // Hyperbolic
     [UnarySinh]                   = {generateUnaryShader,               "sinh(a)",                "unary_sinh"},
     [UnaryCosh]                   = {generateUnaryShader,               "cosh(a)",                "unary_cosh"},
     [UnaryTanh]                   = {generateUnaryShader,               "tanh(a)",                "unary_tanh"},
-    // 82-84: Rounding
+    // Rounding
     [UnaryFloor]                  = {generateUnaryShader,               "floor(a)",               "unary_floor"},
     [UnaryCeil]                   = {generateUnaryShader,               "ceil(a)",                "unary_ceil"},
     [UnaryRound]                  = {generateUnaryShader,               "round(a)",               "unary_round"},
-    // 85-87: Special math (UnaryCbrt -> special case, degrees/radians in table)
+    // Special math (UnaryCbrt -> special case, degrees/radians in table)
     [UnaryDegrees]                = {generateUnaryShader,               "degrees(a)",             "unary_degrees"},
     [UnaryRadians]                = {generateUnaryShader,               "radians(a)",             "unary_radians"},
-    // 88: UnaryLogicalNot -> special case (switch)
-    // 89: Unary bitwise
+    // UnaryLogicalNot -> special case (switch)
+    // Unary bitwise
     [UnaryBitwiseNot]             = {generateUnaryShader,               "intBitsToFloat(~floatBitsToInt(a))", "unary_bitwise_not"},
-    // 90-94: Activation (UnaryGelu -> special case)
+    // Activation (UnaryGelu -> special case)
     [UnaryRelu]                   = {generateUnaryShader,               "max(a, 0.0)",            "unary_relu"},
     [UnarySigmoid]                = {generateUnaryShader,               "1.0 / (1.0 + exp(-a))", "unary_sigmoid"},
     [UnarySilu]                   = {generateUnaryShader,               "a / (1.0 + exp(-a))",   "unary_silu"},
     [UnarySoftplus]               = {generateUnaryShader,               "log(1.0 + exp(a))",     "unary_softplus"},
-    // 95-99: gap / not handled
-    // 100: TernaryClamp -> special case (switch)
+    // TernaryClamp -> special case (switch)
 };
 // clang-format on
 

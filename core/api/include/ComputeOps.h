@@ -59,7 +59,7 @@ enum OperatorEnum {
   BinaryVecVecLogaddexp2 = OP_BINARY_VEC_VEC_LOGADDEXP2,
 
   // ===========================================================================
-  // Binary vec-scalar operations (30-59)
+  // Binary vec-scalar operations (29-61)
   // ===========================================================================
 
   // Arithmetic
@@ -107,7 +107,7 @@ enum OperatorEnum {
   BinaryVecScalarHardshrink = OP_BINARY_VEC_SCALAR_HARDSHRINK,
 
   // ===========================================================================
-  // Unary operations (60-96)
+  // Unary operations (100-154)
   // ===========================================================================
 
   // Basic
@@ -166,7 +166,7 @@ enum OperatorEnum {
   UnaryIsInf = OP_UNARY_ISINF,
 
   // ===========================================================================
-  // Extended unary operations (160-199)
+  // Extended unary operations (137-154)
   // ===========================================================================
 
   // Extended Activations
@@ -192,7 +192,7 @@ enum OperatorEnum {
   UnaryIsFinite = OP_UNARY_ISFINITE,
 
   // ===========================================================================
-  // Extended binary vec-scalar operations (200-219)
+  // Extended binary vec-scalar operations (59-61)
   // ===========================================================================
 
   BinaryVecScalarSoftshrink = OP_BINARY_VEC_SCALAR_SOFTSHRINK,
@@ -200,14 +200,14 @@ enum OperatorEnum {
   BinaryVecScalarLogaddexp2 = OP_BINARY_VEC_SCALAR_LOGADDEXP2,
 
   // ===========================================================================
-  // Ternary operations (100-109)
+  // Ternary operations (62-63)
   // ===========================================================================
 
   TernaryClamp = OP_TERNARY_CLAMP,
   TernarySelect = OP_TERNARY_SELECT,
 
   // ===========================================================================
-  // Reduction operations (110-119)
+  // Reduction operations (200-217)
   // ===========================================================================
 
   ReduceSum = OP_REDUCE_SUM,
@@ -253,7 +253,7 @@ enum OperatorEnum {
   SortRadix = OP_SORT_RADIX,
 
   // ===========================================================================
-  // Matrix operations (120-122)
+  // Matrix operations (64-66)
   // ===========================================================================
 
   MatMul = OP_MATMUL,
@@ -261,7 +261,7 @@ enum OperatorEnum {
   Dot = OP_DOT,
 
   // ===========================================================================
-  // Tensor manipulation operations (130-139)
+  // Tensor manipulation operations (67-69)
   // ===========================================================================
 
   Concat = OP_CONCAT,
@@ -269,14 +269,14 @@ enum OperatorEnum {
   Flatten = OP_FLATTEN,
 
   // ===========================================================================
-  // Norm operations (140-149)
+  // Norm operations (70-71)
   // ===========================================================================
 
   Norm = OP_NORM,
   NormDim = OP_NORM_DIM,
 
   // ===========================================================================
-  // Tensor creation operations (150-159)
+  // Tensor creation operations (72-77)
   // ===========================================================================
 
   Arange = OP_ARANGE,
