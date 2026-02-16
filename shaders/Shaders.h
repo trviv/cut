@@ -30,11 +30,16 @@ getGeneratedShader(const OperatorEnum shader,
                    const DataType datatype = DataType::Float32);
 
 /*
- * Function returns spirv encoding for a pre-compiled shader.
- * Returns std::nullopt if the shader enum is not handled by CompiledShaders.
+ * Pre-compiled shader functions.
+ * Each function returns spirv encoding for a specific compiled shader.
+ * The datatype parameter selects the SPIR-V variant for the requested type.
+ * Returns std::nullopt if the datatype is not supported.
  */
 std::optional<std::vector<uint32_t>>
-getCompiledShader(const OperatorEnum shader);
+compiledBinaryVecVec(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledBinaryVecScalar(const DataType datatype = DataType::Float32);
 
 /*
  * Validates execution sizes for an operator and returns the resolved size.

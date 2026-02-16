@@ -2339,6 +2339,524 @@ TEST_F(GeneratedShadersTest, UnaryIsFinite) {
 }
 
 // ============================================================================
+// Binary Vec-Vec Bitwise Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecVecBitwiseAnd) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = i * 17 + 3;
+    uint32_t b = i * 7 + 11;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    dataB[i] = *reinterpret_cast<float *>(&b);
+    uint32_t r = a & b;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecBitwiseAnd, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "BitwiseAnd failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecBitwiseOr) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = i * 17 + 3;
+    uint32_t b = i * 7 + 11;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    dataB[i] = *reinterpret_cast<float *>(&b);
+    uint32_t r = a | b;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecBitwiseOr, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "BitwiseOr failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecBitwiseXor) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = i * 17 + 3;
+    uint32_t b = i * 7 + 11;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    dataB[i] = *reinterpret_cast<float *>(&b);
+    uint32_t r = a ^ b;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecBitwiseXor, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "BitwiseXor failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecLeftShift) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = i + 1;
+    uint32_t b = i % 8;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    dataB[i] = *reinterpret_cast<float *>(&b);
+    uint32_t r = a << b;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecLeftShift, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "LeftShift failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecRightShift) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = (i + 1) * 256;
+    uint32_t b = i % 8;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    dataB[i] = *reinterpret_cast<float *>(&b);
+    uint32_t r = a >> b;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecRightShift, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "RightShift failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Vec Logical Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecVecLogicalAnd) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = (i % 3 == 0) ? 0.0f : static_cast<float>(i);
+    dataB[i] = (i % 5 == 0) ? 0.0f : static_cast<float>(i);
+    expected[i] = (dataA[i] != 0.0f && dataB[i] != 0.0f) ? 1.0f : 0.0f;
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecLogicalAnd, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "LogicalAnd failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecLogicalOr) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = (i % 3 == 0) ? 0.0f : static_cast<float>(i);
+    dataB[i] = (i % 5 == 0) ? 0.0f : static_cast<float>(i);
+    expected[i] = (dataA[i] != 0.0f || dataB[i] != 0.0f) ? 1.0f : 0.0f;
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecLogicalOr, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "LogicalOr failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecLogicalXor) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = (i % 3 == 0) ? 0.0f : static_cast<float>(i);
+    dataB[i] = (i % 5 == 0) ? 0.0f : static_cast<float>(i);
+    bool aBool = dataA[i] != 0.0f;
+    bool bBool = dataB[i] != 0.0f;
+    expected[i] = (aBool != bBool) ? 1.0f : 0.0f;
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecLogicalXor, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "LogicalXor failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Vec Special Math Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecVecAtan2) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.1f - 10.0f;
+    dataB[i] = static_cast<float>(i) * 0.2f - 5.0f;
+    expected[i] = std::atan2(dataA[i], dataB[i]);
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecAtan2, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f) << "Atan2 failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecHypot) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.3f;
+    dataB[i] = static_cast<float>(i) * 0.4f;
+    expected[i] = std::hypot(dataA[i], dataB[i]);
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecHypot, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-3f) << "Hypot failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecCopysign) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  std::vector<float> expected(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.5f + 0.1f;
+    dataB[i] = (i % 2 == 0) ? -1.0f : 1.0f;
+    expected[i] = std::copysign(dataA[i], dataB[i]);
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecCopysign, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i]) << "Copysign failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecVecFmod) {
+  std::vector<float> dataA(elements);
+  std::vector<float> dataB(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i * 7 + 3);
+    dataB[i] = static_cast<float>((i % 5) + 2);
+  }
+  std::vector<float> output;
+  runBinaryOp(cut::BinaryVecVecFmod, dataA, dataB, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    // GLSL mod(a,b) = a - b*floor(a/b), result in [0, b)
+    EXPECT_GE(output[i], 0.0f) << "Fmod result negative at index " << i;
+    EXPECT_LT(output[i], dataB[i] + 1e-5f) << "Fmod result >= b at index " << i;
+    float reconstructed =
+        dataB[i] * std::floor(dataA[i] / dataB[i]) + output[i];
+    EXPECT_NEAR(dataA[i], reconstructed, dataB[i] + 1e-4f)
+        << "Fmod reconstruction failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Scalar Bitwise Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarBitwiseAnd) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  // Shader does int(scalar) then bitwise op on floatBitsToInt(a)
+  int32_t scalarInt = 0x0F;
+  float scalar = static_cast<float>(scalarInt);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = i * 17 + 3;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    int32_t ai = static_cast<int32_t>(a);
+    int32_t r = ai & scalarInt;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarBitwiseAnd, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar BitwiseAnd failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarBitwiseOr) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  int32_t scalarInt = 0xFF;
+  float scalar = static_cast<float>(scalarInt);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = i * 17;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    int32_t ai = static_cast<int32_t>(a);
+    int32_t r = ai | scalarInt;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarBitwiseOr, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar BitwiseOr failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarBitwiseXor) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  int32_t scalarInt = 0xFF;
+  float scalar = static_cast<float>(scalarInt);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = i * 17 + 3;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    int32_t ai = static_cast<int32_t>(a);
+    int32_t r = ai ^ scalarInt;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarBitwiseXor, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar BitwiseXor failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarLeftShift) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  int32_t shiftAmt = 2;
+  float scalar = static_cast<float>(shiftAmt);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = i + 1;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    int32_t ai = static_cast<int32_t>(a);
+    int32_t r = ai << shiftAmt;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarLeftShift, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar LeftShift failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarRightShift) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  int32_t shiftAmt = 2;
+  float scalar = static_cast<float>(shiftAmt);
+  for (uint32_t i = 0; i < elements; ++i) {
+    uint32_t a = (i + 1) * 256;
+    dataA[i] = *reinterpret_cast<float *>(&a);
+    int32_t ai = static_cast<int32_t>(a);
+    int32_t r = ai >> shiftAmt;
+    expected[i] = *reinterpret_cast<float *>(&r);
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarRightShift, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar RightShift failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Scalar Logical Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarLogicalAnd) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 5.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = (i % 3 == 0) ? 0.0f : static_cast<float>(i);
+    expected[i] = (dataA[i] != 0.0f && scalar != 0.0f) ? 1.0f : 0.0f;
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarLogicalAnd, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar LogicalAnd failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarLogicalOr) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 0.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = (i % 3 == 0) ? 0.0f : static_cast<float>(i);
+    expected[i] = (dataA[i] != 0.0f || scalar != 0.0f) ? 1.0f : 0.0f;
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarLogicalOr, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar LogicalOr failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarLogicalXor) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 5.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = (i % 3 == 0) ? 0.0f : static_cast<float>(i);
+    bool aBool = dataA[i] != 0.0f;
+    bool sBool = scalar != 0.0f;
+    expected[i] = (aBool != sBool) ? 1.0f : 0.0f;
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarLogicalXor, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar LogicalXor failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Scalar Special Math Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarAtan2) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 2.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.1f - 10.0f;
+    expected[i] = std::atan2(dataA[i], scalar);
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarAtan2, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "VecScalar Atan2 failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarHypot) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 3.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.3f;
+    expected[i] = std::hypot(dataA[i], scalar);
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarHypot, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-3f)
+        << "VecScalar Hypot failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarCopysign) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = -1.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.5f + 0.1f;
+    expected[i] = std::copysign(dataA[i], scalar);
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarCopysign, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_FLOAT_EQ(expected[i], output[i])
+        << "VecScalar Copysign failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarFmod) {
+  std::vector<float> dataA(elements);
+  float scalar = 3.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i * 7 + 3);
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarFmod, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    // GLSL mod(a,b) = a - b*floor(a/b), result in [0, b)
+    EXPECT_GE(output[i], 0.0f)
+        << "VecScalar Fmod result negative at index " << i;
+    EXPECT_LT(output[i], scalar + 1e-5f)
+        << "VecScalar Fmod result >= scalar at index " << i;
+    float reconstructed = scalar * std::floor(dataA[i] / scalar) + output[i];
+    EXPECT_NEAR(dataA[i], reconstructed, scalar + 1e-4f)
+        << "VecScalar Fmod reconstruction failed at index " << i;
+  }
+}
+
+// ============================================================================
+// Binary Vec-Scalar Activation Operations Tests
+// ============================================================================
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarLeakyRelu) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 0.01f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    expected[i] = dataA[i] > 0.0f ? dataA[i] : scalar * dataA[i];
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarLeakyRelu, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-5f)
+        << "LeakyRelu failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarLogaddexp) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 1.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    expected[i] = std::max(dataA[i], scalar) +
+                  std::log(1.0f + std::exp(-std::abs(dataA[i] - scalar)));
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarLogaddexp, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "VecScalar Logaddexp failed at index " << i;
+  }
+}
+
+TEST_F(GeneratedShadersTest, BinaryVecScalarLogaddexp2) {
+  std::vector<float> dataA(elements);
+  std::vector<float> expected(elements);
+  float scalar = 1.0f;
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i) * 0.1f - 5.0f;
+    expected[i] = std::max(dataA[i], scalar) +
+                  std::log2(1.0f + std::exp2(-std::abs(dataA[i] - scalar)));
+  }
+  std::vector<float> output;
+  runBinaryVecScalarOp(cut::BinaryVecScalarLogaddexp2, dataA, scalar, output);
+  for (uint32_t i = 0; i < elements; ++i) {
+    EXPECT_NEAR(expected[i], output[i], 1e-4f)
+        << "VecScalar Logaddexp2 failed at index " << i;
+  }
+}
+
+// ============================================================================
 // Extended Binary Shader Tests (Phase 3)
 // ============================================================================
 

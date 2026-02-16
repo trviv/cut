@@ -5,18 +5,75 @@
 
 namespace cut {
 
+// Patch the default value of a specialization constant in SPIR-V bytecode.
+// Finds the OpSpecConstant decorated with the given SpecId and overwrites
+// its literal value.
+static void patchSpecConstant(std::vector<uint32_t> &spirv,
+                              uint32_t specId,
+                              uint32_t newValue) {
+  constexpr uint32_t kOpDecorate = 71;
+  constexpr uint32_t kOpSpecConstant = 50;
+  constexpr uint32_t kDecorationSpecId = 1;
+  constexpr size_t kHeaderSize = 5;
+
+  if (spirv.size() < kHeaderSize)
+    return;
+
+  // First pass: find the result ID decorated with the target SpecId.
+  uint32_t targetId = 0;
+  bool found = false;
+  for (size_t i = kHeaderSize; i < spirv.size();) {
+    uint32_t wordCount = spirv[i] >> 16;
+    uint32_t opcode = spirv[i] & 0xFFFF;
+    if (wordCount == 0)
+      break;
+    if (opcode == kOpDecorate && wordCount >= 4 &&
+        spirv[i + 2] == kDecorationSpecId && spirv[i + 3] == specId) {
+      targetId = spirv[i + 1];
+      found = true;
+      break;
+    }
+    i += wordCount;
+  }
+  if (!found)
+    return;
+
+  // Second pass: patch the OpSpecConstant with matching result ID.
+  for (size_t i = kHeaderSize; i < spirv.size();) {
+    uint32_t wordCount = spirv[i] >> 16;
+    uint32_t opcode = spirv[i] & 0xFFFF;
+    if (wordCount == 0)
+      break;
+    if (opcode == kOpSpecConstant && wordCount >= 4 &&
+        spirv[i + 2] == targetId) {
+      spirv[i + 3] = newValue;
+      return;
+    }
+    i += wordCount;
+  }
+}
+
 std::vector<uint32_t> getShader(const OperatorEnum shader,
                                 const DataType datatype) {
-  // First try to get a runtime-generated shader
+  // First try pre-compiled shaders
+  std::optional<std::vector<uint32_t>> compiled;
+  if (shader >= BinaryVecVecAdd && shader <= BinaryVecVecLogaddexp2) {
+    compiled = compiledBinaryVecVec(datatype);
+  } else if (shader >= BinaryVecScalarAdd && shader <= BinaryVecScalarMax) {
+    compiled = compiledBinaryVecScalar(datatype);
+  }
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    // Patch op_enum specialization constant (constant_id = 1) with the
+    // actual operator value so the compiled shader executes the right op.
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(shader));
+    return spirv;
+  }
+
+  // Fall back to runtime-generated shaders
   auto generated = getGeneratedShader(shader, datatype);
   if (generated.has_value()) {
     return generated.value();
-  }
-
-  // Fall back to pre-compiled shaders
-  auto compiled = getCompiledShader(shader);
-  if (compiled.has_value()) {
-    return compiled.value();
   }
 
   throw std::runtime_error("Shader Enum " + std::to_string(shader) +

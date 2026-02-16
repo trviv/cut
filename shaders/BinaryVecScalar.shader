@@ -3,23 +3,25 @@
 
 #include "ComputeOpsShared.h"
 
+%DTYPE_DEFINES%
+
 // Specialization constants
-layout(constant_id = 0) const uint dtype_vec_size = 4;
-layout(constant_id = 1) const uint op_type = OP_BINARY_VEC_SCALAR_ADD;
+layout(constant_id = 0) const uint dtype_vec_size = %DTYPE_SIZE%;
+layout(constant_id = 1) const uint op_enum = OP_BINARY_VEC_SCALAR_ADD;
 
 // Push constants
 layout(push_constant) uniform PushConstants {
+    %SCALAR_DTYPE% scalar;
     uint numElements;
-    float scalar;
 } pushConstants;
 
 // Storage buffers
 layout(set = 0, binding = 0) readonly buffer DataA {
-    vec4 dataA[];
+    %VEC_DTYPE% dataA[];
 };
 
 layout(set = 0, binding = 1) writeonly buffer DataOut {
-    vec4 dataOut[];
+    %VEC_DTYPE% dataOut[];
 };
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
@@ -31,11 +33,11 @@ void main() {
         return;
     }
 
-    vec4 a = dataA[index];
-    vec4 s = vec4(pushConstants.scalar);
-    vec4 result;
+    %VEC_DTYPE% a = dataA[index];
+    %VEC_DTYPE% s = %VEC_DTYPE%(pushConstants.scalar);
+    %VEC_DTYPE% result;
 
-    switch (op_type) {
+    switch (op_enum) {
         case OP_BINARY_VEC_SCALAR_ADD:
             result = a + s;
             break;
@@ -49,31 +51,43 @@ void main() {
             result = a / s;
             break;
         case OP_BINARY_VEC_SCALAR_MOD:
+#ifdef DTYPE_IS_FLOAT
             result = mod(a, s);
+#else
+            result = a % s;
+#endif
             break;
         case OP_BINARY_VEC_SCALAR_POW:
+#ifdef DTYPE_IS_FLOAT
             result = pow(a, s);
+#else
+            result = %VEC_DTYPE%(0);
+#endif
             break;
         case OP_BINARY_VEC_SCALAR_FLOOR_DIV:
+#ifdef DTYPE_IS_FLOAT
             result = floor(a / s);
+#else
+            result = a / s;
+#endif
             break;
         case OP_BINARY_VEC_SCALAR_EQUAL:
-            result = vec4(equal(a, s));
+            result = %VEC_DTYPE%(equal(a, s));
             break;
         case OP_BINARY_VEC_SCALAR_NOT_EQUAL:
-            result = vec4(notEqual(a, s));
+            result = %VEC_DTYPE%(notEqual(a, s));
             break;
         case OP_BINARY_VEC_SCALAR_LESS:
-            result = vec4(lessThan(a, s));
+            result = %VEC_DTYPE%(lessThan(a, s));
             break;
         case OP_BINARY_VEC_SCALAR_LESS_EQUAL:
-            result = vec4(lessThanEqual(a, s));
+            result = %VEC_DTYPE%(lessThanEqual(a, s));
             break;
         case OP_BINARY_VEC_SCALAR_GREATER:
-            result = vec4(greaterThan(a, s));
+            result = %VEC_DTYPE%(greaterThan(a, s));
             break;
         case OP_BINARY_VEC_SCALAR_GREATER_EQUAL:
-            result = vec4(greaterThanEqual(a, s));
+            result = %VEC_DTYPE%(greaterThanEqual(a, s));
             break;
         case OP_BINARY_VEC_SCALAR_MIN:
             result = min(a, s);
@@ -82,7 +96,7 @@ void main() {
             result = max(a, s);
             break;
         default:
-            result = vec4(0.0, 0.0, 0.0, 0.0);
+            result = %VEC_DTYPE%(0);
             break;
     }
 

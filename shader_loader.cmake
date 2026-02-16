@@ -11,19 +11,75 @@ set(SHADERS_SOURCE_FILE ${SHADER_SOURCE_DIR}/${SHADER_FILE_NAME}.cpp)
 set(COMPILED_SHADERS "")
 set(EMBEDDED_SHADERS "")
 
-# Function to compile a single shader (GLSL)
-function(compile_shader SHADER_SOURCE)
+# Include paths for shader headers
+set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/core/api/include)
+
+# =============================================================================
+# Datatype variant definitions
+# Each .shader template is compiled once per variant listed here.
+# =============================================================================
+set(DTYPE_VARIANTS "Float32" "Float16" "Int32" "UInt32")
+
+# Float32: vec4 / float
+set(DTYPE_Float32_VEC "vec4")
+set(DTYPE_Float32_SCALAR "float")
+set(DTYPE_Float32_SIZE "4")
+set(DTYPE_Float32_DEFINES "#define DTYPE_IS_FLOAT 1")
+
+# Float16: vec4 / float (mediump qualifier breaks constructors, use vec4)
+set(DTYPE_Float16_VEC "vec4")
+set(DTYPE_Float16_SCALAR "float")
+set(DTYPE_Float16_SIZE "4")
+set(DTYPE_Float16_DEFINES "#define DTYPE_IS_FLOAT 1")
+
+# Int32: ivec4 / int
+set(DTYPE_Int32_VEC "ivec4")
+set(DTYPE_Int32_SCALAR "int")
+set(DTYPE_Int32_SIZE "4")
+set(DTYPE_Int32_DEFINES "#define DTYPE_IS_INT 1")
+
+# UInt32: uvec4 / uint
+set(DTYPE_UInt32_VEC "uvec4")
+set(DTYPE_UInt32_SCALAR "uint")
+set(DTYPE_UInt32_SIZE "4")
+set(DTYPE_UInt32_DEFINES "#define DTYPE_IS_UINT 1")
+
+# =============================================================================
+# Function to preprocess a .shader template and compile a single variant
+# =============================================================================
+function(compile_shader_variant SHADER_SOURCE DTYPE_NAME VEC_TYPE SCALAR_TYPE DTYPE_SIZE DTYPE_DEFINES)
     get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
-    set(SHADER_BINARY ${SHADER_BINARY_DIR}/${SHADER_NAME}_shader.spv)
+    get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
 
-    # Include paths for shader headers
-    set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/core/api/include)
+    set(PREPROCESSED_FILE ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}_${DTYPE_NAME}.glsl)
+    set(SHADER_BINARY ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}_${DTYPE_NAME}.spv)
 
+    # Create a CMake script that preprocesses the template at build time
+    set(PREPROCESS_SCRIPT ${SHADER_BINARY_DIR}/preprocess_${SHADER_NAME_WE}_${DTYPE_NAME}.cmake)
+    file(WRITE ${PREPROCESS_SCRIPT} "
+file(READ \"${SHADER_SOURCE}\" SHADER_CONTENT)
+string(REPLACE \"%VEC_DTYPE%\" \"${VEC_TYPE}\" SHADER_CONTENT \"\${SHADER_CONTENT}\")
+string(REPLACE \"%SCALAR_DTYPE%\" \"${SCALAR_TYPE}\" SHADER_CONTENT \"\${SHADER_CONTENT}\")
+string(REPLACE \"%DTYPE_SIZE%\" \"${DTYPE_SIZE}\" SHADER_CONTENT \"\${SHADER_CONTENT}\")
+string(REPLACE \"%DTYPE_DEFINES%\" \"${DTYPE_DEFINES}\" SHADER_CONTENT \"\${SHADER_CONTENT}\")
+file(WRITE \"${PREPROCESSED_FILE}\" \"\${SHADER_CONTENT}\")
+")
+
+    # Preprocess at build time
+    add_custom_command(
+        OUTPUT ${PREPROCESSED_FILE}
+        COMMAND ${CMAKE_COMMAND} -P ${PREPROCESS_SCRIPT}
+        DEPENDS ${SHADER_SOURCE}
+        COMMENT "Preprocessing ${SHADER_NAME_WE} for ${DTYPE_NAME}"
+        VERBATIM
+    )
+
+    # Compile the preprocessed shader to SPIR-V
     add_custom_command(
         OUTPUT ${SHADER_BINARY}
-        COMMAND ${Vulkan_GLSLC_EXECUTABLE} -mfmt=c -fshader-stage=comp -I${SHADER_INCLUDE_DIR} ${SHADER_SOURCE} -o ${SHADER_BINARY} --target-env=vulkan1.0 -O
-        DEPENDS ${SHADER_SOURCE} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
-        COMMENT "Compiling ${SHADER_NAME} (GLSL) to SPIR-V"
+        COMMAND ${Vulkan_GLSLC_EXECUTABLE} -mfmt=c -fshader-stage=comp -I${SHADER_INCLUDE_DIR} ${PREPROCESSED_FILE} -o ${SHADER_BINARY} --target-env=vulkan1.0
+        DEPENDS ${PREPROCESSED_FILE} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
+        COMMENT "Compiling ${SHADER_NAME_WE}_${DTYPE_NAME} to SPIR-V"
         VERBATIM
     )
 
@@ -32,84 +88,25 @@ function(compile_shader SHADER_SOURCE)
     set(COMPILED_SHADERS ${COMPILED_SHADERS} PARENT_SCOPE)
 endfunction()
 
-# Function to generate Shader.h with shader name enums
-function(generate_shader_header SHADER_SOURCES)
-    file(WRITE ${SHADERS_HEADER_FILE} "
-#pragma once\n
-#include <fstream>
-#include <string>
-#include <unordered_map>
-
-namespace cut {
-
-enum ShaderEnum {
-")
-
-    foreach(SHADER_SOURCE ${SHADER_SOURCES})
-        get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
-        get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
-        string(TOUPPER ${SHADER_NAME_WE} SHADER_ENUM)
-        file(APPEND ${SHADERS_HEADER_FILE} "    ${SHADER_ENUM},")
-    endforeach()
-
-file(APPEND ${SHADERS_HEADER_FILE} "
-};
-
-/*
- * Function returns spirv encoding for an in-build shader.
- */
-static std::vector<uint32_t> getShader(const ShaderEnum shader);
-
-} // namespace cut")
-
-#     file(APPEND ${SHADERS_HEADER_FILE} "
-# };
-
-# inline std::string getShaderPath(const std::string &name) {
-#     auto it = SHADERS.find(name);
-#     if (it != SHADERS.end()) {
-#         return it->second;
-#     }
-#     throw std::runtime_error(\"Shader not found: \" + name);
-# }
-
-# static std::vector<char> readShaderFile(const std::string &filename) {
-#     std::ifstream file(filename, std::ios::ate | std::ios::binary);
-
-#     if (!file.is_open()) {
-#         throw std::runtime_error(\"Failed to open shader file: \" + filename);
-#     }
-
-#     size_t fileSize = static_cast<size_t>(file.tellg());
-#     std::vector<char> buffer(fileSize);
-
-#     file.seekg(0);
-#     file.read(buffer.data(), fileSize);
-#     file.close();
-
-#     return buffer;
-# }
-
-# } // namespace cut")
-endfunction()
-
-# Function to generate Shader.cpp with compiled sources
-# Uses a CMake script to ensure all shaders are properly embedded
+# =============================================================================
+# Generate CompiledShaders.cpp with per-datatype switching
+# =============================================================================
 function(generate_shader_source SHADER_SOURCES)
-    # Build lists of shader binaries and enum names
-    set(SHADER_BINARIES "")
+    # Build lists of shader enum names and all binary outputs
     set(SHADER_ENUMS "")
+    set(ALL_BINARIES "")
+
     foreach(SHADER_SOURCE ${SHADER_SOURCES})
-        get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
         get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
-        set(SHADER_BINARY ${SHADER_BINARY_DIR}/${SHADER_NAME}_shader.spv)
-        list(APPEND SHADER_BINARIES ${SHADER_BINARY})
         list(APPEND SHADER_ENUMS ${SHADER_NAME_WE})
+        foreach(VARIANT ${DTYPE_VARIANTS})
+            list(APPEND ALL_BINARIES ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}_${VARIANT}.spv)
+        endforeach()
     endforeach()
 
     # Log found shaders for debugging
     list(LENGTH SHADER_SOURCES NUM_SHADERS)
-    message(STATUS "generate_shader_source: Processing ${NUM_SHADERS} shaders:")
+    message(STATUS "generate_shader_source: Processing ${NUM_SHADERS} shaders with variants: ${DTYPE_VARIANTS}")
     foreach(SHADER_SOURCE ${SHADER_SOURCES})
         message(STATUS "  - ${SHADER_SOURCE}")
     endforeach()
@@ -117,20 +114,20 @@ function(generate_shader_source SHADER_SOURCES)
     # Create a CMake script that generates the source file at build time
     set(GENERATOR_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/generate_compiled_shaders.cmake)
 
-    # Convert lists to strings for the script (use | as separator since paths may contain spaces)
-    string(REPLACE ";" "|" SHADER_BINARIES_STR "${SHADER_BINARIES}")
+    # Convert lists to strings for the script (use | as separator)
     string(REPLACE ";" "|" SHADER_ENUMS_STR "${SHADER_ENUMS}")
+    string(REPLACE ";" "|" DTYPE_VARIANTS_STR "${DTYPE_VARIANTS}")
 
     file(WRITE ${GENERATOR_SCRIPT} "
 # Generated script to embed shader SPIR-V into C++ source
-# Generated at: ${CMAKE_CURRENT_LIST_FILE}
-set(SHADER_BINARIES_STR \"${SHADER_BINARIES_STR}\")
 set(SHADER_ENUMS_STR \"${SHADER_ENUMS_STR}\")
+set(DTYPE_VARIANTS_STR \"${DTYPE_VARIANTS_STR}\")
+set(SHADER_BINARY_DIR \"${SHADER_BINARY_DIR}\")
 set(OUTPUT_FILE \"${SHADERS_SOURCE_FILE}\")
 
 # Convert back to lists
-string(REPLACE \"|\" \";\" SHADER_BINARIES \"\${SHADER_BINARIES_STR}\")
 string(REPLACE \"|\" \";\" SHADER_ENUMS \"\${SHADER_ENUMS_STR}\")
+string(REPLACE \"|\" \";\" DTYPE_VARIANTS \"\${DTYPE_VARIANTS_STR}\")
 
 # Write header
 file(WRITE \${OUTPUT_FILE} \"
@@ -138,37 +135,46 @@ file(WRITE \${OUTPUT_FILE} \"
 
 namespace cut {
 
-std::optional<std::vector<uint32_t>> getCompiledShader(const OperatorEnum shader) {
-    switch (shader) {
 \")
 
-# Process each shader
-list(LENGTH SHADER_BINARIES NUM_SHADERS)
+# Process each shader - generate one function per shader file with datatype switch
+list(LENGTH SHADER_ENUMS NUM_SHADERS)
 message(STATUS \"Embedding \${NUM_SHADERS} shader(s) into CompiledShaders.cpp\")
 if(NUM_SHADERS GREATER 0)
     math(EXPR LAST_INDEX \"\${NUM_SHADERS} - 1\")
     foreach(IDX RANGE \${LAST_INDEX})
-        list(GET SHADER_BINARIES \${IDX} BINARY)
         list(GET SHADER_ENUMS \${IDX} ENUM_NAME)
 
-        message(STATUS \"  Embedding \${ENUM_NAME} from \${BINARY}\")
+        message(STATUS \"  Generating compiled\${ENUM_NAME} with datatype variants\")
 
-        # Read the SPIR-V binary (already in C format from glslc -mfmt=c)
-        file(READ \${BINARY} SPIRV_DATA)
+        file(APPEND \${OUTPUT_FILE} \"std::optional<std::vector<uint32_t>> compiled\${ENUM_NAME}(const DataType datatype) {
+    switch (datatype) {
+\")
 
-        file(APPEND \${OUTPUT_FILE} \"    case \${ENUM_NAME}:
-        return {\${SPIRV_DATA}};
+        foreach(VARIANT \${DTYPE_VARIANTS})
+            set(BINARY \${SHADER_BINARY_DIR}/\${ENUM_NAME}_\${VARIANT}.spv)
+            if(EXISTS \${BINARY})
+                file(READ \${BINARY} SPIRV_DATA)
+                file(APPEND \${OUTPUT_FILE} \"    case DataType::\${VARIANT}:
+        return {{\${SPIRV_DATA}}};
+\")
+                message(STATUS \"    - \${VARIANT}: embedded\")
+            else()
+                message(STATUS \"    - \${VARIANT}: SKIPPED (binary not found)\")
+            endif()
+        endforeach()
+
+        file(APPEND \${OUTPUT_FILE} \"    default:
+        return std::nullopt;
+    }
+}
+
 \")
     endforeach()
 endif()
 
 # Write footer
 file(APPEND \${OUTPUT_FILE} \"
-        default:
-            return std::nullopt;
-    }
-}
-
 } // namespace cut
 \")
 
@@ -179,7 +185,7 @@ message(STATUS \"Generated CompiledShaders.cpp with \${NUM_SHADERS} shader(s)\")
     add_custom_command(
         OUTPUT ${SHADERS_SOURCE_FILE}
         COMMAND ${CMAKE_COMMAND} -P ${GENERATOR_SCRIPT}
-        DEPENDS ${SHADER_BINARIES}
+        DEPENDS ${ALL_BINARIES}
         COMMENT "Generating CompiledShaders.cpp with ${NUM_SHADERS} shaders"
         VERBATIM
     )
@@ -189,15 +195,23 @@ message(STATUS \"Generated CompiledShaders.cpp with \${NUM_SHADERS} shader(s)\")
     set(EMBEDDED_SHADERS ${EMBEDDED_SHADERS} PARENT_SCOPE)
 endfunction()
 
-# Find all shader files
-file(GLOB_RECURSE SHADER_SOURCES 
+# =============================================================================
+# Find all shader files and compile all variants
+# =============================================================================
+file(GLOB_RECURSE SHADER_SOURCES
     "${SHADER_SOURCE_DIR}/*.shader"
 )
 message(STATUS "Found shader files ${SHADER_SOURCES}")
 
-# Compile all found shaders
+# Compile each shader for each datatype variant
 foreach(SHADER_SOURCE ${SHADER_SOURCES})
-    compile_shader(${SHADER_SOURCE})
+    foreach(VARIANT ${DTYPE_VARIANTS})
+        compile_shader_variant(${SHADER_SOURCE} ${VARIANT}
+            "${DTYPE_${VARIANT}_VEC}"
+            "${DTYPE_${VARIANT}_SCALAR}"
+            "${DTYPE_${VARIANT}_SIZE}"
+            "${DTYPE_${VARIANT}_DEFINES}")
+    endforeach()
 endforeach()
 
 if(SHADER_SOURCES)
@@ -209,10 +223,7 @@ else()
 
 namespace cut {
 
-std::optional<std::vector<uint32_t>> getCompiledShader(const OperatorEnum shader) {
-    (void)shader;
-    return std::nullopt;
-}
+// No compiled shaders available
 
 } // namespace cut
 ")
@@ -225,23 +236,14 @@ if(COMPILED_SHADERS)
         DEPENDS ${EMBEDDED_SHADERS}
         COMMENT "Compiling all shaders"
     )
-    
+
     # Print shader compilation info
     list(LENGTH COMPILED_SHADERS SHADER_COUNT)
-    message(STATUS "Found ${SHADER_COUNT} shader(s) to compile:")
+    message(STATUS "Found ${SHADER_COUNT} shader variant(s) to compile:")
     foreach(SHADER_SOURCE ${SHADER_SOURCES})
         get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
-        message(STATUS "  - ${SHADER_NAME}")
+        message(STATUS "  - ${SHADER_NAME} (variants: ${DTYPE_VARIANTS})")
     endforeach()
 else()
     message(WARNING "No shader files found in ${SHADER_SOURCE_DIR}")
 endif()
-
-# # Generate Shader.h file with shader enums
-# foreach(SHADER_SOURCE ${SHADER_SOURCES})
-#     get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
-#     get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
-#     # file(APPEND ${SHADERS_HEADER_FILE} "    {\"${SHADER_NAME_WE}\", \"${SHADER_BINARY_DIR}/${SHADER_NAME}.spv\"},")
-#     string(TOUPPER ${SHADER_NAME_WE} SHADER_ENUM)
-#     file(APPEND ${SHADERS_HEADER_FILE} "    ${SHADER_ENUM},")
-# endforeach()
