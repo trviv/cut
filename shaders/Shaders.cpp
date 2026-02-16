@@ -61,6 +61,10 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledBinaryVecVec(datatype);
   } else if (shader >= BinaryVecScalarAdd && shader <= BinaryVecScalarMax) {
     compiled = compiledBinaryVecScalar(datatype);
+  } else if (shader >= UnaryNeg && shader <= UnaryIsInf) {
+    compiled = compiledUnary(datatype);
+  } else if (shader >= UnaryRelu6 && shader <= UnaryIsFinite) {
+    compiled = compiledUnary(datatype);
   }
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());

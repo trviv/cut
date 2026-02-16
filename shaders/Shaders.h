@@ -41,6 +41,9 @@ compiledBinaryVecVec(const DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>>
 compiledBinaryVecScalar(const DataType datatype = DataType::Float32);
 
+std::optional<std::vector<uint32_t>>
+compiledUnary(const DataType datatype = DataType::Float32);
+
 /*
  * Validates execution sizes for an operator and returns the resolved size.
  * For elementwise operators (unary, binary, ternary), all buffer execution
