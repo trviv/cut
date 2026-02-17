@@ -431,6 +431,16 @@ PYBIND11_MODULE(_cut_compute, m) {
       // Convolution operations
       .value("Conv1D", cut::OperatorEnum::Conv1D)
       .value("Conv2D", cut::OperatorEnum::Conv2D)
+      // Pooling operations
+      .value("MaxPool2D", cut::OperatorEnum::MaxPool2D)
+      .value("AvgPool2D", cut::OperatorEnum::AvgPool2D)
+      // Normalization operations
+      .value("LayerNorm", cut::OperatorEnum::LayerNorm)
+      .value("BatchNorm", cut::OperatorEnum::BatchNorm)
+      // Embedding operations
+      .value("Embedding", cut::OperatorEnum::Embedding)
+      // Padding operations
+      .value("Pad", cut::OperatorEnum::Pad)
       .export_values();
 
   // Backward compatibility alias
@@ -903,6 +913,87 @@ PYBIND11_MODULE(_cut_compute, m) {
       },
       py::arg("a"), py::arg("start_dim") = 0, py::arg("end_dim") = -1,
       "Flatten dimensions");
+
+  // --- Pooling ops ---
+
+  m.def(
+      "ops_max_pool2d",
+      [getOps](const cut::Tensor &input, uint32_t kernel_h, uint32_t kernel_w,
+               uint32_t stride_h, uint32_t stride_w, uint32_t pad_h,
+               uint32_t pad_w) {
+        return getOps().maxPool2d(input, kernel_h, kernel_w, stride_h, stride_w,
+                                  pad_h, pad_w);
+      },
+      py::arg("input"), py::arg("kernel_h"), py::arg("kernel_w"),
+      py::arg("stride_h") = 1, py::arg("stride_w") = 1, py::arg("pad_h") = 0,
+      py::arg("pad_w") = 0, "2D max pooling");
+
+  m.def(
+      "ops_avg_pool2d",
+      [getOps](const cut::Tensor &input, uint32_t kernel_h, uint32_t kernel_w,
+               uint32_t stride_h, uint32_t stride_w, uint32_t pad_h,
+               uint32_t pad_w) {
+        return getOps().avgPool2d(input, kernel_h, kernel_w, stride_h, stride_w,
+                                  pad_h, pad_w);
+      },
+      py::arg("input"), py::arg("kernel_h"), py::arg("kernel_w"),
+      py::arg("stride_h") = 1, py::arg("stride_w") = 1, py::arg("pad_h") = 0,
+      py::arg("pad_w") = 0, "2D average pooling");
+
+  m.def(
+      "ops_adaptive_avg_pool2d",
+      [getOps](const cut::Tensor &input, uint32_t out_h, uint32_t out_w) {
+        return getOps().adaptiveAvgPool2d(input, out_h, out_w);
+      },
+      py::arg("input"), py::arg("out_h"), py::arg("out_w"),
+      "Adaptive 2D average pooling");
+
+  // --- Normalization ops ---
+
+  m.def(
+      "ops_layer_norm",
+      [getOps](const cut::Tensor &input, std::vector<uint32_t> normalized_shape,
+               std::optional<cut::Tensor> weight,
+               std::optional<cut::Tensor> bias, float eps) {
+        const cut::Tensor *w = weight.has_value() ? &weight.value() : nullptr;
+        const cut::Tensor *b = bias.has_value() ? &bias.value() : nullptr;
+        return getOps().layerNorm(input, normalized_shape, w, b, eps);
+      },
+      py::arg("input"), py::arg("normalized_shape"),
+      py::arg("weight") = py::none(), py::arg("bias") = py::none(),
+      py::arg("eps") = 1e-5f, "Layer normalization");
+
+  m.def(
+      "ops_batch_norm",
+      [getOps](const cut::Tensor &input, const cut::Tensor &running_mean,
+               const cut::Tensor &running_var,
+               std::optional<cut::Tensor> weight,
+               std::optional<cut::Tensor> bias, float eps) {
+        const cut::Tensor *w = weight.has_value() ? &weight.value() : nullptr;
+        const cut::Tensor *b = bias.has_value() ? &bias.value() : nullptr;
+        return getOps().batchNorm(input, running_mean, running_var, w, b, eps);
+      },
+      py::arg("input"), py::arg("running_mean"), py::arg("running_var"),
+      py::arg("weight") = py::none(), py::arg("bias") = py::none(),
+      py::arg("eps") = 1e-5f, "Batch normalization (inference)");
+
+  // --- Embedding ops ---
+
+  m.def(
+      "ops_embedding",
+      [getOps](const cut::Tensor &indices, const cut::Tensor &weight) {
+        return getOps().embedding(indices, weight);
+      },
+      py::arg("indices"), py::arg("weight"), "Embedding lookup");
+
+  // --- Padding ops ---
+
+  m.def(
+      "ops_pad",
+      [getOps](const cut::Tensor &input, std::vector<uint32_t> pad_widths,
+               float value) { return getOps().pad(input, pad_widths, value); },
+      py::arg("input"), py::arg("pad_widths"), py::arg("value") = 0.0f,
+      "Constant padding");
 
   // --- Norm ---
 
