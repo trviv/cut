@@ -78,17 +78,15 @@ void Operations::encodeCopy(const Tensor &src,
   uint32_t dstInner = dstShape.empty() ? 1 : dstShape.back();
   uint32_t dstAlignedInner = (dstInner + 3) & ~static_cast<uint32_t>(3);
 
-  // Compute actual inner dim and number of rows
-  // actualInnerDim is the unpadded innermost dim of the destination
-  uint32_t actualInnerDim = dstInner;
-  uint32_t numRows = 1;
-  for (size_t i = 0; i + 1 < dstShape.size(); ++i)
-    numRows *= dstShape[i];
+  // Compute total logical elements
+  uint32_t totalElements = 1;
+  for (size_t i = 0; i < dstShape.size(); ++i)
+    totalElements *= dstShape[i];
   if (dstShape.empty())
-    numRows = 1;
+    totalElements = 1;
 
-  uint32_t layoutData[4] = {srcAlignedInner, dstAlignedInner, actualInnerDim,
-                            numRows};
+  uint32_t layoutData[5] = {srcAlignedInner, srcInner, dstAlignedInner,
+                            dstInner, totalElements};
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, src);

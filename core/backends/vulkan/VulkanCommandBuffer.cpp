@@ -166,6 +166,12 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
     }
 
     pipelineLayoutCreateInfos.emplace_back(createInfo);
+    // Fix up the pPushConstantRanges pointer to refer to the stored copy's
+    // own pushConstantRange member, not the now-dead stack local.
+    auto &stored = pipelineLayoutCreateInfos.back();
+    if (stored.createInfo.pushConstantRangeCount > 0) {
+      stored.createInfo.pPushConstantRanges = &stored.pushConstantRange;
+    }
     ++layoutIndex;
   }
 

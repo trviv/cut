@@ -427,14 +427,17 @@ class Tensor:
         return self._handle
 
     @classmethod
-    def _from_view(cls, handle, py_dtype=None):
+    def _from_view(cls, handle, py_dtype=None, shape=None):
         """Create a Tensor from a handle returned by an operation."""
         t = object.__new__(cls)
         t._handle = handle
-        buf_shape = _cut_compute.get_buffer_shape(handle)
-        # Strip trailing 1s from the 4-dim padded shape
-        while len(buf_shape) > 1 and buf_shape[-1] == 1:
-            buf_shape = buf_shape[:-1]
+        if shape is not None:
+            buf_shape = list(shape)
+        else:
+            buf_shape = _cut_compute.get_buffer_shape(handle)
+            # Strip trailing 1s from the 4-dim padded shape
+            while len(buf_shape) > 1 and buf_shape[-1] == 1:
+                buf_shape = buf_shape[:-1]
         t._shape = tuple(buf_shape)
         if py_dtype is not None:
             t._dtype = py_dtype
@@ -598,9 +601,16 @@ builtins_sum = _builtins.sum
 
 def _create_binary_op(op_enum: OperatorEnum):
     """Create a binary vec-vec operation function using C++ backend."""
-    def binary_op(a: Tensor, b: Tensor) -> Tensor:
+    def binary_op(a: Tensor, b: Tensor, out: 'Tensor' = None) -> Tensor:
         _ensure_initialized()
         result = _cut_compute.ops_binary(op_enum, a._to_view(), b._to_view())
+        if out is not None:
+            out._handle = result
+            buf_shape = _cut_compute.get_buffer_shape(result)
+            while len(buf_shape) > 1 and buf_shape[-1] == 1:
+                buf_shape = buf_shape[:-1]
+            out._shape = tuple(buf_shape)
+            return out
         return Tensor._from_view(result, a._dtype)
     return binary_op
 
@@ -618,7 +628,7 @@ def _create_binary_vec_scalar_op(op_enum: OperatorEnum):
     """Create a binary vec-scalar operation function using C++ backend."""
     def vec_scalar_op(a: Tensor, scalar: Union[int, float]) -> Tensor:
         _ensure_initialized()
-        result = _cut_compute.ops_vec_scalar(op_enum, a._to_view(), float(scalar))
+        result = _cut_compute.ops_vec_scalar(op_enum, a._to_view(), scalar)
         return Tensor._from_view(result, a._dtype)
     return vec_scalar_op
 
@@ -705,7 +715,6 @@ def mean(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> mean(x, dim=0)  # Returns Tensor([2.5, 3.5, 4.5])
     """
     _ensure_initialized()
-    if dim is not None:
     result = _cut_compute.ops_reduce(OperatorEnum.ReduceMean, a._to_view(), dim)
     t = Tensor._from_view(result, a._dtype)
     return t if dim is not None else t.item()
@@ -1122,7 +1131,8 @@ def flatten(input: Tensor, start_dim: int = 0, end_dim: int = -1, out: Optional[
     if input._shape is None or len(input._shape) == 0:
         return input
     result = _cut_compute.ops_flatten(input._to_view(), start_dim, end_dim)
-    return Tensor._from_view(result, input._dtype)
+    exact_shape = _cut_compute.get_buffer_shape(result)
+    return Tensor._from_view(result, input._dtype, shape=exact_shape)
 
 
 def norm(input: Tensor, p: Union[float, str] = 2, dim: Optional[int] = None,
@@ -1638,7 +1648,8 @@ def reshape(a: Tensor, *shape) -> Tensor:
         new_shape = list(shape)
 
     result = _cut_compute.ops_reshape(a._to_view(), [int(s) for s in new_shape])
-    return Tensor._from_view(result, a._dtype)
+    exact_shape = _cut_compute.get_buffer_shape(result)
+    return Tensor._from_view(result, a._dtype, shape=exact_shape)
 
 
 def view(a: Tensor, *shape) -> Tensor:
@@ -1677,7 +1688,8 @@ def squeeze(a: Tensor, dim: Optional[int] = None) -> Tensor:
     """
     _ensure_initialized()
     result = _cut_compute.ops_squeeze(a._to_view(), dim)
-    return Tensor._from_view(result, a._dtype)
+    exact_shape = _cut_compute.get_buffer_shape(result)
+    return Tensor._from_view(result, a._dtype, shape=exact_shape)
 
 
 def unsqueeze(a: Tensor, dim: int) -> Tensor:
@@ -1700,7 +1712,8 @@ def unsqueeze(a: Tensor, dim: int) -> Tensor:
     """
     _ensure_initialized()
     result = _cut_compute.ops_unsqueeze(a._to_view(), dim)
-    return Tensor._from_view(result, a._dtype)
+    exact_shape = _cut_compute.get_buffer_shape(result)
+    return Tensor._from_view(result, a._dtype, shape=exact_shape)
 
 
 def unflatten(a: Tensor, dim: int, sizes: Sequence[int]) -> Tensor:
@@ -1723,7 +1736,8 @@ def unflatten(a: Tensor, dim: int, sizes: Sequence[int]) -> Tensor:
     """
     _ensure_initialized()
     result = _cut_compute.ops_unflatten(a._to_view(), dim, [int(s) for s in sizes])
-    return Tensor._from_view(result, a._dtype)
+    exact_shape = _cut_compute.get_buffer_shape(result)
+    return Tensor._from_view(result, a._dtype, shape=exact_shape)
 
 
 def mse_loss(input: Tensor, target: Tensor, reduction: str = 'mean') -> Union[float, 'Tensor']:

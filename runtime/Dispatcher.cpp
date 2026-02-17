@@ -532,6 +532,20 @@ void Dispatcher::encode(OperatorEnum op,
     iface_->encode(std::move(dimReduceDispatch));
     return;
   } else if (isReductionOp(op)) {
+    // Compute inner-dimension alignment for correct buffer indexing.
+    // Multi-dimensional buffers pad the innermost dimension to a multiple of 4,
+    // so the shader must skip padding elements during reduction.
+    uint32_t actualInner = numElements;
+    uint32_t alignedInner = numElements;
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        const auto &buf = iface_->getBuffer(binding.getHandle());
+        actualInner = buf.innerDimSize();
+        alignedInner = (actualInner + 3) & ~static_cast<uint32_t>(3);
+        break;
+      }
+    }
+
     // For large inputs and compatible ops, use multi-workgroup reduce
     if (numElements > kMultiReduceThreshold && isMultiReduceCapable(op)) {
       encodeMultiWorkgroupReduce(op, bindings, executionSize);
@@ -541,8 +555,14 @@ void Dispatcher::encode(OperatorEnum op,
     // Each thread processes multiple elements via a strided loop.
     ThreadSize reductionWorkgroupSize{256, 1, 1};
     ComputeDispatch reductionDispatch(shader, reductionWorkgroupSize, bindings);
-    reductionDispatch.bindData(DataReference(numElements),
-                               static_cast<uint32_t>(bindings.size()));
+    struct ReducePushConstants {
+      uint32_t numElements;
+      uint32_t actualInner;
+      uint32_t alignedInner;
+    } reducePushData{numElements, actualInner, alignedInner};
+    reductionDispatch.bindData(
+        DataReference(&reducePushData, sizeof(reducePushData)),
+        static_cast<uint32_t>(bindings.size()));
     iface_->encode(std::move(reductionDispatch));
     return;
   } else if (isDimReductionOp(op)) {
@@ -758,34 +778,37 @@ void Dispatcher::encode(OperatorEnum op,
   } else if (op == Copy) {
     // Copy: src handle, dst handle, layout data (push constants)
     std::vector<ComputeBinding> copyHandleBindings;
-    uint32_t srcAlignedInner = 0, dstAlignedInner = 0, actualInnerDim = 0,
-             numRows = 0;
+    uint32_t srcAlignedInner = 0, srcActualInner = 0;
+    uint32_t dstAlignedInner = 0, dstActualInner = 0;
+    uint32_t totalElements = 0;
 
     for (const auto &binding : bindings) {
       if (binding.isHandle()) {
         copyHandleBindings.push_back(binding);
       } else if (binding.isData()) {
         const auto &data = binding.getData();
-        if (data.size() >= 4 * sizeof(uint32_t)) {
+        if (data.size() >= 5 * sizeof(uint32_t)) {
           const uint32_t *params =
               reinterpret_cast<const uint32_t *>(data.data());
           srcAlignedInner = params[0];
-          dstAlignedInner = params[1];
-          actualInnerDim = params[2];
-          numRows = params[3];
+          srcActualInner = params[1];
+          dstAlignedInner = params[2];
+          dstActualInner = params[3];
+          totalElements = params[4];
         }
       }
     }
 
-    uint32_t totalElements = numRows * actualInnerDim;
     ThreadSize copyWorkgroupSize{totalElements, 1, 1};
     ComputeDispatch copyDispatch(shader, copyWorkgroupSize, copyHandleBindings);
     struct CopyPushConstants {
       uint32_t srcAlignedInner;
+      uint32_t srcActualInner;
       uint32_t dstAlignedInner;
-      uint32_t actualInnerDim;
-      uint32_t numRows;
-    } copyPushData{srcAlignedInner, dstAlignedInner, actualInnerDim, numRows};
+      uint32_t dstActualInner;
+      uint32_t totalElements;
+    } copyPushData{srcAlignedInner, srcActualInner, dstAlignedInner,
+                   dstActualInner, totalElements};
     copyDispatch.bindData(DataReference(&copyPushData, sizeof(copyPushData)),
                           static_cast<uint32_t>(copyHandleBindings.size()));
     iface_->encode(std::move(copyDispatch));

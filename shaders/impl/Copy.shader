@@ -9,9 +9,10 @@ layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(push_constant) uniform PushConstants {
     uint srcAlignedInner;
+    uint srcActualInner;
     uint dstAlignedInner;
-    uint actualInnerDim;
-    uint numRows;
+    uint dstActualInner;
+    uint totalElements;
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
@@ -24,14 +25,15 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
 
 void main() {
     uint gid = gl_GlobalInvocationID.x;
-    uint totalElements = numRows * actualInnerDim;
 
     if (gid >= totalElements) {
         return;
     }
 
-    uint row = gid / actualInnerDim;
-    uint col = gid % actualInnerDim;
+    uint srcRow = gid / srcActualInner;
+    uint srcCol = gid % srcActualInner;
+    uint dstRow = gid / dstActualInner;
+    uint dstCol = gid % dstActualInner;
 
-    dataOut[row * dstAlignedInner + col] = dataIn[row * srcAlignedInner + col];
+    dataOut[dstRow * dstAlignedInner + dstCol] = dataIn[srcRow * srcAlignedInner + srcCol];
 }

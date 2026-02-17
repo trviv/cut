@@ -533,6 +533,7 @@ class TestIntegerChains:
 
         a = cc.Tensor([1, 2, 3, 4], dtype=cc.int32)
         b = cc.Tensor([5, 6, 7, 8], dtype=cc.int32)
+        c = cc.Tensor([2, 2, 2, 2], dtype=cc.int32)
         result = ((a + b) * c) - a
 
         a_np = np.array([1, 2, 3, 4], dtype=np.int32)
