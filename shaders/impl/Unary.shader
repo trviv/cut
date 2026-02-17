@@ -190,7 +190,7 @@ layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 #endif
         case OP_UNARY_ROUND:
 #ifdef DTYPE_IS_FLOAT
-            return roundEven(a);
+            return round(a);
 #else
             return a;
 #endif
