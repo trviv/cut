@@ -238,10 +238,20 @@ void Runtime::encodeOperator(OperatorEnum op,
   // Infer dtype from buffer bindings (also validates dtype consistency).
   // Sort ops allow mixed dtypes (e.g., Float32 keys + UInt32 indices),
   // so skip dtype validation and just use the first buffer's dtype.
+  // Embedding also has mixed dtypes (UInt32 indices + Float32 weight/output),
+  // so use the weight buffer's dtype (binding index 1).
   DataType dtype = DataType::Float32;
   if (op == SortBitonic || op == SortRadix) {
     for (const auto &b : bindings) {
       if (b.isHandle()) {
+        dtype = interface_->getBuffer(b.getHandle()).getDtype();
+        break;
+      }
+    }
+  } else if (op == Embedding) {
+    // Use weight buffer dtype (binding 1), not indices dtype (binding 0)
+    for (const auto &b : bindings) {
+      if (b.isHandle() && b.index() == 1) {
         dtype = interface_->getBuffer(b.getHandle()).getDtype();
         break;
       }

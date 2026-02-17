@@ -964,6 +964,359 @@ Tensor Operations::conv2d(const Tensor &input,
   return output;
 }
 
+// =========================================================================
+// Pooling ops
+// =========================================================================
+
+Tensor Operations::maxPool2d(const Tensor &input,
+                             uint32_t kernelH,
+                             uint32_t kernelW,
+                             uint32_t strideH,
+                             uint32_t strideW,
+                             uint32_t padH,
+                             uint32_t padW) {
+  auto inShape = getShape(input); // [N, C, H_in, W_in]
+  auto dtype = getDtype(input);
+
+  if (inShape.size() != 4)
+    throw std::runtime_error("max_pool2d: input must be 4D [N, C, H, W]");
+
+  uint32_t N = inShape[0], C = inShape[1], H_in = inShape[2], W_in = inShape[3];
+  uint32_t H_out = (H_in + 2 * padH - kernelH) / strideH + 1;
+  uint32_t W_out = (W_in + 2 * padW - kernelW) / strideW + 1;
+
+  Tensor output = createOutput({N, C, H_out, W_out}, dtype);
+
+  struct Pool2DParams {
+    uint32_t N, C, H_in, W_in;
+    uint32_t kernelH, kernelW;
+    uint32_t strideH, strideW;
+    uint32_t padH, padW;
+  } params{N, C, H_in, W_in, kernelH, kernelW, strideH, strideW, padH, padW};
+
+  std::vector<ComputeBinding> bindings;
+  bindings.emplace_back(0, input);
+  bindings.emplace_back(1, output);
+  bindings.emplace_back(2, DataReference(&params, sizeof(params)));
+
+  runtime_->encodeOperator(OperatorEnum::MaxPool2D, bindings);
+  return output;
+}
+
+Tensor Operations::avgPool2d(const Tensor &input,
+                             uint32_t kernelH,
+                             uint32_t kernelW,
+                             uint32_t strideH,
+                             uint32_t strideW,
+                             uint32_t padH,
+                             uint32_t padW) {
+  auto inShape = getShape(input); // [N, C, H_in, W_in]
+  auto dtype = getDtype(input);
+
+  if (inShape.size() != 4)
+    throw std::runtime_error("avg_pool2d: input must be 4D [N, C, H, W]");
+
+  uint32_t N = inShape[0], C = inShape[1], H_in = inShape[2], W_in = inShape[3];
+  uint32_t H_out = (H_in + 2 * padH - kernelH) / strideH + 1;
+  uint32_t W_out = (W_in + 2 * padW - kernelW) / strideW + 1;
+
+  Tensor output = createOutput({N, C, H_out, W_out}, dtype);
+
+  struct Pool2DParams {
+    uint32_t N, C, H_in, W_in;
+    uint32_t kernelH, kernelW;
+    uint32_t strideH, strideW;
+    uint32_t padH, padW;
+  } params{N, C, H_in, W_in, kernelH, kernelW, strideH, strideW, padH, padW};
+
+  std::vector<ComputeBinding> bindings;
+  bindings.emplace_back(0, input);
+  bindings.emplace_back(1, output);
+  bindings.emplace_back(2, DataReference(&params, sizeof(params)));
+
+  runtime_->encodeOperator(OperatorEnum::AvgPool2D, bindings);
+  return output;
+}
+
+Tensor Operations::adaptiveAvgPool2d(const Tensor &input,
+                                     uint32_t outH,
+                                     uint32_t outW) {
+  auto inShape = getShape(input);
+  if (inShape.size() != 4)
+    throw std::runtime_error(
+        "adaptive_avg_pool2d: input must be 4D [N, C, H, W]");
+
+  uint32_t H_in = inShape[2], W_in = inShape[3];
+
+  // Compute kernel and stride to produce desired output size
+  // PyTorch formula: stride = floor(input_size / output_size)
+  //                  kernel = input_size - (output_size - 1) * stride
+  uint32_t strideH = H_in / outH;
+  uint32_t strideW = W_in / outW;
+  uint32_t kernelH = H_in - (outH - 1) * strideH;
+  uint32_t kernelW = W_in - (outW - 1) * strideW;
+
+  return avgPool2d(input, kernelH, kernelW, strideH, strideW, 0, 0);
+}
+
+// =========================================================================
+// Normalization ops
+// =========================================================================
+
+Tensor Operations::layerNorm(const Tensor &input,
+                             const std::vector<uint32_t> &normalizedShape,
+                             const Tensor *weight,
+                             const Tensor *bias,
+                             float eps) {
+  auto shape = getShape(input);
+  auto dtype = getDtype(input);
+
+  // normalizedShape must match the trailing dimensions of input
+  int ndim = static_cast<int>(shape.size());
+  int normDims = static_cast<int>(normalizedShape.size());
+  int axisDim = ndim - normDims;
+
+  if (axisDim < 0) {
+    throw std::runtime_error(
+        "layer_norm: normalizedShape has more dims than input");
+  }
+  for (int i = 0; i < normDims; ++i) {
+    if (shape[axisDim + i] != normalizedShape[i]) {
+      throw std::runtime_error(
+          "layer_norm: normalizedShape doesn't match input trailing dims");
+    }
+  }
+
+  // Compute sizes
+  size_t outerSize = 1;
+  for (int i = 0; i < axisDim; ++i)
+    outerSize *= shape[i];
+
+  size_t normSize = 1;
+  for (int i = 0; i < normDims; ++i)
+    normSize *= normalizedShape[i];
+
+  size_t totalElements = outerSize * normSize;
+
+  // Read input data
+  std::vector<float> data(totalElements);
+  runtime_->copyFromTensor(input, data.data(), totalElements * sizeof(float));
+
+  // Read weight/bias if provided
+  std::vector<float> wData, bData;
+  if (weight) {
+    wData.resize(normSize);
+    runtime_->copyFromTensor(*weight, wData.data(), normSize * sizeof(float));
+  }
+  if (bias) {
+    bData.resize(normSize);
+    runtime_->copyFromTensor(*bias, bData.data(), normSize * sizeof(float));
+  }
+
+  // Compute layer norm on CPU
+  std::vector<float> result(totalElements);
+  for (size_t o = 0; o < outerSize; ++o) {
+    size_t base = o * normSize;
+
+    // Mean
+    double sum = 0.0;
+    for (size_t i = 0; i < normSize; ++i)
+      sum += data[base + i];
+    float mean = static_cast<float>(sum / normSize);
+
+    // Variance
+    double varSum = 0.0;
+    for (size_t i = 0; i < normSize; ++i) {
+      double diff = data[base + i] - mean;
+      varSum += diff * diff;
+    }
+    float invStd =
+        1.0f / std::sqrt(static_cast<float>(varSum / normSize) + eps);
+
+    // Normalize, scale, shift
+    for (size_t i = 0; i < normSize; ++i) {
+      float normalized = (data[base + i] - mean) * invStd;
+      if (weight)
+        normalized *= wData[i];
+      if (bias)
+        normalized += bData[i];
+      result[base + i] = normalized;
+    }
+  }
+
+  Tensor out = createOutput(shape, dtype);
+  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
+  return out;
+}
+
+Tensor Operations::batchNorm(const Tensor &input,
+                             const Tensor &runningMean,
+                             const Tensor &runningVar,
+                             const Tensor *weight,
+                             const Tensor *bias,
+                             float eps) {
+  auto shape = getShape(input);
+  auto dtype = getDtype(input);
+
+  if (shape.size() < 2) {
+    throw std::runtime_error(
+        "batch_norm: input must be at least 2D [N, C, ...]");
+  }
+
+  uint32_t N = shape[0];
+  uint32_t C = shape[1];
+  size_t spatialSize = 1;
+  for (size_t i = 2; i < shape.size(); ++i)
+    spatialSize *= shape[i];
+
+  size_t totalElements = N * C * spatialSize;
+
+  // Read all data
+  std::vector<float> data(totalElements);
+  runtime_->copyFromTensor(input, data.data(), totalElements * sizeof(float));
+
+  std::vector<float> meanData(C), varData(C);
+  runtime_->copyFromTensor(runningMean, meanData.data(), C * sizeof(float));
+  runtime_->copyFromTensor(runningVar, varData.data(), C * sizeof(float));
+
+  std::vector<float> wData, bData;
+  if (weight) {
+    wData.resize(C);
+    runtime_->copyFromTensor(*weight, wData.data(), C * sizeof(float));
+  }
+  if (bias) {
+    bData.resize(C);
+    runtime_->copyFromTensor(*bias, bData.data(), C * sizeof(float));
+  }
+
+  // Compute batch norm (inference mode): y = (x - mean) / sqrt(var + eps) * w +
+  // b
+  std::vector<float> result(totalElements);
+  for (uint32_t n = 0; n < N; ++n) {
+    for (uint32_t c = 0; c < C; ++c) {
+      float invStd = 1.0f / std::sqrt(varData[c] + eps);
+      float scale = weight ? wData[c] * invStd : invStd;
+      float shift =
+          bias ? bData[c] - meanData[c] * scale : -meanData[c] * scale;
+
+      size_t base = (n * C + c) * spatialSize;
+      for (size_t s = 0; s < spatialSize; ++s) {
+        result[base + s] = data[base + s] * scale + shift;
+      }
+    }
+  }
+
+  Tensor out = createOutput(shape, dtype);
+  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
+  return out;
+}
+
+// =========================================================================
+// Embedding ops
+// =========================================================================
+
+Tensor Operations::embedding(const Tensor &indices, const Tensor &weight) {
+  auto idxShape = getShape(indices);
+  auto wShape = getShape(weight); // [num_embeddings, embedding_dim]
+
+  if (wShape.size() != 2)
+    throw std::runtime_error(
+        "embedding: weight must be 2D [num_embeddings, embedding_dim]");
+
+  uint32_t embDim = wShape[1];
+
+  // Output shape = indices shape + [embedding_dim]
+  std::vector<uint32_t> outShape(idxShape.begin(), idxShape.end());
+  outShape.push_back(embDim);
+
+  Tensor output = createOutput(outShape, DataType::Float32);
+
+  size_t numIndices = shapeProduct(idxShape);
+
+  struct EmbeddingParams {
+    uint32_t numIndices;
+    uint32_t embDim;
+  } params{static_cast<uint32_t>(numIndices), embDim};
+
+  std::vector<ComputeBinding> bindings;
+  bindings.emplace_back(0, indices);
+  bindings.emplace_back(1, weight);
+  bindings.emplace_back(2, output);
+  bindings.emplace_back(3, DataReference(&params, sizeof(params)));
+
+  runtime_->encodeOperator(OperatorEnum::Embedding, bindings);
+  return output;
+}
+
+// =========================================================================
+// Padding ops
+// =========================================================================
+
+Tensor Operations::pad(const Tensor &input,
+                       const std::vector<uint32_t> &padWidths,
+                       float value) {
+  auto shape = getShape(input);
+  auto dtype = getDtype(input);
+  int ndim = static_cast<int>(shape.size());
+
+  // padWidths is in PyTorch order: (left, right) for last dim,
+  // then (left, right) for second-to-last, etc.
+  if (padWidths.size() % 2 != 0 ||
+      static_cast<int>(padWidths.size() / 2) > ndim) {
+    throw std::runtime_error("pad: invalid padWidths length");
+  }
+
+  int numPaddedDims = static_cast<int>(padWidths.size() / 2);
+
+  // Build output shape
+  std::vector<uint32_t> outShape = shape;
+  for (int i = 0; i < numPaddedDims; ++i) {
+    int dim = ndim - 1 - i;
+    outShape[dim] += padWidths[2 * i] + padWidths[2 * i + 1];
+  }
+
+  Tensor output = createOutput(outShape, dtype);
+
+  // Build params: input shape (4) + pad widths (up to 8) + fill value
+  // Fixed-size struct for push constants
+  struct PadParams {
+    uint32_t ndim;
+    uint32_t inShape[4];
+    uint32_t outShape[4];
+    uint32_t padBefore[4]; // padding before each dim (from dim 0)
+    uint32_t totalElements;
+    float fillValue;
+  } params{};
+
+  params.ndim = static_cast<uint32_t>(ndim);
+  params.totalElements = static_cast<uint32_t>(shapeProduct(outShape));
+  std::memcpy(&params.fillValue, &value, sizeof(float));
+
+  for (int i = 0; i < ndim; ++i) {
+    params.inShape[i] = shape[i];
+    params.outShape[i] = outShape[i];
+    params.padBefore[i] = 0;
+  }
+
+  // Map PyTorch padWidths (innermost first) to per-dim padBefore
+  for (int i = 0; i < numPaddedDims; ++i) {
+    int dim = ndim - 1 - i;
+    params.padBefore[dim] = padWidths[2 * i];
+  }
+
+  std::vector<ComputeBinding> bindings;
+  bindings.emplace_back(0, input);
+  bindings.emplace_back(1, output);
+  bindings.emplace_back(2, DataReference(&params, sizeof(params)));
+
+  runtime_->encodeOperator(OperatorEnum::Pad, bindings);
+  return output;
+}
+
+// =========================================================================
+// Sort (in-place)
+// =========================================================================
+
 void Operations::sortBitonic(const Tensor &keys, const Tensor &vals) {
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, keys);

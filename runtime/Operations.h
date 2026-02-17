@@ -106,6 +106,51 @@ public:
                 uint32_t padH = 0,
                 uint32_t padW = 0);
 
+  // ===== Pooling ops =====
+
+  Tensor maxPool2d(const Tensor &input,
+                   uint32_t kernelH,
+                   uint32_t kernelW,
+                   uint32_t strideH = 1,
+                   uint32_t strideW = 1,
+                   uint32_t padH = 0,
+                   uint32_t padW = 0);
+
+  Tensor avgPool2d(const Tensor &input,
+                   uint32_t kernelH,
+                   uint32_t kernelW,
+                   uint32_t strideH = 1,
+                   uint32_t strideW = 1,
+                   uint32_t padH = 0,
+                   uint32_t padW = 0);
+
+  Tensor adaptiveAvgPool2d(const Tensor &input, uint32_t outH, uint32_t outW);
+
+  // ===== Normalization ops =====
+
+  Tensor layerNorm(const Tensor &input,
+                   const std::vector<uint32_t> &normalizedShape,
+                   const Tensor *weight = nullptr,
+                   const Tensor *bias = nullptr,
+                   float eps = 1e-5f);
+
+  Tensor batchNorm(const Tensor &input,
+                   const Tensor &runningMean,
+                   const Tensor &runningVar,
+                   const Tensor *weight = nullptr,
+                   const Tensor *bias = nullptr,
+                   float eps = 1e-5f);
+
+  // ===== Embedding ops =====
+
+  Tensor embedding(const Tensor &indices, const Tensor &weight);
+
+  // ===== Padding ops =====
+
+  Tensor pad(const Tensor &input,
+             const std::vector<uint32_t> &padWidths,
+             float value = 0.0f);
+
   // ===== Sort (in-place) =====
 
   void sortBitonic(const Tensor &keys, const Tensor &vals);

@@ -384,6 +384,26 @@ const char *operatorName(OperatorEnum op) {
   case Conv2D:
     return "Conv2D";
 
+  // Pooling operations
+  case MaxPool2D:
+    return "MaxPool2D";
+  case AvgPool2D:
+    return "AvgPool2D";
+
+  // Normalization operations
+  case LayerNorm:
+    return "LayerNorm";
+  case BatchNorm:
+    return "BatchNorm";
+
+  // Embedding operations
+  case Embedding:
+    return "Embedding";
+
+  // Padding operations
+  case Pad:
+    return "Pad";
+
   default:
     return "Unknown";
   }

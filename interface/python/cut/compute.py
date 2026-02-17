@@ -949,6 +949,188 @@ def conv2d(input: Tensor, weight: Tensor,
     return Tensor._from_view(result, input._dtype)
 
 
+def max_pool2d(input: Tensor,
+               kernel_size: Union[int, tuple],
+               stride: Union[int, tuple, None] = None,
+               padding: Union[int, tuple] = 0) -> Tensor:
+    """
+    2D max pooling over an input signal.
+
+    Args:
+        input: Input tensor of shape (N, C, H, W)
+        kernel_size: Size of the pooling window (int or (kH, kW))
+        stride: Stride of the pooling (default: kernel_size)
+        padding: Zero-padding (int or (pH, pW))
+
+    Returns:
+        Output tensor of shape (N, C, H_out, W_out)
+    """
+    _ensure_initialized()
+    kh, kw = (kernel_size, kernel_size) if isinstance(kernel_size, int) else kernel_size
+    if stride is None:
+        sh, sw = kh, kw
+    else:
+        sh, sw = (stride, stride) if isinstance(stride, int) else stride
+    ph, pw = (padding, padding) if isinstance(padding, int) else padding
+    result = _cut_compute.ops_max_pool2d(
+        input._to_view(), int(kh), int(kw), int(sh), int(sw), int(ph), int(pw))
+    return Tensor._from_view(result, input._dtype)
+
+
+def avg_pool2d(input: Tensor,
+               kernel_size: Union[int, tuple],
+               stride: Union[int, tuple, None] = None,
+               padding: Union[int, tuple] = 0) -> Tensor:
+    """
+    2D average pooling over an input signal.
+
+    Args:
+        input: Input tensor of shape (N, C, H, W)
+        kernel_size: Size of the pooling window (int or (kH, kW))
+        stride: Stride of the pooling (default: kernel_size)
+        padding: Zero-padding (int or (pH, pW))
+
+    Returns:
+        Output tensor of shape (N, C, H_out, W_out)
+    """
+    _ensure_initialized()
+    kh, kw = (kernel_size, kernel_size) if isinstance(kernel_size, int) else kernel_size
+    if stride is None:
+        sh, sw = kh, kw
+    else:
+        sh, sw = (stride, stride) if isinstance(stride, int) else stride
+    ph, pw = (padding, padding) if isinstance(padding, int) else padding
+    result = _cut_compute.ops_avg_pool2d(
+        input._to_view(), int(kh), int(kw), int(sh), int(sw), int(ph), int(pw))
+    return Tensor._from_view(result, input._dtype)
+
+
+def adaptive_avg_pool2d(input: Tensor,
+                        output_size: Union[int, tuple]) -> Tensor:
+    """
+    2D adaptive average pooling.
+
+    Pools the input to produce a fixed output size regardless of input size.
+
+    Args:
+        input: Input tensor of shape (N, C, H, W)
+        output_size: Target output size (int or (H_out, W_out))
+
+    Returns:
+        Output tensor of shape (N, C, H_out, W_out)
+    """
+    _ensure_initialized()
+    oh, ow = (output_size, output_size) if isinstance(output_size, int) else output_size
+    result = _cut_compute.ops_adaptive_avg_pool2d(
+        input._to_view(), int(oh), int(ow))
+    return Tensor._from_view(result, input._dtype)
+
+
+def layer_norm(input: Tensor,
+               normalized_shape: Union[int, Sequence[int]],
+               weight: Optional[Tensor] = None,
+               bias: Optional[Tensor] = None,
+               eps: float = 1e-5) -> Tensor:
+    """
+    Layer normalization.
+
+    Normalizes over the last len(normalized_shape) dimensions.
+
+    Args:
+        input: Input tensor of shape [*, normalized_shape]
+        normalized_shape: Shape of the normalized dimensions
+        weight: Learnable scale parameter (same shape as normalized_shape)
+        bias: Learnable shift parameter (same shape as normalized_shape)
+        eps: Epsilon for numerical stability
+
+    Returns:
+        Normalized tensor (same shape as input)
+    """
+    _ensure_initialized()
+    if isinstance(normalized_shape, int):
+        normalized_shape = [normalized_shape]
+    ns = [int(s) for s in normalized_shape]
+    w = weight._to_view() if weight is not None else None
+    b = bias._to_view() if bias is not None else None
+    result = _cut_compute.ops_layer_norm(input._to_view(), ns, w, b, float(eps))
+    return Tensor._from_view(result, input._dtype)
+
+
+def batch_norm(input: Tensor,
+               running_mean: Tensor,
+               running_var: Tensor,
+               weight: Optional[Tensor] = None,
+               bias: Optional[Tensor] = None,
+               eps: float = 1e-5) -> Tensor:
+    """
+    Batch normalization (inference mode).
+
+    Uses running statistics (not batch statistics) for normalization.
+
+    Args:
+        input: Input tensor of shape (N, C, ...)
+        running_mean: Running mean of shape (C,)
+        running_var: Running variance of shape (C,)
+        weight: Scale parameter of shape (C,)
+        bias: Shift parameter of shape (C,)
+        eps: Epsilon for numerical stability
+
+    Returns:
+        Normalized tensor (same shape as input)
+    """
+    _ensure_initialized()
+    w = weight._to_view() if weight is not None else None
+    b = bias._to_view() if bias is not None else None
+    result = _cut_compute.ops_batch_norm(
+        input._to_view(), running_mean._to_view(), running_var._to_view(),
+        w, b, float(eps))
+    return Tensor._from_view(result, input._dtype)
+
+
+def embedding(indices: Tensor, weight: Tensor) -> Tensor:
+    """
+    Embedding lookup.
+
+    Retrieves rows from a weight table using integer indices.
+
+    Args:
+        indices: Integer tensor of indices (any shape)
+        weight: Embedding weight table of shape (num_embeddings, embedding_dim)
+
+    Returns:
+        Tensor of shape (*indices.shape, embedding_dim)
+    """
+    _ensure_initialized()
+    result = _cut_compute.ops_embedding(indices._to_view(), weight._to_view())
+    return Tensor._from_view(result, weight._dtype)
+
+
+def pad(input: Tensor,
+        pad_widths: Sequence[int],
+        value: float = 0.0) -> Tensor:
+    """
+    Constant padding.
+
+    Pads the input tensor with a constant value. Padding is specified
+    starting from the last dimension (PyTorch convention):
+    (left, right) for last dim, (left, right) for second-to-last, etc.
+
+    Args:
+        input: Input tensor
+        pad_widths: Padding for each side, starting from last dim.
+                    E.g., (1, 1) pads last dim by 1 on each side.
+                    (1, 1, 2, 2) pads last dim by 1, second-to-last by 2.
+        value: Fill value for padded positions
+
+    Returns:
+        Padded tensor
+    """
+    _ensure_initialized()
+    pw = [int(p) for p in pad_widths]
+    result = _cut_compute.ops_pad(input._to_view(), pw, float(value))
+    return Tensor._from_view(result, input._dtype)
+
+
 def clamp(a: Tensor, min_val: Union[int, float], max_val: Union[int, float],
           out: Optional[Tensor] = None) -> Tensor:
     """

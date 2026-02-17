@@ -261,6 +261,11 @@ bool isConvOp(OperatorEnum op) {
   return op == Conv1D || op == Conv2D;
 }
 
+/// Checks if an operator is a pooling operation.
+bool isPoolOp(OperatorEnum op) {
+  return op == MaxPool2D || op == AvgPool2D;
+}
+
 /// Returns the next power of 2 >= n.
 uint32_t nextPowerOf2(uint32_t n) {
   if (n <= 1)
@@ -378,6 +383,24 @@ void Dispatcher::encode(OperatorEnum op,
     if (bindings.size() < 3) {
       throw std::runtime_error("Conv operation requires at least 3 bindings "
                                "(input, weight, output)");
+    }
+  } else if (isPoolOp(op)) {
+    // Pool ops: input, output + data reference for params
+    if (bindings.size() < 2) {
+      throw std::runtime_error("Pool operation requires at least 2 bindings "
+                               "(input, output)");
+    }
+  } else if (op == Embedding) {
+    // Embedding: indices, weight, output + data reference for params
+    if (bindings.size() < 3) {
+      throw std::runtime_error("Embedding requires at least 3 bindings "
+                               "(indices, weight, output)");
+    }
+  } else if (op == Pad) {
+    // Pad: input, output + data reference for params
+    if (bindings.size() < 2) {
+      throw std::runtime_error("Pad requires at least 2 bindings "
+                               "(input, output)");
     }
   } else {
     throw std::runtime_error(std::string("Unknown operator: ") +
@@ -875,6 +898,89 @@ void Dispatcher::encode(OperatorEnum op,
                             static_cast<uint32_t>(convHandleBindings.size()));
       iface_->encode(std::move(convDispatch));
     }
+    return;
+  } else if (isPoolOp(op)) {
+    // Pool ops: 2D dispatch like Conv2D
+    std::vector<ComputeBinding> poolHandleBindings;
+    std::vector<uint8_t> paramData;
+
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        poolHandleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        paramData = binding.getData();
+      }
+    }
+
+    const uint32_t *p = reinterpret_cast<const uint32_t *>(paramData.data());
+    // Pool2DParams: N(0), C(1), H_in(2), W_in(3), kernelH(4), kernelW(5),
+    //               strideH(6), strideW(7), padH(8), padW(9)
+    uint32_t batchSize = p[0], C = p[1], H_in = p[2], W_in = p[3];
+    uint32_t kH = p[4], kW = p[5];
+    uint32_t strideH = p[6], strideW = p[7];
+    uint32_t padH = p[8], padW = p[9];
+    uint32_t H_out = (H_in + 2 * padH - kH) / strideH + 1;
+    uint32_t W_out = (W_in + 2 * padW - kW) / strideW + 1;
+
+    const uint32_t tileSize = 16;
+    uint32_t gridX = (W_out + tileSize - 1) / tileSize * tileSize;
+    uint32_t gridY =
+        (batchSize * C * H_out + tileSize - 1) / tileSize * tileSize;
+
+    ThreadSize poolWorkgroupSize{gridX, gridY, 1};
+    ComputeDispatch poolDispatch(shader, poolWorkgroupSize, poolHandleBindings);
+    poolDispatch.bindData(DataReference(paramData.data(), paramData.size()),
+                          static_cast<uint32_t>(poolHandleBindings.size()));
+    iface_->encode(std::move(poolDispatch));
+    return;
+  } else if (op == Embedding) {
+    // Embedding: 1D dispatch
+    std::vector<ComputeBinding> embHandleBindings;
+    std::vector<uint8_t> paramData;
+
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        embHandleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        paramData = binding.getData();
+      }
+    }
+
+    const uint32_t *p = reinterpret_cast<const uint32_t *>(paramData.data());
+    // EmbeddingParams: numIndices(0), embDim(1)
+    uint32_t totalOutputs = p[0] * p[1];
+    uint32_t gridX = ((totalOutputs + 255) / 256) * 256;
+
+    ThreadSize embWorkgroupSize{gridX, 1, 1};
+    ComputeDispatch embDispatch(shader, embWorkgroupSize, embHandleBindings);
+    embDispatch.bindData(DataReference(paramData.data(), paramData.size()),
+                         static_cast<uint32_t>(embHandleBindings.size()));
+    iface_->encode(std::move(embDispatch));
+    return;
+  } else if (op == Pad) {
+    // Pad: 1D dispatch
+    std::vector<ComputeBinding> padHandleBindings;
+    std::vector<uint8_t> paramData;
+
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        padHandleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        paramData = binding.getData();
+      }
+    }
+
+    // PadParams: ndim(0), inShape[4](1-4), outShape[4](5-8),
+    //            padBefore[4](9-12), totalElements(13), fillValue(14)
+    const uint32_t *p = reinterpret_cast<const uint32_t *>(paramData.data());
+    uint32_t totalOutputs = p[13]; // totalElements field
+    uint32_t gridX = ((totalOutputs + 255) / 256) * 256;
+
+    ThreadSize padWorkgroupSize{gridX, 1, 1};
+    ComputeDispatch padDispatch(shader, padWorkgroupSize, padHandleBindings);
+    padDispatch.bindData(DataReference(paramData.data(), paramData.size()),
+                         static_cast<uint32_t>(padHandleBindings.size()));
+    iface_->encode(std::move(padDispatch));
     return;
   } else {
     // Just add numElements for other operation types

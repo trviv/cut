@@ -96,6 +96,14 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledConv1D(datatype);
   } else if (shader == Conv2D) {
     compiled = compiledConv2D(datatype);
+  } else if (shader == MaxPool2D) {
+    compiled = compiledMaxPool2D(datatype);
+  } else if (shader == AvgPool2D) {
+    compiled = compiledAvgPool2D(datatype);
+  } else if (shader == Embedding) {
+    compiled = compiledEmbedding(datatype);
+  } else if (shader == Pad) {
+    compiled = compiledPad(datatype);
   } else if (shader == InternalPartialReduce) {
     compiled = compiledPartialReduce(datatype);
   } else if (shader == InternalFinalReduce) {
@@ -180,7 +188,8 @@ static bool isMultiPassOp(OperatorEnum op) {
 static bool isMismatchedSizeOp(OperatorEnum op) {
   return op == MatMul || op == Transpose || op == Dot || op == Zeros ||
          op == Ones || op == Full || op == Arange || op == Linspace ||
-         op == Copy || op == Conv1D || op == Conv2D;
+         op == Copy || op == Conv1D || op == Conv2D || op == MaxPool2D ||
+         op == AvgPool2D || op == Embedding || op == Pad;
 }
 
 size_t validateExecutionSize(OperatorEnum op,

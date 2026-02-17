@@ -132,6 +132,21 @@ compiledConv1D(const DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>>
 compiledConv2D(const DataType datatype = DataType::Float32);
 
+// Pooling compiled shaders
+std::optional<std::vector<uint32_t>>
+compiledMaxPool2D(const DataType datatype = DataType::Float32);
+
+std::optional<std::vector<uint32_t>>
+compiledAvgPool2D(const DataType datatype = DataType::Float32);
+
+// Embedding compiled shaders
+std::optional<std::vector<uint32_t>>
+compiledEmbedding(const DataType datatype = DataType::Float32);
+
+// Padding compiled shaders
+std::optional<std::vector<uint32_t>>
+compiledPad(const DataType datatype = DataType::Float32);
+
 /*
  * Validates execution sizes for an operator and returns the resolved size.
  * For elementwise operators (unary, binary, ternary), all buffer execution

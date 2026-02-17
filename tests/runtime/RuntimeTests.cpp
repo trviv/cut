@@ -4949,5 +4949,734 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Transpose) {
   EXPECT_EQ(runtime_->bufferCount(), before);
 }
 
+// ============================================================================
+// Pooling Operation Tests
+// ============================================================================
+
+class PoolingTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+
+  // CPU reference for max_pool2d: input [N,C,H_in,W_in]
+  std::vector<float> maxPool2dRef(const std::vector<float> &input,
+                                  uint32_t N,
+                                  uint32_t C,
+                                  uint32_t H_in,
+                                  uint32_t W_in,
+                                  uint32_t kH,
+                                  uint32_t kW,
+                                  uint32_t sH,
+                                  uint32_t sW,
+                                  uint32_t pH,
+                                  uint32_t pW) {
+    uint32_t H_out = (H_in + 2 * pH - kH) / sH + 1;
+    uint32_t W_out = (W_in + 2 * pW - kW) / sW + 1;
+    std::vector<float> output(N * C * H_out * W_out);
+
+    for (uint32_t n = 0; n < N; n++) {
+      for (uint32_t c = 0; c < C; c++) {
+        for (uint32_t ho = 0; ho < H_out; ho++) {
+          for (uint32_t wo = 0; wo < W_out; wo++) {
+            float maxVal = -std::numeric_limits<float>::infinity();
+            for (uint32_t kh = 0; kh < kH; kh++) {
+              for (uint32_t kw = 0; kw < kW; kw++) {
+                int hi = static_cast<int>(ho * sH + kh) - static_cast<int>(pH);
+                int wi = static_cast<int>(wo * sW + kw) - static_cast<int>(pW);
+                if (hi >= 0 && hi < static_cast<int>(H_in) && wi >= 0 &&
+                    wi < static_cast<int>(W_in)) {
+                  float val = input[n * C * H_in * W_in + c * H_in * W_in +
+                                    hi * W_in + wi];
+                  maxVal = std::max(maxVal, val);
+                }
+              }
+            }
+            output[n * C * H_out * W_out + c * H_out * W_out + ho * W_out +
+                   wo] = maxVal;
+          }
+        }
+      }
+    }
+    return output;
+  }
+
+  // CPU reference for avg_pool2d: input [N,C,H_in,W_in]
+  std::vector<float> avgPool2dRef(const std::vector<float> &input,
+                                  uint32_t N,
+                                  uint32_t C,
+                                  uint32_t H_in,
+                                  uint32_t W_in,
+                                  uint32_t kH,
+                                  uint32_t kW,
+                                  uint32_t sH,
+                                  uint32_t sW,
+                                  uint32_t pH,
+                                  uint32_t pW) {
+    uint32_t H_out = (H_in + 2 * pH - kH) / sH + 1;
+    uint32_t W_out = (W_in + 2 * pW - kW) / sW + 1;
+    std::vector<float> output(N * C * H_out * W_out);
+
+    for (uint32_t n = 0; n < N; n++) {
+      for (uint32_t c = 0; c < C; c++) {
+        for (uint32_t ho = 0; ho < H_out; ho++) {
+          for (uint32_t wo = 0; wo < W_out; wo++) {
+            float sum = 0.0f;
+            uint32_t count = 0;
+            for (uint32_t kh = 0; kh < kH; kh++) {
+              for (uint32_t kw = 0; kw < kW; kw++) {
+                int hi = static_cast<int>(ho * sH + kh) - static_cast<int>(pH);
+                int wi = static_cast<int>(wo * sW + kw) - static_cast<int>(pW);
+                if (hi >= 0 && hi < static_cast<int>(H_in) && wi >= 0 &&
+                    wi < static_cast<int>(W_in)) {
+                  sum += input[n * C * H_in * W_in + c * H_in * W_in +
+                               hi * W_in + wi];
+                  count++;
+                }
+              }
+            }
+            output[n * C * H_out * W_out + c * H_out * W_out + ho * W_out +
+                   wo] = count > 0 ? sum / count : 0.0f;
+          }
+        }
+      }
+    }
+    return output;
+  }
+};
+
+TEST_F(PoolingTest, MaxPool2D_Basic) {
+  const DataType dtype = DataType::Float32;
+
+  // [1, 1, 4, 4] input, 2x2 kernel, stride 2
+  const uint32_t N = 1, C = 1, H = 4, W = 4;
+  std::vector<float> input = {1, 2,  3,  4,  5,  6,  7,  8,
+                              9, 10, 11, 12, 13, 14, 15, 16};
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufOut = runtime_->ops().maxPool2d(bufIn, 2, 2, 2, 2, 0, 0);
+
+  // Output: [1, 1, 2, 2] = [[6, 8], [14, 16]]
+  std::vector<float> output(N * C * 2 * 2);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = maxPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PoolingTest, MaxPool2D_WithPadding) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 1, C = 1, H = 4, W = 4;
+  auto input = generateTestData<float>(N * C * H * W, 42);
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufOut = runtime_->ops().maxPool2d(bufIn, 3, 3, 1, 1, 1, 1);
+
+  uint32_t H_out = (H + 2 - 3) / 1 + 1; // 4
+  uint32_t W_out = (W + 2 - 3) / 1 + 1; // 4
+  std::vector<float> output(N * C * H_out * W_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = maxPool2dRef(input, N, C, H, W, 3, 3, 1, 1, 1, 1);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PoolingTest, MaxPool2D_MultiChannel) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 2, C = 3, H = 8, W = 8;
+  auto input = generateTestData<float>(N * C * H * W, 42);
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufOut = runtime_->ops().maxPool2d(bufIn, 2, 2, 2, 2, 0, 0);
+
+  uint32_t H_out = 4, W_out = 4;
+  std::vector<float> output(N * C * H_out * W_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = maxPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PoolingTest, AvgPool2D_Basic) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 1, C = 1, H = 4, W = 4;
+  std::vector<float> input = {1, 2,  3,  4,  5,  6,  7,  8,
+                              9, 10, 11, 12, 13, 14, 15, 16};
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufOut = runtime_->ops().avgPool2d(bufIn, 2, 2, 2, 2, 0, 0);
+
+  std::vector<float> output(N * C * 2 * 2);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = avgPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PoolingTest, AvgPool2D_WithPadding) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 1, C = 2, H = 4, W = 4;
+  auto input = generateTestData<float>(N * C * H * W, 42);
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufOut = runtime_->ops().avgPool2d(bufIn, 3, 3, 1, 1, 1, 1);
+
+  uint32_t H_out = 4, W_out = 4;
+  std::vector<float> output(N * C * H_out * W_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = avgPool2dRef(input, N, C, H, W, 3, 3, 1, 1, 1, 1);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PoolingTest, AvgPool2D_MultiChannel) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 2, C = 3, H = 8, W = 8;
+  auto input = generateTestData<float>(N * C * H * W, 42);
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufOut = runtime_->ops().avgPool2d(bufIn, 2, 2, 2, 2, 0, 0);
+
+  uint32_t H_out = 4, W_out = 4;
+  std::vector<float> output(N * C * H_out * W_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = avgPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PoolingTest, AdaptiveAvgPool2D_Basic) {
+  const DataType dtype = DataType::Float32;
+
+  // [1, 1, 8, 8] -> adaptive pool to [1, 1, 2, 2]
+  const uint32_t N = 1, C = 1, H = 8, W = 8;
+  auto input = generateTestData<float>(N * C * H * W, 42);
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufOut = runtime_->ops().adaptiveAvgPool2d(bufIn, 2, 2);
+
+  // adaptive_avg_pool2d(H=8, outH=2): stride=4, kernel=4
+  uint32_t outH = 2, outW = 2;
+  std::vector<float> output(N * C * outH * outW);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = avgPool2dRef(input, N, C, H, W, 4, 4, 4, 4, 0, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PoolingTest, AdaptiveAvgPool2D_GlobalPool) {
+  const DataType dtype = DataType::Float32;
+
+  // Global average pooling: [2, 3, 4, 4] -> [2, 3, 1, 1]
+  const uint32_t N = 2, C = 3, H = 4, W = 4;
+  auto input = generateTestData<float>(N * C * H * W, 42);
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufOut = runtime_->ops().adaptiveAvgPool2d(bufIn, 1, 1);
+
+  std::vector<float> output(N * C);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  // Global pool = avg over all spatial dims per channel
+  for (uint32_t n = 0; n < N; n++) {
+    for (uint32_t c = 0; c < C; c++) {
+      float sum = 0.0f;
+      for (uint32_t h = 0; h < H; h++) {
+        for (uint32_t w = 0; w < W; w++) {
+          sum += input[n * C * H * W + c * H * W + h * W + w];
+        }
+      }
+      float expected = sum / (H * W);
+      EXPECT_NEAR(output[n * C + c], expected,
+                  std::abs(expected) * 1e-4f + 1e-5f)
+          << "Mismatch at [" << n << ", " << c << "]";
+    }
+  }
+}
+
+// ============================================================================
+// Layer Normalization Tests
+// ============================================================================
+
+class LayerNormTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+
+  // CPU reference for layer norm
+  std::vector<float> layerNormRef(const std::vector<float> &input,
+                                  size_t outerSize,
+                                  size_t normSize,
+                                  const std::vector<float> *weight,
+                                  const std::vector<float> *bias,
+                                  float eps) {
+    std::vector<float> result(input.size());
+    for (size_t o = 0; o < outerSize; ++o) {
+      size_t base = o * normSize;
+
+      double sum = 0.0;
+      for (size_t i = 0; i < normSize; ++i)
+        sum += input[base + i];
+      float mean = static_cast<float>(sum / normSize);
+
+      double varSum = 0.0;
+      for (size_t i = 0; i < normSize; ++i) {
+        double diff = input[base + i] - mean;
+        varSum += diff * diff;
+      }
+      float invStd =
+          1.0f / std::sqrt(static_cast<float>(varSum / normSize) + eps);
+
+      for (size_t i = 0; i < normSize; ++i) {
+        float normalized = (input[base + i] - mean) * invStd;
+        if (weight)
+          normalized *= (*weight)[i];
+        if (bias)
+          normalized += (*bias)[i];
+        result[base + i] = normalized;
+      }
+    }
+    return result;
+  }
+};
+
+TEST_F(LayerNormTest, Basic_NoWeightBias) {
+  const DataType dtype = DataType::Float32;
+
+  // [2, 4] input, normalize over last dim (4)
+  const uint32_t outer = 2, inner = 4;
+  std::vector<float> input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+
+  auto bufIn = runtime_->createTensor({outer, inner}, dtype, input.data());
+  auto bufOut = runtime_->ops().layerNorm(bufIn, {inner});
+
+  std::vector<float> output(outer * inner);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = layerNormRef(input, outer, inner, nullptr, nullptr, 1e-5f);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(LayerNormTest, WithWeightAndBias) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t outer = 3, inner = 4;
+  auto input = generateTestData<float>(outer * inner, 42);
+  std::vector<float> weight = {1.0f, 2.0f, 0.5f, 1.5f};
+  std::vector<float> bias = {0.1f, -0.1f, 0.2f, -0.2f};
+
+  auto bufIn = runtime_->createTensor({outer, inner}, dtype, input.data());
+  auto bufW = runtime_->createTensor({inner}, dtype, weight.data());
+  auto bufB = runtime_->createTensor({inner}, dtype, bias.data());
+
+  auto bufOut = runtime_->ops().layerNorm(bufIn, {inner}, &bufW, &bufB);
+
+  std::vector<float> output(outer * inner);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = layerNormRef(input, outer, inner, &weight, &bias, 1e-5f);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(LayerNormTest, HigherDimensional) {
+  const DataType dtype = DataType::Float32;
+
+  // [2, 3, 4] input, normalize over last 2 dims (3, 4)
+  const uint32_t N = 2, H = 3, W = 4;
+  auto input = generateTestData<float>(N * H * W, 42);
+
+  auto bufIn = runtime_->createTensor({N, H, W}, dtype, input.data());
+  auto bufOut = runtime_->ops().layerNorm(bufIn, {H, W});
+
+  std::vector<float> output(N * H * W);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = layerNormRef(input, N, H * W, nullptr, nullptr, 1e-5f);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  }
+}
+
+// ============================================================================
+// Batch Normalization Tests
+// ============================================================================
+
+class BatchNormTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+
+  // CPU reference for batch norm (inference mode)
+  std::vector<float> batchNormRef(const std::vector<float> &input,
+                                  const std::vector<float> &runningMean,
+                                  const std::vector<float> &runningVar,
+                                  const std::vector<float> *weight,
+                                  const std::vector<float> *bias,
+                                  uint32_t N,
+                                  uint32_t C,
+                                  size_t spatialSize,
+                                  float eps) {
+    std::vector<float> result(input.size());
+    for (uint32_t n = 0; n < N; ++n) {
+      for (uint32_t c = 0; c < C; ++c) {
+        float invStd = 1.0f / std::sqrt(runningVar[c] + eps);
+        float scale = weight ? (*weight)[c] * invStd : invStd;
+        float shift = bias ? (*bias)[c] - runningMean[c] * scale
+                           : -runningMean[c] * scale;
+        size_t base = (n * C + c) * spatialSize;
+        for (size_t s = 0; s < spatialSize; ++s) {
+          result[base + s] = input[base + s] * scale + shift;
+        }
+      }
+    }
+    return result;
+  }
+};
+
+TEST_F(BatchNormTest, Basic_NoWeightBias) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 2, C = 3, H = 4, W = 4;
+  auto input = generateTestData<float>(N * C * H * W, 42);
+  std::vector<float> runningMean = {1.0f, 2.0f, 3.0f};
+  std::vector<float> runningVar = {0.5f, 1.0f, 2.0f};
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufMean = runtime_->createTensor({C}, dtype, runningMean.data());
+  auto bufVar = runtime_->createTensor({C}, dtype, runningVar.data());
+
+  auto bufOut = runtime_->ops().batchNorm(bufIn, bufMean, bufVar);
+
+  std::vector<float> output(N * C * H * W);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = batchNormRef(input, runningMean, runningVar, nullptr, nullptr,
+                               N, C, H * W, 1e-5f);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+        << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(BatchNormTest, WithWeightAndBias) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 2, C = 4, H = 4, W = 4;
+  auto input = generateTestData<float>(N * C * H * W, 42);
+  std::vector<float> runningMean = {0.5f, 1.0f, -0.5f, 2.0f};
+  std::vector<float> runningVar = {1.0f, 0.5f, 2.0f, 1.5f};
+  std::vector<float> weight = {1.0f, 2.0f, 0.5f, 1.5f};
+  std::vector<float> bias = {0.1f, -0.2f, 0.3f, -0.1f};
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  auto bufMean = runtime_->createTensor({C}, dtype, runningMean.data());
+  auto bufVar = runtime_->createTensor({C}, dtype, runningVar.data());
+  auto bufW = runtime_->createTensor({C}, dtype, weight.data());
+  auto bufB = runtime_->createTensor({C}, dtype, bias.data());
+
+  auto bufOut = runtime_->ops().batchNorm(bufIn, bufMean, bufVar, &bufW, &bufB);
+
+  std::vector<float> output(N * C * H * W);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = batchNormRef(input, runningMean, runningVar, &weight, &bias,
+                               N, C, H * W, 1e-5f);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+        << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(BatchNormTest, SingleSpatial) {
+  const DataType dtype = DataType::Float32;
+
+  // [2, 3] input (no spatial dims)
+  const uint32_t N = 2, C = 3;
+  std::vector<float> input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  std::vector<float> runningMean = {0.0f, 0.0f, 0.0f};
+  std::vector<float> runningVar = {1.0f, 1.0f, 1.0f};
+
+  auto bufIn = runtime_->createTensor({N, C}, dtype, input.data());
+  auto bufMean = runtime_->createTensor({C}, dtype, runningMean.data());
+  auto bufVar = runtime_->createTensor({C}, dtype, runningVar.data());
+
+  auto bufOut = runtime_->ops().batchNorm(bufIn, bufMean, bufVar);
+
+  std::vector<float> output(N * C);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  // With mean=0, var=1, eps=1e-5: output ~= input / sqrt(1+1e-5) ~= input
+  auto expected = batchNormRef(input, runningMean, runningVar, nullptr, nullptr,
+                               N, C, 1, 1e-5f);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  }
+}
+
+// ============================================================================
+// Embedding Operation Tests
+// ============================================================================
+
+class EmbeddingTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(EmbeddingTest, Basic) {
+  const DataType dtype = DataType::Float32;
+
+  // Weight table: 5 embeddings of dim 4
+  const uint32_t numEmb = 5, embDim = 4;
+  std::vector<float> weight = {
+      0.1f, 0.2f, 0.3f, 0.4f, // index 0
+      1.1f, 1.2f, 1.3f, 1.4f, // index 1
+      2.1f, 2.2f, 2.3f, 2.4f, // index 2
+      3.1f, 3.2f, 3.3f, 3.4f, // index 3
+      4.1f, 4.2f, 4.3f, 4.4f  // index 4
+  };
+  std::vector<uint32_t> indices = {0, 2, 4, 1};
+  const uint32_t numIdx = 4;
+
+  auto bufW = runtime_->createTensor({numEmb, embDim}, dtype, weight.data());
+  auto bufIdx =
+      runtime_->createTensor({numIdx}, DataType::UInt32, indices.data());
+
+  auto bufOut = runtime_->ops().embedding(bufIdx, bufW);
+
+  std::vector<float> output(numIdx * embDim);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  // Verify: output[i] should be weight[indices[i]]
+  for (uint32_t i = 0; i < numIdx; ++i) {
+    for (uint32_t d = 0; d < embDim; ++d) {
+      float expected = weight[indices[i] * embDim + d];
+      EXPECT_NEAR(output[i * embDim + d], expected, 1e-5f)
+          << "Mismatch at [" << i << ", " << d << "]";
+    }
+  }
+}
+
+TEST_F(EmbeddingTest, LargerTable) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t numEmb = 100, embDim = 16;
+  auto weight = generateTestData<float>(numEmb * embDim, 42);
+
+  std::vector<uint32_t> indices = {0, 50, 99, 25, 75, 1, 98, 50};
+  const uint32_t numIdx = static_cast<uint32_t>(indices.size());
+
+  auto bufW = runtime_->createTensor({numEmb, embDim}, dtype, weight.data());
+  auto bufIdx =
+      runtime_->createTensor({numIdx}, DataType::UInt32, indices.data());
+
+  auto bufOut = runtime_->ops().embedding(bufIdx, bufW);
+
+  std::vector<float> output(numIdx * embDim);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  for (uint32_t i = 0; i < numIdx; ++i) {
+    for (uint32_t d = 0; d < embDim; ++d) {
+      float expected = weight[indices[i] * embDim + d];
+      EXPECT_NEAR(output[i * embDim + d], expected, 1e-5f)
+          << "Mismatch at [" << i << ", " << d << "]";
+    }
+  }
+}
+
+TEST_F(EmbeddingTest, RepeatedIndices) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t numEmb = 4, embDim = 4;
+  std::vector<float> weight = {1.0f,  2.0f,  3.0f,  4.0f,  5.0f,  6.0f,
+                               7.0f,  8.0f,  9.0f,  10.0f, 11.0f, 12.0f,
+                               13.0f, 14.0f, 15.0f, 16.0f};
+  // All same index
+  std::vector<uint32_t> indices = {2, 2, 2, 2};
+  const uint32_t numIdx = 4;
+
+  auto bufW = runtime_->createTensor({numEmb, embDim}, dtype, weight.data());
+  auto bufIdx =
+      runtime_->createTensor({numIdx}, DataType::UInt32, indices.data());
+
+  auto bufOut = runtime_->ops().embedding(bufIdx, bufW);
+
+  std::vector<float> output(numIdx * embDim);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  for (uint32_t i = 0; i < numIdx; ++i) {
+    for (uint32_t d = 0; d < embDim; ++d) {
+      EXPECT_NEAR(output[i * embDim + d], weight[2 * embDim + d], 1e-5f)
+          << "Mismatch at [" << i << ", " << d << "]";
+    }
+  }
+}
+
+// ============================================================================
+// Pad Operation Tests
+// ============================================================================
+
+class PadTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(PadTest, Pad1D_Basic) {
+  const DataType dtype = DataType::Float32;
+
+  std::vector<float> input = {1.0f, 2.0f, 3.0f, 4.0f};
+
+  auto bufIn = runtime_->createTensor({4}, dtype, input.data());
+  // Pad left=1, right=2
+  auto bufOut = runtime_->ops().pad(bufIn, {1, 2}, 0.0f);
+
+  std::vector<float> output(7);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  std::vector<float> expected = {0, 1, 2, 3, 4, 0, 0};
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PadTest, Pad2D_Basic) {
+  const DataType dtype = DataType::Float32;
+
+  // [2, 4] input
+  std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
+
+  auto bufIn = runtime_->createTensor({2, 4}, dtype, input.data());
+  // Pad innermost dim: left=1, right=1
+  auto bufOut = runtime_->ops().pad(bufIn, {1, 1}, 0.0f);
+
+  // Output shape: [2, 6]
+  std::vector<float> output(2 * 6);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  // Expected: each row padded with 0 on left and right
+  std::vector<float> expected = {0, 1, 2, 3, 4, 0, 0, 5, 6, 7, 8, 0};
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PadTest, Pad2D_MultipleDims) {
+  const DataType dtype = DataType::Float32;
+
+  // [2, 4] input, pad both dims
+  std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
+
+  auto bufIn = runtime_->createTensor({2, 4}, dtype, input.data());
+  // padWidths: innermost first — [left_W=1, right_W=1, top_H=1, bottom_H=1]
+  auto bufOut = runtime_->ops().pad(bufIn, {1, 1, 1, 1}, -1.0f);
+
+  // Output shape: [4, 6]
+  std::vector<float> output(4 * 6);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  std::vector<float> expected = {-1, -1, -1, -1, -1, -1, -1, 1,
+                                 2,  3,  4,  -1, -1, 5,  6,  7,
+                                 8,  -1, -1, -1, -1, -1, -1, -1};
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PadTest, Pad4D_Image) {
+  const DataType dtype = DataType::Float32;
+
+  // [1, 1, 2, 4] image, pad spatial dims
+  const uint32_t N = 1, C = 1, H = 2, W = 4;
+  std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
+
+  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
+  // Pad W: left=1, right=1; Pad H: top=1, bottom=1
+  auto bufOut = runtime_->ops().pad(bufIn, {1, 1, 1, 1}, 0.0f);
+
+  // Output shape: [1, 1, 4, 6]
+  uint32_t outH = 4, outW = 6;
+  std::vector<float> output(N * C * outH * outW);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  std::vector<float> expected = {0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0,
+                                 0, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0};
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(PadTest, PadWithFillValue) {
+  const DataType dtype = DataType::Float32;
+
+  std::vector<float> input = {1.0f, 2.0f, 3.0f, 4.0f};
+
+  auto bufIn = runtime_->createTensor({4}, dtype, input.data());
+  // Pad left=2, right=2 with fill value 99
+  auto bufOut = runtime_->ops().pad(bufIn, {2, 2}, 99.0f);
+
+  std::vector<float> output(8);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  std::vector<float> expected = {99, 99, 1, 2, 3, 4, 99, 99};
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
 } // namespace
 } // namespace cut
