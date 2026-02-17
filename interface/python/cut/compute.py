@@ -423,12 +423,12 @@ class Tensor:
         _live_tensors.add(self)
 
     def _to_view(self):
-        """Return the ComputeHandle for use with C++ operations."""
+        """Return the Tensor handle for use with C++ operations."""
         return self._handle
 
     @classmethod
     def _from_view(cls, handle, py_dtype=None):
-        """Create a Tensor from a ComputeHandle returned by an operation."""
+        """Create a Tensor from a handle returned by an operation."""
         t = object.__new__(cls)
         t._handle = handle
         buf_shape = _cut_compute.get_buffer_shape(handle)

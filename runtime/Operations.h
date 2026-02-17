@@ -15,7 +15,7 @@ struct ComputeBuffer;
 
 /**
  * High-level tensor operations implemented in C++.
- * Works directly on ComputeHandle objects and uses the Runtime for GPU
+ * Works directly on Tensor objects and uses the Runtime for GPU
  * dispatch. Retrieves tensor metadata (shape, dtype) via Runtime::getBuffer().
  */
 class Operations {
@@ -24,123 +24,116 @@ public:
 
   // ===== Generic element-wise ops =====
 
-  ComputeHandle
-  binaryOp(OperatorEnum op, const ComputeHandle &a, const ComputeHandle &b);
+  Tensor binaryOp(OperatorEnum op, const Tensor &a, const Tensor &b);
 
-  ComputeHandle unaryOp(OperatorEnum op, const ComputeHandle &a);
+  Tensor unaryOp(OperatorEnum op, const Tensor &a);
 
-  ComputeHandle
-  vecScalarOp(OperatorEnum op, const ComputeHandle &a, DataReference scalar);
+  Tensor vecScalarOp(OperatorEnum op, const Tensor &a, DataReference scalar);
 
   // ===== Reduction ops =====
 
   /// Global reduction returning a float scalar.
-  float reduceScalar(OperatorEnum op, const ComputeHandle &a);
+  float reduceScalar(OperatorEnum op, const Tensor &a);
 
   /// Global reduction returning a bool (for any/all).
-  bool reduceBool(OperatorEnum op, const ComputeHandle &a);
+  bool reduceBool(OperatorEnum op, const Tensor &a);
 
   /// Global reduction returning an int (for argmax/argmin).
-  int reduceInt(OperatorEnum op, const ComputeHandle &a);
+  int reduceInt(OperatorEnum op, const Tensor &a);
 
   /// Dimension-wise reduction.
-  ComputeHandle reduceDim(const ComputeHandle &a, int dim, OperatorEnum dimOp);
+  Tensor reduceDim(const Tensor &a, int dim, OperatorEnum dimOp);
 
   // ===== Matrix ops =====
 
-  ComputeHandle matmul(const ComputeHandle &a, const ComputeHandle &b);
-  ComputeHandle transpose(const ComputeHandle &a);
-  float dot(const ComputeHandle &a, const ComputeHandle &b);
+  Tensor matmul(const Tensor &a, const Tensor &b);
+  Tensor transpose(const Tensor &a);
+  float dot(const Tensor &a, const Tensor &b);
 
   // ===== Special ops =====
 
-  ComputeHandle clamp(const ComputeHandle &a, DataReference clampData);
+  Tensor clamp(const Tensor &a, DataReference clampData);
 
-  ComputeHandle where(const ComputeHandle &cond,
-                      const ComputeHandle &x,
-                      const ComputeHandle &y);
+  Tensor where(const Tensor &cond, const Tensor &x, const Tensor &y);
 
   // ===== Cumulative ops =====
 
-  ComputeHandle cumOp(const ComputeHandle &a, int dim, OperatorEnum op);
+  Tensor cumOp(const Tensor &a, int dim, OperatorEnum op);
 
   // ===== Statistical ops =====
 
-  float varianceScalar(const ComputeHandle &a, int correction);
-  ComputeHandle varianceDim(const ComputeHandle &a, int dim, int correction);
+  float varianceScalar(const Tensor &a, int correction);
+  Tensor varianceDim(const Tensor &a, int dim, int correction);
 
   // ===== Softmax =====
 
-  ComputeHandle softmax(const ComputeHandle &a, int dim);
-  ComputeHandle logSoftmax(const ComputeHandle &a, int dim);
+  Tensor softmax(const Tensor &a, int dim);
+  Tensor logSoftmax(const Tensor &a, int dim);
 
   // ===== Tensor creation =====
 
-  ComputeHandle arange(DataReference start,
-                       DataReference end,
-                       DataReference step,
-                       DataType dtype);
-  ComputeHandle
+  Tensor arange(DataReference start,
+                DataReference end,
+                DataReference step,
+                DataType dtype);
+  Tensor
   linspace(DataReference start, DataReference end, int steps, DataType dtype);
-  ComputeHandle full(const std::vector<uint32_t> &shape,
-                     DataReference fillValue,
-                     DataType dtype);
+  Tensor full(const std::vector<uint32_t> &shape,
+              DataReference fillValue,
+              DataType dtype);
 
   // ===== Shape ops (copy data to new buffer with new shape) =====
 
-  ComputeHandle reshape(const ComputeHandle &a,
-                        const std::vector<int32_t> &newShape);
-  ComputeHandle squeeze(const ComputeHandle &a, std::optional<int> dim);
-  ComputeHandle unsqueeze(const ComputeHandle &a, int dim);
-  ComputeHandle unflatten(const ComputeHandle &a,
-                          int dim,
-                          const std::vector<uint32_t> &sizes);
-  ComputeHandle flatten(const ComputeHandle &a, int startDim, int endDim);
+  Tensor reshape(const Tensor &a, const std::vector<int32_t> &newShape);
+  Tensor squeeze(const Tensor &a, std::optional<int> dim);
+  Tensor unsqueeze(const Tensor &a, int dim);
+  Tensor
+  unflatten(const Tensor &a, int dim, const std::vector<uint32_t> &sizes);
+  Tensor flatten(const Tensor &a, int startDim, int endDim);
 
   // ===== Norm =====
 
-  ComputeHandle normDim(const ComputeHandle &a, int dim);
+  Tensor normDim(const Tensor &a, int dim);
 
   // ===== Prefix scan =====
 
-  ComputeHandle prefixScan(const ComputeHandle &a, OperatorEnum op);
+  Tensor prefixScan(const Tensor &a, OperatorEnum op);
 
   // ===== Convolution ops =====
 
-  ComputeHandle conv1d(const ComputeHandle &input,
-                       const ComputeHandle &weight,
-                       uint32_t stride = 1,
-                       uint32_t padding = 0);
+  Tensor conv1d(const Tensor &input,
+                const Tensor &weight,
+                uint32_t stride = 1,
+                uint32_t padding = 0);
 
-  ComputeHandle conv2d(const ComputeHandle &input,
-                       const ComputeHandle &weight,
-                       uint32_t strideH = 1,
-                       uint32_t strideW = 1,
-                       uint32_t padH = 0,
-                       uint32_t padW = 0);
+  Tensor conv2d(const Tensor &input,
+                const Tensor &weight,
+                uint32_t strideH = 1,
+                uint32_t strideW = 1,
+                uint32_t padH = 0,
+                uint32_t padW = 0);
 
   // ===== Sort (in-place) =====
 
-  void sortBitonic(const ComputeHandle &keys, const ComputeHandle &vals);
-  void sortRadix(const ComputeHandle &keys, const ComputeHandle &vals);
+  void sortBitonic(const Tensor &keys, const Tensor &vals);
+  void sortRadix(const Tensor &keys, const Tensor &vals);
 
 private:
   friend class Runtime;
   Runtime *runtime_;
 
-  ComputeHandle createOutput(const std::vector<uint32_t> &shape,
-                             DataType dtype);
+  Tensor createOutput(const std::vector<uint32_t> &shape, DataType dtype);
 
   /// Returns the unpadded shape for a tensor handle.
-  std::vector<uint32_t> getShape(const ComputeHandle &h) const;
+  std::vector<uint32_t> getShape(const Tensor &h) const;
 
   /// Returns the dtype for a tensor handle.
-  DataType getDtype(const ComputeHandle &h) const;
+  DataType getDtype(const Tensor &h) const;
 
   /// Dispatches a Copy shader to copy data from src to dst with different
   /// innermost-dim alignments.
-  void encodeCopy(const ComputeHandle &src,
-                  const ComputeHandle &dst,
+  void encodeCopy(const Tensor &src,
+                  const Tensor &dst,
                   const std::vector<uint32_t> &srcShape,
                   const std::vector<uint32_t> &dstShape);
 

@@ -16,16 +16,16 @@ namespace cut {
 
 Operations::Operations(Runtime &runtime) : runtime_(&runtime) {}
 
-ComputeHandle Operations::createOutput(const std::vector<uint32_t> &shape,
-                                       DataType dtype) {
+Tensor Operations::createOutput(const std::vector<uint32_t> &shape,
+                                DataType dtype) {
   return runtime_->createTensorEmpty(shape, dtype);
 }
 
-std::vector<uint32_t> Operations::getShape(const ComputeHandle &h) const {
+std::vector<uint32_t> Operations::getShape(const Tensor &h) const {
   return runtime_->getTensor(h).getShape();
 }
 
-DataType Operations::getDtype(const ComputeHandle &h) const {
+DataType Operations::getDtype(const Tensor &h) const {
   return runtime_->getTensor(h).getDtype();
 }
 
@@ -66,8 +66,8 @@ Operations::computeDimParams(const std::vector<uint32_t> &shape, int dim) {
   return params;
 }
 
-void Operations::encodeCopy(const ComputeHandle &src,
-                            const ComputeHandle &dst,
+void Operations::encodeCopy(const Tensor &src,
+                            const Tensor &dst,
                             const std::vector<uint32_t> &srcShape,
                             const std::vector<uint32_t> &dstShape) {
   // Compute innermost dim and alignment for source
@@ -102,9 +102,7 @@ void Operations::encodeCopy(const ComputeHandle &src,
 // Generic element-wise ops
 // =========================================================================
 
-ComputeHandle Operations::binaryOp(OperatorEnum op,
-                                   const ComputeHandle &a,
-                                   const ComputeHandle &b) {
+Tensor Operations::binaryOp(OperatorEnum op, const Tensor &a, const Tensor &b) {
   const auto &bufA = runtime_->getTensor(a);
   const auto &bufB = runtime_->getTensor(b);
 
@@ -116,7 +114,7 @@ ComputeHandle Operations::binaryOp(OperatorEnum op,
 
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  ComputeHandle output = createOutput(shape, dtype);
+  Tensor output = createOutput(shape, dtype);
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
@@ -127,10 +125,10 @@ ComputeHandle Operations::binaryOp(OperatorEnum op,
   return output;
 }
 
-ComputeHandle Operations::unaryOp(OperatorEnum op, const ComputeHandle &a) {
+Tensor Operations::unaryOp(OperatorEnum op, const Tensor &a) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  ComputeHandle output = createOutput(shape, dtype);
+  Tensor output = createOutput(shape, dtype);
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
@@ -140,12 +138,12 @@ ComputeHandle Operations::unaryOp(OperatorEnum op, const ComputeHandle &a) {
   return output;
 }
 
-ComputeHandle Operations::vecScalarOp(OperatorEnum op,
-                                      const ComputeHandle &a,
-                                      DataReference scalar) {
+Tensor Operations::vecScalarOp(OperatorEnum op,
+                               const Tensor &a,
+                               DataReference scalar) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  ComputeHandle output = createOutput(shape, dtype);
+  Tensor output = createOutput(shape, dtype);
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
@@ -160,9 +158,9 @@ ComputeHandle Operations::vecScalarOp(OperatorEnum op,
 // Reduction ops
 // =========================================================================
 
-float Operations::reduceScalar(OperatorEnum op, const ComputeHandle &a) {
+float Operations::reduceScalar(OperatorEnum op, const Tensor &a) {
   auto dtype = getDtype(a);
-  ComputeHandle out = createOutput({1}, dtype);
+  Tensor out = createOutput({1}, dtype);
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
@@ -185,23 +183,22 @@ float Operations::reduceScalar(OperatorEnum op, const ComputeHandle &a) {
   }
 }
 
-bool Operations::reduceBool(OperatorEnum op, const ComputeHandle &a) {
+bool Operations::reduceBool(OperatorEnum op, const Tensor &a) {
   float val = reduceScalar(op, a);
   return val != 0.0f;
 }
 
-int Operations::reduceInt(OperatorEnum op, const ComputeHandle &a) {
+int Operations::reduceInt(OperatorEnum op, const Tensor &a) {
   float val = reduceScalar(op, a);
   return static_cast<int>(val);
 }
 
-ComputeHandle
-Operations::reduceDim(const ComputeHandle &a, int dim, OperatorEnum dimOp) {
+Tensor Operations::reduceDim(const Tensor &a, int dim, OperatorEnum dimOp) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
   auto params = computeDimParams(shape, dim);
 
-  ComputeHandle out = createOutput(params.outShape, dtype);
+  Tensor out = createOutput(params.outShape, dtype);
 
   uint32_t shapeData[3] = {params.outerSize, params.reduceSize,
                            params.innerSize};
@@ -219,8 +216,7 @@ Operations::reduceDim(const ComputeHandle &a, int dim, OperatorEnum dimOp) {
 // Matrix ops
 // =========================================================================
 
-ComputeHandle Operations::matmul(const ComputeHandle &a,
-                                 const ComputeHandle &b) {
+Tensor Operations::matmul(const Tensor &a, const Tensor &b) {
   auto shapeA = getShape(a);
   auto shapeB = getShape(b);
 
@@ -238,7 +234,7 @@ ComputeHandle Operations::matmul(const ComputeHandle &a,
                              std::to_string(N));
   }
 
-  ComputeHandle output = createOutput({M, N}, DataType::Float32);
+  Tensor output = createOutput({M, N}, DataType::Float32);
 
   uint32_t shapeData[3] = {M, K, N};
 
@@ -252,7 +248,7 @@ ComputeHandle Operations::matmul(const ComputeHandle &a,
   return output;
 }
 
-ComputeHandle Operations::transpose(const ComputeHandle &a) {
+Tensor Operations::transpose(const Tensor &a) {
   auto shape = getShape(a);
 
   if (shape.size() != 2) {
@@ -261,7 +257,7 @@ ComputeHandle Operations::transpose(const ComputeHandle &a) {
 
   uint32_t M = shape[0], N = shape[1];
 
-  ComputeHandle output = createOutput({N, M}, DataType::Float32);
+  Tensor output = createOutput({N, M}, DataType::Float32);
 
   uint32_t shapeData[2] = {M, N};
 
@@ -274,7 +270,7 @@ ComputeHandle Operations::transpose(const ComputeHandle &a) {
   return output;
 }
 
-float Operations::dot(const ComputeHandle &a, const ComputeHandle &b) {
+float Operations::dot(const Tensor &a, const Tensor &b) {
   const auto &bufA = runtime_->getTensor(a);
   const auto &bufB = runtime_->getTensor(b);
 
@@ -291,7 +287,7 @@ float Operations::dot(const ComputeHandle &a, const ComputeHandle &b) {
   constexpr uint32_t kWorkgroupSize = 256;
   uint32_t numWorkgroups = (count + kWorkgroupSize - 1) / kWorkgroupSize;
 
-  ComputeHandle out = createOutput({numWorkgroups}, DataType::Float32);
+  Tensor out = createOutput({numWorkgroups}, DataType::Float32);
 
   uint32_t countData[1] = {count};
 
@@ -317,11 +313,10 @@ float Operations::dot(const ComputeHandle &a, const ComputeHandle &b) {
 // Special ops
 // =========================================================================
 
-ComputeHandle Operations::clamp(const ComputeHandle &a,
-                                DataReference clampData) {
+Tensor Operations::clamp(const Tensor &a, DataReference clampData) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  ComputeHandle output = createOutput(shape, dtype);
+  Tensor output = createOutput(shape, dtype);
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
@@ -332,9 +327,7 @@ ComputeHandle Operations::clamp(const ComputeHandle &a,
   return output;
 }
 
-ComputeHandle Operations::where(const ComputeHandle &cond,
-                                const ComputeHandle &x,
-                                const ComputeHandle &y) {
+Tensor Operations::where(const Tensor &cond, const Tensor &x, const Tensor &y) {
   const auto &bufCond = runtime_->getTensor(cond);
   const auto &bufX = runtime_->getTensor(x);
   const auto &bufY = runtime_->getTensor(y);
@@ -346,7 +339,7 @@ ComputeHandle Operations::where(const ComputeHandle &cond,
 
   auto shape = getShape(x);
   auto dtype = getDtype(x);
-  ComputeHandle output = createOutput(shape, dtype);
+  Tensor output = createOutput(shape, dtype);
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, cond);
@@ -362,13 +355,12 @@ ComputeHandle Operations::where(const ComputeHandle &cond,
 // Cumulative ops
 // =========================================================================
 
-ComputeHandle
-Operations::cumOp(const ComputeHandle &a, int dim, OperatorEnum op) {
+Tensor Operations::cumOp(const Tensor &a, int dim, OperatorEnum op) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
   auto params = computeDimParams(shape, dim);
 
-  ComputeHandle out = createOutput(shape, dtype);
+  Tensor out = createOutput(shape, dtype);
 
   uint32_t shapeData[3] = {params.outerSize, params.reduceSize,
                            params.innerSize};
@@ -386,7 +378,7 @@ Operations::cumOp(const ComputeHandle &a, int dim, OperatorEnum op) {
 // Statistical ops
 // =========================================================================
 
-float Operations::varianceScalar(const ComputeHandle &a, int correction) {
+float Operations::varianceScalar(const Tensor &a, int correction) {
   auto shape = getShape(a);
 
   // Compute mean on GPU
@@ -409,14 +401,13 @@ float Operations::varianceScalar(const ComputeHandle &a, int correction) {
   return denom > 0 ? static_cast<float>(sum / denom) : 0.0f;
 }
 
-ComputeHandle
-Operations::varianceDim(const ComputeHandle &a, int dim, int correction) {
+Tensor Operations::varianceDim(const Tensor &a, int dim, int correction) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
   auto params = computeDimParams(shape, dim);
 
   // Compute mean along dim using GPU
-  ComputeHandle meanHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMean);
+  Tensor meanHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMean);
 
   // Read input and mean data from GPU
   size_t totalElements = shapeProduct(shape);
@@ -450,7 +441,7 @@ Operations::varianceDim(const ComputeHandle &a, int dim, int correction) {
   }
 
   // Create output tensor and copy result
-  ComputeHandle out = createOutput(params.outShape, dtype);
+  Tensor out = createOutput(params.outShape, dtype);
   runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
 }
@@ -459,7 +450,7 @@ Operations::varianceDim(const ComputeHandle &a, int dim, int correction) {
 // Softmax
 // =========================================================================
 
-ComputeHandle Operations::softmax(const ComputeHandle &a, int dim) {
+Tensor Operations::softmax(const Tensor &a, int dim) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
   int ndim = static_cast<int>(shape.size());
@@ -469,7 +460,7 @@ ComputeHandle Operations::softmax(const ComputeHandle &a, int dim) {
   auto params = computeDimParams(shape, dim);
 
   // Compute dim-wise max for numerical stability (on GPU)
-  ComputeHandle maxHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
+  Tensor maxHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
 
   // Read data from GPU
   size_t totalElements = shapeProduct(shape);
@@ -509,12 +500,12 @@ ComputeHandle Operations::softmax(const ComputeHandle &a, int dim) {
     }
   }
 
-  ComputeHandle out = createOutput(shape, dtype);
+  Tensor out = createOutput(shape, dtype);
   runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
 }
 
-ComputeHandle Operations::logSoftmax(const ComputeHandle &a, int dim) {
+Tensor Operations::logSoftmax(const Tensor &a, int dim) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
   int ndim = static_cast<int>(shape.size());
@@ -524,7 +515,7 @@ ComputeHandle Operations::logSoftmax(const ComputeHandle &a, int dim) {
   auto params = computeDimParams(shape, dim);
 
   // Compute dim-wise max for numerical stability (on GPU)
-  ComputeHandle maxHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
+  Tensor maxHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
 
   // Read data from GPU
   size_t totalElements = shapeProduct(shape);
@@ -561,7 +552,7 @@ ComputeHandle Operations::logSoftmax(const ComputeHandle &a, int dim) {
     }
   }
 
-  ComputeHandle out = createOutput(shape, dtype);
+  Tensor out = createOutput(shape, dtype);
   runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
 }
@@ -570,10 +561,10 @@ ComputeHandle Operations::logSoftmax(const ComputeHandle &a, int dim) {
 // Tensor creation
 // =========================================================================
 
-ComputeHandle Operations::arange(DataReference start,
-                                 DataReference end,
-                                 DataReference step,
-                                 DataType dtype) {
+Tensor Operations::arange(DataReference start,
+                          DataReference end,
+                          DataReference step,
+                          DataType dtype) {
   if (dtype == DataType::Int32) {
     int32_t s, e, st;
     std::memcpy(&s, start.ptr, sizeof(int32_t));
@@ -622,10 +613,10 @@ ComputeHandle Operations::arange(DataReference start,
   }
 }
 
-ComputeHandle Operations::linspace(DataReference start,
-                                   DataReference end,
-                                   int steps,
-                                   DataType dtype) {
+Tensor Operations::linspace(DataReference start,
+                            DataReference end,
+                            int steps,
+                            DataType dtype) {
   if (steps < 1) {
     throw std::runtime_error("steps must be at least 1");
   }
@@ -647,9 +638,9 @@ ComputeHandle Operations::linspace(DataReference start,
   return runtime_->createTensor(shape, dtype, values.data());
 }
 
-ComputeHandle Operations::full(const std::vector<uint32_t> &shape,
-                               DataReference fillValue,
-                               DataType dtype) {
+Tensor Operations::full(const std::vector<uint32_t> &shape,
+                        DataReference fillValue,
+                        DataType dtype) {
   size_t totalSize = shapeProduct(shape);
 
   if (dtype == DataType::Int32) {
@@ -674,8 +665,8 @@ ComputeHandle Operations::full(const std::vector<uint32_t> &shape,
 // Shape ops (copy data to new buffer with new shape)
 // =========================================================================
 
-ComputeHandle Operations::reshape(const ComputeHandle &a,
-                                  const std::vector<int32_t> &newShape) {
+Tensor Operations::reshape(const Tensor &a,
+                           const std::vector<int32_t> &newShape) {
   auto oldShape = getShape(a);
   auto dtype = getDtype(a);
   size_t oldTotal = shapeProduct(oldShape);
@@ -717,13 +708,12 @@ ComputeHandle Operations::reshape(const ComputeHandle &a,
                                 std::to_string(oldTotal) + " to new shape");
   }
 
-  ComputeHandle output = createOutput(resolved, dtype);
+  Tensor output = createOutput(resolved, dtype);
   encodeCopy(a, output, oldShape, resolved);
   return output;
 }
 
-ComputeHandle Operations::squeeze(const ComputeHandle &a,
-                                  std::optional<int> dim) {
+Tensor Operations::squeeze(const Tensor &a, std::optional<int> dim) {
   auto oldShape = getShape(a);
   auto dtype = getDtype(a);
   std::vector<uint32_t> newShape;
@@ -754,12 +744,12 @@ ComputeHandle Operations::squeeze(const ComputeHandle &a,
   if (newShape.empty())
     newShape.push_back(1);
 
-  ComputeHandle output = createOutput(newShape, dtype);
+  Tensor output = createOutput(newShape, dtype);
   encodeCopy(a, output, oldShape, newShape);
   return output;
 }
 
-ComputeHandle Operations::unsqueeze(const ComputeHandle &a, int dim) {
+Tensor Operations::unsqueeze(const Tensor &a, int dim) {
   auto oldShape = getShape(a);
   auto dtype = getDtype(a);
   int ndim = static_cast<int>(oldShape.size());
@@ -777,14 +767,14 @@ ComputeHandle Operations::unsqueeze(const ComputeHandle &a, int dim) {
   newShape.push_back(1);
   newShape.insert(newShape.end(), oldShape.begin() + dim, oldShape.end());
 
-  ComputeHandle output = createOutput(newShape, dtype);
+  Tensor output = createOutput(newShape, dtype);
   encodeCopy(a, output, oldShape, newShape);
   return output;
 }
 
-ComputeHandle Operations::unflatten(const ComputeHandle &a,
-                                    int dim,
-                                    const std::vector<uint32_t> &sizes) {
+Tensor Operations::unflatten(const Tensor &a,
+                             int dim,
+                             const std::vector<uint32_t> &sizes) {
   auto oldShape = getShape(a);
   auto dtype = getDtype(a);
   int ndim = static_cast<int>(oldShape.size());
@@ -812,19 +802,18 @@ ComputeHandle Operations::unflatten(const ComputeHandle &a,
   newShape.insert(newShape.end(), sizes.begin(), sizes.end());
   newShape.insert(newShape.end(), oldShape.begin() + dim + 1, oldShape.end());
 
-  ComputeHandle output = createOutput(newShape, dtype);
+  Tensor output = createOutput(newShape, dtype);
   encodeCopy(a, output, oldShape, newShape);
   return output;
 }
 
-ComputeHandle
-Operations::flatten(const ComputeHandle &a, int startDim, int endDim) {
+Tensor Operations::flatten(const Tensor &a, int startDim, int endDim) {
   auto oldShape = getShape(a);
   auto dtype = getDtype(a);
   int ndim = static_cast<int>(oldShape.size());
   if (ndim == 0) {
     // Return a copy for empty shape
-    ComputeHandle output = createOutput(oldShape, dtype);
+    Tensor output = createOutput(oldShape, dtype);
     encodeCopy(a, output, oldShape, oldShape);
     return output;
   }
@@ -859,7 +848,7 @@ Operations::flatten(const ComputeHandle &a, int startDim, int endDim) {
                     oldShape.end());
   }
 
-  ComputeHandle output = createOutput(newShape, dtype);
+  Tensor output = createOutput(newShape, dtype);
   encodeCopy(a, output, oldShape, newShape);
   return output;
 }
@@ -868,7 +857,7 @@ Operations::flatten(const ComputeHandle &a, int startDim, int endDim) {
 // Norm
 // =========================================================================
 
-ComputeHandle Operations::normDim(const ComputeHandle &a, int dim) {
+Tensor Operations::normDim(const Tensor &a, int dim) {
   return reduceDim(a, dim, OperatorEnum::NormDim);
 }
 
@@ -876,10 +865,10 @@ ComputeHandle Operations::normDim(const ComputeHandle &a, int dim) {
 // Prefix scan
 // =========================================================================
 
-ComputeHandle Operations::prefixScan(const ComputeHandle &a, OperatorEnum op) {
+Tensor Operations::prefixScan(const Tensor &a, OperatorEnum op) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  ComputeHandle out = createOutput(shape, dtype);
+  Tensor out = createOutput(shape, dtype);
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
@@ -897,10 +886,10 @@ ComputeHandle Operations::prefixScan(const ComputeHandle &a, OperatorEnum op) {
 // Convolution ops
 // =========================================================================
 
-ComputeHandle Operations::conv1d(const ComputeHandle &input,
-                                 const ComputeHandle &weight,
-                                 uint32_t stride,
-                                 uint32_t padding) {
+Tensor Operations::conv1d(const Tensor &input,
+                          const Tensor &weight,
+                          uint32_t stride,
+                          uint32_t padding) {
   auto inShape = getShape(input); // [N, C_in, L_in]
   auto wShape = getShape(weight); // [C_out, C_in, kL]
   auto dtype = getDtype(input);
@@ -918,7 +907,7 @@ ComputeHandle Operations::conv1d(const ComputeHandle &input,
 
   uint32_t L_out = (L_in + 2 * padding - kL) / stride + 1;
 
-  ComputeHandle output = createOutput({N, C_out, L_out}, dtype);
+  Tensor output = createOutput({N, C_out, L_out}, dtype);
 
   struct Conv1DParams {
     uint32_t batchSize, C_in, L_in, C_out, kL;
@@ -935,12 +924,12 @@ ComputeHandle Operations::conv1d(const ComputeHandle &input,
   return output;
 }
 
-ComputeHandle Operations::conv2d(const ComputeHandle &input,
-                                 const ComputeHandle &weight,
-                                 uint32_t strideH,
-                                 uint32_t strideW,
-                                 uint32_t padH,
-                                 uint32_t padW) {
+Tensor Operations::conv2d(const Tensor &input,
+                          const Tensor &weight,
+                          uint32_t strideH,
+                          uint32_t strideW,
+                          uint32_t padH,
+                          uint32_t padW) {
   auto inShape = getShape(input); // [N, C_in, H_in, W_in]
   auto wShape = getShape(weight); // [C_out, C_in, kH, kW]
   auto dtype = getDtype(input);
@@ -960,7 +949,7 @@ ComputeHandle Operations::conv2d(const ComputeHandle &input,
   uint32_t H_out = (H_in + 2 * padH - kH) / strideH + 1;
   uint32_t W_out = (W_in + 2 * padW - kW) / strideW + 1;
 
-  ComputeHandle output = createOutput({N, C_out, H_out, W_out}, dtype);
+  Tensor output = createOutput({N, C_out, H_out, W_out}, dtype);
 
   struct Conv2DParams {
     uint32_t batchSize, C_in, H_in, W_in;
@@ -979,8 +968,7 @@ ComputeHandle Operations::conv2d(const ComputeHandle &input,
   return output;
 }
 
-void Operations::sortBitonic(const ComputeHandle &keys,
-                             const ComputeHandle &vals) {
+void Operations::sortBitonic(const Tensor &keys, const Tensor &vals) {
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, keys);
   bindings.emplace_back(1, vals);
@@ -988,8 +976,7 @@ void Operations::sortBitonic(const ComputeHandle &keys,
   runtime_->encodeOperator(OperatorEnum::SortBitonic, bindings);
 }
 
-void Operations::sortRadix(const ComputeHandle &keys,
-                           const ComputeHandle &vals) {
+void Operations::sortRadix(const Tensor &keys, const Tensor &vals) {
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, keys);
   bindings.emplace_back(1, vals);

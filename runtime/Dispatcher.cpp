@@ -295,7 +295,7 @@ Dispatcher::Dispatcher(ComputeInterface *iface) : iface_(iface) {}
 
 void Dispatcher::encode(OperatorEnum op,
                         const std::vector<ComputeBinding> &bindings,
-                        const ComputeHandle &shader,
+                        const Tensor &shader,
                         size_t executionSize,
                         DataType dtype) {
   if (!iface_) {
@@ -826,7 +826,7 @@ void Dispatcher::encodePrefixScan(OperatorEnum op,
   uint32_t groupCount = (numElements + 255) / 256;
 
   // Extract input and output handles
-  ComputeHandle inputHandle, outputHandle;
+  Tensor inputHandle, outputHandle;
   for (const auto &b : bindings) {
     if (!b.isHandle())
       continue;
@@ -843,7 +843,7 @@ void Dispatcher::encodePrefixScan(OperatorEnum op,
 
   if (groupCount <= 1) {
     // Single workgroup: simple scan, no temp buffers needed
-    ComputeHandle partialSums = acquireTempBuffer(1, DataType::Float32);
+    Tensor partialSums = acquireTempBuffer(1, DataType::Float32);
     dispatchInternal(InternalScanPerWg,
                      {{0u, inputHandle}, {1u, outputHandle}, {2u, partialSums}},
                      {256, 1, 1}, scanPC);
@@ -852,7 +852,7 @@ void Dispatcher::encodePrefixScan(OperatorEnum op,
   }
 
   // Multi-workgroup: three-pass approach
-  ComputeHandle partialSums = acquireTempBuffer(groupCount, DataType::Float32);
+  Tensor partialSums = acquireTempBuffer(groupCount, DataType::Float32);
 
   // Pass 1: Per-workgroup scan
   dispatchInternal(InternalScanPerWg,
@@ -881,7 +881,7 @@ void Dispatcher::encodeBitonicSort(const std::vector<ComputeBinding> &bindings,
   uint32_t n = nextPowerOf2(numElements);
 
   // Extract keys and values handles
-  ComputeHandle keysHandle, valsHandle;
+  Tensor keysHandle, valsHandle;
   for (const auto &b : bindings) {
     if (!b.isHandle())
       continue;
@@ -894,8 +894,8 @@ void Dispatcher::encodeBitonicSort(const std::vector<ComputeBinding> &bindings,
   // For non-power-of-2 sizes, pad to power-of-2 with sentinel values.
   // The bitonic network requires all N elements to participate in
   // compare-and-swap for correctness.
-  ComputeHandle sortKeys = keysHandle;
-  ComputeHandle sortVals = valsHandle;
+  Tensor sortKeys = keysHandle;
+  Tensor sortVals = valsHandle;
   bool needsPadding = (numElements != n);
 
   if (needsPadding) {
@@ -916,7 +916,7 @@ void Dispatcher::encodeBitonicSort(const std::vector<ComputeBinding> &bindings,
 
   // Run bitonic sort on (possibly padded) buffers
   // Pre-fetch shader outside the O(log^2 N) loop
-  ComputeHandle stepShader = getOrCreateInternalShader(InternalBitonicStep);
+  Tensor stepShader = getOrCreateInternalShader(InternalBitonicStep);
   uint32_t dispatchThreads = ((n + 255) / 256) * 256;
 
   for (uint32_t k = 2; k <= n; k <<= 1) {
@@ -949,7 +949,7 @@ void Dispatcher::encodeRadixSort(const std::vector<ComputeBinding> &bindings,
     return; // Nothing to sort
 
   // Extract keys and values handles
-  ComputeHandle keysHandle, valsHandle;
+  Tensor keysHandle, valsHandle;
   for (const auto &b : bindings) {
     if (!b.isHandle())
       continue;
@@ -962,24 +962,24 @@ void Dispatcher::encodeRadixSort(const std::vector<ComputeBinding> &bindings,
   uint32_t groupCount = std::max((numElements + 255) / 256, 1u);
   uint32_t histSize = 16 * groupCount; // 16 digits * groupCount
 
-  ComputeHandle histogram = acquireTempBuffer(histSize, DataType::UInt32);
-  ComputeHandle keysAlt = acquireTempBuffer(numElements, DataType::UInt32);
-  ComputeHandle valsAlt = acquireTempBuffer(numElements, DataType::UInt32);
+  Tensor histogram = acquireTempBuffer(histSize, DataType::UInt32);
+  Tensor keysAlt = acquireTempBuffer(numElements, DataType::UInt32);
+  Tensor valsAlt = acquireTempBuffer(numElements, DataType::UInt32);
 
   // Pre-fetch shaders outside the loop
-  ComputeHandle histShader = getOrCreateInternalShader(InternalRadixHistogram);
-  ComputeHandle scatterShader = getOrCreateInternalShader(InternalRadixScatter);
-  ComputeHandle scanUintShader = getOrCreateInternalShader(InternalScanUint);
+  Tensor histShader = getOrCreateInternalShader(InternalRadixHistogram);
+  Tensor scatterShader = getOrCreateInternalShader(InternalRadixScatter);
+  Tensor scanUintShader = getOrCreateInternalShader(InternalScanUint);
 
   // 8 passes (4 bits each) for 32-bit keys
   for (uint32_t pass = 0; pass < 8; pass++) {
     uint32_t bitOffset = pass * 4;
     bool evenPass = (pass % 2 == 0);
 
-    ComputeHandle curKeys = evenPass ? keysHandle : keysAlt;
-    ComputeHandle curVals = evenPass ? valsHandle : valsAlt;
-    ComputeHandle dstKeys = evenPass ? keysAlt : keysHandle;
-    ComputeHandle dstVals = evenPass ? valsAlt : valsHandle;
+    Tensor curKeys = evenPass ? keysHandle : keysAlt;
+    Tensor curVals = evenPass ? valsHandle : valsAlt;
+    Tensor dstKeys = evenPass ? keysAlt : keysHandle;
+    Tensor dstVals = evenPass ? valsAlt : valsHandle;
 
     struct RadixPC {
       uint32_t numElements;
@@ -1017,7 +1017,7 @@ void Dispatcher::encodeMultiWorkgroupReduce(
     size_t executionSize) {
   // Infer dtype from bindings
   DataType dtype = ComputeBuffer::inferDataType(
-      bindings, [this](const ComputeHandle &h) -> const ComputeBuffer & {
+      bindings, [this](const Tensor &h) -> const ComputeBuffer & {
         return iface_->getBuffer(h);
       });
 
@@ -1029,7 +1029,7 @@ void Dispatcher::encodeMultiWorkgroupReduce(
   groupCount = std::max(groupCount, 2u);
 
   // Extract input and output handles from bindings
-  ComputeHandle inputHandle, outputHandle;
+  Tensor inputHandle, outputHandle;
   for (const auto &b : bindings) {
     if (!b.isHandle())
       continue;
@@ -1039,12 +1039,11 @@ void Dispatcher::encodeMultiWorkgroupReduce(
       outputHandle = b.getHandle();
   }
 
-  ComputeHandle partialShader =
+  Tensor partialShader =
       getOrCreateInternalShader(InternalPartialReduce, dtype);
-  ComputeHandle finalShader =
-      getOrCreateInternalShader(InternalFinalReduce, dtype);
+  Tensor finalShader = getOrCreateInternalShader(InternalFinalReduce, dtype);
 
-  ComputeHandle partialSums = acquireTempBuffer(groupCount, dtype);
+  Tensor partialSums = acquireTempBuffer(groupCount, dtype);
 
   // Phase 1: Partial reduce — each workgroup reduces its batch
   struct PartialPC {
@@ -1068,8 +1067,7 @@ void Dispatcher::encodeMultiWorkgroupReduce(
   releaseTempBuffers();
 }
 
-ComputeHandle Dispatcher::acquireTempBuffer(size_t numElements,
-                                            DataType dtype) {
+Tensor Dispatcher::acquireTempBuffer(size_t numElements, DataType dtype) {
   // Calculate aligned size in bytes for pool lookup
   size_t sizeBytes = ComputeBuffer::calculateAlignedSize(
       {static_cast<uint32_t>(numElements)}, dtype);
@@ -1078,7 +1076,7 @@ ComputeHandle Dispatcher::acquireTempBuffer(size_t numElements,
   for (auto it = tempBufferPool_.begin(); it != tempBufferPool_.end(); ++it) {
     const auto &buffer = iface_->getBuffer(*it);
     if (buffer.size() >= sizeBytes) {
-      ComputeHandle handle = *it;
+      Tensor handle = *it;
       tempBufferPool_.erase(it);
       activeTempBuffers_.push_back(handle);
       return handle;
@@ -1086,7 +1084,7 @@ ComputeHandle Dispatcher::acquireTempBuffer(size_t numElements,
   }
 
   // No pooled buffer available — create a new one
-  ComputeHandle handle =
+  Tensor handle =
       iface_->createBuffer({static_cast<uint32_t>(numElements)}, dtype);
   activeTempBuffers_.push_back(handle);
   return handle;
@@ -1103,7 +1101,7 @@ void Dispatcher::encodeBarrier() {
   iface_->encode(ComputeDispatch::createBarrier());
 }
 
-void Dispatcher::dispatchInternal(const ComputeHandle &shader,
+void Dispatcher::dispatchInternal(const Tensor &shader,
                                   const std::vector<ComputeBinding> &bindings,
                                   ThreadSize threadSize,
                                   const DataReference &pushData) {
@@ -1120,8 +1118,7 @@ void Dispatcher::dispatchInternal(OperatorEnum op,
                    pushData);
 }
 
-ComputeHandle Dispatcher::getOrCreateInternalShader(OperatorEnum op,
-                                                    DataType dtype) {
+Tensor Dispatcher::getOrCreateInternalShader(OperatorEnum op, DataType dtype) {
   size_t key = static_cast<size_t>(op) | (static_cast<size_t>(dtype) << 16) |
                (size_t(1) << 48);
 
@@ -1132,7 +1129,7 @@ ComputeHandle Dispatcher::getOrCreateInternalShader(OperatorEnum op,
 
   // Compile via the shader generation system
   auto spirv = getShader(op, dtype);
-  ComputeHandle handle = iface_->createShaderModule(spirv);
+  Tensor handle = iface_->createShaderModule(spirv);
   internalShaderCache_[key] = handle;
   return handle;
 }

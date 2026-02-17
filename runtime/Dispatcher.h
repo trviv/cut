@@ -39,7 +39,7 @@ public:
    */
   void encode(OperatorEnum op,
               const std::vector<ComputeBinding> &bindings,
-              const ComputeHandle &shader,
+              const Tensor &shader,
               size_t executionSize,
               DataType dtype = DataType::Float32);
 
@@ -53,13 +53,13 @@ private:
   ComputeInterface *iface_;
 
   /// Pool of reusable temporary GPU buffers.
-  std::vector<ComputeHandle> tempBufferPool_;
+  std::vector<Tensor> tempBufferPool_;
 
   /// Temporary buffers currently in use by the current multi-pass operation.
-  std::vector<ComputeHandle> activeTempBuffers_;
+  std::vector<Tensor> activeTempBuffers_;
 
   /// Internal shader cache keyed by (op, dtype) composite key.
-  std::unordered_map<size_t, ComputeHandle> internalShaderCache_;
+  std::unordered_map<size_t, Tensor> internalShaderCache_;
 
   /**
    * Acquires a temporary GPU buffer from the pool or creates a new one.
@@ -67,7 +67,7 @@ private:
    * @param dtype Data type of elements.
    * @return Handle to the temporary buffer.
    */
-  ComputeHandle acquireTempBuffer(size_t numElements, DataType dtype);
+  Tensor acquireTempBuffer(size_t numElements, DataType dtype);
 
   /**
    * Encodes a compute-to-compute barrier.
@@ -82,8 +82,8 @@ private:
    * @param dtype Data type for dtype-parameterized shaders.
    * @return Handle to the shader module.
    */
-  ComputeHandle getOrCreateInternalShader(OperatorEnum op,
-                                          DataType dtype = DataType::Float32);
+  Tensor getOrCreateInternalShader(OperatorEnum op,
+                                   DataType dtype = DataType::Float32);
 
   /**
    * Dispatches an internal shader with the given bindings and push constants.
@@ -95,7 +95,7 @@ private:
    * @param threadSize Workgroup thread dimensions.
    * @param pushData Push constant data bound after all buffer bindings.
    */
-  void dispatchInternal(const ComputeHandle &shader,
+  void dispatchInternal(const Tensor &shader,
                         const std::vector<ComputeBinding> &bindings,
                         ThreadSize threadSize,
                         const DataReference &pushData);

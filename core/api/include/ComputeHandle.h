@@ -81,4 +81,6 @@ private:
   ComputeContainer *container_;
 };
 
+using Tensor = ComputeHandle;
+
 } // namespace cut

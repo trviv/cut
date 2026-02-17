@@ -88,10 +88,10 @@ public:
    * @param isUniform If true, creates a uniform buffer (Vulkan only).
    * @return Handle to the created tensor.
    */
-  ComputeHandle createTensor(const std::vector<uint32_t> &shape,
-                             DataType dtype,
-                             const void *srcPtr = nullptr,
-                             bool isUniform = false);
+  Tensor createTensor(const std::vector<uint32_t> &shape,
+                      DataType dtype,
+                      const void *srcPtr = nullptr,
+                      bool isUniform = false);
 
   /**
    * Creates an empty tensor with the specified shape and data type.
@@ -100,9 +100,9 @@ public:
    * @param isUniform If true, creates a uniform buffer (Vulkan only).
    * @return Handle to the created tensor.
    */
-  ComputeHandle createTensorEmpty(const std::vector<uint32_t> &shape,
-                                  DataType dtype,
-                                  bool isUniform = false);
+  Tensor createTensorEmpty(const std::vector<uint32_t> &shape,
+                           DataType dtype,
+                           bool isUniform = false);
 
   /**
    * Copies data from host memory to a tensor.
@@ -112,7 +112,7 @@ public:
    * @param srcOffset Offset in source data.
    * @param dstOffset Offset in destination tensor.
    */
-  void copyToTensor(ComputeHandle handle,
+  void copyToTensor(Tensor handle,
                     const void *srcPtr,
                     size_t size,
                     size_t srcOffset = 0,
@@ -123,7 +123,7 @@ public:
    * @param handle Tensor handle.
    * @return Const reference to the ComputeBuffer.
    */
-  const ComputeBuffer &getTensor(const ComputeHandle &handle) const;
+  const ComputeBuffer &getTensor(const Tensor &handle) const;
 
   /**
    * Copies data from a tensor to host memory.
@@ -134,7 +134,7 @@ public:
    * @param srcOffset Offset in source tensor.
    * @param dstOffset Offset in destination data.
    */
-  void copyFromTensor(ComputeHandle handle,
+  void copyFromTensor(Tensor handle,
                       void *dstPtr,
                       size_t size,
                       size_t srcOffset = 0,
@@ -170,8 +170,8 @@ private:
   bool vulkanChecked_ = false;
   bool pendingCommands_ = false;
 
-  // Shader cache: maps makeCacheKey(OperatorEnum, DataType) -> ComputeHandle
-  std::unordered_map<uint64_t, ComputeHandle> shaderCache_;
+  // Shader cache: maps makeCacheKey(OperatorEnum, DataType) -> Tensor
+  std::unordered_map<uint64_t, Tensor> shaderCache_;
 
   // Dispatcher for encoding operators
   std::unique_ptr<Dispatcher> dispatcher_;
@@ -188,12 +188,12 @@ private:
   /**
    * Creates a shader/kernel for the specified operator.
    */
-  ComputeHandle createShader(OperatorEnum op, DataType dtype);
+  Tensor createShader(OperatorEnum op, DataType dtype);
 
   /**
    * Gets or creates a cached shader for the given operator and data type.
    */
-  ComputeHandle getOrCreateShader(OperatorEnum op, DataType dtype);
+  Tensor getOrCreateShader(OperatorEnum op, DataType dtype);
 
   /**
    * Computes the execution size for an operator based on its bindings.
@@ -212,9 +212,9 @@ private:
 
   void flushPendingCommands();
 
-  ComputeHandle submit();
+  Tensor submit();
 
-  void wait(ComputeHandle cmdBuffer);
+  void wait(Tensor cmdBuffer);
 };
 
 } // namespace cut

@@ -141,24 +141,24 @@ ComputeInterface *Runtime::getInterface() {
 // Tensor Operations
 // =========================================================================
 
-const ComputeBuffer &Runtime::getTensor(const ComputeHandle &handle) const {
+const ComputeBuffer &Runtime::getTensor(const Tensor &handle) const {
   return interface_->getBuffer(handle);
 }
 
-ComputeHandle Runtime::createTensor(const std::vector<uint32_t> &shape,
-                                    DataType dtype,
-                                    const void *srcPtr,
-                                    bool isUniform) {
+Tensor Runtime::createTensor(const std::vector<uint32_t> &shape,
+                             DataType dtype,
+                             const void *srcPtr,
+                             bool isUniform) {
   return getInterface()->createBuffer(shape, dtype, srcPtr, isUniform);
 }
 
-ComputeHandle Runtime::createTensorEmpty(const std::vector<uint32_t> &shape,
-                                         DataType dtype,
-                                         bool isUniform) {
+Tensor Runtime::createTensorEmpty(const std::vector<uint32_t> &shape,
+                                  DataType dtype,
+                                  bool isUniform) {
   return getInterface()->createBuffer(shape, dtype, nullptr, isUniform);
 }
 
-void Runtime::copyToTensor(ComputeHandle handle,
+void Runtime::copyToTensor(Tensor handle,
                            const void *srcPtr,
                            size_t size,
                            size_t srcOffset,
@@ -167,7 +167,7 @@ void Runtime::copyToTensor(ComputeHandle handle,
                                    false, true);
 }
 
-void Runtime::copyFromTensor(ComputeHandle handle,
+void Runtime::copyFromTensor(Tensor handle,
                              void *dstPtr,
                              size_t size,
                              size_t srcOffset,
@@ -182,7 +182,7 @@ void Runtime::copyFromTensor(ComputeHandle handle,
 // Operator Execution
 // =========================================================================
 
-ComputeHandle Runtime::createShader(OperatorEnum op, DataType dtype) {
+Tensor Runtime::createShader(OperatorEnum op, DataType dtype) {
   auto *iface = getInterface();
 
   // Get SPIR-V and create shader module for Vulkan backend
@@ -190,13 +190,13 @@ ComputeHandle Runtime::createShader(OperatorEnum op, DataType dtype) {
   return iface->createShaderModule(spirv);
 }
 
-ComputeHandle Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
+Tensor Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
   uint64_t key = makeCacheKey(op, dtype);
   auto it = shaderCache_.find(key);
   if (it != shaderCache_.end()) {
     return it->second;
   }
-  ComputeHandle shader = createShader(op, dtype);
+  Tensor shader = createShader(op, dtype);
   shaderCache_[key] = shader;
   return shader;
 }
@@ -251,7 +251,7 @@ void Runtime::encodeOperator(OperatorEnum op,
     }
   } else {
     dtype = ComputeBuffer::inferDataType(
-        bindings, [this](const ComputeHandle &h) -> const ComputeBuffer & {
+        bindings, [this](const Tensor &h) -> const ComputeBuffer & {
           return interface_->getBuffer(h);
         });
   }
@@ -266,7 +266,7 @@ void Runtime::encodeOperator(OperatorEnum op,
 
   // Prefix scan and sort ops use internally-generated shaders in the
   // Dispatcher, so skip the normal shader creation path for them.
-  ComputeHandle shader;
+  Tensor shader;
   if (op != PrefixScanExclusiveSum && op != PrefixScanInclusiveSum &&
       op != SortBitonic && op != SortRadix) {
     shader = getOrCreateShader(op, dtype);
@@ -279,22 +279,22 @@ void Runtime::encodeOperator(OperatorEnum op,
   if (isGpuBackend()) {
     pendingCommands_ = true;
   } else {
-    ComputeHandle cmd = submit();
+    Tensor cmd = submit();
     wait(cmd);
   }
 }
 
-ComputeHandle Runtime::submit() {
+Tensor Runtime::submit() {
   return getInterface()->submit();
 }
 
-void Runtime::wait(ComputeHandle cmdBuffer) {
+void Runtime::wait(Tensor cmdBuffer) {
   getInterface()->wait(cmdBuffer);
 }
 
 void Runtime::flushPendingCommands() {
   if (pendingCommands_ && interface_) {
-    ComputeHandle cmd = submit();
+    Tensor cmd = submit();
     wait(cmd);
     pendingCommands_ = false;
   }

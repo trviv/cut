@@ -463,18 +463,18 @@ PYBIND11_MODULE(_cut_compute, m) {
       .def_readwrite("z", &cut::ThreadSize::z);
 
   // =========================================================================
-  // ComputeHandle
+  // Tensor (ComputeHandle)
   // =========================================================================
-  py::class_<cut::ComputeHandle>(m, "ComputeHandle")
-      .def("__bool__", &cut::ComputeHandle::operator bool)
-      .def("valid", &cut::ComputeHandle::operator bool);
+  py::class_<cut::Tensor>(m, "ComputeHandle")
+      .def("__bool__", &cut::Tensor::operator bool)
+      .def("valid", &cut::Tensor::operator bool);
 
   // =========================================================================
   // ComputeBinding
   // =========================================================================
   py::class_<cut::ComputeBinding>(m, "ComputeBinding",
                                   "Binding for compute dispatch operations")
-      .def(py::init<uint32_t, const cut::ComputeHandle &>(), py::arg("index"),
+      .def(py::init<uint32_t, const cut::Tensor &>(), py::arg("index"),
            py::arg("handle"), "Create a buffer binding")
       .def_static(
           "from_float",
@@ -572,7 +572,7 @@ PYBIND11_MODULE(_cut_compute, m) {
   // Copy to buffer using buffer protocol
   m.def(
       "copy_to_buffer",
-      [](cut::ComputeHandle handle, py::buffer data) {
+      [](cut::Tensor handle, py::buffer data) {
         py::buffer_info info = data.request();
         size_t size = info.size * info.itemsize;
         getRuntime().copyToTensor(handle, info.ptr, size, 0, 0);
@@ -582,7 +582,7 @@ PYBIND11_MODULE(_cut_compute, m) {
   // Copy from buffer using buffer protocol
   m.def(
       "copy_from_buffer",
-      [](cut::ComputeHandle handle, py::buffer data) {
+      [](cut::Tensor handle, py::buffer data) {
         py::buffer_info info = data.request();
         size_t size = info.size * info.itemsize;
         getRuntime().copyFromTensor(handle, info.ptr, size, 0, 0);
@@ -639,12 +639,12 @@ PYBIND11_MODULE(_cut_compute, m) {
         "Get SPIR-V code for a built-in shader (Vulkan)");
 
   // =========================================================================
-  // Buffer metadata accessors (get shape/dtype/size from ComputeHandle)
+  // Buffer metadata accessors (get shape/dtype/size from Tensor handle)
   // =========================================================================
 
   m.def(
       "get_buffer_shape",
-      [](const cut::ComputeHandle &handle) {
+      [](const cut::Tensor &handle) {
         const auto &buf = getRuntime().getTensor(handle);
         return buf.getShape();
       },
@@ -652,14 +652,14 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "get_buffer_dtype",
-      [](const cut::ComputeHandle &handle) {
+      [](const cut::Tensor &handle) {
         return getRuntime().getTensor(handle).getDtype();
       },
       py::arg("handle"), "Get the data type of a buffer");
 
   m.def(
       "get_buffer_size_bytes",
-      [](const cut::ComputeHandle &handle) {
+      [](const cut::Tensor &handle) {
         return getRuntime().getTensor(handle).calculateActualSize();
       },
       py::arg("handle"),
@@ -675,23 +675,20 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_binary",
-      [getOps](cut::OperatorEnum op, const cut::ComputeHandle &a,
-               const cut::ComputeHandle &b) {
-        return getOps().binaryOp(op, a, b);
-      },
+      [getOps](cut::OperatorEnum op, const cut::Tensor &a,
+               const cut::Tensor &b) { return getOps().binaryOp(op, a, b); },
       py::arg("op"), py::arg("a"), py::arg("b"), "Binary vec-vec operation");
 
   m.def(
       "ops_unary",
-      [getOps](cut::OperatorEnum op, const cut::ComputeHandle &a) {
+      [getOps](cut::OperatorEnum op, const cut::Tensor &a) {
         return getOps().unaryOp(op, a);
       },
       py::arg("op"), py::arg("a"), "Unary operation");
 
   m.def(
       "ops_vec_scalar",
-      [getOps](cut::OperatorEnum op, const cut::ComputeHandle &a,
-               py::object scalar) {
+      [getOps](cut::OperatorEnum op, const cut::Tensor &a, py::object scalar) {
         auto dtype = getRuntime().getTensor(a).getDtype();
         if (cut::dataTypeSize(dtype) == 4) {
           uint32_t val = scalar.cast<uint32_t>();
@@ -708,28 +705,28 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_reduce_scalar",
-      [getOps](cut::OperatorEnum op, const cut::ComputeHandle &a) {
+      [getOps](cut::OperatorEnum op, const cut::Tensor &a) {
         return getOps().reduceScalar(op, a);
       },
       py::arg("op"), py::arg("a"), "Global reduction returning float");
 
   m.def(
       "ops_reduce_bool",
-      [getOps](cut::OperatorEnum op, const cut::ComputeHandle &a) {
+      [getOps](cut::OperatorEnum op, const cut::Tensor &a) {
         return getOps().reduceBool(op, a);
       },
       py::arg("op"), py::arg("a"), "Global reduction returning bool");
 
   m.def(
       "ops_reduce_int",
-      [getOps](cut::OperatorEnum op, const cut::ComputeHandle &a) {
+      [getOps](cut::OperatorEnum op, const cut::Tensor &a) {
         return getOps().reduceInt(op, a);
       },
       py::arg("op"), py::arg("a"), "Global reduction returning int");
 
   m.def(
       "ops_reduce_dim",
-      [getOps](const cut::ComputeHandle &a, int dim, cut::OperatorEnum dimOp) {
+      [getOps](const cut::Tensor &a, int dim, cut::OperatorEnum dimOp) {
         return getOps().reduceDim(a, dim, dimOp);
       },
       py::arg("a"), py::arg("dim"), py::arg("dim_op"),
@@ -739,19 +736,19 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_matmul",
-      [getOps](const cut::ComputeHandle &a, const cut::ComputeHandle &b) {
+      [getOps](const cut::Tensor &a, const cut::Tensor &b) {
         return getOps().matmul(a, b);
       },
       py::arg("a"), py::arg("b"), "Matrix multiplication");
 
   m.def(
       "ops_transpose",
-      [getOps](const cut::ComputeHandle &a) { return getOps().transpose(a); },
+      [getOps](const cut::Tensor &a) { return getOps().transpose(a); },
       py::arg("a"), "Matrix transpose");
 
   m.def(
       "ops_dot",
-      [getOps](const cut::ComputeHandle &a, const cut::ComputeHandle &b) {
+      [getOps](const cut::Tensor &a, const cut::Tensor &b) {
         return getOps().dot(a, b);
       },
       py::arg("a"), py::arg("b"), "Dot product");
@@ -760,9 +757,8 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_conv1d",
-      [getOps](const cut::ComputeHandle &input,
-               const cut::ComputeHandle &weight, uint32_t stride,
-               uint32_t padding) {
+      [getOps](const cut::Tensor &input, const cut::Tensor &weight,
+               uint32_t stride, uint32_t padding) {
         return getOps().conv1d(input, weight, stride, padding);
       },
       py::arg("input"), py::arg("weight"), py::arg("stride") = 1,
@@ -770,9 +766,9 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_conv2d",
-      [getOps](const cut::ComputeHandle &input,
-               const cut::ComputeHandle &weight, uint32_t stride_h,
-               uint32_t stride_w, uint32_t pad_h, uint32_t pad_w) {
+      [getOps](const cut::Tensor &input, const cut::Tensor &weight,
+               uint32_t stride_h, uint32_t stride_w, uint32_t pad_h,
+               uint32_t pad_w) {
         return getOps().conv2d(input, weight, stride_h, stride_w, pad_h, pad_w);
       },
       py::arg("input"), py::arg("weight"), py::arg("stride_h") = 1,
@@ -783,8 +779,7 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_clamp",
-      [getOps](const cut::ComputeHandle &a, py::object min_val,
-               py::object max_val) {
+      [getOps](const cut::Tensor &a, py::object min_val, py::object max_val) {
         auto dtype = getRuntime().getTensor(a).getDtype();
         if (cut::dataTypeSize(dtype) == 4) {
           uint32_t vals[2] = {min_val.cast<uint32_t>(),
@@ -800,17 +795,15 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_where",
-      [getOps](const cut::ComputeHandle &cond, const cut::ComputeHandle &x,
-               const cut::ComputeHandle &y) {
-        return getOps().where(cond, x, y);
-      },
+      [getOps](const cut::Tensor &cond, const cut::Tensor &x,
+               const cut::Tensor &y) { return getOps().where(cond, x, y); },
       py::arg("cond"), py::arg("x"), py::arg("y"), "Conditional select");
 
   // --- Cumulative ops ---
 
   m.def(
       "ops_cumulative",
-      [getOps](const cut::ComputeHandle &a, int dim, cut::OperatorEnum op) {
+      [getOps](const cut::Tensor &a, int dim, cut::OperatorEnum op) {
         return getOps().cumOp(a, dim, op);
       },
       py::arg("a"), py::arg("dim"), py::arg("op"), "Cumulative operation");
@@ -819,14 +812,14 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_var_scalar",
-      [getOps](const cut::ComputeHandle &a, int correction) {
+      [getOps](const cut::Tensor &a, int correction) {
         return getOps().varianceScalar(a, correction);
       },
       py::arg("a"), py::arg("correction") = 1, "Global variance");
 
   m.def(
       "ops_var_dim",
-      [getOps](const cut::ComputeHandle &a, int dim, int correction) {
+      [getOps](const cut::Tensor &a, int dim, int correction) {
         return getOps().varianceDim(a, dim, correction);
       },
       py::arg("a"), py::arg("dim"), py::arg("correction") = 1,
@@ -836,14 +829,14 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_softmax",
-      [getOps](const cut::ComputeHandle &a, int dim) {
+      [getOps](const cut::Tensor &a, int dim) {
         return getOps().softmax(a, dim);
       },
       py::arg("a"), py::arg("dim") = -1, "Softmax");
 
   m.def(
       "ops_log_softmax",
-      [getOps](const cut::ComputeHandle &a, int dim) {
+      [getOps](const cut::Tensor &a, int dim) {
         return getOps().logSoftmax(a, dim);
       },
       py::arg("a"), py::arg("dim") = -1, "Log softmax");
@@ -903,36 +896,35 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_reshape",
-      [getOps](const cut::ComputeHandle &a, std::vector<int32_t> new_shape) {
+      [getOps](const cut::Tensor &a, std::vector<int32_t> new_shape) {
         return getOps().reshape(a, new_shape);
       },
       py::arg("a"), py::arg("new_shape"), "Reshape tensor (copy)");
 
   m.def(
       "ops_squeeze",
-      [getOps](const cut::ComputeHandle &a, std::optional<int> dim) {
+      [getOps](const cut::Tensor &a, std::optional<int> dim) {
         return getOps().squeeze(a, dim);
       },
       py::arg("a"), py::arg("dim") = py::none(), "Squeeze dimensions");
 
   m.def(
       "ops_unsqueeze",
-      [getOps](const cut::ComputeHandle &a, int dim) {
+      [getOps](const cut::Tensor &a, int dim) {
         return getOps().unsqueeze(a, dim);
       },
       py::arg("a"), py::arg("dim"), "Unsqueeze dimension");
 
   m.def(
       "ops_unflatten",
-      [getOps](const cut::ComputeHandle &a, int dim,
-               std::vector<uint32_t> sizes) {
+      [getOps](const cut::Tensor &a, int dim, std::vector<uint32_t> sizes) {
         return getOps().unflatten(a, dim, sizes);
       },
       py::arg("a"), py::arg("dim"), py::arg("sizes"), "Unflatten dimension");
 
   m.def(
       "ops_flatten",
-      [getOps](const cut::ComputeHandle &a, int start_dim, int end_dim) {
+      [getOps](const cut::Tensor &a, int start_dim, int end_dim) {
         return getOps().flatten(a, start_dim, end_dim);
       },
       py::arg("a"), py::arg("start_dim") = 0, py::arg("end_dim") = -1,
@@ -942,7 +934,7 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_norm_dim",
-      [getOps](const cut::ComputeHandle &a, int dim) {
+      [getOps](const cut::Tensor &a, int dim) {
         return getOps().normDim(a, dim);
       },
       py::arg("a"), py::arg("dim"), "L2 norm along dimension");
