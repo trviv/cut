@@ -681,11 +681,9 @@ def sum(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> sum(x, dim=1)  # Returns Tensor([6, 15])
     """
     _ensure_initialized()
-    if dim is not None:
-        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimSum)
-        return Tensor._from_view(result, a._dtype)
-    result = _cut_compute.ops_reduce(OperatorEnum.ReduceSum, a._to_view())
-    return Tensor._from_view(result, a._dtype).item()
+    result = _cut_compute.ops_reduce(OperatorEnum.ReduceSum, a._to_view(), dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else t.item()
 
 
 def mean(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -708,10 +706,9 @@ def mean(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     """
     _ensure_initialized()
     if dim is not None:
-        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimMean)
-        return Tensor._from_view(result, a._dtype)
-    result = _cut_compute.ops_reduce(OperatorEnum.ReduceMean, a._to_view())
-    return Tensor._from_view(result, a._dtype).item()
+    result = _cut_compute.ops_reduce(OperatorEnum.ReduceMean, a._to_view(), dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else t.item()
 
 
 def min(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -733,11 +730,9 @@ def min(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> min(x, dim=0)  # Returns Tensor([3, 1])
     """
     _ensure_initialized()
-    if dim is not None:
-        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimMin)
-        return Tensor._from_view(result, a._dtype)
-    result = _cut_compute.ops_reduce(OperatorEnum.ReduceMin, a._to_view())
-    return Tensor._from_view(result, a._dtype).item()
+    result = _cut_compute.ops_reduce(OperatorEnum.ReduceMin, a._to_view(), dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else t.item()
 
 
 def max(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -759,11 +754,9 @@ def max(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> max(x, dim=0)  # Returns Tensor([4, 2])
     """
     _ensure_initialized()
-    if dim is not None:
-        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimMax)
-        return Tensor._from_view(result, a._dtype)
-    result = _cut_compute.ops_reduce(OperatorEnum.ReduceMax, a._to_view())
-    return Tensor._from_view(result, a._dtype).item()
+    result = _cut_compute.ops_reduce(OperatorEnum.ReduceMax, a._to_view(), dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else t.item()
 
 
 def prod(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
@@ -785,11 +778,9 @@ def prod(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
         >>> prod(x, dim=0)  # Returns Tensor([3, 8])
     """
     _ensure_initialized()
-    if dim is not None:
-        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimProd)
-        return Tensor._from_view(result, a._dtype)
-    result = _cut_compute.ops_reduce(OperatorEnum.ReduceProd, a._to_view())
-    return Tensor._from_view(result, a._dtype).item()
+    result = _cut_compute.ops_reduce(OperatorEnum.ReduceProd, a._to_view(), dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else t.item()
 
 
 def any(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
@@ -811,11 +802,9 @@ def any(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
         >>> any(x, dim=0)  # Returns Tensor([0, 1])
     """
     _ensure_initialized()
-    if dim is not None:
-        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimAny)
-        return Tensor._from_view(result, a._dtype)
-    result = _cut_compute.ops_reduce(OperatorEnum.ReduceAny, a._to_view())
-    return Tensor._from_view(result, a._dtype).item() != 0
+    result = _cut_compute.ops_reduce(OperatorEnum.ReduceAny, a._to_view(), dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else t.item() != 0
 
 
 def all(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
@@ -837,11 +826,9 @@ def all(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
         >>> all(x, dim=0)  # Returns Tensor([1, 0])
     """
     _ensure_initialized()
-    if dim is not None:
-        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimAll)
-        return Tensor._from_view(result, a._dtype)
-    result = _cut_compute.ops_reduce(OperatorEnum.ReduceAll, a._to_view())
-    return Tensor._from_view(result, a._dtype).item() != 0
+    result = _cut_compute.ops_reduce(OperatorEnum.ReduceAll, a._to_view(), dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else t.item() != 0
 
 
 def matmul(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
@@ -1594,11 +1581,9 @@ def argmax(a: Tensor, dim: Optional[int] = None) -> Union[int, 'Tensor']:
         >>> argmax(x, dim=0)  # Returns Tensor([1, 0])
     """
     _ensure_initialized()
-    if dim is not None:
-        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimArgmax)
-        return Tensor._from_view(result, a._dtype)
-    result = _cut_compute.ops_reduce(OperatorEnum.ReduceArgmax, a._to_view())
-    return int(Tensor._from_view(result, a._dtype).item())
+    result = _cut_compute.ops_reduce(OperatorEnum.ReduceArgmax, a._to_view(), dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else int(t.item())
 
 
 def argmin(a: Tensor, dim: Optional[int] = None) -> Union[int, 'Tensor']:
@@ -1621,11 +1606,9 @@ def argmin(a: Tensor, dim: Optional[int] = None) -> Union[int, 'Tensor']:
         >>> argmin(x, dim=0)  # Returns Tensor([0, 1])
     """
     _ensure_initialized()
-    if dim is not None:
-        result = _cut_compute.ops_reduce_dim(a._to_view(), dim, OperatorEnum.ReduceDimArgmin)
-        return Tensor._from_view(result, a._dtype)
-    result = _cut_compute.ops_reduce(OperatorEnum.ReduceArgmin, a._to_view())
-    return int(Tensor._from_view(result, a._dtype).item())
+    result = _cut_compute.ops_reduce(OperatorEnum.ReduceArgmin, a._to_view(), dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else int(t.item())
 
 
 def reshape(a: Tensor, *shape) -> Tensor:

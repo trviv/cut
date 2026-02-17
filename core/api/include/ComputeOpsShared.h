@@ -232,7 +232,7 @@
 #define OP_UNARY_ISFINITE 154
 
 // =============================================================================
-// Reduction operations (200-217)
+// Reduction operations (200-215)
 // =============================================================================
 
 #define OP_REDUCE_SUM 200
@@ -242,17 +242,8 @@
 #define OP_REDUCE_PROD 204
 #define OP_REDUCE_ANY 205
 #define OP_REDUCE_ALL 206
-#define OP_REDUCE_DIM_SUM 207
-#define OP_REDUCE_DIM_MEAN 208
-#define OP_REDUCE_DIM_MIN 209
-#define OP_REDUCE_DIM_MAX 210
-#define OP_REDUCE_DIM_PROD 211
-#define OP_REDUCE_DIM_ANY 212
-#define OP_REDUCE_DIM_ALL 213
 #define OP_REDUCE_ARGMAX 214
 #define OP_REDUCE_ARGMIN 215
-#define OP_REDUCE_DIM_ARGMAX 216
-#define OP_REDUCE_DIM_ARGMIN 217
 
 // =============================================================================
 // Cumulative/scan operations (240-241)

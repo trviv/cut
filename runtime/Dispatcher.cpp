@@ -209,25 +209,10 @@ bool isReductionOp(OperatorEnum op) {
   }
 }
 
-/// Checks if an operator is a dimension-wise reduction operation.
+/// Checks if an operator is a dimension-wise reduction operation
+/// (excludes base reduce ops which are detected by binding pattern).
 bool isDimReductionOp(OperatorEnum op) {
-  switch (op) {
-  case ReduceDimSum:
-  case ReduceDimMean:
-  case ReduceDimMin:
-  case ReduceDimMax:
-  case ReduceDimProd:
-  case ReduceDimAny:
-  case ReduceDimAll:
-  case NormDim:
-  case ReduceDimArgmax:
-  case ReduceDimArgmin:
-  case CumSum:
-  case CumProd:
-    return true;
-  default:
-    return false;
-  }
+  return op == NormDim || op == CumSum || op == CumProd;
 }
 
 /// Checks if an operator is a matrix operation.
@@ -330,8 +315,11 @@ void Dispatcher::encode(OperatorEnum op,
     if (bindings.size() != 4) {
       throw std::runtime_error("TernarySelect requires exactly 4 bindings");
     }
+  } else if (isReductionOp(op) && bindings.size() == 3) {
+    // Dim-wise reduction: input, output, shape data (reduce op + dim data)
+    // Falls through to dim reduction dispatch below.
   } else if (isReductionOp(op)) {
-    // Reduction: input, output (output is scalar or reduced array)
+    // Global reduction: input, output (output is scalar or reduced array)
     if (bindings.size() != 2) {
       throw std::runtime_error(
           "Reduction operation requires exactly 2 bindings");
@@ -486,6 +474,63 @@ void Dispatcher::encode(OperatorEnum op,
                             static_cast<uint32_t>(bindings.size()));
     iface_->encode(std::move(selectDispatch));
     return;
+  } else if (isReductionOp(op) && bindings.size() == 3) {
+    // Dim-wise reduction for base reduce ops (detected by 3 bindings).
+    // Create the dim shader internally since Runtime skipped shader creation.
+    Tensor dimShader = getOrCreateDimReduceShader(op, dtype);
+    // Dim reduction dispatch (shared logic with isDimReductionOp path below).
+    std::vector<ComputeBinding> dimReduceHandleBindings;
+    uint32_t outerSize = 0, reduceSize = 0, innerSize = 0;
+
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        dimReduceHandleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        const auto &data = binding.getData();
+        if (data.size() >= 3 * sizeof(uint32_t)) {
+          const uint32_t *dims =
+              reinterpret_cast<const uint32_t *>(data.data());
+          outerSize = dims[0];
+          reduceSize = dims[1];
+          innerSize = dims[2];
+        }
+      }
+    }
+
+    uint32_t inReduceStride = innerSize;
+    uint32_t inOuterStride = reduceSize * innerSize;
+    if (!dimReduceHandleBindings.empty()) {
+      const auto &inputBuffer =
+          iface_->getBuffer(dimReduceHandleBindings[0].getHandle());
+      uint32_t bufInnerDim = inputBuffer.innerDimSize();
+      uint32_t alignedBufInner = (bufInnerDim + 3) & ~static_cast<uint32_t>(3);
+      if (innerSize == bufInnerDim) {
+        inReduceStride = alignedBufInner;
+        inOuterStride = reduceSize * alignedBufInner;
+      } else if (innerSize == 1) {
+        inReduceStride = 1;
+        inOuterStride = alignedBufInner;
+      }
+    }
+
+    uint32_t numOutputs = outerSize * innerSize;
+    uint32_t gridX = ((numOutputs + 255) / 256) * 256;
+
+    ThreadSize dimReduceWorkgroupSize{gridX, 1, 1};
+    ComputeDispatch dimReduceDispatch(dimShader, dimReduceWorkgroupSize,
+                                      dimReduceHandleBindings);
+    struct DimReducePushConstants {
+      uint32_t outerSize;
+      uint32_t reduceSize;
+      uint32_t innerSize;
+      uint32_t inOuterStride;
+      uint32_t inReduceStride;
+    } pushData{outerSize, reduceSize, innerSize, inOuterStride, inReduceStride};
+    dimReduceDispatch.bindData(
+        DataReference(&pushData, sizeof(pushData)),
+        static_cast<uint32_t>(dimReduceHandleBindings.size()));
+    iface_->encode(std::move(dimReduceDispatch));
+    return;
   } else if (isReductionOp(op)) {
     // For large inputs and compatible ops, use multi-workgroup reduce
     if (numElements > kMultiReduceThreshold && isMultiReduceCapable(op)) {
@@ -501,8 +546,8 @@ void Dispatcher::encode(OperatorEnum op,
     iface_->encode(std::move(reductionDispatch));
     return;
   } else if (isDimReductionOp(op)) {
-    // Dim reduction ops need shape info from data bindings.
-    // Bindings: input (handle), output (handle), shape_data (data).
+    // Dim reduction ops (NormDim, CumSum, CumProd) need shape info from data
+    // bindings. Bindings: input (handle), output (handle), shape_data (data).
     // Shape data contains [outerSize, reduceSize, innerSize].
     std::vector<ComputeBinding> dimReduceHandleBindings;
     uint32_t outerSize = 0, reduceSize = 0, innerSize = 0;
@@ -1129,6 +1174,23 @@ Tensor Dispatcher::getOrCreateInternalShader(OperatorEnum op, DataType dtype) {
 
   // Compile via the shader generation system
   auto spirv = getShader(op, dtype);
+  Tensor handle = iface_->createShaderModule(spirv);
+  internalShaderCache_[key] = handle;
+  return handle;
+}
+
+Tensor Dispatcher::getOrCreateDimReduceShader(OperatorEnum reduceOp,
+                                              DataType dtype) {
+  // Use bit 49 to distinguish dim-reduce shaders from global-reduce shaders
+  size_t key = static_cast<size_t>(reduceOp) |
+               (static_cast<size_t>(dtype) << 16) | (size_t(2) << 48);
+
+  auto it = internalShaderCache_.find(key);
+  if (it != internalShaderCache_.end()) {
+    return it->second;
+  }
+
+  auto spirv = getDimReduceShader(reduceOp, dtype);
   Tensor handle = iface_->createShaderModule(spirv);
   internalShaderCache_[key] = handle;
   return handle;

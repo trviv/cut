@@ -32,11 +32,11 @@ public:
 
   // ===== Reduction ops =====
 
-  /// Global reduction returning a single-element Tensor.
-  Tensor reduce(OperatorEnum op, const Tensor &a);
-
-  /// Dimension-wise reduction.
-  Tensor reduceDim(const Tensor &a, int dim, OperatorEnum dimOp);
+  /// Reduction. Without dim: global reduction returning shape {1}.
+  /// With dim: dimension-wise reduction (dim is removed from output shape).
+  /// Always pass the global op enum (e.g. ReduceSum); the dim variant is
+  /// resolved automatically.
+  Tensor reduce(OperatorEnum op, const Tensor &a, std::optional<int> dim = {});
 
   // ===== Matrix ops =====
 

@@ -6,7 +6,7 @@
 %DTYPE_DEFINES%
 
 // Specialization constants
-layout(constant_id = 1) const uint op_enum = OP_REDUCE_DIM_SUM;
+layout(constant_id = 1) const uint op_enum = OP_REDUCE_SUM;
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
@@ -28,15 +28,15 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
 
 %SCALAR_DTYPE% identity() {
     switch (op_enum) {
-        case OP_REDUCE_DIM_SUM:
-        case OP_REDUCE_DIM_MEAN:
-        case OP_REDUCE_DIM_ANY:
+        case OP_REDUCE_SUM:
+        case OP_REDUCE_MEAN:
+        case OP_REDUCE_ANY:
         case OP_NORM_DIM:
             return %SCALAR_DTYPE%(0);
-        case OP_REDUCE_DIM_PROD:
-        case OP_REDUCE_DIM_ALL:
+        case OP_REDUCE_PROD:
+        case OP_REDUCE_ALL:
             return %SCALAR_DTYPE%(1);
-        case OP_REDUCE_DIM_MIN:
+        case OP_REDUCE_MIN:
 #ifdef DTYPE_IS_FLOAT
             return 3.402823466e+38;
 #elif defined(DTYPE_IS_UINT)
@@ -44,7 +44,7 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
 #else
             return 2147483647;
 #endif
-        case OP_REDUCE_DIM_MAX:
+        case OP_REDUCE_MAX:
 #ifdef DTYPE_IS_FLOAT
             return -3.402823466e+38;
 #elif defined(DTYPE_IS_UINT)
@@ -59,22 +59,22 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
 
 %SCALAR_DTYPE% reduceOp(%SCALAR_DTYPE% a, %SCALAR_DTYPE% b) {
     switch (op_enum) {
-        case OP_REDUCE_DIM_SUM:
-        case OP_REDUCE_DIM_MEAN:
+        case OP_REDUCE_SUM:
+        case OP_REDUCE_MEAN:
             return a + b;
-        case OP_REDUCE_DIM_PROD:
+        case OP_REDUCE_PROD:
             return a * b;
-        case OP_REDUCE_DIM_MIN:
+        case OP_REDUCE_MIN:
             return min(a, b);
-        case OP_REDUCE_DIM_MAX:
+        case OP_REDUCE_MAX:
             return max(a, b);
-        case OP_REDUCE_DIM_ANY:
+        case OP_REDUCE_ANY:
 #ifdef DTYPE_IS_FLOAT
             return (a != 0.0 || b != 0.0) ? 1.0 : 0.0;
 #else
             return (a != 0 || b != 0) ? 1 : 0;
 #endif
-        case OP_REDUCE_DIM_ALL:
+        case OP_REDUCE_ALL:
 #ifdef DTYPE_IS_FLOAT
             return (a != 0.0 && b != 0.0) ? 1.0 : 0.0;
 #else
@@ -105,7 +105,7 @@ void main() {
     }
 
     // Finalization
-    if (op_enum == OP_REDUCE_DIM_MEAN) {
+    if (op_enum == OP_REDUCE_MEAN) {
         val = val / %SCALAR_DTYPE%(reduceSize);
     } else if (op_enum == OP_NORM_DIM) {
 #ifdef DTYPE_IS_FLOAT

@@ -18,6 +18,18 @@ using ShaderEnum = OperatorEnum;
 std::vector<uint32_t> getShader(const OperatorEnum shader,
                                 const DataType datatype = DataType::Float32);
 
+/**
+ * Returns SPIR-V for a dimension-wise reduction shader.
+ * Compiles the ReduceDim (or ReduceDimArg) shader template and patches
+ * the specialization constant with the given base reduce op enum.
+ *
+ * @param reduceOp Base reduce op (e.g. ReduceSum, ReduceArgmax).
+ * @param datatype Data type variant.
+ */
+std::vector<uint32_t>
+getDimReduceShader(const OperatorEnum reduceOp,
+                   const DataType datatype = DataType::Float32);
+
 /*
  * Pre-compiled shader functions.
  * Each function returns spirv encoding for a specific compiled shader.

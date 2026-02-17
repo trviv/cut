@@ -414,18 +414,9 @@ PYBIND11_MODULE(_cut_compute, m) {
       .value("ReduceProd", cut::OperatorEnum::ReduceProd)
       .value("ReduceAny", cut::OperatorEnum::ReduceAny)
       .value("ReduceAll", cut::OperatorEnum::ReduceAll)
-      .value("ReduceDimSum", cut::OperatorEnum::ReduceDimSum)
-      .value("ReduceDimMean", cut::OperatorEnum::ReduceDimMean)
-      .value("ReduceDimMin", cut::OperatorEnum::ReduceDimMin)
-      .value("ReduceDimMax", cut::OperatorEnum::ReduceDimMax)
-      .value("ReduceDimProd", cut::OperatorEnum::ReduceDimProd)
-      .value("ReduceDimAny", cut::OperatorEnum::ReduceDimAny)
-      .value("ReduceDimAll", cut::OperatorEnum::ReduceDimAll)
       // Argmax/Argmin reductions
       .value("ReduceArgmax", cut::OperatorEnum::ReduceArgmax)
       .value("ReduceArgmin", cut::OperatorEnum::ReduceArgmin)
-      .value("ReduceDimArgmax", cut::OperatorEnum::ReduceDimArgmax)
-      .value("ReduceDimArgmin", cut::OperatorEnum::ReduceDimArgmin)
       // Cumulative operations
       .value("CumSum", cut::OperatorEnum::CumSum)
       .value("CumProd", cut::OperatorEnum::CumProd)
@@ -705,18 +696,10 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_reduce",
-      [getOps](cut::OperatorEnum op, const cut::Tensor &a) {
-        return getOps().reduce(op, a);
-      },
-      py::arg("op"), py::arg("a"), "Global reduction returning a Tensor");
-
-  m.def(
-      "ops_reduce_dim",
-      [getOps](const cut::Tensor &a, int dim, cut::OperatorEnum dimOp) {
-        return getOps().reduceDim(a, dim, dimOp);
-      },
-      py::arg("a"), py::arg("dim"), py::arg("dim_op"),
-      "Dimension-wise reduction");
+      [getOps](cut::OperatorEnum op, const cut::Tensor &a,
+               std::optional<int> dim) { return getOps().reduce(op, a, dim); },
+      py::arg("op"), py::arg("a"), py::arg("dim") = py::none(),
+      "Reduction (global if dim is None, dimension-wise otherwise)");
 
   // --- Matrix ops ---
 

@@ -217,19 +217,10 @@ enum OperatorEnum {
   ReduceProd = OP_REDUCE_PROD,
   ReduceAny = OP_REDUCE_ANY,
   ReduceAll = OP_REDUCE_ALL,
-  ReduceDimSum = OP_REDUCE_DIM_SUM,
-  ReduceDimMean = OP_REDUCE_DIM_MEAN,
-  ReduceDimMin = OP_REDUCE_DIM_MIN,
-  ReduceDimMax = OP_REDUCE_DIM_MAX,
-  ReduceDimProd = OP_REDUCE_DIM_PROD,
-  ReduceDimAny = OP_REDUCE_DIM_ANY,
-  ReduceDimAll = OP_REDUCE_DIM_ALL,
 
   // Argmax/Argmin
   ReduceArgmax = OP_REDUCE_ARGMAX,
   ReduceArgmin = OP_REDUCE_ARGMIN,
-  ReduceDimArgmax = OP_REDUCE_DIM_ARGMAX,
-  ReduceDimArgmin = OP_REDUCE_DIM_ARGMIN,
 
   // ===========================================================================
   // Cumulative/scan operations (240-259)

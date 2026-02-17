@@ -7,5 +7,3 @@
 /interface/python/build
 /models
 /.venv
-/build_make
-/build_ninja

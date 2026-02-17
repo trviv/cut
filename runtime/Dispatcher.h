@@ -86,6 +86,13 @@ private:
                                    DataType dtype = DataType::Float32);
 
   /**
+   * Gets or creates a dim-wise reduction shader for a base reduce op.
+   * Uses getDimReduceShader() to compile the ReduceDim/ReduceDimArg template.
+   */
+  Tensor getOrCreateDimReduceShader(OperatorEnum reduceOp,
+                                    DataType dtype = DataType::Float32);
+
+  /**
    * Dispatches an internal shader with the given bindings and push constants.
    * Handles shader lookup, dispatch creation, push constant binding, and
    * encoding in a single call to reduce boilerplate in multi-pass operations.

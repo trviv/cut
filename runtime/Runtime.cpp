@@ -215,13 +215,10 @@ Runtime::getExecutionSize(OperatorEnum op,
     // Reductions need actual element counts (not aligned) to avoid
     // including padding zeros in the result. Elementwise ops use
     // aligned sizes since they process in vec4 chunks.
-    if ((op >= ReduceSum && op <= ReduceAll) ||
-        (op >= ReduceDimSum && op <= ReduceDimMin) ||
-        (op >= ReduceDimMax && op <= ReduceDimAll) || op == NormDim ||
-        op == ReduceArgmax || op == ReduceArgmin || op == ReduceDimArgmax ||
-        op == ReduceDimArgmin || op == CumSum || op == CumProd ||
-        op == PrefixScanExclusiveSum || op == PrefixScanInclusiveSum ||
-        op == SortBitonic || op == SortRadix) {
+    if ((op >= ReduceSum && op <= ReduceAll) || op == NormDim ||
+        op == ReduceArgmax || op == ReduceArgmin || op == CumSum ||
+        op == CumProd || op == PrefixScanExclusiveSum ||
+        op == PrefixScanInclusiveSum || op == SortBitonic || op == SortRadix) {
       execSizes.push_back(buffer.calculateActualSize() /
                           dataTypeSize(buffer.getDtype()));
     } else {
@@ -264,11 +261,21 @@ void Runtime::encodeOperator(OperatorEnum op,
     return;
   }
 
-  // Prefix scan and sort ops use internally-generated shaders in the
-  // Dispatcher, so skip the normal shader creation path for them.
+  // Prefix scan, sort, and dim-wise reduction ops use internally-generated
+  // shaders in the Dispatcher, so skip the normal shader creation path.
+  bool isDimReduce = false;
+  if ((op >= ReduceSum && op <= ReduceAll) || op == ReduceArgmax ||
+      op == ReduceArgmin) {
+    for (const auto &b : bindings) {
+      if (b.isData()) {
+        isDimReduce = true;
+        break;
+      }
+    }
+  }
   Tensor shader;
   if (op != PrefixScanExclusiveSum && op != PrefixScanInclusiveSum &&
-      op != SortBitonic && op != SortRadix) {
+      op != SortBitonic && op != SortRadix && !isDimReduce) {
     shader = getOrCreateShader(op, dtype);
   }
 

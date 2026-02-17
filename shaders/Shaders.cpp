@@ -72,13 +72,10 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledTranspose(datatype);
   } else if (shader >= ReduceSum && shader <= ReduceAll) {
     compiled = compiledReduce(datatype);
-  } else if ((shader >= ReduceDimSum && shader <= ReduceDimAll) ||
-             shader == NormDim) {
+  } else if (shader == NormDim) {
     compiled = compiledReduceDim(datatype);
   } else if (shader == ReduceArgmax || shader == ReduceArgmin) {
     compiled = compiledReduceArg(datatype);
-  } else if (shader == ReduceDimArgmax || shader == ReduceDimArgmin) {
-    compiled = compiledReduceDimArg(datatype);
   } else if (shader == CumSum || shader == CumProd) {
     compiled = compiledCumOp(datatype);
   } else if (shader == Dot) {
@@ -151,12 +148,25 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
                            " does not exist.");
 }
 
+std::vector<uint32_t> getDimReduceShader(const OperatorEnum reduceOp,
+                                         const DataType datatype) {
+  std::optional<std::vector<uint32_t>> compiled;
+  if (reduceOp == ReduceArgmax || reduceOp == ReduceArgmin) {
+    compiled = compiledReduceDimArg(datatype);
+  } else {
+    compiled = compiledReduceDim(datatype);
+  }
+  if (!compiled.has_value()) {
+    throw std::runtime_error("Unsupported dtype for dim reduce shader");
+  }
+  auto spirv = std::move(compiled.value());
+  patchSpecConstant(spirv, 1, static_cast<uint32_t>(reduceOp));
+  return spirv;
+}
+
 static bool isReductionOp(OperatorEnum op) {
-  return (op >= ReduceSum && op <= ReduceAll) ||
-         (op >= ReduceDimSum && op <= ReduceDimMin) ||
-         (op >= ReduceDimMax && op <= ReduceDimAll) || op == Norm ||
-         op == NormDim || op == ReduceArgmax || op == ReduceArgmin ||
-         op == ReduceDimArgmax || op == ReduceDimArgmin || op == CumSum ||
+  return (op >= ReduceSum && op <= ReduceAll) || op == Norm || op == NormDim ||
+         op == ReduceArgmax || op == ReduceArgmin || op == CumSum ||
          op == CumProd;
 }
 

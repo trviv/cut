@@ -3004,12 +3004,14 @@ TEST_F(GeneratedShadersTest, AllNewBinaryShadersCompile) {
 
 TEST_F(GeneratedShadersTest, AllNewAdvancedShadersCompile) {
   const std::vector<cut::OperatorEnum> newAdvanced = {
-      cut::ReduceArgmax,    cut::ReduceArgmin, cut::ReduceDimArgmax,
-      cut::ReduceDimArgmin, cut::CumSum,       cut::CumProd};
+      cut::ReduceArgmax, cut::ReduceArgmin, cut::CumSum, cut::CumProd};
   for (auto shader : newAdvanced) {
     EXPECT_NO_THROW(auto spirv = cut::getShader(shader))
         << "Failed to compile shader " << cut::operatorName(shader);
   }
+  // Dim-wise argmax/argmin shaders use getDimReduceShader
+  EXPECT_NO_THROW(auto spirv = cut::getDimReduceShader(cut::ReduceArgmax));
+  EXPECT_NO_THROW(auto spirv = cut::getDimReduceShader(cut::ReduceArgmin));
 }
 
 // ============================================================================

@@ -303,8 +303,6 @@ inline bool hasVulkanShaderSupport(OperatorEnum op) {
   // Argmax/Argmin reductions
   case ReduceArgmax:
   case ReduceArgmin:
-  case ReduceDimArgmax:
-  case ReduceDimArgmin:
   // Cumulative scan operations
   case CumSum:
   case CumProd:
@@ -316,13 +314,6 @@ inline bool hasVulkanShaderSupport(OperatorEnum op) {
   case SortRadix:
   // Dim-wise reductions
   case NormDim:
-  case ReduceDimSum:
-  case ReduceDimMean:
-  case ReduceDimMin:
-  case ReduceDimMax:
-  case ReduceDimProd:
-  case ReduceDimAny:
-  case ReduceDimAll:
     return true;
   // Operators without shader support yet
   default:
@@ -2240,8 +2231,8 @@ TEST_F(VulkanBackendTest, TernarySelect_Float32) {
 
 // Dim reduction operators
 constexpr std::array<OperatorEnum, 7> kDimReductionOps = {
-    ReduceDimSum,  ReduceDimMean, ReduceDimMin, ReduceDimMax,
-    ReduceDimProd, ReduceDimAny,  ReduceDimAll};
+    ReduceSum,  ReduceMean, ReduceMin, ReduceMax,
+    ReduceProd, ReduceAny,  ReduceAll};
 
 // CPU reference for dimension-wise reduction.
 // Reduces data of shape (outerSize, reduceSize, innerSize) along the middle
@@ -2256,14 +2247,14 @@ std::vector<float> dimReduceRef(OperatorEnum op,
     for (uint32_t i = 0; i < innerSize; ++i) {
       float val;
       switch (op) {
-      case ReduceDimMin:
+      case ReduceMin:
         val = std::numeric_limits<float>::max();
         break;
-      case ReduceDimMax:
+      case ReduceMax:
         val = std::numeric_limits<float>::lowest();
         break;
-      case ReduceDimProd:
-      case ReduceDimAll:
+      case ReduceProd:
+      case ReduceAll:
         val = 1.0f;
         break;
       default:
@@ -2273,30 +2264,30 @@ std::vector<float> dimReduceRef(OperatorEnum op,
       for (uint32_t r = 0; r < reduceSize; ++r) {
         float elem = data[o * reduceSize * innerSize + r * innerSize + i];
         switch (op) {
-        case ReduceDimSum:
-        case ReduceDimMean:
+        case ReduceSum:
+        case ReduceMean:
           val += elem;
           break;
-        case ReduceDimMin:
+        case ReduceMin:
           val = std::min(val, elem);
           break;
-        case ReduceDimMax:
+        case ReduceMax:
           val = std::max(val, elem);
           break;
-        case ReduceDimProd:
+        case ReduceProd:
           val *= elem;
           break;
-        case ReduceDimAny:
+        case ReduceAny:
           val = (val != 0.0f || elem != 0.0f) ? 1.0f : 0.0f;
           break;
-        case ReduceDimAll:
+        case ReduceAll:
           val = (val != 0.0f && elem != 0.0f) ? 1.0f : 0.0f;
           break;
         default:
           break;
         }
       }
-      if (op == ReduceDimMean) {
+      if (op == ReduceMean) {
         val /= static_cast<float>(reduceSize);
       }
       output[o * innerSize + i] = val;
@@ -2352,7 +2343,7 @@ TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim0) {
                    std::to_string(tc.rows) + ", " + std::to_string(tc.cols) +
                    "] dim=0");
 
-      auto bufferOut = runtime_->ops().reduceDim(bufferIn, 0, op);
+      auto bufferOut = runtime_->ops().reduce(op, bufferIn, 0);
 
       std::vector<float> output(innerSize);
       runtime_->copyFromTensor(bufferOut, output.data(),
@@ -2397,7 +2388,7 @@ TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim1) {
                    std::to_string(tc.rows) + ", " + std::to_string(tc.cols) +
                    "] dim=1");
 
-      auto bufferOut = runtime_->ops().reduceDim(bufferIn, 1, op);
+      auto bufferOut = runtime_->ops().reduce(op, bufferIn, 1);
 
       std::vector<float> output(outerSize);
       runtime_->copyFromTensor(bufferOut, output.data(),
@@ -2433,7 +2424,7 @@ TEST_F(VulkanBackendTest, DimReductionOperators_3D_MiddleDim) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                  " Shape: [3, 5, 4] dim=1");
 
-    auto bufferOut = runtime_->ops().reduceDim(bufferIn, 1, op);
+    auto bufferOut = runtime_->ops().reduce(op, bufferIn, 1);
 
     std::vector<float> output(numOutputs);
     runtime_->copyFromTensor(bufferOut, output.data(),
@@ -2731,7 +2722,7 @@ TEST_F(ArgmaxArgminTest, DimArgmax_2D_Dim0) {
 
   auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
 
-  auto bufferOut = runtime_->ops().reduceDim(bufferIn, 0, ReduceDimArgmax);
+  auto bufferOut = runtime_->ops().reduce(ReduceArgmax, bufferIn, 0);
 
   std::vector<float> output(4);
   runtime_->copyFromTensor(bufferOut, output.data(), 4 * sizeof(float));
@@ -2753,7 +2744,7 @@ TEST_F(ArgmaxArgminTest, DimArgmin_2D_Dim0) {
 
   auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
 
-  auto bufferOut = runtime_->ops().reduceDim(bufferIn, 0, ReduceDimArgmin);
+  auto bufferOut = runtime_->ops().reduce(ReduceArgmin, bufferIn, 0);
 
   std::vector<float> output(4);
   runtime_->copyFromTensor(bufferOut, output.data(), 4 * sizeof(float));
@@ -4826,7 +4817,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_VarianceScalar) {
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_VarianceDim) {
-  // varianceDim creates a meanHandle intermediate tensor via reduceDim.
+  // varianceDim creates a meanHandle intermediate tensor via reduce.
   // It calls copyFromTensor which flushes, so intermediates are released.
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
   auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
@@ -4843,7 +4834,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_VarianceDim) {
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_Softmax) {
-  // softmax creates a maxHandle intermediate tensor via reduceDim
+  // softmax creates a maxHandle intermediate tensor via reduce
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
   auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
   runtime_->flush();
@@ -4859,7 +4850,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Softmax) {
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_LogSoftmax) {
-  // logSoftmax creates a maxHandle intermediate tensor via reduceDim
+  // logSoftmax creates a maxHandle intermediate tensor via reduce
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
   auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
   runtime_->flush();
@@ -4873,14 +4864,14 @@ TEST_F(VulkanBackendTest, TemporaryTensors_LogSoftmax) {
   EXPECT_EQ(runtime_->bufferCount(), before);
 }
 
-TEST_F(VulkanBackendTest, TemporaryTensors_ReduceDim) {
+TEST_F(VulkanBackendTest, TemporaryTensors_ReduceWithDim) {
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
   auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
   runtime_->flush();
   size_t before = runtime_->bufferCount();
 
   {
-    auto result = runtime_->ops().reduceDim(a, 1, ReduceDimSum);
+    auto result = runtime_->ops().reduce(ReduceSum, a, 1);
     runtime_->flush();
     EXPECT_EQ(runtime_->bufferCount(), before + 1);
   }

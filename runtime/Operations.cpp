@@ -158,22 +158,25 @@ Tensor Operations::vecScalarOp(OperatorEnum op,
 // Reduction ops
 // =========================================================================
 
-Tensor Operations::reduce(OperatorEnum op, const Tensor &a) {
+Tensor
+Operations::reduce(OperatorEnum op, const Tensor &a, std::optional<int> dim) {
   auto dtype = getDtype(a);
-  Tensor out = createOutput({1}, dtype);
 
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, out);
+  if (!dim.has_value()) {
+    // Global reduction → shape {1}
+    Tensor out = createOutput({1}, dtype);
 
-  runtime_->encodeOperator(op, bindings);
-  return out;
-}
+    std::vector<ComputeBinding> bindings;
+    bindings.emplace_back(0, a);
+    bindings.emplace_back(1, out);
 
-Tensor Operations::reduceDim(const Tensor &a, int dim, OperatorEnum dimOp) {
+    runtime_->encodeOperator(op, bindings);
+    return out;
+  }
+
+  // Dimension-wise reduction
   auto shape = getShape(a);
-  auto dtype = getDtype(a);
-  auto params = computeDimParams(shape, dim);
+  auto params = computeDimParams(shape, dim.value());
 
   Tensor out = createOutput(params.outShape, dtype);
 
@@ -185,7 +188,7 @@ Tensor Operations::reduceDim(const Tensor &a, int dim, OperatorEnum dimOp) {
   bindings.emplace_back(1, out);
   bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
 
-  runtime_->encodeOperator(dimOp, bindings);
+  runtime_->encodeOperator(op, bindings);
   return out;
 }
 
@@ -386,7 +389,7 @@ Tensor Operations::varianceDim(const Tensor &a, int dim, int correction) {
   auto params = computeDimParams(shape, dim);
 
   // Compute mean along dim using GPU
-  Tensor meanHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMean);
+  Tensor meanHandle = reduce(OperatorEnum::ReduceMean, a, dim);
 
   // Read input and mean data from GPU
   size_t totalElements = shapeProduct(shape);
@@ -439,7 +442,7 @@ Tensor Operations::softmax(const Tensor &a, int dim) {
   auto params = computeDimParams(shape, dim);
 
   // Compute dim-wise max for numerical stability (on GPU)
-  Tensor maxHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
+  Tensor maxHandle = reduce(OperatorEnum::ReduceMax, a, dim);
 
   // Read data from GPU
   size_t totalElements = shapeProduct(shape);
@@ -494,7 +497,7 @@ Tensor Operations::logSoftmax(const Tensor &a, int dim) {
   auto params = computeDimParams(shape, dim);
 
   // Compute dim-wise max for numerical stability (on GPU)
-  Tensor maxHandle = reduceDim(a, dim, OperatorEnum::ReduceDimMax);
+  Tensor maxHandle = reduce(OperatorEnum::ReduceMax, a, dim);
 
   // Read data from GPU
   size_t totalElements = shapeProduct(shape);
@@ -837,7 +840,7 @@ Tensor Operations::flatten(const Tensor &a, int startDim, int endDim) {
 // =========================================================================
 
 Tensor Operations::normDim(const Tensor &a, int dim) {
-  return reduceDim(a, dim, OperatorEnum::NormDim);
+  return reduce(OperatorEnum::NormDim, a, dim);
 }
 
 // =========================================================================

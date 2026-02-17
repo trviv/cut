@@ -293,28 +293,10 @@ const char *operatorName(OperatorEnum op) {
     return "ReduceAny";
   case ReduceAll:
     return "ReduceAll";
-  case ReduceDimSum:
-    return "ReduceDimSum";
-  case ReduceDimMean:
-    return "ReduceDimMean";
-  case ReduceDimMin:
-    return "ReduceDimMin";
-  case ReduceDimMax:
-    return "ReduceDimMax";
-  case ReduceDimProd:
-    return "ReduceDimProd";
-  case ReduceDimAny:
-    return "ReduceDimAny";
-  case ReduceDimAll:
-    return "ReduceDimAll";
   case ReduceArgmax:
     return "ReduceArgmax";
   case ReduceArgmin:
     return "ReduceArgmin";
-  case ReduceDimArgmax:
-    return "ReduceDimArgmax";
-  case ReduceDimArgmin:
-    return "ReduceDimArgmin";
 
   // Cumulative operations
   case CumSum:
