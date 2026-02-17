@@ -704,25 +704,11 @@ PYBIND11_MODULE(_cut_compute, m) {
   // --- Reduction ops ---
 
   m.def(
-      "ops_reduce_scalar",
+      "ops_reduce",
       [getOps](cut::OperatorEnum op, const cut::Tensor &a) {
-        return getOps().reduceScalar(op, a);
+        return getOps().reduce(op, a);
       },
-      py::arg("op"), py::arg("a"), "Global reduction returning float");
-
-  m.def(
-      "ops_reduce_bool",
-      [getOps](cut::OperatorEnum op, const cut::Tensor &a) {
-        return getOps().reduceBool(op, a);
-      },
-      py::arg("op"), py::arg("a"), "Global reduction returning bool");
-
-  m.def(
-      "ops_reduce_int",
-      [getOps](cut::OperatorEnum op, const cut::Tensor &a) {
-        return getOps().reduceInt(op, a);
-      },
-      py::arg("op"), py::arg("a"), "Global reduction returning int");
+      py::arg("op"), py::arg("a"), "Global reduction returning a Tensor");
 
   m.def(
       "ops_reduce_dim",

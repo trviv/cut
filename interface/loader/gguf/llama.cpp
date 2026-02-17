@@ -108,10 +108,10 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       layer.attn_norm = uploadVector(data);
     }
 
-    // Attention weights — GGUF/GGML dimensions are [cols, rows] (innermost first).
-    // Data in memory is [rows, cols] row-major, i.e. [out_features, in_features].
-    // We need [in_features, out_features] for matmul(input[1,in], W[in,out]),
-    // so we upload as [rows, cols] and transpose.
+    // Attention weights — GGUF/GGML dimensions are [cols, rows] (innermost
+    // first). Data in memory is [rows, cols] row-major, i.e. [out_features,
+    // in_features]. We need [in_features, out_features] for matmul(input[1,in],
+    // W[in,out]), so we upload as [rows, cols] and transpose.
     {
       auto data = reader.read_tensor_f32(blk + "attn_q.weight");
       const auto &info = reader.get_tensor_info(blk + "attn_q.weight");
@@ -243,7 +243,9 @@ cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
   auto x_sq = ops_->unaryOp(cut::UnarySquare, x);
 
   // 2. Sum and compute scale on CPU
-  float sum = ops_->reduceScalar(cut::ReduceSum, x_sq);
+  auto sumTensor = ops_->reduce(cut::ReduceSum, x_sq);
+  float sum = 0.0f;
+  runtime_->copyFromTensor(sumTensor, &sum, sizeof(float));
   float scale = 1.0f / std::sqrt(sum / static_cast<float>(config_.dim) +
                                  config_.norm_eps);
 
@@ -486,7 +488,10 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
     // Only sample from last prompt token
     if (i == prompt_tokens.size() - 1) {
       // Argmax sampling
-      next_token = ops_->reduceInt(cut::ReduceArgmax, logits);
+      auto argTensor = ops_->reduce(cut::ReduceArgmax, logits);
+      float argF = 0.0f;
+      runtime_->copyFromTensor(argTensor, &argF, sizeof(float));
+      next_token = static_cast<int>(argF);
     }
   }
 
@@ -498,7 +503,10 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
     int pos = static_cast<int>(prompt_tokens.size()) + step;
     auto logits = forward(next_token, pos);
 
-    next_token = ops_->reduceInt(cut::ReduceArgmax, logits);
+    auto argTensor = ops_->reduce(cut::ReduceArgmax, logits);
+    float argF = 0.0f;
+    runtime_->copyFromTensor(argTensor, &argF, sizeof(float));
+    next_token = static_cast<int>(argF);
     tokens.push_back(next_token);
 
     std::cout << "Generated token: " << next_token << "\n";

@@ -32,14 +32,8 @@ public:
 
   // ===== Reduction ops =====
 
-  /// Global reduction returning a float scalar.
-  float reduceScalar(OperatorEnum op, const Tensor &a);
-
-  /// Global reduction returning a bool (for any/all).
-  bool reduceBool(OperatorEnum op, const Tensor &a);
-
-  /// Global reduction returning an int (for argmax/argmin).
-  int reduceInt(OperatorEnum op, const Tensor &a);
+  /// Global reduction returning a single-element Tensor.
+  Tensor reduce(OperatorEnum op, const Tensor &a);
 
   /// Dimension-wise reduction.
   Tensor reduceDim(const Tensor &a, int dim, OperatorEnum dimOp);

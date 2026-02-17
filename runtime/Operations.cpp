@@ -158,7 +158,7 @@ Tensor Operations::vecScalarOp(OperatorEnum op,
 // Reduction ops
 // =========================================================================
 
-float Operations::reduceScalar(OperatorEnum op, const Tensor &a) {
+Tensor Operations::reduce(OperatorEnum op, const Tensor &a) {
   auto dtype = getDtype(a);
   Tensor out = createOutput({1}, dtype);
 
@@ -167,30 +167,7 @@ float Operations::reduceScalar(OperatorEnum op, const Tensor &a) {
   bindings.emplace_back(1, out);
 
   runtime_->encodeOperator(op, bindings);
-
-  if (dtype == DataType::Int32) {
-    int32_t result = 0;
-    runtime_->copyFromTensor(out, &result, sizeof(int32_t));
-    return static_cast<float>(result);
-  } else if (dtype == DataType::UInt32) {
-    uint32_t result = 0;
-    runtime_->copyFromTensor(out, &result, sizeof(uint32_t));
-    return static_cast<float>(result);
-  } else {
-    float result = 0.0f;
-    runtime_->copyFromTensor(out, &result, sizeof(float));
-    return result;
-  }
-}
-
-bool Operations::reduceBool(OperatorEnum op, const Tensor &a) {
-  float val = reduceScalar(op, a);
-  return val != 0.0f;
-}
-
-int Operations::reduceInt(OperatorEnum op, const Tensor &a) {
-  float val = reduceScalar(op, a);
-  return static_cast<int>(val);
+  return out;
 }
 
 Tensor Operations::reduceDim(const Tensor &a, int dim, OperatorEnum dimOp) {
@@ -381,8 +358,10 @@ Tensor Operations::cumOp(const Tensor &a, int dim, OperatorEnum op) {
 float Operations::varianceScalar(const Tensor &a, int correction) {
   auto shape = getShape(a);
 
-  // Compute mean on GPU
-  float total = reduceScalar(OperatorEnum::ReduceSum, a);
+  // Compute sum on GPU
+  Tensor sumTensor = reduce(OperatorEnum::ReduceSum, a);
+  float total = 0.0f;
+  runtime_->copyFromTensor(sumTensor, &total, sizeof(float));
   size_t n = shapeProduct(shape);
   float m = total / static_cast<float>(n);
 

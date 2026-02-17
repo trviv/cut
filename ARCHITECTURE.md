@@ -349,7 +349,7 @@ High-level tensor API consumed by the Python bindings:
 | Category | Methods | Notes |
 |----------|---------|-------|
 | Element-wise | `binaryOp()`, `unaryOp()`, `vecScalarOp()` | Auto-allocates output buffer with matching shape/dtype |
-| Reduction | `reduceScalar()`, `reduceBool()`, `reduceInt()`, `reduceDim()` | Scalar reductions output shape `{1}` |
+| Reduction | `reduce()`, `reduceDim()` | All reductions return Tensor; global reductions output shape `{1}` |
 | Matrix | `matmul(a,b)`, `transpose(a)`, `dot(a,b)` | Shape validation; push constants carry `{M, K, N}` |
 | Ternary | `clamp(a, min, max)`, `where(cond, x, y)` | — |
 | Cumulative | `cumOp(a, dim, op)` | Cumsum, cumprod along a dimension |

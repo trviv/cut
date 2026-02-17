@@ -2144,7 +2144,9 @@ TEST_F(VulkanBackendTest, ReductionOperators_Float32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        float output = runtime_->ops().reduceScalar(op, bufferIn);
+        auto outTensor = runtime_->ops().reduce(op, bufferIn);
+        float output = 0.0f;
+        runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
         // Verify result
         float expected = reduceRef(op, dataIn);
@@ -2668,7 +2670,9 @@ TEST_F(ArgmaxArgminTest, GlobalArgmax_Float32) {
 
   auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
 
-  float output = runtime_->ops().reduceScalar(ReduceArgmax, bufferIn);
+  auto outTensor = runtime_->ops().reduce(ReduceArgmax, bufferIn);
+  float output = 0.0f;
+  runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
   EXPECT_EQ(static_cast<int>(output), 3)
       << "Argmax should be index 3 (value 9.0)";
@@ -2681,7 +2685,9 @@ TEST_F(ArgmaxArgminTest, GlobalArgmin_Float32) {
 
   auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
 
-  float output = runtime_->ops().reduceScalar(ReduceArgmin, bufferIn);
+  auto outTensor = runtime_->ops().reduce(ReduceArgmin, bufferIn);
+  float output = 0.0f;
+  runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
   EXPECT_EQ(static_cast<int>(output), 2)
       << "Argmin should be index 2 (value 1.0)";
@@ -2706,7 +2712,9 @@ TEST_F(ArgmaxArgminTest, GlobalArgmax_LargeTensor) {
 
   auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
 
-  float output = runtime_->ops().reduceScalar(ReduceArgmax, bufferIn);
+  auto outTensor = runtime_->ops().reduce(ReduceArgmax, bufferIn);
+  float output = 0.0f;
+  runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
   EXPECT_EQ(static_cast<int>(output), expectedIdx);
 }
@@ -3024,7 +3032,9 @@ TEST_F(MultiWorkgroupReduceTest, ReduceSum_LargeArray) {
     auto bufIn =
         runtime_->createTensor({elements}, DataType::Float32, data.data());
 
-    float output = runtime_->ops().reduceScalar(ReduceSum, bufIn);
+    auto outTensor = runtime_->ops().reduce(ReduceSum, bufIn);
+    float output = 0.0f;
+    runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceSum, data);
     EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-3f)
@@ -3040,7 +3050,9 @@ TEST_F(MultiWorkgroupReduceTest, ReduceMean_LargeArray) {
     auto bufIn =
         runtime_->createTensor({elements}, DataType::Float32, data.data());
 
-    float output = runtime_->ops().reduceScalar(ReduceMean, bufIn);
+    auto outTensor = runtime_->ops().reduce(ReduceMean, bufIn);
+    float output = 0.0f;
+    runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceMean, data);
     EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-3f)
@@ -3056,7 +3068,9 @@ TEST_F(MultiWorkgroupReduceTest, ReduceMinMax_LargeArray) {
 
   // Test ReduceMin
   {
-    float output = runtime_->ops().reduceScalar(ReduceMin, bufIn);
+    auto outTensor = runtime_->ops().reduce(ReduceMin, bufIn);
+    float output = 0.0f;
+    runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceMin, data);
     EXPECT_NEAR(output, expected, 1e-5f) << "ReduceMin mismatch";
@@ -3064,7 +3078,9 @@ TEST_F(MultiWorkgroupReduceTest, ReduceMinMax_LargeArray) {
 
   // Test ReduceMax
   {
-    float output = runtime_->ops().reduceScalar(ReduceMax, bufIn);
+    auto outTensor = runtime_->ops().reduce(ReduceMax, bufIn);
+    float output = 0.0f;
+    runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceMax, data);
     EXPECT_NEAR(output, expected, 1e-5f) << "ReduceMax mismatch";
@@ -3083,7 +3099,9 @@ TEST_F(MultiWorkgroupReduceTest, ReduceProd_LargeArray) {
   auto bufIn =
       runtime_->createTensor({elements}, DataType::Float32, data.data());
 
-  float output = runtime_->ops().reduceScalar(ReduceProd, bufIn);
+  auto outTensor = runtime_->ops().reduce(ReduceProd, bufIn);
+  float output = 0.0f;
+  runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
   float expected = reduceRef<float>(ReduceProd, data);
   EXPECT_NEAR(output, expected, std::abs(expected) * 1e-2f + 1e-5f)
@@ -3099,7 +3117,9 @@ TEST_F(MultiWorkgroupReduceTest, SmallArrayStillWorks) {
     auto bufIn =
         runtime_->createTensor({elements}, DataType::Float32, data.data());
 
-    float output = runtime_->ops().reduceScalar(ReduceSum, bufIn);
+    auto outTensor = runtime_->ops().reduce(ReduceSum, bufIn);
+    float output = 0.0f;
+    runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceSum, data);
     EXPECT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f);
@@ -3851,8 +3871,9 @@ TEST_F(VulkanBackendTest, ReductionOperators_Int32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        float outputF = runtime_->ops().reduceScalar(op, bufferIn);
-        int32_t output = static_cast<int32_t>(outputF);
+        auto outTensor = runtime_->ops().reduce(op, bufferIn);
+        int32_t output = 0;
+        runtime_->copyFromTensor(outTensor, &output, sizeof(int32_t));
 
         int32_t expected = reduceRef(op, dataIn);
         EXPECT_EQ(output, expected) << "Mismatch for " << operatorName(op);
@@ -3883,8 +3904,9 @@ TEST_F(VulkanBackendTest, ReductionOperators_UInt32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        float outputF = runtime_->ops().reduceScalar(op, bufferIn);
-        uint32_t output = static_cast<uint32_t>(outputF);
+        auto outTensor = runtime_->ops().reduce(op, bufferIn);
+        uint32_t output = 0;
+        runtime_->copyFromTensor(outTensor, &output, sizeof(uint32_t));
 
         uint32_t expected = reduceRef(op, dataIn);
         EXPECT_EQ(output, expected) << "Mismatch for " << operatorName(op);
@@ -4111,7 +4133,9 @@ TEST_F(NormTest, Norm_KnownValues) {
 
   auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
 
-  float output = runtime_->ops().reduceScalar(Norm, bufferIn);
+  auto outTensor = runtime_->ops().reduce(Norm, bufferIn);
+  float output = 0.0f;
+  runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
   EXPECT_NEAR(output, 5.0f, 1e-4f);
 }
@@ -4126,7 +4150,9 @@ TEST_F(NormTest, Norm_VariousSizes) {
 
     auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
 
-    float output = runtime_->ops().reduceScalar(Norm, bufferIn);
+    auto outTensor = runtime_->ops().reduce(Norm, bufferIn);
+    float output = 0.0f;
+    runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     // Reference: L2 norm
     double sumSq = 0.0;
@@ -4149,7 +4175,9 @@ TEST_F(NormTest, Norm_MultiDimensional) {
 
   auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
 
-  float output = runtime_->ops().reduceScalar(Norm, bufferIn);
+  auto outTensor = runtime_->ops().reduce(Norm, bufferIn);
+  float output = 0.0f;
+  runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
   double sumSq = 0.0;
   for (uint32_t i = 0; i < elements; ++i) {
@@ -4714,7 +4742,7 @@ TEST_F(TensorCreationTest, Ones_UInt32) {
 // ============================================================================
 
 // Verify that temporary tensors created by ops are deallocated after use.
-// Operations like reduceScalar, dot, softmax, etc. create intermediate
+// Operations like reduce, dot, softmax, etc. create intermediate
 // GPU buffers internally. These must be freed when their handles go out of
 // scope so that GPU memory doesn't leak.
 //
@@ -4752,17 +4780,21 @@ TEST_F(VulkanBackendTest, TemporaryTensors_UnaryOp) {
   EXPECT_EQ(runtime_->bufferCount(), before);
 }
 
-TEST_F(VulkanBackendTest, TemporaryTensors_ReduceScalar) {
-  // reduceScalar creates a temporary 1-element output buffer internally.
-  // copyFromTensor triggers flush internally, so temporaries are freed.
+TEST_F(VulkanBackendTest, TemporaryTensors_Reduce) {
+  // reduce returns a 1-element output tensor. The buffer is freed when
+  // the returned handle goes out of scope.
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
   auto a = runtime_->createTensor({4}, DataType::Float32, data.data());
   runtime_->flush();
   size_t before = runtime_->bufferCount();
 
-  float sum = runtime_->ops().reduceScalar(ReduceSum, a);
-  EXPECT_FLOAT_EQ(sum, 10.0f);
-  // The temporary output buffer should have been freed
+  {
+    auto result = runtime_->ops().reduce(ReduceSum, a);
+    float sum = 0.0f;
+    runtime_->copyFromTensor(result, &sum, sizeof(float));
+    EXPECT_FLOAT_EQ(sum, 10.0f);
+  }
+  // The output buffer should have been freed after result goes out of scope
   EXPECT_EQ(runtime_->bufferCount(), before);
 }
 
@@ -4781,7 +4813,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Dot) {
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_VarianceScalar) {
-  // varianceScalar calls reduceScalar internally (temporary buffer)
+  // varianceScalar calls reduce internally (temporary buffer)
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
   auto a = runtime_->createTensor({4}, DataType::Float32, data.data());
   runtime_->flush();
