@@ -2467,7 +2467,7 @@ TEST_F(VulkanBackendTest, NormDim_2D_Dim0) {
     auto bufferIn =
         runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
 
-    auto bufferOut = runtime_->ops().normDim(bufferIn, 0);
+    auto bufferOut = runtime_->ops().norm(bufferIn, 0);
 
     std::vector<float> output(innerSize);
     runtime_->copyFromTensor(bufferOut, output.data(),
@@ -2506,7 +2506,7 @@ TEST_F(VulkanBackendTest, NormDim_2D_Dim1) {
     auto bufferIn =
         runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
 
-    auto bufferOut = runtime_->ops().normDim(bufferIn, 1);
+    auto bufferOut = runtime_->ops().norm(bufferIn, 1);
 
     std::vector<float> output(outerSize);
     runtime_->copyFromTensor(bufferOut, output.data(),
@@ -2536,7 +2536,7 @@ TEST_F(VulkanBackendTest, NormDim_3D_MiddleDim) {
 
   auto bufferIn = runtime_->createTensor({d0, d1, d2}, dtype, dataIn.data());
 
-  auto bufferOut = runtime_->ops().normDim(bufferIn, 1);
+  auto bufferOut = runtime_->ops().norm(bufferIn, 1);
 
   std::vector<float> output(numOutputs);
   runtime_->copyFromTensor(bufferOut, output.data(),
@@ -2562,7 +2562,7 @@ TEST_F(VulkanBackendTest, NormDim_KnownValues) {
 
   auto bufferIn = runtime_->createTensor({2, 2}, dtype, dataIn.data());
 
-  auto bufferOut = runtime_->ops().normDim(bufferIn, 0);
+  auto bufferOut = runtime_->ops().norm(bufferIn, 0);
 
   std::vector<float> output(2);
   runtime_->copyFromTensor(bufferOut, output.data(), 2 * sizeof(float));
@@ -2776,7 +2776,7 @@ TEST_F(CumsumCumprodTest, CumSum_1D) {
 
   auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
 
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, 0, CumSum);
+  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumSum, 0);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
@@ -2796,7 +2796,7 @@ TEST_F(CumsumCumprodTest, CumProd_1D) {
 
   auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
 
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, 0, CumProd);
+  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumProd, 0);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
@@ -2821,7 +2821,7 @@ TEST_F(CumsumCumprodTest, CumSum_2D_Dim0) {
 
   auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
 
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, 0, CumSum);
+  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumSum, 0);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
@@ -2850,7 +2850,7 @@ TEST_F(CumsumCumprodTest, CumProd_2D_Dim0) {
 
   auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
 
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, 0, CumProd);
+  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumProd, 0);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
@@ -4074,7 +4074,9 @@ TEST_F(MatrixOpsTest, Dot_Basic) {
   auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
   auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
 
-  float output = runtime_->ops().dot(bufA, bufB);
+  auto dotOut = runtime_->ops().dot(bufA, bufB);
+  float output = 0.0f;
+  runtime_->copyFromTensor(dotOut, &output, sizeof(float));
 
   float expected = 1 * 5 + 2 * 6 + 3 * 7 + 4 * 8; // = 70
   EXPECT_NEAR(output, expected, 1e-4f);
@@ -4092,7 +4094,9 @@ TEST_F(MatrixOpsTest, Dot_LargerVectors) {
     auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
     auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
 
-    float output = runtime_->ops().dot(bufA, bufB);
+    auto dotOut = runtime_->ops().dot(bufA, bufB);
+    float output = 0.0f;
+    runtime_->copyFromTensor(dotOut, &output, sizeof(float));
 
     double expected = 0.0;
     for (uint32_t i = 0; i < elements; ++i) {
@@ -4797,27 +4801,33 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Dot) {
   runtime_->flush();
   size_t before = runtime_->bufferCount();
 
-  float result = runtime_->ops().dot(a, b);
-  (void)result; // Result correctness tested elsewhere
-  // The temporary output buffer should have been freed
+  {
+    auto result = runtime_->ops().dot(a, b);
+    // dot now returns a {1} tensor; partials tensor should be freed
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  // After scope, the returned output is also freed
   EXPECT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_VarianceScalar) {
-  // varianceScalar calls reduce internally (temporary buffer)
+  // variance calls reduce internally (temporary buffer)
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
   auto a = runtime_->createTensor({4}, DataType::Float32, data.data());
   runtime_->flush();
   size_t before = runtime_->bufferCount();
 
-  float var = runtime_->ops().varianceScalar(a, 0);
-  (void)var;
-  // All temporary buffers should have been freed
+  {
+    auto var = runtime_->ops().variance(a, 0);
+    // variance now returns a {1} tensor
+    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+  }
+  // After scope, the returned output is also freed
   EXPECT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_VarianceDim) {
-  // varianceDim creates a meanHandle intermediate tensor via reduce.
+  // variance with dim creates a meanHandle intermediate tensor via reduce.
   // It calls copyFromTensor which flushes, so intermediates are released.
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
   auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
@@ -4825,7 +4835,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_VarianceDim) {
   size_t before = runtime_->bufferCount();
 
   {
-    auto result = runtime_->ops().varianceDim(a, 1, 0);
+    auto result = runtime_->ops().variance(a, 0, 1);
     // Only the returned output should exist (meanHandle intermediate freed)
     EXPECT_EQ(runtime_->bufferCount(), before + 1);
   }

@@ -726,7 +726,7 @@ PYBIND11_MODULE(_cut_compute, m) {
       [getOps](const cut::Tensor &a, const cut::Tensor &b) {
         return getOps().dot(a, b);
       },
-      py::arg("a"), py::arg("b"), "Dot product");
+      py::arg("a"), py::arg("b"), "Dot product (returns shape {1} tensor)");
 
   // --- Convolution ops ---
 
@@ -778,27 +778,20 @@ PYBIND11_MODULE(_cut_compute, m) {
 
   m.def(
       "ops_cumulative",
-      [getOps](const cut::Tensor &a, int dim, cut::OperatorEnum op) {
-        return getOps().cumOp(a, dim, op);
-      },
-      py::arg("a"), py::arg("dim"), py::arg("op"), "Cumulative operation");
+      [getOps](const cut::Tensor &a, cut::OperatorEnum op,
+               std::optional<int> dim) { return getOps().cumOp(a, op, dim); },
+      py::arg("a"), py::arg("op"), py::arg("dim") = py::none(),
+      "Cumulative operation (dim defaults to 0 if not specified)");
 
   // --- Statistical ops ---
 
   m.def(
-      "ops_var_scalar",
-      [getOps](const cut::Tensor &a, int correction) {
-        return getOps().varianceScalar(a, correction);
+      "ops_variance",
+      [getOps](const cut::Tensor &a, int correction, std::optional<int> dim) {
+        return getOps().variance(a, correction, dim);
       },
-      py::arg("a"), py::arg("correction") = 1, "Global variance");
-
-  m.def(
-      "ops_var_dim",
-      [getOps](const cut::Tensor &a, int dim, int correction) {
-        return getOps().varianceDim(a, dim, correction);
-      },
-      py::arg("a"), py::arg("dim"), py::arg("correction") = 1,
-      "Dimension-wise variance");
+      py::arg("a"), py::arg("correction") = 1, py::arg("dim") = py::none(),
+      "Variance (global if dim is None, dimension-wise otherwise)");
 
   // --- Softmax ---
 
@@ -914,9 +907,10 @@ PYBIND11_MODULE(_cut_compute, m) {
   // --- Norm ---
 
   m.def(
-      "ops_norm_dim",
-      [getOps](const cut::Tensor &a, int dim) {
-        return getOps().normDim(a, dim);
+      "ops_norm",
+      [getOps](const cut::Tensor &a, std::optional<int> dim) {
+        return getOps().norm(a, dim);
       },
-      py::arg("a"), py::arg("dim"), "L2 norm along dimension");
+      py::arg("a"), py::arg("dim") = py::none(),
+      "L2 norm (global if dim is None, dimension-wise otherwise)");
 }

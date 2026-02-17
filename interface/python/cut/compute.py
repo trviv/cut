@@ -899,7 +899,9 @@ def dot(a: Tensor, b: Tensor) -> float:
         >>> result = dot(a, b)  # Returns 32.0 (1*4 + 2*5 + 3*6)
     """
     _ensure_initialized()
-    return _cut_compute.ops_dot(a._to_view(), b._to_view())
+    result = _cut_compute.ops_dot(a._to_view(), b._to_view())
+    t = Tensor._from_view(result, a._dtype)
+    return t.item()
 
 
 def conv1d(input: Tensor, weight: Tensor,
@@ -1161,20 +1163,16 @@ def norm(input: Tensor, p: Union[float, str] = 2, dim: Optional[int] = None,
     """
     _ensure_initialized()
 
-    if dim is not None:
-        if p == 2 or p == 'fro':
-            result = _cut_compute.ops_norm_dim(input._to_view(), dim)
-            return Tensor._from_view(result, input._dtype)
-        else:
-            raise NotImplementedError("Per-dimension norm only supports p=2 (L2 norm)")
+    if p == 2 or p == 'fro':
+        result = _cut_compute.ops_norm(input._to_view(), dim)
+        t = Tensor._from_view(result, input._dtype)
+        return t if dim is not None else t
+    elif dim is not None:
+        raise NotImplementedError("Per-dimension norm only supports p=2 (L2 norm)")
 
     data = input.tolist()
 
-    if p == 'fro' or p == 2:
-        # Frobenius / L2 norm
-        sum_sq = sum(x * x for x in data)
-        result = sum_sq ** 0.5
-    elif p == 1:
+    if p == 1:
         # L1 norm
         result = sum(abs(x) for x in data)
     elif p == float('inf'):
@@ -1449,10 +1447,9 @@ def var(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[floa
         >>> var(a)  # 1.6667 (unbiased)
     """
     _ensure_initialized()
-    if dim is not None:
-        result = _cut_compute.ops_var_dim(a._to_view(), dim, correction)
-        return Tensor._from_view(result, a._dtype)
-    return _cut_compute.ops_var_scalar(a._to_view(), correction)
+    result = _cut_compute.ops_variance(a._to_view(), correction, dim)
+    t = Tensor._from_view(result, a._dtype)
+    return t if dim is not None else t.item()
 
 
 def std(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[float, 'Tensor']:
@@ -1474,13 +1471,11 @@ def std(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[floa
         >>> std(a)  # 1.2910
     """
     _ensure_initialized()
-
+    v = var(a, dim=dim, correction=correction)
     if dim is not None:
-        v = var(a, dim=dim, correction=correction)
         return globals()['sqrt'](v)
-
     import math
-    return math.sqrt(var(a, correction=correction))
+    return math.sqrt(v)
 
 
 def softmax(a: Tensor, dim: int = -1) -> Tensor:
@@ -1545,7 +1540,7 @@ def cumsum(a: Tensor, dim: int = 0) -> Tensor:
         >>> cumsum(x, dim=0)  # Returns [[1, 2, 3], [5, 7, 9]]
     """
     _ensure_initialized()
-    result = _cut_compute.ops_cumulative(a._to_view(), dim, OperatorEnum.CumSum)
+    result = _cut_compute.ops_cumulative(a._to_view(), OperatorEnum.CumSum, dim)
     return Tensor._from_view(result, a._dtype)
 
 
@@ -1567,7 +1562,7 @@ def cumprod(a: Tensor, dim: int = 0) -> Tensor:
         >>> cumprod(x, dim=0)  # Returns [[1, 2, 3], [4, 10, 18]]
     """
     _ensure_initialized()
-    result = _cut_compute.ops_cumulative(a._to_view(), dim, OperatorEnum.CumProd)
+    result = _cut_compute.ops_cumulative(a._to_view(), OperatorEnum.CumProd, dim)
     return Tensor._from_view(result, a._dtype)
 
 

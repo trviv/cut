@@ -248,7 +248,7 @@ Tensor Operations::transpose(const Tensor &a) {
   return output;
 }
 
-float Operations::dot(const Tensor &a, const Tensor &b) {
+Tensor Operations::dot(const Tensor &a, const Tensor &b) {
   const auto &bufA = runtime_->getTensor(a);
   const auto &bufB = runtime_->getTensor(b);
 
@@ -265,26 +265,30 @@ float Operations::dot(const Tensor &a, const Tensor &b) {
   constexpr uint32_t kWorkgroupSize = 256;
   uint32_t numWorkgroups = (count + kWorkgroupSize - 1) / kWorkgroupSize;
 
-  Tensor out = createOutput({numWorkgroups}, DataType::Float32);
+  Tensor partials = createOutput({numWorkgroups}, DataType::Float32);
 
   uint32_t countData[1] = {count};
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, a);
   bindings.emplace_back(1, b);
-  bindings.emplace_back(2, out);
+  bindings.emplace_back(2, partials);
   bindings.emplace_back(3, DataReference(countData, sizeof(countData)));
 
   runtime_->encodeOperator(OperatorEnum::Dot, bindings);
 
   // Read back per-workgroup partial sums and accumulate on CPU
-  std::vector<float> partials(numWorkgroups);
-  runtime_->copyFromTensor(out, partials.data(), numWorkgroups * sizeof(float));
+  std::vector<float> partialData(numWorkgroups);
+  runtime_->copyFromTensor(partials, partialData.data(),
+                           numWorkgroups * sizeof(float));
   float result = 0.0f;
   for (uint32_t i = 0; i < numWorkgroups; ++i) {
-    result += partials[i];
+    result += partialData[i];
   }
-  return result;
+
+  Tensor out = createOutput({1}, DataType::Float32);
+  runtime_->copyToTensor(out, &result, sizeof(float));
+  return out;
 }
 
 // =========================================================================
@@ -333,10 +337,12 @@ Tensor Operations::where(const Tensor &cond, const Tensor &x, const Tensor &y) {
 // Cumulative ops
 // =========================================================================
 
-Tensor Operations::cumOp(const Tensor &a, int dim, OperatorEnum op) {
+Tensor
+Operations::cumOp(const Tensor &a, OperatorEnum op, std::optional<int> dim) {
+  int d = dim.value_or(0);
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  auto params = computeDimParams(shape, dim);
+  auto params = computeDimParams(shape, d);
 
   Tensor out = createOutput(shape, dtype);
 
@@ -356,40 +362,41 @@ Tensor Operations::cumOp(const Tensor &a, int dim, OperatorEnum op) {
 // Statistical ops
 // =========================================================================
 
-float Operations::varianceScalar(const Tensor &a, int correction) {
-  auto shape = getShape(a);
-
-  // Compute sum on GPU
-  Tensor sumTensor = reduce(OperatorEnum::ReduceSum, a);
-  float total = 0.0f;
-  runtime_->copyFromTensor(sumTensor, &total, sizeof(float));
-  size_t n = shapeProduct(shape);
-  float m = total / static_cast<float>(n);
-
-  // Read data from GPU
-  std::vector<float> data(n);
-  runtime_->copyFromTensor(a, data.data(), n * sizeof(float));
-
-  // Compute variance on CPU
-  double sum = 0.0;
-  for (size_t i = 0; i < n; ++i) {
-    double diff = static_cast<double>(data[i]) - static_cast<double>(m);
-    sum += diff * diff;
-  }
-
-  int denom = static_cast<int>(n) - correction;
-  return denom > 0 ? static_cast<float>(sum / denom) : 0.0f;
-}
-
-Tensor Operations::varianceDim(const Tensor &a, int dim, int correction) {
+Tensor
+Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  auto params = computeDimParams(shape, dim);
 
-  // Compute mean along dim using GPU
-  Tensor meanHandle = reduce(OperatorEnum::ReduceMean, a, dim);
+  if (!dim.has_value()) {
+    // Global variance
+    Tensor sumTensor = reduce(OperatorEnum::ReduceSum, a);
+    float total = 0.0f;
+    runtime_->copyFromTensor(sumTensor, &total, sizeof(float));
+    size_t n = shapeProduct(shape);
+    float m = total / static_cast<float>(n);
 
-  // Read input and mean data from GPU
+    std::vector<float> data(n);
+    runtime_->copyFromTensor(a, data.data(), n * sizeof(float));
+
+    double sum = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+      double diff = static_cast<double>(data[i]) - static_cast<double>(m);
+      sum += diff * diff;
+    }
+
+    int denom = static_cast<int>(n) - correction;
+    float result = denom > 0 ? static_cast<float>(sum / denom) : 0.0f;
+
+    Tensor out = createOutput({1}, dtype);
+    runtime_->copyToTensor(out, &result, sizeof(float));
+    return out;
+  }
+
+  // Dimension-wise variance
+  auto params = computeDimParams(shape, dim.value());
+
+  Tensor meanHandle = reduce(OperatorEnum::ReduceMean, a, dim.value());
+
   size_t totalElements = shapeProduct(shape);
   size_t meanElements = params.outerSize * params.innerSize;
 
@@ -400,7 +407,6 @@ Tensor Operations::varianceDim(const Tensor &a, int dim, int correction) {
   runtime_->copyFromTensor(meanHandle, meanData.data(),
                            meanElements * sizeof(float));
 
-  // Compute variance on CPU
   std::vector<float> result(meanElements);
   for (uint32_t o = 0; o < params.outerSize; ++o) {
     for (uint32_t iInner = 0; iInner < params.innerSize; ++iInner) {
@@ -420,7 +426,6 @@ Tensor Operations::varianceDim(const Tensor &a, int dim, int correction) {
     }
   }
 
-  // Create output tensor and copy result
   Tensor out = createOutput(params.outShape, dtype);
   runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
   return out;
@@ -837,8 +842,19 @@ Tensor Operations::flatten(const Tensor &a, int startDim, int endDim) {
 // Norm
 // =========================================================================
 
-Tensor Operations::normDim(const Tensor &a, int dim) {
-  return reduce(OperatorEnum::NormDim, a, dim);
+Tensor Operations::norm(const Tensor &a, std::optional<int> dim) {
+  if (!dim.has_value()) {
+    auto dtype = getDtype(a);
+    Tensor out = createOutput({1}, dtype);
+
+    std::vector<ComputeBinding> bindings;
+    bindings.emplace_back(0, a);
+    bindings.emplace_back(1, out);
+
+    runtime_->encodeOperator(OperatorEnum::Norm, bindings);
+    return out;
+  }
+  return reduce(OperatorEnum::NormDim, a, dim.value());
 }
 
 // =========================================================================

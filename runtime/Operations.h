@@ -42,7 +42,7 @@ public:
 
   Tensor matmul(const Tensor &a, const Tensor &b);
   Tensor transpose(const Tensor &a);
-  float dot(const Tensor &a, const Tensor &b);
+  Tensor dot(const Tensor &a, const Tensor &b);
 
   // ===== Special ops =====
 
@@ -52,12 +52,11 @@ public:
 
   // ===== Cumulative ops =====
 
-  Tensor cumOp(const Tensor &a, int dim, OperatorEnum op);
+  Tensor cumOp(const Tensor &a, OperatorEnum op, std::optional<int> dim = {});
 
   // ===== Statistical ops =====
 
-  float varianceScalar(const Tensor &a, int correction);
-  Tensor varianceDim(const Tensor &a, int dim, int correction);
+  Tensor variance(const Tensor &a, int correction, std::optional<int> dim = {});
 
   // ===== Softmax =====
 
@@ -87,7 +86,7 @@ public:
 
   // ===== Norm =====
 
-  Tensor normDim(const Tensor &a, int dim);
+  Tensor norm(const Tensor &a, std::optional<int> dim = {});
 
   // ===== Prefix scan =====
 
