@@ -12,9 +12,53 @@ namespace cut {
 class ComputeInterface;
 
 /**
+ * Holds either a ComputeHandle (for buffers/textures) or owned data,
+ * without any binding index. Used as the payload inside ComputeBinding
+ * and anywhere binding-index-free data is needed.
+ */
+class ComputeData final {
+public:
+  /**
+   * Constructs a ComputeData with a ComputeHandle.
+   * @param handleRef The ComputeHandle to hold.
+   */
+  ComputeData(const ComputeHandle &handleRef)
+      : type(Type::Handle), handle(handleRef) {}
+
+  /**
+   * Constructs a ComputeData with a DataReference.
+   * The data is copied and owned by this object.
+   * @param dataRef The DataReference to copy data from.
+   */
+  ComputeData(const DataReference &dataRef) : type(Type::Data) {
+    const auto *bytePtr = static_cast<const uint8_t *>(dataRef.ptr);
+    data = {bytePtr, bytePtr + dataRef.size};
+  }
+
+  /// Checks if this holds a ComputeHandle.
+  bool isHandle() const { return type == Type::Handle; }
+
+  /// Checks if this holds data.
+  bool isData() const { return type == Type::Data; }
+
+  /// Returns the held handle (only valid if isHandle() is true).
+  const ComputeHandle &getHandle() const { return handle; }
+
+  /// Returns the held data (only valid if isData() is true).
+  const std::vector<uint8_t> &getData() const { return data; }
+
+private:
+  /// Indicates whether this holds a ComputeHandle or data.
+  enum class Type { Handle, Data };
+
+  ComputeHandle handle;      ///< Handle to a buffer or texture.
+  std::vector<uint8_t> data; ///< Owned data (push constants).
+  Type type;                 ///< Indicates which member is active.
+};
+
+/**
  * Represents a binding for a compute dispatch operation.
- * Can hold either a ComputeHandle (for buffers/textures) or owned data.
- * Data is copied and owned by this struct.
+ * Pairs a binding index with a ComputeData payload.
  */
 class ComputeBinding final {
 public:
@@ -24,7 +68,7 @@ public:
    * @param handleRef The ComputeHandle to bind.
    */
   ComputeBinding(uint32_t index, const ComputeHandle &handleRef)
-      : bindingIndex(index), type(Type::Handle), handle(handleRef) {}
+      : bindingIndex(index), payload(handleRef) {}
 
   /**
    * Constructs a ComputeBinding with a DataReference.
@@ -33,35 +77,29 @@ public:
    * @param dataRef The DataReference to copy data from.
    */
   ComputeBinding(uint32_t index, const DataReference &dataRef)
-      : bindingIndex(index), type(Type::Data) {
-    const auto *bytePtr = static_cast<const uint8_t *>(dataRef.ptr);
-    data = {bytePtr, bytePtr + dataRef.size};
-  }
+      : bindingIndex(index), payload(dataRef) {}
 
   /// Returns the binding index in the shader.
   uint32_t index() const { return bindingIndex; }
 
   /// Checks if this binding contains a ComputeHandle.
-  bool isHandle() const { return type == Type::Handle; }
+  bool isHandle() const { return payload.isHandle(); }
 
   /// Checks if this binding contains data.
-  bool isData() const { return type == Type::Data; }
+  bool isData() const { return payload.isData(); }
 
   /// Returns the bound handle (only valid if isHandle() is true).
-  const ComputeHandle &getHandle() const { return handle; }
+  const ComputeHandle &getHandle() const { return payload.getHandle(); }
 
   /// Returns the bound data (only valid if isData() is true).
-  const std::vector<uint8_t> &getData() const { return data; }
+  const std::vector<uint8_t> &getData() const { return payload.getData(); }
+
+  /// Returns the underlying ComputeData payload.
+  const ComputeData &computeData() const { return payload; }
 
 private:
-  /// Indicates whether the binding contains a ComputeHandle or data.
-  enum class Type { Handle, Data };
-
-  ComputeHandle handle;      ///< Handle to a buffer or texture.
-  std::vector<uint8_t> data; ///< Owned data (push constants).
-
   uint32_t bindingIndex; ///< The binding index in the shader.
-  Type type;             ///< Indicates which member is active.
+  ComputeData payload;   ///< The handle or data payload.
 };
 
 /**
