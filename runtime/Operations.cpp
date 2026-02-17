@@ -900,44 +900,30 @@ ComputeHandle Operations::prefixScan(const ComputeHandle &a, OperatorEnum op) {
 ComputeHandle Operations::conv1d(const ComputeHandle &input,
                                  const ComputeHandle &weight,
                                  uint32_t stride,
-                                 uint32_t padding,
-                                 uint32_t dilation,
-                                 uint32_t groups) {
+                                 uint32_t padding) {
   auto inShape = getShape(input); // [N, C_in, L_in]
-  auto wShape = getShape(weight); // [C_out, C_in/groups, kL]
+  auto wShape = getShape(weight); // [C_out, C_in, kL]
   auto dtype = getDtype(input);
 
   if (inShape.size() != 3)
     throw std::runtime_error("conv1d: input must be 3D [N, C_in, L_in]");
   if (wShape.size() != 3)
-    throw std::runtime_error(
-        "conv1d: weight must be 3D [C_out, C_in/groups, kL]");
+    throw std::runtime_error("conv1d: weight must be 3D [C_out, C_in, kL]");
 
   uint32_t N = inShape[0], C_in = inShape[1], L_in = inShape[2];
   uint32_t C_out = wShape[0], kL = wShape[2];
 
-  if (C_in % groups != 0)
-    throw std::runtime_error("conv1d: C_in must be divisible by groups");
-  if (C_out % groups != 0)
-    throw std::runtime_error("conv1d: C_out must be divisible by groups");
-  if (wShape[1] != C_in / groups)
-    throw std::runtime_error("conv1d: weight C_in/groups dimension mismatch");
+  if (wShape[1] != C_in)
+    throw std::runtime_error("conv1d: weight C_in dimension mismatch");
 
-  uint32_t L_out = (L_in + 2 * padding - dilation * (kL - 1) - 1) / stride + 1;
-
-  uint32_t inAlignedL = (L_in + 3) & ~3u;
-  uint32_t outAlignedL = (L_out + 3) & ~3u;
-  uint32_t weightAlignedKL = (kL + 3) & ~3u;
+  uint32_t L_out = (L_in + 2 * padding - kL) / stride + 1;
 
   ComputeHandle output = createOutput({N, C_out, L_out}, dtype);
 
   struct Conv1DParams {
     uint32_t batchSize, C_in, L_in, C_out, kL;
-    uint32_t stride, padding, dilation, groups;
-    uint32_t L_out, inAlignedL, outAlignedL, weightAlignedKL;
-  } params{N,          C_in,        L_in,           C_out,  kL,
-           stride,     padding,     dilation,       groups, L_out,
-           inAlignedL, outAlignedL, weightAlignedKL};
+    uint32_t stride, padding;
+  } params{N, C_in, L_in, C_out, kL, stride, padding};
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, input);
@@ -954,37 +940,25 @@ ComputeHandle Operations::conv2d(const ComputeHandle &input,
                                  uint32_t strideH,
                                  uint32_t strideW,
                                  uint32_t padH,
-                                 uint32_t padW,
-                                 uint32_t dilationH,
-                                 uint32_t dilationW,
-                                 uint32_t groups) {
+                                 uint32_t padW) {
   auto inShape = getShape(input); // [N, C_in, H_in, W_in]
-  auto wShape = getShape(weight); // [C_out, C_in/groups, kH, kW]
+  auto wShape = getShape(weight); // [C_out, C_in, kH, kW]
   auto dtype = getDtype(input);
 
   if (inShape.size() != 4)
     throw std::runtime_error("conv2d: input must be 4D [N, C_in, H_in, W_in]");
   if (wShape.size() != 4)
-    throw std::runtime_error(
-        "conv2d: weight must be 4D [C_out, C_in/groups, kH, kW]");
+    throw std::runtime_error("conv2d: weight must be 4D [C_out, C_in, kH, kW]");
 
   uint32_t N = inShape[0], C_in = inShape[1], H_in = inShape[2],
            W_in = inShape[3];
   uint32_t C_out = wShape[0], kH = wShape[2], kW = wShape[3];
 
-  if (C_in % groups != 0)
-    throw std::runtime_error("conv2d: C_in must be divisible by groups");
-  if (C_out % groups != 0)
-    throw std::runtime_error("conv2d: C_out must be divisible by groups");
-  if (wShape[1] != C_in / groups)
-    throw std::runtime_error("conv2d: weight C_in/groups dimension mismatch");
+  if (wShape[1] != C_in)
+    throw std::runtime_error("conv2d: weight C_in dimension mismatch");
 
-  uint32_t H_out = (H_in + 2 * padH - dilationH * (kH - 1) - 1) / strideH + 1;
-  uint32_t W_out = (W_in + 2 * padW - dilationW * (kW - 1) - 1) / strideW + 1;
-
-  uint32_t inAlignedW = (W_in + 3) & ~3u;
-  uint32_t outAlignedW = (W_out + 3) & ~3u;
-  uint32_t weightAlignedKW = (kW + 3) & ~3u;
+  uint32_t H_out = (H_in + 2 * padH - kH) / strideH + 1;
+  uint32_t W_out = (W_in + 2 * padW - kW) / strideW + 1;
 
   ComputeHandle output = createOutput({N, C_out, H_out, W_out}, dtype);
 
@@ -993,14 +967,7 @@ ComputeHandle Operations::conv2d(const ComputeHandle &input,
     uint32_t C_out, kH, kW;
     uint32_t strideH, strideW;
     uint32_t padH, padW;
-    uint32_t dilationH, dilationW;
-    uint32_t groups;
-    uint32_t H_out, W_out;
-    uint32_t inAlignedW, outAlignedW, weightAlignedKW;
-  } params{N,     C_in,       H_in,        W_in,           C_out,
-           kH,    kW,         strideH,     strideW,        padH,
-           padW,  dilationH,  dilationW,   groups,         H_out,
-           W_out, inAlignedW, outAlignedW, weightAlignedKW};
+  } params{N, C_in, H_in, W_in, C_out, kH, kW, strideH, strideW, padH, padW};
 
   std::vector<ComputeBinding> bindings;
   bindings.emplace_back(0, input);
@@ -1009,92 +976,6 @@ ComputeHandle Operations::conv2d(const ComputeHandle &input,
   bindings.emplace_back(3, DataReference(&params, sizeof(params)));
 
   runtime_->encodeOperator(OperatorEnum::Conv2D, bindings);
-  return output;
-}
-
-ComputeHandle Operations::convTranspose2d(const ComputeHandle &input,
-                                          const ComputeHandle &weight,
-                                          uint32_t strideH,
-                                          uint32_t strideW,
-                                          uint32_t padH,
-                                          uint32_t padW,
-                                          uint32_t dilationH,
-                                          uint32_t dilationW,
-                                          uint32_t groups,
-                                          uint32_t outputPaddingH,
-                                          uint32_t outputPaddingW) {
-  auto inShape = getShape(input); // [N, C_in, H_in, W_in]
-  auto wShape = getShape(weight); // [C_in, C_out/groups, kH, kW]
-  auto dtype = getDtype(input);
-
-  if (inShape.size() != 4)
-    throw std::runtime_error(
-        "convTranspose2d: input must be 4D [N, C_in, H_in, W_in]");
-  if (wShape.size() != 4)
-    throw std::runtime_error(
-        "convTranspose2d: weight must be 4D [C_in, C_out/groups, kH, kW]");
-
-  uint32_t N = inShape[0], C_in = inShape[1], H_in = inShape[2],
-           W_in = inShape[3];
-  uint32_t kH = wShape[2], kW = wShape[3];
-  uint32_t C_out = wShape[1] * groups;
-
-  if (C_in % groups != 0)
-    throw std::runtime_error(
-        "convTranspose2d: C_in must be divisible by groups");
-  if (wShape[0] != C_in)
-    throw std::runtime_error("convTranspose2d: weight dim 0 must equal C_in");
-
-  uint32_t H_out = (H_in - 1) * strideH - 2 * padH + dilationH * (kH - 1) +
-                   outputPaddingH + 1;
-  uint32_t W_out = (W_in - 1) * strideW - 2 * padW + dilationW * (kW - 1) +
-                   outputPaddingW + 1;
-
-  uint32_t inAlignedW = (W_in + 3) & ~3u;
-  uint32_t outAlignedW = (W_out + 3) & ~3u;
-  uint32_t weightAlignedKW = (kW + 3) & ~3u;
-
-  ComputeHandle output = createOutput({N, C_out, H_out, W_out}, dtype);
-
-  struct ConvTranspose2DParams {
-    uint32_t batchSize, C_in, H_in, W_in;
-    uint32_t C_out, kH, kW;
-    uint32_t strideH, strideW;
-    uint32_t padH, padW;
-    uint32_t dilationH, dilationW;
-    uint32_t groups;
-    uint32_t H_out, W_out;
-    uint32_t inAlignedW, outAlignedW, weightAlignedKW;
-    uint32_t outputPadH, outputPadW;
-  } params{N,
-           C_in,
-           H_in,
-           W_in,
-           C_out,
-           kH,
-           kW,
-           strideH,
-           strideW,
-           padH,
-           padW,
-           dilationH,
-           dilationW,
-           groups,
-           H_out,
-           W_out,
-           inAlignedW,
-           outAlignedW,
-           weightAlignedKW,
-           outputPaddingH,
-           outputPaddingW};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, input);
-  bindings.emplace_back(1, weight);
-  bindings.emplace_back(2, output);
-  bindings.emplace_back(3, DataReference(&params, sizeof(params)));
-
-  runtime_->encodeOperator(OperatorEnum::ConvTranspose2D, bindings);
   return output;
 }
 

@@ -302,11 +302,10 @@
 #define OP_INTERNAL_SCAN_UINT 291
 
 // =============================================================================
-// Convolution operations (300-302)
+// Convolution operations (300-301)
 // =============================================================================
 
 #define OP_CONV1D 300
 #define OP_CONV2D 301
-#define OP_CONV_TRANSPOSE2D 302
 
 #endif // COMPUTE_OPS_SHARED

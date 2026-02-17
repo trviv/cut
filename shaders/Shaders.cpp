@@ -99,8 +99,6 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledConv1D(datatype);
   } else if (shader == Conv2D) {
     compiled = compiledConv2D(datatype);
-  } else if (shader == ConvTranspose2D) {
-    compiled = compiledConvTranspose2D(datatype);
   } else if (shader == InternalPartialReduce) {
     compiled = compiledPartialReduce(datatype);
   } else if (shader == InternalFinalReduce) {
@@ -172,7 +170,7 @@ static bool isMultiPassOp(OperatorEnum op) {
 static bool isMismatchedSizeOp(OperatorEnum op) {
   return op == MatMul || op == Transpose || op == Dot || op == Zeros ||
          op == Ones || op == Full || op == Arange || op == Linspace ||
-         op == Copy || op == Conv1D || op == Conv2D || op == ConvTranspose2D;
+         op == Copy || op == Conv1D || op == Conv2D;
 }
 
 size_t validateExecutionSize(OperatorEnum op,

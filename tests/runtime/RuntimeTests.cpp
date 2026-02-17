@@ -4161,6 +4161,361 @@ TEST_F(NormTest, Norm_MultiDimensional) {
 }
 
 // ============================================================================
+// Convolution Operation Tests
+// ============================================================================
+
+class ConvolutionTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+
+  // CPU reference for conv1d: input [N,C_in,L_in], weight [C_out,C_in,kL]
+  std::vector<float> conv1dRef(const std::vector<float> &input,
+                               const std::vector<float> &weight,
+                               uint32_t N,
+                               uint32_t C_in,
+                               uint32_t L_in,
+                               uint32_t C_out,
+                               uint32_t kL,
+                               uint32_t stride,
+                               uint32_t padding) {
+    uint32_t L_out = (L_in + 2 * padding - kL) / stride + 1;
+    std::vector<float> output(N * C_out * L_out, 0.0f);
+
+    for (uint32_t n = 0; n < N; n++) {
+      for (uint32_t co = 0; co < C_out; co++) {
+        for (uint32_t lo = 0; lo < L_out; lo++) {
+          float sum = 0.0f;
+          for (uint32_t ci = 0; ci < C_in; ci++) {
+            for (uint32_t k = 0; k < kL; k++) {
+              int li =
+                  static_cast<int>(lo * stride + k) - static_cast<int>(padding);
+              if (li < 0 || li >= static_cast<int>(L_in))
+                continue;
+              sum += input[n * C_in * L_in + ci * L_in + li] *
+                     weight[co * C_in * kL + ci * kL + k];
+            }
+          }
+          output[n * C_out * L_out + co * L_out + lo] = sum;
+        }
+      }
+    }
+    return output;
+  }
+
+  // CPU reference for conv2d: input [N,C_in,H_in,W_in], weight
+  // [C_out,C_in,kH,kW]
+  std::vector<float> conv2dRef(const std::vector<float> &input,
+                               const std::vector<float> &weight,
+                               uint32_t N,
+                               uint32_t C_in,
+                               uint32_t H_in,
+                               uint32_t W_in,
+                               uint32_t C_out,
+                               uint32_t kH,
+                               uint32_t kW,
+                               uint32_t strideH,
+                               uint32_t strideW,
+                               uint32_t padH,
+                               uint32_t padW) {
+    uint32_t H_out = (H_in + 2 * padH - kH) / strideH + 1;
+    uint32_t W_out = (W_in + 2 * padW - kW) / strideW + 1;
+    std::vector<float> output(N * C_out * H_out * W_out, 0.0f);
+
+    for (uint32_t n = 0; n < N; n++) {
+      for (uint32_t co = 0; co < C_out; co++) {
+        for (uint32_t ho = 0; ho < H_out; ho++) {
+          for (uint32_t wo = 0; wo < W_out; wo++) {
+            float sum = 0.0f;
+            for (uint32_t ci = 0; ci < C_in; ci++) {
+              for (uint32_t kh = 0; kh < kH; kh++) {
+                for (uint32_t kw = 0; kw < kW; kw++) {
+                  int hi = static_cast<int>(ho * strideH + kh) -
+                           static_cast<int>(padH);
+                  int wi = static_cast<int>(wo * strideW + kw) -
+                           static_cast<int>(padW);
+                  if (hi < 0 || hi >= static_cast<int>(H_in) || wi < 0 ||
+                      wi >= static_cast<int>(W_in))
+                    continue;
+                  sum +=
+                      input[n * C_in * H_in * W_in + ci * H_in * W_in +
+                            hi * W_in + wi] *
+                      weight[co * C_in * kH * kW + ci * kH * kW + kh * kW + kw];
+                }
+              }
+            }
+            output[n * C_out * H_out * W_out + co * H_out * W_out + ho * W_out +
+                   wo] = sum;
+          }
+        }
+      }
+    }
+    return output;
+  }
+};
+
+TEST_F(ConvolutionTest, Conv1D_Basic) {
+  const DataType dtype = DataType::Float32;
+
+  // Single batch, 1 input channel, 1 output channel, kernel size 3, no padding
+  const uint32_t N = 1, C_in = 1, L_in = 5, C_out = 1, kL = 3;
+  std::vector<float> input = {1, 2, 3, 4, 5};
+  std::vector<float> weight = {1, 0, -1};
+  // Expected: [1*1+2*0+3*(-1), 2*1+3*0+4*(-1), 3*1+4*0+5*(-1)] = [-2, -2, -2]
+
+  auto bufIn = runtime_->createTensor({N, C_in, L_in}, dtype, input.data());
+  auto bufW = runtime_->createTensor({C_out, C_in, kL}, dtype, weight.data());
+
+  auto bufOut = runtime_->ops().conv1d(bufIn, bufW);
+
+  uint32_t L_out = (L_in - kL) / 1 + 1; // 3
+  std::vector<float> output(N * C_out * L_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = conv1dRef(input, weight, N, C_in, L_in, C_out, kL, 1, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(ConvolutionTest, Conv1D_WithPadding) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 1, C_in = 1, L_in = 5, C_out = 1, kL = 3;
+  const uint32_t padding = 1;
+  std::vector<float> input = {1, 2, 3, 4, 5};
+  std::vector<float> weight = {1, 1, 1};
+
+  auto bufIn = runtime_->createTensor({N, C_in, L_in}, dtype, input.data());
+  auto bufW = runtime_->createTensor({C_out, C_in, kL}, dtype, weight.data());
+
+  auto bufOut = runtime_->ops().conv1d(bufIn, bufW, 1, padding);
+
+  uint32_t L_out = (L_in + 2 * padding - kL) / 1 + 1; // 5
+  std::vector<float> output(N * C_out * L_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected =
+      conv1dRef(input, weight, N, C_in, L_in, C_out, kL, 1, padding);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(ConvolutionTest, Conv1D_WithStride) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 1, C_in = 1, L_in = 8, C_out = 1, kL = 3;
+  const uint32_t stride = 2;
+  auto input = generateTestData<float>(N * C_in * L_in, 42);
+  auto weight = generateTestData<float>(C_out * C_in * kL, 99);
+
+  auto bufIn = runtime_->createTensor({N, C_in, L_in}, dtype, input.data());
+  auto bufW = runtime_->createTensor({C_out, C_in, kL}, dtype, weight.data());
+
+  auto bufOut = runtime_->ops().conv1d(bufIn, bufW, stride, 0);
+
+  uint32_t L_out = (L_in - kL) / stride + 1;
+  std::vector<float> output(N * C_out * L_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = conv1dRef(input, weight, N, C_in, L_in, C_out, kL, stride, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+        << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(ConvolutionTest, Conv1D_MultiChannel) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 2, C_in = 3, L_in = 8, C_out = 4, kL = 3;
+  auto input = generateTestData<float>(N * C_in * L_in, 42);
+  auto weight = generateTestData<float>(C_out * C_in * kL, 123);
+
+  auto bufIn = runtime_->createTensor({N, C_in, L_in}, dtype, input.data());
+  auto bufW = runtime_->createTensor({C_out, C_in, kL}, dtype, weight.data());
+
+  auto bufOut = runtime_->ops().conv1d(bufIn, bufW);
+
+  uint32_t L_out = L_in - kL + 1;
+  std::vector<float> output(N * C_out * L_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = conv1dRef(input, weight, N, C_in, L_in, C_out, kL, 1, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-3f + 1e-4f)
+        << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(ConvolutionTest, Conv2D_Basic) {
+  const DataType dtype = DataType::Float32;
+
+  // Single batch, 1 channel, 4x4 input, 1 output channel, 3x3 kernel
+  const uint32_t N = 1, C_in = 1, H_in = 4, W_in = 4;
+  const uint32_t C_out = 1, kH = 3, kW = 3;
+  // clang-format off
+  std::vector<float> input = {
+    1, 2, 3, 4,
+    5, 6, 7, 8,
+    9, 10, 11, 12,
+    13, 14, 15, 16
+  };
+  std::vector<float> weight = {
+    1, 0, -1,
+    1, 0, -1,
+    1, 0, -1
+  };
+  // clang-format on
+
+  auto bufIn =
+      runtime_->createTensor({N, C_in, H_in, W_in}, dtype, input.data());
+  auto bufW =
+      runtime_->createTensor({C_out, C_in, kH, kW}, dtype, weight.data());
+
+  auto bufOut = runtime_->ops().conv2d(bufIn, bufW);
+
+  uint32_t H_out = H_in - kH + 1; // 2
+  uint32_t W_out = W_in - kW + 1; // 2
+  std::vector<float> output(N * C_out * H_out * W_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected =
+      conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW, 1, 1, 0, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(ConvolutionTest, Conv2D_WithPadding) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 1, C_in = 1, H_in = 4, W_in = 4;
+  const uint32_t C_out = 1, kH = 3, kW = 3;
+  const uint32_t padH = 1, padW = 1;
+  auto input = generateTestData<float>(N * C_in * H_in * W_in, 42);
+  auto weight = generateTestData<float>(C_out * C_in * kH * kW, 99);
+
+  auto bufIn =
+      runtime_->createTensor({N, C_in, H_in, W_in}, dtype, input.data());
+  auto bufW =
+      runtime_->createTensor({C_out, C_in, kH, kW}, dtype, weight.data());
+
+  auto bufOut = runtime_->ops().conv2d(bufIn, bufW, 1, 1, padH, padW);
+
+  uint32_t H_out = (H_in + 2 * padH - kH) + 1; // 4
+  uint32_t W_out = (W_in + 2 * padW - kW) + 1; // 4
+  std::vector<float> output(N * C_out * H_out * W_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW,
+                            1, 1, padH, padW);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+        << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(ConvolutionTest, Conv2D_WithStride) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 1, C_in = 1, H_in = 8, W_in = 8;
+  const uint32_t C_out = 1, kH = 3, kW = 3;
+  const uint32_t strideH = 2, strideW = 2;
+  auto input = generateTestData<float>(N * C_in * H_in * W_in, 42);
+  auto weight = generateTestData<float>(C_out * C_in * kH * kW, 99);
+
+  auto bufIn =
+      runtime_->createTensor({N, C_in, H_in, W_in}, dtype, input.data());
+  auto bufW =
+      runtime_->createTensor({C_out, C_in, kH, kW}, dtype, weight.data());
+
+  auto bufOut = runtime_->ops().conv2d(bufIn, bufW, strideH, strideW, 0, 0);
+
+  uint32_t H_out = (H_in - kH) / strideH + 1;
+  uint32_t W_out = (W_in - kW) / strideW + 1;
+  std::vector<float> output(N * C_out * H_out * W_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW,
+                            strideH, strideW, 0, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+        << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(ConvolutionTest, Conv2D_MultiChannel) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 2, C_in = 3, H_in = 8, W_in = 8;
+  const uint32_t C_out = 4, kH = 3, kW = 3;
+  auto input = generateTestData<float>(N * C_in * H_in * W_in, 42);
+  auto weight = generateTestData<float>(C_out * C_in * kH * kW, 123);
+
+  auto bufIn =
+      runtime_->createTensor({N, C_in, H_in, W_in}, dtype, input.data());
+  auto bufW =
+      runtime_->createTensor({C_out, C_in, kH, kW}, dtype, weight.data());
+
+  auto bufOut = runtime_->ops().conv2d(bufIn, bufW);
+
+  uint32_t H_out = H_in - kH + 1;
+  uint32_t W_out = W_in - kW + 1;
+  std::vector<float> output(N * C_out * H_out * W_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected =
+      conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW, 1, 1, 0, 0);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-3f + 1e-4f)
+        << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(ConvolutionTest, Conv2D_StridePadding) {
+  const DataType dtype = DataType::Float32;
+
+  const uint32_t N = 1, C_in = 2, H_in = 7, W_in = 7;
+  const uint32_t C_out = 3, kH = 3, kW = 3;
+  const uint32_t strideH = 2, strideW = 2, padH = 1, padW = 1;
+  auto input = generateTestData<float>(N * C_in * H_in * W_in, 42);
+  auto weight = generateTestData<float>(C_out * C_in * kH * kW, 77);
+
+  auto bufIn =
+      runtime_->createTensor({N, C_in, H_in, W_in}, dtype, input.data());
+  auto bufW =
+      runtime_->createTensor({C_out, C_in, kH, kW}, dtype, weight.data());
+
+  auto bufOut =
+      runtime_->ops().conv2d(bufIn, bufW, strideH, strideW, padH, padW);
+
+  uint32_t H_out = (H_in + 2 * padH - kH) / strideH + 1;
+  uint32_t W_out = (W_in + 2 * padW - kW) / strideW + 1;
+  std::vector<float> output(N * C_out * H_out * W_out);
+  runtime_->copyFromTensor(bufOut, output.data(),
+                           output.size() * sizeof(float));
+
+  auto expected = conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW,
+                            strideH, strideW, padH, padW);
+  for (uint32_t i = 0; i < output.size(); ++i) {
+    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-3f + 1e-4f)
+        << "Mismatch at index " << i;
+  }
+}
+
+// ============================================================================
 // Tensor Creation Operation Tests
 // ============================================================================
 

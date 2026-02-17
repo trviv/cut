@@ -401,8 +401,6 @@ const char *operatorName(OperatorEnum op) {
     return "Conv1D";
   case Conv2D:
     return "Conv2D";
-  case ConvTranspose2D:
-    return "ConvTranspose2D";
 
   default:
     return "Unknown";

@@ -120,9 +120,6 @@ compiledConv1D(const DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>>
 compiledConv2D(const DataType datatype = DataType::Float32);
 
-std::optional<std::vector<uint32_t>>
-compiledConvTranspose2D(const DataType datatype = DataType::Float32);
-
 /*
  * Validates execution sizes for an operator and returns the resolved size.
  * For elementwise operators (unary, binary, ternary), all buffer execution

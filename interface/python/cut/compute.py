@@ -890,18 +890,15 @@ def dot(a: Tensor, b: Tensor) -> float:
 
 
 def conv1d(input: Tensor, weight: Tensor,
-           stride: int = 1, padding: int = 0,
-           dilation: int = 1, groups: int = 1) -> Tensor:
+           stride: int = 1, padding: int = 0) -> Tensor:
     """
     1D convolution over an input signal.
 
     Args:
         input: Input tensor of shape (N, C_in, L_in)
-        weight: Filters of shape (C_out, C_in/groups, kL)
+        weight: Filters of shape (C_out, C_in, kL)
         stride: Stride of the convolution
         padding: Zero-padding added to both sides
-        dilation: Spacing between kernel elements
-        groups: Number of blocked connections from input to output channels
 
     Returns:
         Output tensor of shape (N, C_out, L_out)
@@ -909,23 +906,21 @@ def conv1d(input: Tensor, weight: Tensor,
     _ensure_initialized()
     result = _cut_compute.ops_conv1d(
         input._to_view(), weight._to_view(),
-        int(stride), int(padding), int(dilation), int(groups))
+        int(stride), int(padding))
     return Tensor._from_view(result, input._dtype)
 
 
 def conv2d(input: Tensor, weight: Tensor,
-           stride: Union[int, tuple] = 1, padding: Union[int, tuple] = 0,
-           dilation: Union[int, tuple] = 1, groups: int = 1) -> Tensor:
+           stride: Union[int, tuple] = 1,
+           padding: Union[int, tuple] = 0) -> Tensor:
     """
     2D convolution over an input image.
 
     Args:
         input: Input tensor of shape (N, C_in, H_in, W_in)
-        weight: Filters of shape (C_out, C_in/groups, kH, kW)
+        weight: Filters of shape (C_out, C_in, kH, kW)
         stride: Stride of the convolution (int or (sH, sW))
         padding: Zero-padding (int or (pH, pW))
-        dilation: Spacing between kernel elements (int or (dH, dW))
-        groups: Number of blocked connections
 
     Returns:
         Output tensor of shape (N, C_out, H_out, W_out)
@@ -933,43 +928,9 @@ def conv2d(input: Tensor, weight: Tensor,
     _ensure_initialized()
     sh, sw = (stride, stride) if isinstance(stride, int) else stride
     ph, pw = (padding, padding) if isinstance(padding, int) else padding
-    dh, dw = (dilation, dilation) if isinstance(dilation, int) else dilation
     result = _cut_compute.ops_conv2d(
         input._to_view(), weight._to_view(),
-        int(sh), int(sw), int(ph), int(pw), int(dh), int(dw), int(groups))
-    return Tensor._from_view(result, input._dtype)
-
-
-def conv_transpose2d(input: Tensor, weight: Tensor,
-                     stride: Union[int, tuple] = 1,
-                     padding: Union[int, tuple] = 0,
-                     dilation: Union[int, tuple] = 1,
-                     groups: int = 1,
-                     output_padding: Union[int, tuple] = 0) -> Tensor:
-    """
-    Transposed 2D convolution (sometimes called deconvolution).
-
-    Args:
-        input: Input tensor of shape (N, C_in, H_in, W_in)
-        weight: Filters of shape (C_in, C_out/groups, kH, kW)
-        stride: Stride of the convolution (int or (sH, sW))
-        padding: Zero-padding (int or (pH, pW))
-        dilation: Spacing between kernel elements (int or (dH, dW))
-        groups: Number of blocked connections
-        output_padding: Additional size added to output shape (int or (opH, opW))
-
-    Returns:
-        Output tensor of shape (N, C_out, H_out, W_out)
-    """
-    _ensure_initialized()
-    sh, sw = (stride, stride) if isinstance(stride, int) else stride
-    ph, pw = (padding, padding) if isinstance(padding, int) else padding
-    dh, dw = (dilation, dilation) if isinstance(dilation, int) else dilation
-    oph, opw = (output_padding, output_padding) if isinstance(output_padding, int) else output_padding
-    result = _cut_compute.ops_conv_transpose2d(
-        input._to_view(), weight._to_view(),
-        int(sh), int(sw), int(ph), int(pw), int(dh), int(dw), int(groups),
-        int(oph), int(opw))
+        int(sh), int(sw), int(ph), int(pw))
     return Tensor._from_view(result, input._dtype)
 
 

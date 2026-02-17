@@ -273,7 +273,7 @@ bool isSortOp(OperatorEnum op) {
 
 /// Checks if an operator is a convolution operation.
 bool isConvOp(OperatorEnum op) {
-  return op == Conv1D || op == Conv2D || op == ConvTranspose2D;
+  return op == Conv1D || op == Conv2D;
 }
 
 /// Returns the next power of 2 >= n.
@@ -768,9 +768,10 @@ void Dispatcher::encode(OperatorEnum op,
 
     if (op == Conv1D) {
       // params: N(0), C_in(1), L_in(2), C_out(3), kL(4),
-      //         stride(5), padding(6), dilation(7), groups(8),
-      //         L_out(9), ...
-      uint32_t batchSize = p[0], C_out = p[3], L_out = p[9];
+      //         stride(5), padding(6)
+      uint32_t batchSize = p[0], L_in = p[2], C_out = p[3], kL = p[4];
+      uint32_t stride = p[5], padding = p[6];
+      uint32_t L_out = (L_in + 2 * padding - kL) / stride + 1;
       uint32_t totalOutputs = batchSize * C_out * L_out;
       uint32_t gridX = ((totalOutputs + 255) / 256) * 256;
 
@@ -781,13 +782,15 @@ void Dispatcher::encode(OperatorEnum op,
                             static_cast<uint32_t>(convHandleBindings.size()));
       iface_->encode(std::move(convDispatch));
     } else {
-      // Conv2D and ConvTranspose2D: 2D dispatch
+      // Conv2D: 2D dispatch
       // params: N(0), C_in(1), H_in(2), W_in(3), C_out(4), kH(5), kW(6),
-      //         strideH(7), strideW(8), padH(9), padW(10),
-      //         dilationH(11), dilationW(12), groups(13),
-      //         H_out(14), W_out(15), ...
-      uint32_t batchSize = p[0], C_out = p[4];
-      uint32_t H_out = p[14], W_out = p[15];
+      //         strideH(7), strideW(8), padH(9), padW(10)
+      uint32_t batchSize = p[0], H_in = p[2], W_in = p[3], C_out = p[4];
+      uint32_t kH = p[5], kW = p[6];
+      uint32_t strideH = p[7], strideW = p[8];
+      uint32_t padH = p[9], padW = p[10];
+      uint32_t H_out = (H_in + 2 * padH - kH) / strideH + 1;
+      uint32_t W_out = (W_in + 2 * padW - kW) / strideW + 1;
 
       const uint32_t tileSize = 16;
       uint32_t gridX = (W_out + tileSize - 1) / tileSize * tileSize;

@@ -19,14 +19,6 @@ layout(push_constant) uniform PushConstants {
     uint strideW;         // stride width
     uint padH;            // padding height
     uint padW;            // padding width
-    uint dilationH;       // dilation height
-    uint dilationW;       // dilation width
-    uint groups;          // groups
-    uint H_out;           // output height
-    uint W_out;           // output width
-    uint inAlignedW;      // aligned input innermost stride
-    uint outAlignedW;     // aligned output innermost stride
-    uint weightAlignedKW; // aligned weight innermost stride
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferInput {
@@ -45,6 +37,12 @@ void main() {
     uint w_out = gl_GlobalInvocationID.x;
     uint linear_y = gl_GlobalInvocationID.y;
 
+    uint H_out = (H_in + 2 * padH - kH) / strideH + 1;
+    uint W_out = (W_in + 2 * padW - kW) / strideW + 1;
+    uint inAlignedW = (W_in + 3) & ~3u;
+    uint outAlignedW = (W_out + 3) & ~3u;
+    uint weightAlignedKW = (kW + 3) & ~3u;
+
     // Decode linear_y into (n, c_out, h_out)
     uint h_out = linear_y % H_out;
     uint nc = linear_y / H_out;
@@ -53,29 +51,23 @@ void main() {
 
     if (w_out >= W_out || n >= batchSize) return;
 
-    uint C_in_per_group = C_in / groups;
-    uint C_out_per_group = C_out / groups;
-    uint g = c_out / C_out_per_group;
-
     %SCALAR_DTYPE% sum = %SCALAR_DTYPE%(0);
 
-    for (uint ci = 0; ci < C_in_per_group; ci++) {
-        uint c_in_abs = g * C_in_per_group + ci;
-
+    for (uint ci = 0; ci < C_in; ci++) {
         for (uint kh = 0; kh < kH; kh++) {
-            int h_in = int(h_out * strideH + kh * dilationH) - int(padH);
+            int h_in = int(h_out * strideH + kh) - int(padH);
             if (h_in < 0 || h_in >= int(H_in)) continue;
 
             for (uint kw = 0; kw < kW; kw++) {
-                int w_in = int(w_out * strideW + kw * dilationW) - int(padW);
+                int w_in = int(w_out * strideW + kw) - int(padW);
                 if (w_in < 0 || w_in >= int(W_in)) continue;
 
                 uint in_idx = n * C_in * H_in * inAlignedW
-                            + c_in_abs * H_in * inAlignedW
+                            + ci * H_in * inAlignedW
                             + uint(h_in) * inAlignedW
                             + uint(w_in);
 
-                uint w_idx = c_out * C_in_per_group * kH * weightAlignedKW
+                uint w_idx = c_out * C_in * kH * weightAlignedKW
                            + ci * kH * weightAlignedKW
                            + kh * weightAlignedKW
                            + kw;

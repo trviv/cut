@@ -440,7 +440,6 @@ PYBIND11_MODULE(_cut_compute, m) {
       // Convolution operations
       .value("Conv1D", cut::OperatorEnum::Conv1D)
       .value("Conv2D", cut::OperatorEnum::Conv2D)
-      .value("ConvTranspose2D", cut::OperatorEnum::ConvTranspose2D)
       .export_values();
 
   // Backward compatibility alias
@@ -749,44 +748,22 @@ PYBIND11_MODULE(_cut_compute, m) {
       "ops_conv1d",
       [getOps](const cut::ComputeHandle &input,
                const cut::ComputeHandle &weight, uint32_t stride,
-               uint32_t padding, uint32_t dilation, uint32_t groups) {
-        return getOps().conv1d(input, weight, stride, padding, dilation,
-                               groups);
+               uint32_t padding) {
+        return getOps().conv1d(input, weight, stride, padding);
       },
       py::arg("input"), py::arg("weight"), py::arg("stride") = 1,
-      py::arg("padding") = 0, py::arg("dilation") = 1, py::arg("groups") = 1,
-      "1D convolution");
+      py::arg("padding") = 0, "1D convolution");
 
   m.def(
       "ops_conv2d",
       [getOps](const cut::ComputeHandle &input,
                const cut::ComputeHandle &weight, uint32_t stride_h,
-               uint32_t stride_w, uint32_t pad_h, uint32_t pad_w,
-               uint32_t dilation_h, uint32_t dilation_w, uint32_t groups) {
-        return getOps().conv2d(input, weight, stride_h, stride_w, pad_h, pad_w,
-                               dilation_h, dilation_w, groups);
+               uint32_t stride_w, uint32_t pad_h, uint32_t pad_w) {
+        return getOps().conv2d(input, weight, stride_h, stride_w, pad_h, pad_w);
       },
       py::arg("input"), py::arg("weight"), py::arg("stride_h") = 1,
       py::arg("stride_w") = 1, py::arg("pad_h") = 0, py::arg("pad_w") = 0,
-      py::arg("dilation_h") = 1, py::arg("dilation_w") = 1,
-      py::arg("groups") = 1, "2D convolution");
-
-  m.def(
-      "ops_conv_transpose2d",
-      [getOps](const cut::ComputeHandle &input,
-               const cut::ComputeHandle &weight, uint32_t stride_h,
-               uint32_t stride_w, uint32_t pad_h, uint32_t pad_w,
-               uint32_t dilation_h, uint32_t dilation_w, uint32_t groups,
-               uint32_t output_padding_h, uint32_t output_padding_w) {
-        return getOps().convTranspose2d(
-            input, weight, stride_h, stride_w, pad_h, pad_w, dilation_h,
-            dilation_w, groups, output_padding_h, output_padding_w);
-      },
-      py::arg("input"), py::arg("weight"), py::arg("stride_h") = 1,
-      py::arg("stride_w") = 1, py::arg("pad_h") = 0, py::arg("pad_w") = 0,
-      py::arg("dilation_h") = 1, py::arg("dilation_w") = 1,
-      py::arg("groups") = 1, py::arg("output_padding_h") = 0,
-      py::arg("output_padding_w") = 0, "Transposed 2D convolution");
+      "2D convolution");
 
   // --- Special ops ---
 

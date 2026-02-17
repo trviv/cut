@@ -15,12 +15,6 @@ layout(push_constant) uniform PushConstants {
     uint kL;              // kernel length
     uint stride;          // stride
     uint padding;         // padding
-    uint dilation;        // dilation
-    uint groups;          // groups
-    uint L_out;           // output length
-    uint inAlignedL;      // aligned input innermost stride
-    uint outAlignedL;     // aligned output innermost stride
-    uint weightAlignedKL; // aligned weight innermost stride
 };
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer BufferInput {
@@ -38,6 +32,11 @@ layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
 void main() {
     uint gid = gl_GlobalInvocationID.x;
 
+    uint L_out = (L_in + 2 * padding - kL) / stride + 1;
+    uint inAlignedL = (L_in + 3) & ~3u;
+    uint outAlignedL = (L_out + 3) & ~3u;
+    uint weightAlignedKL = (kL + 3) & ~3u;
+
     // Decode linear index into (n, c_out, l_out)
     uint l_out = gid % L_out;
     uint nc = gid / L_out;
@@ -46,24 +45,18 @@ void main() {
 
     if (n >= batchSize) return;
 
-    uint C_in_per_group = C_in / groups;
-    uint C_out_per_group = C_out / groups;
-    uint g = c_out / C_out_per_group;
-
     %SCALAR_DTYPE% sum = %SCALAR_DTYPE%(0);
 
-    for (uint ci = 0; ci < C_in_per_group; ci++) {
-        uint c_in_abs = g * C_in_per_group + ci;
-
+    for (uint ci = 0; ci < C_in; ci++) {
         for (uint kl = 0; kl < kL; kl++) {
-            int l_in = int(l_out * stride + kl * dilation) - int(padding);
+            int l_in = int(l_out * stride + kl) - int(padding);
             if (l_in < 0 || l_in >= int(L_in)) continue;
 
             uint in_idx = n * C_in * inAlignedL
-                        + c_in_abs * inAlignedL
+                        + ci * inAlignedL
                         + uint(l_in);
 
-            uint w_idx = c_out * C_in_per_group * weightAlignedKL
+            uint w_idx = c_out * C_in * weightAlignedKL
                        + ci * weightAlignedKL
                        + kl;
 

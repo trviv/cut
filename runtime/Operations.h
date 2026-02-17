@@ -110,31 +110,14 @@ public:
   ComputeHandle conv1d(const ComputeHandle &input,
                        const ComputeHandle &weight,
                        uint32_t stride = 1,
-                       uint32_t padding = 0,
-                       uint32_t dilation = 1,
-                       uint32_t groups = 1);
+                       uint32_t padding = 0);
 
   ComputeHandle conv2d(const ComputeHandle &input,
                        const ComputeHandle &weight,
                        uint32_t strideH = 1,
                        uint32_t strideW = 1,
                        uint32_t padH = 0,
-                       uint32_t padW = 0,
-                       uint32_t dilationH = 1,
-                       uint32_t dilationW = 1,
-                       uint32_t groups = 1);
-
-  ComputeHandle convTranspose2d(const ComputeHandle &input,
-                                const ComputeHandle &weight,
-                                uint32_t strideH = 1,
-                                uint32_t strideW = 1,
-                                uint32_t padH = 0,
-                                uint32_t padW = 0,
-                                uint32_t dilationH = 1,
-                                uint32_t dilationW = 1,
-                                uint32_t groups = 1,
-                                uint32_t outputPaddingH = 0,
-                                uint32_t outputPaddingW = 0);
+                       uint32_t padW = 0);
 
   // ===== Sort (in-place) =====
 
