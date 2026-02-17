@@ -271,6 +271,11 @@ bool isSortOp(OperatorEnum op) {
   return op == SortBitonic || op == SortRadix;
 }
 
+/// Checks if an operator is a convolution operation.
+bool isConvOp(OperatorEnum op) {
+  return op == Conv1D || op == Conv2D || op == ConvTranspose2D;
+}
+
 /// Returns the next power of 2 >= n.
 uint32_t nextPowerOf2(uint32_t n) {
   if (n <= 1)
@@ -379,6 +384,12 @@ void Dispatcher::encode(OperatorEnum op,
     if (bindings.size() != 3) {
       throw std::runtime_error(
           "Copy operation requires exactly 3 bindings (src, dst, layout_data)");
+    }
+  } else if (isConvOp(op)) {
+    // Conv ops: input, weight, output + data reference for params
+    if (bindings.size() < 3) {
+      throw std::runtime_error("Conv operation requires at least 3 bindings "
+                               "(input, weight, output)");
     }
   } else {
     throw std::runtime_error(std::string("Unknown operator: ") +
@@ -739,6 +750,57 @@ void Dispatcher::encode(OperatorEnum op,
     return;
   } else if (op == SortRadix) {
     encodeRadixSort(bindings, executionSize);
+    return;
+  } else if (isConvOp(op)) {
+    // Conv ops: separate handle bindings from param data
+    std::vector<ComputeBinding> convHandleBindings;
+    std::vector<uint8_t> paramData;
+
+    for (const auto &binding : bindings) {
+      if (binding.isHandle()) {
+        convHandleBindings.push_back(binding);
+      } else if (binding.isData()) {
+        paramData = binding.getData();
+      }
+    }
+
+    const uint32_t *p = reinterpret_cast<const uint32_t *>(paramData.data());
+
+    if (op == Conv1D) {
+      // params: N(0), C_in(1), L_in(2), C_out(3), kL(4),
+      //         stride(5), padding(6), dilation(7), groups(8),
+      //         L_out(9), ...
+      uint32_t batchSize = p[0], C_out = p[3], L_out = p[9];
+      uint32_t totalOutputs = batchSize * C_out * L_out;
+      uint32_t gridX = ((totalOutputs + 255) / 256) * 256;
+
+      ThreadSize convWorkgroupSize{gridX, 1, 1};
+      ComputeDispatch convDispatch(shader, convWorkgroupSize,
+                                   convHandleBindings);
+      convDispatch.bindData(DataReference(paramData.data(), paramData.size()),
+                            static_cast<uint32_t>(convHandleBindings.size()));
+      iface_->encode(std::move(convDispatch));
+    } else {
+      // Conv2D and ConvTranspose2D: 2D dispatch
+      // params: N(0), C_in(1), H_in(2), W_in(3), C_out(4), kH(5), kW(6),
+      //         strideH(7), strideW(8), padH(9), padW(10),
+      //         dilationH(11), dilationW(12), groups(13),
+      //         H_out(14), W_out(15), ...
+      uint32_t batchSize = p[0], C_out = p[4];
+      uint32_t H_out = p[14], W_out = p[15];
+
+      const uint32_t tileSize = 16;
+      uint32_t gridX = (W_out + tileSize - 1) / tileSize * tileSize;
+      uint32_t gridY =
+          (batchSize * C_out * H_out + tileSize - 1) / tileSize * tileSize;
+
+      ThreadSize convWorkgroupSize{gridX, gridY, 1};
+      ComputeDispatch convDispatch(shader, convWorkgroupSize,
+                                   convHandleBindings);
+      convDispatch.bindData(DataReference(paramData.data(), paramData.size()),
+                            static_cast<uint32_t>(convHandleBindings.size()));
+      iface_->encode(std::move(convDispatch));
+    }
     return;
   } else {
     // Just add numElements for other operation types

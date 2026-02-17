@@ -1,4 +1,5 @@
 .claude
+/.shader_cache/
 /build/
 /shaders/CompiledShaders.cpp
 .DS_Store

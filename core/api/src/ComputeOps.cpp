@@ -396,6 +396,14 @@ const char *operatorName(OperatorEnum op) {
   case InternalScanUint:
     return "InternalScanUint";
 
+  // Convolution operations
+  case Conv1D:
+    return "Conv1D";
+  case Conv2D:
+    return "Conv2D";
+  case ConvTranspose2D:
+    return "ConvTranspose2D";
+
   default:
     return "Unknown";
   }

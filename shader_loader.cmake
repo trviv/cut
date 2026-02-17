@@ -14,6 +14,10 @@ set(EMBEDDED_SHADERS "")
 # Include paths for shader headers
 set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/core/api/include)
 
+# Persistent cache directory for compiled SPIR-V (survives clean builds)
+set(SHADER_CACHE_DIR ${CMAKE_SOURCE_DIR}/.shader_cache)
+file(MAKE_DIRECTORY ${SHADER_CACHE_DIR})
+
 # =============================================================================
 # Datatype variant definitions
 # Each .shader template is compiled once per variant listed here.
@@ -74,12 +78,38 @@ file(WRITE \"${PREPROCESSED_FILE}\" \"\${SHADER_CONTENT}\")
         VERBATIM
     )
 
-    # Compile the preprocessed shader to SPIR-V
+    # Create a CMake script that compiles with hash-based caching
+    set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${SHADER_NAME_WE}_${DTYPE_NAME}.cmake)
+    file(WRITE ${COMPILE_SCRIPT} "
+# Hash the preprocessed shader and included header to form a cache key
+file(MD5 \"${PREPROCESSED_FILE}\" GLSL_HASH)
+file(MD5 \"${SHADER_INCLUDE_DIR}/ComputeOpsShared.h\" HEADER_HASH)
+string(MD5 CACHE_KEY \"\${GLSL_HASH}_\${HEADER_HASH}\")
+
+set(CACHE_FILE \"${SHADER_CACHE_DIR}/\${CACHE_KEY}.spv\")
+
+if(EXISTS \${CACHE_FILE})
+    message(STATUS \"Cache hit: ${SHADER_NAME_WE}_${DTYPE_NAME}\")
+    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \${CACHE_FILE} \"${SHADER_BINARY}\")
+else()
+    message(STATUS \"Cache miss: ${SHADER_NAME_WE}_${DTYPE_NAME} — compiling\")
+    execute_process(
+        COMMAND ${Vulkan_GLSLC_EXECUTABLE} -mfmt=c -fshader-stage=comp -I${SHADER_INCLUDE_DIR} \"${PREPROCESSED_FILE}\" -o \"${SHADER_BINARY}\" --target-env=vulkan1.0
+        RESULT_VARIABLE result
+    )
+    if(NOT result EQUAL 0)
+        message(FATAL_ERROR \"Shader compilation failed for ${SHADER_NAME_WE}_${DTYPE_NAME}\")
+    endif()
+    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SHADER_BINARY}\" \${CACHE_FILE})
+endif()
+")
+
+    # Compile the preprocessed shader to SPIR-V (with caching)
     add_custom_command(
         OUTPUT ${SHADER_BINARY}
-        COMMAND ${Vulkan_GLSLC_EXECUTABLE} -mfmt=c -fshader-stage=comp -I${SHADER_INCLUDE_DIR} ${PREPROCESSED_FILE} -o ${SHADER_BINARY} --target-env=vulkan1.0
+        COMMAND ${CMAKE_COMMAND} -P ${COMPILE_SCRIPT}
         DEPENDS ${PREPROCESSED_FILE} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
-        COMMENT "Compiling ${SHADER_NAME_WE}_${DTYPE_NAME} to SPIR-V"
+        COMMENT "Compiling ${SHADER_NAME_WE}_${DTYPE_NAME} to SPIR-V (cached)"
         VERBATIM
     )
 

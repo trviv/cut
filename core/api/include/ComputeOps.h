@@ -311,6 +311,14 @@ enum OperatorEnum {
   // Utility
   InternalFillUint = OP_INTERNAL_FILL_UINT,
   InternalScanUint = OP_INTERNAL_SCAN_UINT,
+
+  // ===========================================================================
+  // Convolution operations (300-302)
+  // ===========================================================================
+
+  Conv1D = OP_CONV1D,
+  Conv2D = OP_CONV2D,
+  ConvTranspose2D = OP_CONV_TRANSPOSE2D,
 };
 
 /**
