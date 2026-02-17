@@ -2,6 +2,7 @@
 
 #include <ComputeCommon.h>
 
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -22,37 +23,57 @@ public:
    * Constructs a ComputeData with a ComputeHandle.
    * @param handleRef The ComputeHandle to hold.
    */
-  ComputeData(const ComputeHandle &handleRef)
-      : type(Type::Handle), handle(handleRef) {}
+  ComputeData(const ComputeHandle &handleRef);
 
   /**
    * Constructs a ComputeData with a DataReference.
-   * The data is copied and owned by this object.
+   * If the data fits in 4 bytes or fewer, it is stored inline as a scalar.
+   * Otherwise, the data is copied into a vector.
    * @param dataRef The DataReference to copy data from.
    */
-  ComputeData(const DataReference &dataRef) : type(Type::Data) {
-    const auto *bytePtr = static_cast<const uint8_t *>(dataRef.ptr);
-    data = {bytePtr, bytePtr + dataRef.size};
-  }
+  ComputeData(const DataReference &dataRef);
 
   /// Checks if this holds a ComputeHandle.
   bool isHandle() const { return type == Type::Handle; }
 
-  /// Checks if this holds data.
+  /// Checks if this holds vector data (size > 4 bytes).
   bool isData() const { return type == Type::Data; }
 
+  /// Checks if this holds an inline scalar (size <= 4 bytes).
+  bool isScalar() const { return type == Type::Scalar; }
+
   /// Returns the held handle (only valid if isHandle() is true).
-  const ComputeHandle &getHandle() const { return handle; }
+  const ComputeHandle &getHandle() const;
 
   /// Returns the held data (only valid if isData() is true).
-  const std::vector<uint8_t> &getData() const { return data; }
+  const std::vector<uint8_t> &getData() const;
+
+  /// Returns the held scalar cast to T (only valid if isScalar() is true).
+  template <typename T>
+  T getScalar() const {
+    static_assert(sizeof(T) <= sizeof(Scalar),
+                  "T must be <= sizeof(Scalar) (4 bytes)");
+    if (type != Type::Scalar) {
+      logErr("getScalar() called on non-Scalar ComputeData");
+    }
+    T result;
+    std::memcpy(&result, &scalar, sizeof(T));
+    return result;
+  }
 
 private:
-  /// Indicates whether this holds a ComputeHandle or data.
-  enum class Type { Handle, Data };
+  /// Scalar union that can hold either a uint32_t or a float.
+  union Scalar {
+    uint32_t u;
+    float f;
+  };
+
+  /// Indicates whether this holds a ComputeHandle, data, or a scalar.
+  enum class Type { Handle, Data, Scalar };
 
   ComputeHandle handle;      ///< Handle to a buffer or texture.
-  std::vector<uint8_t> data; ///< Owned data (push constants).
+  std::vector<uint8_t> data; ///< Owned data (push constants, > 4 bytes).
+  Scalar scalar = {};        ///< Inline scalar (<= 4 bytes).
   Type type;                 ///< Indicates which member is active.
 };
 
@@ -88,18 +109,27 @@ public:
   /// Checks if this binding contains data.
   bool isData() const { return payload.isData(); }
 
+  /// Checks if this binding contains an inline scalar.
+  bool isScalar() const { return payload.isScalar(); }
+
   /// Returns the bound handle (only valid if isHandle() is true).
   const ComputeHandle &getHandle() const { return payload.getHandle(); }
 
   /// Returns the bound data (only valid if isData() is true).
   const std::vector<uint8_t> &getData() const { return payload.getData(); }
 
+  /// Returns the bound scalar cast to T (only valid if isScalar() is true).
+  template <typename T>
+  T getScalar() const {
+    return payload.getScalar<T>();
+  }
+
   /// Returns the underlying ComputeData payload.
   const ComputeData &computeData() const { return payload; }
 
 private:
-  uint32_t bindingIndex; ///< The binding index in the shader.
   ComputeData payload;   ///< The handle or data payload.
+  uint32_t bindingIndex; ///< The binding index in the shader.
 };
 
 /**

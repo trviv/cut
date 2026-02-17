@@ -413,8 +413,11 @@ void Dispatcher::encode(OperatorEnum op,
     for (const auto &binding : bindings) {
       if (binding.isHandle()) {
         handleBindings.push_back(binding);
+      } else if (binding.isScalar()) {
+        uint32_t bits = binding.getScalar<uint32_t>();
+        scalarRawData.resize(sizeof(uint32_t));
+        std::memcpy(scalarRawData.data(), &bits, sizeof(uint32_t));
       } else if (binding.isData()) {
-        // Store raw scalar bytes (already correctly typed by Operations)
         scalarRawData = binding.getData();
       }
     }
@@ -569,6 +572,9 @@ void Dispatcher::encode(OperatorEnum op,
     for (const auto &binding : bindings) {
       if (binding.isHandle()) {
         matrixHandleBindings.push_back(binding);
+      } else if (binding.isScalar()) {
+        // Single element count (used by Dot)
+        M = binding.getScalar<uint32_t>();
       } else if (binding.isData()) {
         const auto &data = binding.getData();
         if (data.size() >= 3 * sizeof(uint32_t)) {
@@ -583,11 +589,6 @@ void Dispatcher::encode(OperatorEnum op,
               reinterpret_cast<const uint32_t *>(data.data());
           M = dims[0];
           N = dims[1];
-        } else if (data.size() >= sizeof(uint32_t)) {
-          // Single element count (used by Dot)
-          const uint32_t *dims =
-              reinterpret_cast<const uint32_t *>(data.data());
-          M = dims[0];
         }
       }
     }
@@ -659,7 +660,9 @@ void Dispatcher::encode(OperatorEnum op,
       fillValue = 1.0f;
     } else if (op == Full) {
       for (const auto &binding : bindings) {
-        if (binding.isData()) {
+        if (binding.isScalar()) {
+          fillValue = binding.getScalar<float>();
+        } else if (binding.isData()) {
           const auto &data = binding.getData();
           if (data.size() >= sizeof(float)) {
             fillValue = *reinterpret_cast<const float *>(data.data());

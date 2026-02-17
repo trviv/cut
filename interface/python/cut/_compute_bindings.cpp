@@ -512,7 +512,21 @@ PYBIND11_MODULE(_cut_compute, m) {
       .def("is_handle", &cut::ComputeBinding::isHandle,
            "Check if this is a buffer binding")
       .def("is_data", &cut::ComputeBinding::isData,
-           "Check if this is a data binding");
+           "Check if this is a data binding (> 4 bytes)")
+      .def("is_scalar", &cut::ComputeBinding::isScalar,
+           "Check if this is a scalar binding (<= 4 bytes)")
+      .def(
+          "get_scalar_float",
+          [](const cut::ComputeBinding &b) { return b.getScalar<float>(); },
+          "Get scalar value as float")
+      .def(
+          "get_scalar_int",
+          [](const cut::ComputeBinding &b) { return b.getScalar<int32_t>(); },
+          "Get scalar value as int32")
+      .def(
+          "get_scalar_uint",
+          [](const cut::ComputeBinding &b) { return b.getScalar<uint32_t>(); },
+          "Get scalar value as uint32");
 
   // =========================================================================
   // Backend Management Functions

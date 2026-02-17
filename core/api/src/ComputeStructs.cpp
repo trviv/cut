@@ -1,11 +1,40 @@
 #include <ComputeStructs.h>
 
 #include <algorithm>
+#include <cstring>
 #include <iterator>
 #include <limits>
 #include <stdexcept>
 
 namespace cut {
+
+// --- ComputeData ---
+
+ComputeData::ComputeData(const ComputeHandle &handleRef)
+    : type(Type::Handle), handle(handleRef) {}
+
+ComputeData::ComputeData(const DataReference &dataRef) {
+  if (dataRef.size <= sizeof(Scalar)) {
+    type = Type::Scalar;
+    scalar = {};
+    std::memcpy(&scalar, dataRef.ptr, dataRef.size);
+  } else {
+    type = Type::Data;
+    const auto *bytePtr = static_cast<const uint8_t *>(dataRef.ptr);
+    data = {bytePtr, bytePtr + dataRef.size};
+  }
+}
+
+const ComputeHandle &ComputeData::getHandle() const {
+  return handle;
+}
+
+const std::vector<uint8_t> &ComputeData::getData() const {
+  if (type != Type::Data) {
+    logErr("getData() called on non-Data ComputeData");
+  }
+  return data;
+}
 
 void ComputeBuffer::setShape(const std::vector<uint32_t> &newShape) {
   if (newShape.empty()) {

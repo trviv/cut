@@ -402,11 +402,15 @@ void VulkanCommandBuffer::end() {
       uint32_t pcOffset = 0;
       std::array<uint8_t, 128> pcData;
 
-      // Push constants from data bindings
+      // Push constants from data/scalar bindings
       for (const auto &binding : dispatch.bindings()) {
-        if (binding.isData()) {
+        if (binding.isScalar()) {
+          uint32_t scalar = binding.getScalar<uint32_t>();
+          memcpy(pcData.data() + pcOffset, &scalar, sizeof(uint32_t));
+          pcOffset += sizeof(uint32_t);
+        } else if (binding.isData()) {
           const auto &data = binding.getData();
-          memcpy(pcData.data(), data.data(), data.size());
+          memcpy(pcData.data() + pcOffset, data.data(), data.size());
           pcOffset += static_cast<uint32_t>(data.size());
         }
       }

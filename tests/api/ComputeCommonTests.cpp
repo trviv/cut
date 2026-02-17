@@ -169,6 +169,68 @@ void main() {
   EXPECT_EQ(spirv[0], 0x07230203u);
 }
 
+// ComputeData scalar/data routing tests
+
+TEST(ComputeData, SmallDataStoredAsScalar) {
+  float value = 3.14f;
+  DataReference ref(&value, sizeof(float));
+  ComputeData data(ref);
+
+  EXPECT_TRUE(data.isScalar());
+  EXPECT_FALSE(data.isData());
+  EXPECT_FALSE(data.isHandle());
+  EXPECT_FLOAT_EQ(data.getScalar<float>(), 3.14f);
+}
+
+TEST(ComputeData, UintScalar) {
+  uint32_t value = 42;
+  DataReference ref(&value, sizeof(uint32_t));
+  ComputeData data(ref);
+
+  EXPECT_TRUE(data.isScalar());
+  EXPECT_FALSE(data.isData());
+  EXPECT_EQ(data.getScalar<uint32_t>(), 42u);
+}
+
+TEST(ComputeData, LargeDataStoredAsData) {
+  uint32_t values[3] = {10, 20, 30};
+  DataReference ref(values, sizeof(values));
+  ComputeData data(ref);
+
+  EXPECT_FALSE(data.isScalar());
+  EXPECT_TRUE(data.isData());
+  EXPECT_FALSE(data.isHandle());
+
+  const auto &bytes = data.getData();
+  EXPECT_EQ(bytes.size(), 3 * sizeof(uint32_t));
+  const uint32_t *result = reinterpret_cast<const uint32_t *>(bytes.data());
+  EXPECT_EQ(result[0], 10u);
+  EXPECT_EQ(result[1], 20u);
+  EXPECT_EQ(result[2], 30u);
+}
+
+TEST(ComputeBinding, ScalarForwarding) {
+  float value = 2.5f;
+  ComputeBinding binding(3, DataReference(&value, sizeof(float)));
+
+  EXPECT_EQ(binding.index(), 3u);
+  EXPECT_TRUE(binding.isScalar());
+  EXPECT_FALSE(binding.isData());
+  EXPECT_FLOAT_EQ(binding.getScalar<float>(), 2.5f);
+}
+
+TEST(ComputeBinding, DataForwarding) {
+  uint32_t values[2] = {100, 200};
+  ComputeBinding binding(1, DataReference(values, sizeof(values)));
+
+  EXPECT_EQ(binding.index(), 1u);
+  EXPECT_FALSE(binding.isScalar());
+  EXPECT_TRUE(binding.isData());
+
+  const auto &bytes = binding.getData();
+  EXPECT_EQ(bytes.size(), 2 * sizeof(uint32_t));
+}
+
 // compileShaderFileToSpirv tests
 
 TEST(CompileShaderFileToSpirv, ThrowsOnNonexistentFile) {
