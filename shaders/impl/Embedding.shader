@@ -19,30 +19,26 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIndices {
 
 // Weight table: [num_embeddings, embDim]
 layout(set = 0, binding = 1, std430) restrict readonly buffer BufferWeight {
-    %SCALAR_DTYPE% weight_data[];
+    %VEC_DTYPE% weight_data[];
 };
 
 // Output: [numIndices, embDim]
 layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
-    %SCALAR_DTYPE% output_data[];
+    %VEC_DTYPE% output_data[];
 };
 
 void main() {
     uint gid = gl_GlobalInvocationID.x;
 
-    uint totalElements = numIndices * embDim;
-    if (gid >= totalElements) return;
+    uint alignedDim4 = ((embDim + 3) & ~3u) / 4;  // vec4 elements per row
+    uint totalVecElements = numIndices * alignedDim4;
+    if (gid >= totalVecElements) return;
 
-    uint idx = gid / embDim;    // which index
-    uint dim = gid % embDim;    // which embedding dimension
+    uint idx = gid / alignedDim4;    // which index
+    uint dim4 = gid % alignedDim4;   // which vec4 chunk
 
     uint embIdx = indices[idx];
-    uint alignedDim = (embDim + 3) & ~3u;
 
-    // Read from weight table
-    uint w_offset = embIdx * alignedDim + dim;
-    // Write to output
-    uint o_offset = idx * alignedDim + dim;
-
-    output_data[o_offset] = weight_data[w_offset];
+    // Copy vec4 from weight table to output
+    output_data[idx * alignedDim4 + dim4] = weight_data[embIdx * alignedDim4 + dim4];
 }

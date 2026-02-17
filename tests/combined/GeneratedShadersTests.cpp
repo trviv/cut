@@ -104,11 +104,11 @@ protected:
     const uint32_t threadGroups = (elements + 255) / 256;
     cut::ThreadSize tgSize{threadGroups, 1, 1};
 
-    // Pack push constants: scalar (float) + numElements (uint32)
+    // Pack push constants: numElements (uint32) + scalar (float)
     struct PushConstants {
-      float scalar;
       uint32_t numElements;
-    } pushConstants{scalar, elements};
+      float scalar;
+    } pushConstants{elements, scalar};
 
     interface->encode(
         {shaderModule,
@@ -1529,11 +1529,11 @@ protected:
     const uint32_t threadGroups = (elements + 255) / 256;
     cut::ThreadSize tgSize{threadGroups, 1, 1};
 
-    // Pack push constants: scalar (int32) + numElements (uint32)
+    // Pack push constants: numElements (uint32) + scalar (int32)
     struct PushConstants {
-      int32_t scalar;
       uint32_t numElements;
-    } pushConstants{scalar, elements};
+      int32_t scalar;
+    } pushConstants{elements, scalar};
 
     interface->encode(
         {shaderModule,

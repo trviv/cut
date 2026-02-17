@@ -11,8 +11,8 @@ layout(constant_id = 1) const uint op_enum = OP_BINARY_VEC_SCALAR_ADD;
 
 // Push constants
 layout(push_constant) uniform PushConstants {
-    %SCALAR_DTYPE% scalar;
     uint numElements;
+    %SCALAR_DTYPE% scalar;
 } pushConstants;
 
 // Storage buffers

@@ -443,13 +443,13 @@ void Dispatcher::encode(OperatorEnum op,
   // Add push constant data
   uint32_t numElements = static_cast<uint32_t>(executionSize);
   if (isBinaryVecScalarOp(op)) {
-    // Pack scalar + numElements into push constant data
-    // Shader layout: scalar (4 bytes, type matches dtype) then numElements
+    // Pack numElements + scalar into push constant data
+    // Shader layout: numElements then scalar (4 bytes, type matches dtype)
     // The scalar bytes are already correctly typed by Operations, so copy raw
     struct PushConstants {
-      uint32_t scalarBits;
       uint32_t numElements;
-    } pushData{0, numElements};
+      uint32_t scalarBits;
+    } pushData{numElements, 0};
     if (scalarRawData.size() >= sizeof(uint32_t)) {
       std::memcpy(&pushData.scalarBits, scalarRawData.data(), sizeof(uint32_t));
     }
@@ -472,13 +472,13 @@ void Dispatcher::encode(OperatorEnum op,
     // Recreate dispatch with only handle bindings
     ComputeDispatch ternaryDispatch(shader, workgroupSize,
                                     ternaryHandleBindings);
-    // Pack min/max + numElements as push constants
+    // Pack numElements + min/max as push constants
     // The min/max bytes are already correctly typed by Operations, copy raw
     struct ClampPushConstants {
+      uint32_t numElements;
       uint32_t minBits;
       uint32_t maxBits;
-      uint32_t numElements;
-    } clampPushData{0, 0, numElements};
+    } clampPushData{numElements, 0, 0};
     if (clampRawData.size() >= 2 * sizeof(uint32_t)) {
       std::memcpy(&clampPushData.minBits, clampRawData.data(),
                   sizeof(uint32_t));
@@ -765,9 +765,9 @@ void Dispatcher::encode(OperatorEnum op,
     }
     ComputeDispatch fillDispatch(shader, workgroupSize, handleBindingsOnly);
     struct FillPushConstants {
-      float fillValue;
       uint32_t numElements;
-    } pushData{fillValue, numElements};
+      float fillValue;
+    } pushData{numElements, fillValue};
     fillDispatch.bindData(DataReference(&pushData, sizeof(pushData)),
                           static_cast<uint32_t>(handleBindingsOnly.size()));
     iface_->encode(std::move(fillDispatch));
@@ -790,10 +790,10 @@ void Dispatcher::encode(OperatorEnum op,
     }
     ComputeDispatch rangeDispatch(shader, workgroupSize, handleBindingsOnly);
     struct RangePushConstants {
+      uint32_t numElements;
       float start;
       float step;
-      uint32_t numElements;
-    } pushData{start, step, numElements};
+    } pushData{numElements, start, step};
     rangeDispatch.bindData(DataReference(&pushData, sizeof(pushData)),
                            static_cast<uint32_t>(handleBindingsOnly.size()));
     iface_->encode(std::move(rangeDispatch));
@@ -948,7 +948,11 @@ void Dispatcher::encode(OperatorEnum op,
 
     const uint32_t *p = reinterpret_cast<const uint32_t *>(paramData.data());
     // EmbeddingParams: numIndices(0), embDim(1)
-    uint32_t totalOutputs = p[0] * p[1];
+    // Shader uses vec4 buffers, so dispatch over aligned vec4 elements per row
+    uint32_t numIndices = p[0];
+    uint32_t embDim = p[1];
+    uint32_t alignedDim4 = ((embDim + 3) & ~3u) / 4;
+    uint32_t totalOutputs = numIndices * alignedDim4;
     uint32_t gridX = ((totalOutputs + 255) / 256) * 256;
 
     ThreadSize embWorkgroupSize{gridX, 1, 1};
