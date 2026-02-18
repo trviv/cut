@@ -19,15 +19,25 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
 };
 
 layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    %SCALAR_DTYPE% dataOut[];
+    %VEC_DTYPE% dataOut[];
 };
 
 void main() {
-    uint row = gl_GlobalInvocationID.y;
     uint col = gl_GlobalInvocationID.x;
+    uint row4 = gl_GlobalInvocationID.y;
 
-    if (row < M && col < N) {
-        // Transpose: out[col, row] = in[row, col]
-        dataOut[col * strideOut + row] = dataIn[row * strideIn + col];
-    }
+    uint strideOut4 = strideOut / 4;
+    if (col >= N || row4 >= strideOut4) return;
+
+    uint baseRow = row4 * 4;
+
+    // Read 4 elements from consecutive input rows, same column
+    %VEC_DTYPE% result = %VEC_DTYPE%(0);
+    if (baseRow < M)     result[0] = dataIn[baseRow * strideIn + col];
+    if (baseRow + 1 < M) result[1] = dataIn[(baseRow + 1) * strideIn + col];
+    if (baseRow + 2 < M) result[2] = dataIn[(baseRow + 2) * strideIn + col];
+    if (baseRow + 3 < M) result[3] = dataIn[(baseRow + 3) * strideIn + col];
+
+    // Transpose: write vec4 to consecutive output positions
+    dataOut[col * strideOut4 + row4] = result;
 }

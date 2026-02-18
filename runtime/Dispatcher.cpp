@@ -699,13 +699,13 @@ void Dispatcher::encode(OperatorEnum op,
       iface_->encode(std::move(matmulDispatch));
     } else if (op == Transpose) {
       // 2D dispatch for transpose
+      // Shader writes vec4 output (4 consecutive rows per thread)
       const uint32_t tileSize = 16;
-      uint32_t gridX = (N + tileSize - 1) / tileSize * tileSize;
-      uint32_t gridY = (M + tileSize - 1) / tileSize * tileSize;
-
-      // Compute aligned strides (innermost dim padded to multiple of 4)
       uint32_t strideIn = (N + 3) & ~3u;  // input rows stride
       uint32_t strideOut = (M + 3) & ~3u; // output rows stride
+      uint32_t strideOut4 = strideOut / 4;
+      uint32_t gridX = (N + tileSize - 1) / tileSize * tileSize;
+      uint32_t gridY = (strideOut4 + tileSize - 1) / tileSize * tileSize;
 
       ThreadSize transposeWorkgroupSize{gridX, gridY, 1};
       ComputeDispatch transposeDispatch(shader, transposeWorkgroupSize,
@@ -922,8 +922,10 @@ void Dispatcher::encode(OperatorEnum op,
     uint32_t H_out = (H_in + 2 * padH - kH) / strideH + 1;
     uint32_t W_out = (W_in + 2 * padW - kW) / strideW + 1;
 
+    // Shader writes vec4 output (4 consecutive w_out per thread)
     const uint32_t tileSize = 16;
-    uint32_t gridX = (W_out + tileSize - 1) / tileSize * tileSize;
+    uint32_t outAlignedW4 = ((W_out + 3) & ~3u) / 4;
+    uint32_t gridX = (outAlignedW4 + tileSize - 1) / tileSize * tileSize;
     uint32_t gridY =
         (batchSize * C * H_out + tileSize - 1) / tileSize * tileSize;
 
