@@ -196,10 +196,11 @@ private:
   Tensor getOrCreateShader(OperatorEnum op, DataType dtype);
 
   /**
-   * Computes the execution size for an operator based on its bindings.
+   * Computes the execution config for an operator based on its bindings.
    */
-  size_t getExecutionSize(OperatorEnum op,
-                          const std::vector<ComputeBinding> &bindings) const;
+  ExecutionConfig
+  getExecutionConfig(OperatorEnum op,
+                     const std::vector<ComputeBinding> &bindings) const;
 
   /**
    * Encodes a compute operator using the Dispatcher.

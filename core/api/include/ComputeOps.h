@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 // Include shared definitions (compatible with GLSL)
@@ -354,5 +355,15 @@ enum OperatorEnum {
  * @return A human-readable name for the operator.
  */
 const char *operatorName(OperatorEnum op);
+
+/**
+ * Result of execution size validation, containing the resolved size and the
+ * recommended operator to use (which may differ from the requested operator
+ * based on input shapes).
+ */
+struct ExecutionConfig {
+  size_t size;     ///< Validated execution size.
+  OperatorEnum op; ///< Recommended operator for the given shapes.
+};
 
 } // namespace cut

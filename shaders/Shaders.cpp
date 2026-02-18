@@ -240,11 +240,16 @@ static size_t alignedElementCount(const std::vector<uint32_t> &shape) {
   return count;
 }
 
-size_t validateExecutionSize(OperatorEnum op,
-                             const std::vector<std::vector<uint32_t>> &shapes) {
+ExecutionConfig
+validateExecutionSize(OperatorEnum op,
+                      const std::vector<std::vector<uint32_t>> &shapes) {
   if (shapes.empty()) {
     throw std::runtime_error("No buffer bindings found");
   }
+
+  // Recommend the same op for now; future logic can select a better
+  // variant based on input shapes.
+  OperatorEnum recommendedOp = op;
 
   // Reduction and multi-pass ops use actual (unpadded) element counts
   // to avoid including padding in the result. Return the maximum size
@@ -254,7 +259,7 @@ size_t validateExecutionSize(OperatorEnum op,
     for (const auto &shape : shapes) {
       maxSize = std::max(maxSize, actualElementCount(shape));
     }
-    return maxSize;
+    return {maxSize, recommendedOp};
   }
 
   // Mismatched-size ops (matmul, transpose, tensor creation, etc.)
@@ -265,7 +270,7 @@ size_t validateExecutionSize(OperatorEnum op,
     for (const auto &shape : shapes) {
       maxSize = std::max(maxSize, alignedElementCount(shape));
     }
-    return maxSize;
+    return {maxSize, recommendedOp};
   }
 
   // For elementwise ops, all buffer shapes must produce matching
@@ -280,7 +285,7 @@ size_t validateExecutionSize(OperatorEnum op,
     }
   }
 
-  return executionSize;
+  return {executionSize, recommendedOp};
 }
 
 } // namespace cut

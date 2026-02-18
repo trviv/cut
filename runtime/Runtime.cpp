@@ -201,9 +201,9 @@ Tensor Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
   return shader;
 }
 
-size_t
-Runtime::getExecutionSize(OperatorEnum op,
-                          const std::vector<ComputeBinding> &bindings) const {
+ExecutionConfig
+Runtime::getExecutionConfig(OperatorEnum op,
+                            const std::vector<ComputeBinding> &bindings) const {
   std::vector<std::vector<uint32_t>> shapes;
 
   for (const auto &binding : bindings) {
@@ -252,8 +252,10 @@ void Runtime::encodeOperator(OperatorEnum op,
         });
   }
 
-  // Get execution size for this operator
-  size_t executionSize = getExecutionSize(op, bindings);
+  // Get execution config for this operator
+  ExecutionConfig execConfig = getExecutionConfig(op, bindings);
+  size_t executionSize = execConfig.size;
+  op = execConfig.op;
 
   // Sort with 0 or 1 elements is a no-op (nothing to reorder)
   if ((op == SortBitonic || op == SortRadix) && executionSize <= 1) {

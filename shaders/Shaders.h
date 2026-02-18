@@ -148,17 +148,18 @@ compiledPad(const DataType datatype = DataType::Float32);
 
 /*
  * Validates tensor shapes for an operator and returns the resolved execution
- * size. For elementwise operators (unary, binary, ternary), all buffer shapes
+ * config. For elementwise operators (unary, binary, ternary), all buffer shapes
  * must produce matching execution sizes. Reduction and multi-pass ops use
  * actual (unpadded) element counts and return the maximum. Mismatched-size ops
  * (matmul, transpose, etc.) use aligned element counts and return the maximum.
  *
  * @param op The operator being executed.
  * @param shapes The shapes of all buffer bindings.
- * @return The validated execution size.
+ * @return ExecutionConfig with validated size and recommended operator.
  * @throws std::runtime_error if shapes are invalid for the operator.
  */
-size_t validateExecutionSize(OperatorEnum op,
-                             const std::vector<std::vector<uint32_t>> &shapes);
+ExecutionConfig
+validateExecutionSize(OperatorEnum op,
+                      const std::vector<std::vector<uint32_t>> &shapes);
 
 } // namespace cut
