@@ -56,6 +56,8 @@ set(DTYPE_UInt32_DEFINES "#define DTYPE_IS_UINT 1")
 # Function to preprocess a .shader template and compile a single variant
 # =============================================================================
 function(compile_shader_variant SHADER_SOURCE DTYPE_NAME VEC_TYPE SCALAR_TYPE DTYPE_SIZE DTYPE_DEFINES)
+    # Optional 7th argument: extra DXC flags (e.g. "-Od")
+    set(EXTRA_DXC_FLAGS "${ARGN}")
     get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
     get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
 
@@ -98,7 +100,7 @@ if(EXISTS \${CACHE_FILE})
 else()
     message(STATUS \"Cache miss: ${SHADER_NAME_WE}_${DTYPE_NAME} — compiling\")
     execute_process(
-        COMMAND ${DXC_EXECUTABLE} -T cs_6_0 -E main -spirv -fspv-target-env=vulkan1.0 -I ${SHADER_INCLUDE_DIR} \"${PREPROCESSED_FILE}\" -Fo \"${SHADER_BINARY}\"
+        COMMAND ${DXC_EXECUTABLE} -T cs_6_0 -E main -spirv -fspv-target-env=vulkan1.0 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${PREPROCESSED_FILE}\" -Fo \"${SHADER_BINARY}\"
         RESULT_VARIABLE result
     )
     if(NOT result EQUAL 0)
@@ -238,7 +240,12 @@ endfunction()
 file(GLOB_RECURSE SHADER_SOURCES
     "${SHADER_SOURCE_DIR}/*.shader"
 )
+
+# Separate linkable shaders (compiled with -Od so late-bound functions are
+# preserved as distinct SPIR-V functions for runtime linking).
+set(LINKABLE_SHADERS "")
 message(STATUS "Found shader files ${SHADER_SOURCES}")
+message(STATUS "Linkable shader files ${LINKABLE_SHADERS}")
 
 # Compile each shader for each datatype variant
 foreach(SHADER_SOURCE ${SHADER_SOURCES})
@@ -251,8 +258,22 @@ foreach(SHADER_SOURCE ${SHADER_SOURCES})
     endforeach()
 endforeach()
 
-if(SHADER_SOURCES)
-    generate_shader_source("${SHADER_SOURCES}")
+# Compile linkable shaders with -Od to preserve function boundaries
+foreach(SHADER_SOURCE ${LINKABLE_SHADERS})
+    foreach(VARIANT ${DTYPE_VARIANTS})
+        compile_shader_variant(${SHADER_SOURCE} ${VARIANT}
+            "${DTYPE_${VARIANT}_VEC}"
+            "${DTYPE_${VARIANT}_SCALAR}"
+            "${DTYPE_${VARIANT}_SIZE}"
+            "${DTYPE_${VARIANT}_DEFINES}"
+            "-Od")
+    endforeach()
+endforeach()
+
+# Combine all shader sources for embedding
+set(ALL_SHADER_SOURCES ${SHADER_SOURCES} ${LINKABLE_SHADERS})
+if(ALL_SHADER_SOURCES)
+    generate_shader_source("${ALL_SHADER_SOURCES}")
 else()
     # Generate a stub CompiledShaders.cpp when there are no shader sources
     file(WRITE ${SHADERS_SOURCE_FILE} "
