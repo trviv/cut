@@ -15,12 +15,26 @@ struct PushConstants {
     uint M;
     uint K;
     uint N;
+    uint strideA; // padded K (multiple of 4)
+    uint strideB; // padded N (multiple of 4)
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataA;
-[[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataB;
+[[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE%> dataA;
+[[vk::binding(1, 0)]] StructuredBuffer<%VEC_DTYPE%> dataB;
 [[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataC;
+
+%SCALAR_DTYPE% loadA(uint row, uint col) {
+    if (row >= pc.M || col >= pc.K) return (%SCALAR_DTYPE%)(0);
+    uint idx = row * pc.strideA + col;
+    return dataA[idx >> 2][idx & 3];
+}
+
+%SCALAR_DTYPE% loadB(uint row, uint col) {
+    if (row >= pc.K || col >= pc.N) return (%SCALAR_DTYPE%)(0);
+    uint idx = row * pc.strideB + col;
+    return dataB[idx >> 2][idx & 3];
+}
 
 [numthreads(WR * WC, 1, 1)]
 void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
@@ -47,7 +61,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
         [unroll] for (uint m = 0; m < TM; m++) {
             uint aRow = blockRowStart + wr * TM + m;
             uint aCol = kBase + wc;
-            a_reg[m] = (aRow < pc.M && aCol < pc.K) ? dataA[aRow * pc.K + aCol] : (%SCALAR_DTYPE%)(0);
+            a_reg[m] = loadA(aRow, aCol);
         }
 
         // Each thread loads TN values from B at K offset (kBase + wr)
@@ -56,7 +70,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
         [unroll] for (uint n = 0; n < TN; n++) {
             uint bRow = kBase + wr;
             uint bCol = blockColStart + wc * TN + n;
-            b_reg[n] = (wr < WC && bRow < pc.K && bCol < pc.N) ? dataB[bRow * pc.N + bCol] : (%SCALAR_DTYPE%)(0);
+            b_reg[n] = (wr < WC) ? loadB(bRow, bCol) : (%SCALAR_DTYPE%)(0);
         }
 
         // Inner loop: broadcast A and B across the wave using WaveReadLaneAt
@@ -86,7 +100,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             uint outRow = blockRowStart + wr * TM + m;
             uint outCol = blockColStart + wc * TN + n;
             if (outRow < pc.M && outCol < pc.N) {
-                dataC[outRow * pc.N + outCol] = acc[m][n];
+                dataC[outRow * pc.strideB + outCol] = acc[m][n];
             }
         }
     }

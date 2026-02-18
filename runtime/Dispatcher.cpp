@@ -758,9 +758,11 @@ void Dispatcher::encode(OperatorEnum op,
       ThreadSize matmulWorkgroupSize{gridX, gridY, 1};
       ComputeDispatch matmulDispatch(shader, matmulWorkgroupSize,
                                      matrixHandleBindings);
+      uint32_t strideA = (K + 3) & ~3u; // padded innermost dim of A
+      uint32_t strideB = (N + 3) & ~3u; // padded innermost dim of B
       struct MatMulPushConstants {
-        uint32_t M, K, N;
-      } pushData{M, K, N};
+        uint32_t M, K, N, strideA, strideB;
+      } pushData{M, K, N, strideA, strideB};
       matmulDispatch.bindData(
           DataReference(&pushData, sizeof(pushData)),
           static_cast<uint32_t>(matrixHandleBindings.size()));

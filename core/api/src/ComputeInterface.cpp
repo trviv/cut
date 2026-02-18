@@ -77,14 +77,17 @@ void ComputeInterface::copyActualToAligned(const void *src,
     return;
   }
 
-  // Full copy with padding - copy row by row
+  // Full copy with padding - copy row by row, zeroing padding
   const size_t numRows = buffer.executionSize() / alignedInnerDim;
   const size_t srcRowBytes = innerDim * elementSize;
   const size_t dstRowBytes = alignedInnerDim * elementSize;
+  const size_t padBytes = dstRowBytes - srcRowBytes;
 
   for (size_t row = 0; row < numRows; ++row) {
     std::memcpy(dstBytes + row * dstRowBytes, srcBytes + row * srcRowBytes,
                 srcRowBytes);
+    // Zero padding elements so vectorized reads (vec4) get correct values
+    std::memset(dstBytes + row * dstRowBytes + srcRowBytes, 0, padBytes);
   }
 }
 

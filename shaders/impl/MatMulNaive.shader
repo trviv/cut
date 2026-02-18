@@ -10,13 +10,13 @@ struct PushConstants {
     uint M;  // rows of A
     uint K;  // cols of A / rows of B
     uint N;  // cols of B
+    uint strideA; // padded K (multiple of 4)
+    uint strideB; // padded N (multiple of 4)
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataA;
-
-[[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataB;
-
+[[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE%> dataA;
+[[vk::binding(1, 0)]] StructuredBuffer<%VEC_DTYPE%> dataB;
 [[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataC;
 
 [numthreads(16, 16, 1)]
@@ -28,8 +28,10 @@ void main(uint3 DTid : SV_DispatchThreadID) {
 
     %SCALAR_DTYPE% sum = (%SCALAR_DTYPE%)(0);
     for (uint k = 0; k < pc.K; k++) {
-        sum += dataA[row * pc.K + k] * dataB[k * pc.N + col];
+        uint idxA = row * pc.strideA + k;
+        uint idxB = k * pc.strideB + col;
+        sum += dataA[idxA >> 2][idxA & 3] * dataB[idxB >> 2][idxB & 3];
     }
 
-    dataC[row * pc.N + col] = sum;
+    dataC[row * pc.strideB + col] = sum;
 }

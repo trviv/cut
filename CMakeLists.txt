@@ -95,6 +95,7 @@ set(LIB_HEADERS
     core/backends/vulkan/VulkanCompute.h
     core/backends/vulkan/VulkanCommandBuffer.h
     shaders/Shaders.h
+    shaders/interface/MatMul.h
     shaders/ShaderUtils.h
     runtime/Runtime.h
     runtime/Dispatcher.h
