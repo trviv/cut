@@ -1,23 +1,18 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numElements;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict buffer Data {
-    uint data[];
-};
+[[vk::binding(0, 0)]] RWStructuredBuffer<uint> data;
 
+[numthreads(1, 1, 1)]
 void main() {
     uint sum = 0;
-    for (uint i = 0; i < numElements; i++) {
+    for (uint i = 0; i < pc.numElements; i++) {
         uint val = data[i];
         data[i] = sum;
         sum += val;

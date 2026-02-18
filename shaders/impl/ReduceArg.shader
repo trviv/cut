@@ -1,27 +1,19 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 // Specialization constants
-layout(constant_id = 1) const uint op_enum = OP_REDUCE_ARGMAX;
+[[vk::constant_id(1)]] const uint op_enum = OP_REDUCE_ARGMAX;
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numElements;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    float dataIn[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<float> dataIn;
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    float dataOut[];
-};
+[[vk::binding(1, 0)]] RWStructuredBuffer<float> dataOut;
 
-shared float sharedVal[256];
-shared uint  sharedIdx[256];
+groupshared float sharedVal[256];
+groupshared uint  sharedIdx[256];
 
 bool isBetter(float candidate, float current) {
     if (op_enum == OP_REDUCE_ARGMAX) {
@@ -39,12 +31,13 @@ float worstVal() {
     }
 }
 
-void main() {
-    uint tid = gl_LocalInvocationID.x;
+[numthreads(256, 1, 1)]
+void main(uint3 GTid : SV_GroupThreadID) {
+    uint tid = GTid.x;
 
     float localVal = worstVal();
     uint localIdx = 0;
-    for (uint i = tid; i < numElements; i += 256) {
+    for (uint i = tid; i < pc.numElements; i += 256) {
         float b = dataIn[i];
         if (isBetter(b, localVal)) {
             localVal = b;
@@ -53,7 +46,7 @@ void main() {
     }
     sharedVal[tid] = localVal;
     sharedIdx[tid] = localIdx;
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
 
     for (uint stride = 128; stride > 0; stride >>= 1) {
         if (tid < stride) {
@@ -62,10 +55,10 @@ void main() {
                 sharedIdx[tid] = sharedIdx[tid + stride];
             }
         }
-        barrier();
+        GroupMemoryBarrierWithGroupSync();
     }
 
     if (tid == 0) {
-        dataOut[0] = float(sharedIdx[0]);
+        dataOut[0] = (float)(sharedIdx[0]);
     }
 }

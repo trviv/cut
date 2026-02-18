@@ -1,39 +1,31 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint srcAlignedInner;
     uint srcActualInner;
     uint dstAlignedInner;
     uint dstActualInner;
     uint totalElements;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    %SCALAR_DTYPE% dataIn[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataOut;
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    %SCALAR_DTYPE% dataOut[];
-};
+[numthreads(256, 1, 1)]
+void main(uint3 DTid : SV_DispatchThreadID) {
+    uint gid = DTid.x;
 
-void main() {
-    uint gid = gl_GlobalInvocationID.x;
-
-    if (gid >= totalElements) {
+    if (gid >= pc.totalElements) {
         return;
     }
 
-    uint srcRow = gid / srcActualInner;
-    uint srcCol = gid % srcActualInner;
-    uint dstRow = gid / dstActualInner;
-    uint dstCol = gid % dstActualInner;
+    uint srcRow = gid / pc.srcActualInner;
+    uint srcCol = gid % pc.srcActualInner;
+    uint dstRow = gid / pc.dstActualInner;
+    uint dstCol = gid % pc.dstActualInner;
 
-    dataOut[dstRow * dstAlignedInner + dstCol] = dataIn[srcRow * srcAlignedInner + srcCol];
+    dataOut[dstRow * pc.dstAlignedInner + dstCol] = dataIn[srcRow * pc.srcAlignedInner + srcCol];
 }

@@ -1,37 +1,29 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numElements;
     uint originalNumElements;
     uint reduceOp;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    %SCALAR_DTYPE% dataIn[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    %SCALAR_DTYPE% dataOut[];
-};
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataOut;
 
-shared %SCALAR_DTYPE% sharedData[256];
+groupshared %SCALAR_DTYPE% sharedData[256];
 
 %SCALAR_DTYPE% identity() {
-    switch (reduceOp) {
+    switch (pc.reduceOp) {
         case OP_REDUCE_SUM:
         case OP_REDUCE_MEAN:
         case OP_REDUCE_ANY:
-            return %SCALAR_DTYPE%(0);
+            return (%SCALAR_DTYPE%)(0);
         case OP_REDUCE_PROD:
         case OP_REDUCE_ALL:
-            return %SCALAR_DTYPE%(1);
+            return (%SCALAR_DTYPE%)(1);
         case OP_REDUCE_MIN:
 #ifdef DTYPE_IS_FLOAT
             return 3.402823466e+38;
@@ -49,12 +41,12 @@ shared %SCALAR_DTYPE% sharedData[256];
             return -2147483648;
 #endif
         default:
-            return %SCALAR_DTYPE%(0);
+            return (%SCALAR_DTYPE%)(0);
     }
 }
 
 %SCALAR_DTYPE% reduce(%SCALAR_DTYPE% a, %SCALAR_DTYPE% b) {
-    switch (reduceOp) {
+    switch (pc.reduceOp) {
         case OP_REDUCE_SUM:
         case OP_REDUCE_MEAN:
             return a + b;
@@ -81,27 +73,28 @@ shared %SCALAR_DTYPE% sharedData[256];
     }
 }
 
-void main() {
-    uint tid = gl_LocalInvocationID.x;
+[numthreads(256, 1, 1)]
+void main(uint3 GTid : SV_GroupThreadID) {
+    uint tid = GTid.x;
 
     %SCALAR_DTYPE% localVal = identity();
-    for (uint i = tid; i < numElements; i += 256) {
+    for (uint i = tid; i < pc.numElements; i += 256) {
         localVal = reduce(localVal, dataIn[i]);
     }
     sharedData[tid] = localVal;
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
 
     for (uint stride = 128; stride > 0; stride >>= 1) {
         if (tid < stride) {
             sharedData[tid] = reduce(sharedData[tid], sharedData[tid + stride]);
         }
-        barrier();
+        GroupMemoryBarrierWithGroupSync();
     }
 
     if (tid == 0) {
         %SCALAR_DTYPE% result = sharedData[0];
-        if (reduceOp == OP_REDUCE_MEAN) {
-            result = result / %SCALAR_DTYPE%(originalNumElements);
+        if (pc.reduceOp == OP_REDUCE_MEAN) {
+            result = result / (%SCALAR_DTYPE%)(pc.originalNumElements);
         }
         dataOut[0] = result;
     }

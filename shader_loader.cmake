@@ -18,32 +18,36 @@ set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/core/api/include)
 set(SHADER_CACHE_DIR ${CMAKE_SOURCE_DIR}/.shader_cache)
 file(MAKE_DIRECTORY ${SHADER_CACHE_DIR})
 
+# Find DXC (DirectX Shader Compiler) for HLSL -> SPIR-V compilation
+find_program(DXC_EXECUTABLE dxc REQUIRED)
+message(STATUS "DXC compiler: ${DXC_EXECUTABLE}")
+
 # =============================================================================
 # Datatype variant definitions
 # Each .shader template is compiled once per variant listed here.
 # =============================================================================
 set(DTYPE_VARIANTS "Float32" "Float16" "Int32" "UInt32")
 
-# Float32: vec4 / float
-set(DTYPE_Float32_VEC "vec4")
+# Float32: float4 / float
+set(DTYPE_Float32_VEC "float4")
 set(DTYPE_Float32_SCALAR "float")
 set(DTYPE_Float32_SIZE "4")
 set(DTYPE_Float32_DEFINES "#define DTYPE_IS_FLOAT 1")
 
-# Float16: vec4 / float (mediump qualifier breaks constructors, use vec4)
-set(DTYPE_Float16_VEC "vec4")
+# Float16: float4 / float (mediump qualifier breaks constructors, use float4)
+set(DTYPE_Float16_VEC "float4")
 set(DTYPE_Float16_SCALAR "float")
 set(DTYPE_Float16_SIZE "4")
 set(DTYPE_Float16_DEFINES "#define DTYPE_IS_FLOAT 1")
 
-# Int32: ivec4 / int
-set(DTYPE_Int32_VEC "ivec4")
+# Int32: int4 / int
+set(DTYPE_Int32_VEC "int4")
 set(DTYPE_Int32_SCALAR "int")
 set(DTYPE_Int32_SIZE "4")
 set(DTYPE_Int32_DEFINES "#define DTYPE_IS_INT 1")
 
-# UInt32: uvec4 / uint
-set(DTYPE_UInt32_VEC "uvec4")
+# UInt32: uint4 / uint
+set(DTYPE_UInt32_VEC "uint4")
 set(DTYPE_UInt32_SCALAR "uint")
 set(DTYPE_UInt32_SIZE "4")
 set(DTYPE_UInt32_DEFINES "#define DTYPE_IS_UINT 1")
@@ -55,7 +59,7 @@ function(compile_shader_variant SHADER_SOURCE DTYPE_NAME VEC_TYPE SCALAR_TYPE DT
     get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
     get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
 
-    set(PREPROCESSED_FILE ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}_${DTYPE_NAME}.glsl)
+    set(PREPROCESSED_FILE ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}_${DTYPE_NAME}.shader)
     set(SHADER_BINARY ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}_${DTYPE_NAME}.spv)
 
     # Create a CMake script that preprocesses the template at build time
@@ -82,9 +86,9 @@ file(WRITE \"${PREPROCESSED_FILE}\" \"\${SHADER_CONTENT}\")
     set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${SHADER_NAME_WE}_${DTYPE_NAME}.cmake)
     file(WRITE ${COMPILE_SCRIPT} "
 # Hash the preprocessed shader and included header to form a cache key
-file(MD5 \"${PREPROCESSED_FILE}\" GLSL_HASH)
+file(MD5 \"${PREPROCESSED_FILE}\" HLSL_HASH)
 file(MD5 \"${SHADER_INCLUDE_DIR}/ComputeOpsShared.h\" HEADER_HASH)
-string(MD5 CACHE_KEY \"\${GLSL_HASH}_\${HEADER_HASH}\")
+string(MD5 CACHE_KEY \"\${HLSL_HASH}_\${HEADER_HASH}\")
 
 set(CACHE_FILE \"${SHADER_CACHE_DIR}/\${CACHE_KEY}.spv\")
 
@@ -94,7 +98,7 @@ if(EXISTS \${CACHE_FILE})
 else()
     message(STATUS \"Cache miss: ${SHADER_NAME_WE}_${DTYPE_NAME} — compiling\")
     execute_process(
-        COMMAND ${Vulkan_GLSLC_EXECUTABLE} -mfmt=c -fshader-stage=comp -I${SHADER_INCLUDE_DIR} \"${PREPROCESSED_FILE}\" -o \"${SHADER_BINARY}\" --target-env=vulkan1.0
+        COMMAND ${DXC_EXECUTABLE} -T cs_6_0 -E main -spirv -fspv-target-env=vulkan1.0 -I ${SHADER_INCLUDE_DIR} \"${PREPROCESSED_FILE}\" -Fo \"${SHADER_BINARY}\"
         RESULT_VARIABLE result
     )
     if(NOT result EQUAL 0)
@@ -184,7 +188,10 @@ if(NUM_SHADERS GREATER 0)
         foreach(VARIANT \${DTYPE_VARIANTS})
             set(BINARY \${SHADER_BINARY_DIR}/\${ENUM_NAME}_\${VARIANT}.spv)
             if(EXISTS \${BINARY})
-                file(READ \${BINARY} SPIRV_DATA)
+                # Read binary SPIR-V and convert to C-style uint32_t hex array
+                file(READ \${BINARY} SPIRV_HEX HEX)
+                # Convert little-endian bytes to uint32_t hex values
+                string(REGEX REPLACE \"([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])\" \"0x\\\\4\\\\3\\\\2\\\\1,\" SPIRV_DATA \"\${SPIRV_HEX}\")
                 file(APPEND \${OUTPUT_FILE} \"    case DataType::\${VARIANT}:
         return {{\${SPIRV_DATA}}};
 \")

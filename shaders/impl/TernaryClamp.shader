@@ -1,33 +1,25 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+[[vk::constant_id(0)]] const uint dtype_vec_size = 4;
 
-layout(constant_id = 0) const uint dtype_vec_size = 4;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numElements;
     %SCALAR_DTYPE% minVal;
     %SCALAR_DTYPE% maxVal;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    %VEC_DTYPE% dataIn[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE%> dataIn;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%VEC_DTYPE%> dataOut;
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    %VEC_DTYPE% dataOut[];
-};
-
-void main() {
-    uint index = gl_GlobalInvocationID.x;
-    if (index * dtype_vec_size >= numElements) {
+[numthreads(256, 1, 1)]
+void main(uint3 DTid : SV_DispatchThreadID) {
+    uint index = DTid.x;
+    if (index * dtype_vec_size >= pc.numElements) {
         return;
     }
 
-    dataOut[index] = clamp(dataIn[index], %VEC_DTYPE%(minVal), %VEC_DTYPE%(maxVal));
+    dataOut[index] = clamp(dataIn[index], (%VEC_DTYPE%)(pc.minVal), (%VEC_DTYPE%)(pc.maxVal));
 }

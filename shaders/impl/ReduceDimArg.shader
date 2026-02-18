@@ -1,28 +1,20 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 // Specialization constants
-layout(constant_id = 1) const uint op_enum = OP_REDUCE_ARGMAX;
+[[vk::constant_id(1)]] const uint op_enum = OP_REDUCE_ARGMAX;
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint outerSize;
     uint reduceSize;
     uint innerSize;
     uint inOuterStride;
     uint inReduceStride;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    float dataIn[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<float> dataIn;
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    float dataOut[];
-};
+[[vk::binding(1, 0)]] RWStructuredBuffer<float> dataOut;
 
 bool isBetter(float candidate, float current) {
     if (op_enum == OP_REDUCE_ARGMAX) {
@@ -40,26 +32,27 @@ float worstVal() {
     }
 }
 
-void main() {
-    uint outIdx = gl_GlobalInvocationID.x;
-    uint numOutputs = outerSize * innerSize;
+[numthreads(256, 1, 1)]
+void main(uint3 DTid : SV_DispatchThreadID) {
+    uint outIdx = DTid.x;
+    uint numOutputs = pc.outerSize * pc.innerSize;
 
     if (outIdx >= numOutputs) {
         return;
     }
 
-    uint outer = outIdx / innerSize;
-    uint inner = outIdx % innerSize;
+    uint outer = outIdx / pc.innerSize;
+    uint inner = outIdx % pc.innerSize;
 
     float bestVal = worstVal();
     uint bestIdx = 0;
-    for (uint r = 0; r < reduceSize; r++) {
-        uint inIdx = outer * inOuterStride + r * inReduceStride + inner;
+    for (uint r = 0; r < pc.reduceSize; r++) {
+        uint inIdx = outer * pc.inOuterStride + r * pc.inReduceStride + inner;
         float b = dataIn[inIdx];
         if (isBetter(b, bestVal)) {
             bestVal = b;
             bestIdx = r;
         }
     }
-    dataOut[outIdx] = float(bestIdx);
+    dataOut[outIdx] = (float)(bestIdx);
 }

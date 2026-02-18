@@ -1,43 +1,36 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 #define WORKGROUP_SIZE 256
-layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numElements;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    float dataIn[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<float> dataIn;
+[[vk::binding(1, 0)]] RWStructuredBuffer<float> dataOut;
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    float dataOut[];
-};
+groupshared float sharedData[WORKGROUP_SIZE];
 
-shared float sharedData[WORKGROUP_SIZE];
-
-void main() {
-    uint tid = gl_LocalInvocationID.x;
+[numthreads(WORKGROUP_SIZE, 1, 1)]
+void main(uint3 GTid : SV_GroupThreadID) {
+    uint tid = GTid.x;
 
     // Each thread accumulates squared values via strided loop
     float localVal = 0.0;
-    for (uint i = tid; i < numElements; i += WORKGROUP_SIZE) {
+    for (uint i = tid; i < pc.numElements; i += WORKGROUP_SIZE) {
         float val = dataIn[i];
         localVal += val * val;
     }
     sharedData[tid] = localVal;
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
 
     // Parallel reduction in shared memory
     for (uint stride = WORKGROUP_SIZE / 2; stride > 0; stride >>= 1) {
         if (tid < stride) {
             sharedData[tid] += sharedData[tid + stride];
         }
-        barrier();
+        GroupMemoryBarrierWithGroupSync();
     }
 
     // Write sqrt of result

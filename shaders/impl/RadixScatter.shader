@@ -1,50 +1,34 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
 #define RADIX 16
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numElements;
     uint bitOffset;
     uint groupCount;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer KeysIn {
-    uint keysIn[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<uint> keysIn;
+[[vk::binding(1, 0)]] StructuredBuffer<uint> valsIn;
+[[vk::binding(2, 0)]] RWStructuredBuffer<uint> keysOut;
+[[vk::binding(3, 0)]] RWStructuredBuffer<uint> valsOut;
+[[vk::binding(4, 0)]] RWStructuredBuffer<uint> scannedHist;
 
-layout(set = 0, binding = 1, std430) restrict readonly buffer ValsIn {
-    uint valsIn[];
-};
-
-layout(set = 0, binding = 2, std430) restrict writeonly buffer KeysOut {
-    uint keysOut[];
-};
-
-layout(set = 0, binding = 3, std430) restrict writeonly buffer ValsOut {
-    uint valsOut[];
-};
-
-layout(set = 0, binding = 4, std430) restrict buffer ScannedHist {
-    uint scannedHist[];
-};
-
+[numthreads(1, 1, 1)]
 void main() {
     // Load global starting offsets for each digit
     uint offset[RADIX];
     for (uint d = 0; d < RADIX; d++) {
-        offset[d] = scannedHist[d * groupCount];
+        offset[d] = scannedHist[d * pc.groupCount];
     }
 
     // Sequential scatter preserves input order (stability)
-    for (uint i = 0; i < numElements; i++) {
+    for (uint i = 0; i < pc.numElements; i++) {
         uint key = keysIn[i];
-        uint digit = (key >> bitOffset) & 0xFu;
+        uint digit = (key >> pc.bitOffset) & 0xFu;
         uint pos = offset[digit];
         keysOut[pos] = key;
         valsOut[pos] = valsIn[i];

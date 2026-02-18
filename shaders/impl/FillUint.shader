@@ -1,24 +1,19 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numElements;
     uint fillValue;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict writeonly buffer BufferOut {
-    uint dataOut[];
-};
+[[vk::binding(0, 0)]] RWStructuredBuffer<uint> dataOut;
 
-void main() {
-    uint idx = gl_GlobalInvocationID.x;
-    if (idx < numElements) {
-        dataOut[idx] = fillValue;
+[numthreads(256, 1, 1)]
+void main(uint3 DTid : SV_DispatchThreadID) {
+    uint idx = DTid.x;
+    if (idx < pc.numElements) {
+        dataOut[idx] = pc.fillValue;
     }
 }

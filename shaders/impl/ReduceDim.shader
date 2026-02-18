@@ -1,30 +1,22 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
 // Specialization constants
-layout(constant_id = 1) const uint op_enum = OP_REDUCE_SUM;
+[[vk::constant_id(1)]] const uint op_enum = OP_REDUCE_SUM;
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint outerSize;
     uint reduceSize;
     uint innerSize;
     uint inOuterStride;
     uint inReduceStride;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIn {
-    %SCALAR_DTYPE% dataIn[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
-    %SCALAR_DTYPE% dataOut[];
-};
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataOut;
 
 %SCALAR_DTYPE% identity() {
     switch (op_enum) {
@@ -32,10 +24,10 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
         case OP_REDUCE_MEAN:
         case OP_REDUCE_ANY:
         case OP_NORM_DIM:
-            return %SCALAR_DTYPE%(0);
+            return (%SCALAR_DTYPE%)(0);
         case OP_REDUCE_PROD:
         case OP_REDUCE_ALL:
-            return %SCALAR_DTYPE%(1);
+            return (%SCALAR_DTYPE%)(1);
         case OP_REDUCE_MIN:
 #ifdef DTYPE_IS_FLOAT
             return 3.402823466e+38;
@@ -53,7 +45,7 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
             return -2147483648;
 #endif
         default:
-            return %SCALAR_DTYPE%(0);
+            return (%SCALAR_DTYPE%)(0);
     }
 }
 
@@ -87,26 +79,27 @@ layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOut {
     }
 }
 
-void main() {
-    uint outIdx = gl_GlobalInvocationID.x;
-    uint numOutputs = outerSize * innerSize;
+[numthreads(256, 1, 1)]
+void main(uint3 DTid : SV_DispatchThreadID) {
+    uint outIdx = DTid.x;
+    uint numOutputs = pc.outerSize * pc.innerSize;
 
     if (outIdx >= numOutputs) {
         return;
     }
 
-    uint outer = outIdx / innerSize;
-    uint inner = outIdx % innerSize;
+    uint outer = outIdx / pc.innerSize;
+    uint inner = outIdx % pc.innerSize;
 
     %SCALAR_DTYPE% val = identity();
-    for (uint r = 0; r < reduceSize; r++) {
-        uint inIdx = outer * inOuterStride + r * inReduceStride + inner;
+    for (uint r = 0; r < pc.reduceSize; r++) {
+        uint inIdx = outer * pc.inOuterStride + r * pc.inReduceStride + inner;
         val = reduceOp(val, dataIn[inIdx]);
     }
 
     // Finalization
     if (op_enum == OP_REDUCE_MEAN) {
-        val = val / %SCALAR_DTYPE%(reduceSize);
+        val = val / (%SCALAR_DTYPE%)(pc.reduceSize);
     } else if (op_enum == OP_NORM_DIM) {
 #ifdef DTYPE_IS_FLOAT
         val = sqrt(val);

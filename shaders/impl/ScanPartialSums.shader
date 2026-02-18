@@ -1,23 +1,18 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numGroups;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict buffer PartialSums {
-    float partialSums[];
-};
+[[vk::binding(0, 0)]] RWStructuredBuffer<float> partialSums;
 
+[numthreads(1, 1, 1)]
 void main() {
     float sum = 0.0;
-    for (uint i = 0; i < numGroups; i++) {
+    for (uint i = 0; i < pc.numGroups; i++) {
         float val = partialSums[i];
         partialSums[i] = sum;
         sum += val;

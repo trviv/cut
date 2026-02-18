@@ -1,13 +1,8 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint ndim;
     uint inShape[4];
     uint outShape[4];
@@ -15,73 +10,71 @@ layout(push_constant) uniform PushConstants {
     uint totalElements;
     float fillValue;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferInput {
-    %SCALAR_DTYPE% input_data[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> input_data;
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer BufferOutput {
-    %SCALAR_DTYPE% output_data[];
-};
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> output_data;
 
-void main() {
-    uint gid = gl_GlobalInvocationID.x;
-    if (gid >= totalElements) return;
+[numthreads(256, 1, 1)]
+void main(uint3 DTid : SV_DispatchThreadID) {
+    uint gid = DTid.x;
+    if (gid >= pc.totalElements) return;
 
-    uint outAlignedInner = (outShape[ndim - 1] + 3) & ~3u;
-    uint inAlignedInner = (inShape[ndim - 1] + 3) & ~3u;
+    uint outAlignedInner = (pc.outShape[pc.ndim - 1] + 3) & ~3u;
+    uint inAlignedInner = (pc.inShape[pc.ndim - 1] + 3) & ~3u;
 
     // Decompose gid into coords using LOGICAL output shape (not aligned)
     uint coords[4];
     uint remaining = gid;
-    for (int d = int(ndim) - 1; d >= 0; d--) {
-        coords[d] = remaining % outShape[d];
-        remaining = remaining / outShape[d];
+    for (int d = int(pc.ndim) - 1; d >= 0; d--) {
+        coords[d] = remaining % pc.outShape[d];
+        remaining = remaining / pc.outShape[d];
     }
 
     // Compute output buffer offset using aligned strides
     uint outStrides[4];
-    outStrides[ndim - 1] = 1;
-    if (ndim >= 2) {
-        outStrides[ndim - 2] = outAlignedInner;
-        for (int d = int(ndim) - 3; d >= 0; d--) {
-            outStrides[d] = outStrides[d + 1] * outShape[d + 1];
+    outStrides[pc.ndim - 1] = 1;
+    if (pc.ndim >= 2) {
+        outStrides[pc.ndim - 2] = outAlignedInner;
+        for (int d = int(pc.ndim) - 3; d >= 0; d--) {
+            outStrides[d] = outStrides[d + 1] * pc.outShape[d + 1];
         }
     }
     uint outIdx = 0;
-    for (uint d = 0; d < ndim; d++) {
+    for (uint d = 0; d < pc.ndim; d++) {
         outIdx += coords[d] * outStrides[d];
     }
 
     // Check if this coord is in the padding region or the actual data region
     bool inBounds = true;
     uint inCoords[4];
-    for (uint d = 0; d < ndim; d++) {
-        if (coords[d] < padBefore[d] || coords[d] >= padBefore[d] + inShape[d]) {
+    for (uint d = 0; d < pc.ndim; d++) {
+        if (coords[d] < pc.padBefore[d] || coords[d] >= pc.padBefore[d] + pc.inShape[d]) {
             inBounds = false;
             break;
         }
-        inCoords[d] = coords[d] - padBefore[d];
+        inCoords[d] = coords[d] - pc.padBefore[d];
     }
 
     if (inBounds) {
         // Compute input flat index (with aligned innermost)
         uint inStrides[4];
-        inStrides[ndim - 1] = 1;
-        if (ndim >= 2) {
-            inStrides[ndim - 2] = inAlignedInner;
-            for (int d = int(ndim) - 3; d >= 0; d--) {
-                inStrides[d] = inStrides[d + 1] * inShape[d + 1];
+        inStrides[pc.ndim - 1] = 1;
+        if (pc.ndim >= 2) {
+            inStrides[pc.ndim - 2] = inAlignedInner;
+            for (int d = int(pc.ndim) - 3; d >= 0; d--) {
+                inStrides[d] = inStrides[d + 1] * pc.inShape[d + 1];
             }
         }
 
         uint inIdx = 0;
-        for (uint d = 0; d < ndim; d++) {
+        for (uint d = 0; d < pc.ndim; d++) {
             inIdx += inCoords[d] * inStrides[d];
         }
 
         output_data[outIdx] = input_data[inIdx];
     } else {
-        output_data[outIdx] = %SCALAR_DTYPE%(fillValue);
+        output_data[outIdx] = (%SCALAR_DTYPE%)(pc.fillValue);
     }
 }

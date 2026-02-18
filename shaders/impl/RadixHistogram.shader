@@ -1,50 +1,43 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
 #define WG_SIZE 256
 #define RADIX 16
-layout(local_size_x = WG_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numElements;
     uint bitOffset;
     uint groupCount;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer Keys {
-    uint keys[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<uint> keys;
+[[vk::binding(1, 0)]] RWStructuredBuffer<uint> histogram;
 
-layout(set = 0, binding = 1, std430) restrict writeonly buffer Histogram {
-    uint histogram[];
-};
+groupshared uint localHist[RADIX];
 
-shared uint localHist[RADIX];
-
-void main() {
-    uint tid = gl_LocalInvocationID.x;
-    uint gid = gl_WorkGroupID.x;
+[numthreads(WG_SIZE, 1, 1)]
+void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
+    uint tid = GTid.x;
+    uint gid = Gid.x;
 
     // Clear shared histogram
     if (tid < RADIX) {
         localHist[tid] = 0;
     }
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
 
     // Count digits for this workgroup's elements
-    for (uint i = gid * WG_SIZE + tid; i < numElements; i += WG_SIZE * groupCount) {
-        uint digit = (keys[i] >> bitOffset) & 0xFu;
-        atomicAdd(localHist[digit], 1);
+    for (uint i = gid * WG_SIZE + tid; i < pc.numElements; i += WG_SIZE * pc.groupCount) {
+        uint digit = (keys[i] >> pc.bitOffset) & 0xFu;
+        InterlockedAdd(localHist[digit], 1);
     }
-    barrier();
+    GroupMemoryBarrierWithGroupSync();
 
     // Write local histogram to global memory
     // Layout: histogram[digit * groupCount + gid]
     if (tid < RADIX) {
-        histogram[tid * groupCount + gid] = localHist[tid];
+        histogram[tid * pc.groupCount + gid] = localHist[tid];
     }
 }

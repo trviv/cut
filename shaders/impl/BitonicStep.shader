@@ -1,35 +1,27 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numElements;
     uint outerStep;
     uint innerStep;
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict buffer Keys {
-    float keys[];
-};
+[[vk::binding(0, 0)]] RWStructuredBuffer<float> keys;
+[[vk::binding(1, 0)]] RWStructuredBuffer<uint> vals;
 
-layout(set = 0, binding = 1, std430) restrict buffer Values {
-    uint vals[];
-};
+[numthreads(256, 1, 1)]
+void main(uint3 DTid : SV_DispatchThreadID) {
+    uint idx = DTid.x;
+    uint ixj = idx ^ pc.innerStep;
 
-void main() {
-    uint idx = gl_GlobalInvocationID.x;
-    uint ixj = idx ^ innerStep;
-
-    if (ixj <= idx || idx >= numElements || ixj >= numElements) {
+    if (ixj <= idx || idx >= pc.numElements || ixj >= pc.numElements) {
         return;
     }
 
-    bool ascending = ((idx & outerStep) == 0);
+    bool ascending = ((idx & pc.outerStep) == 0);
 
     float keyI = keys[idx];
     float keyJ = keys[ixj];

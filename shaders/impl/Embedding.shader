@@ -1,37 +1,28 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint numIndices;
     uint embDim;
 };
+[[vk::push_constant]] PushConstants pc;
 
 // Indices buffer (always uint/int)
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferIndices {
-    uint indices[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<uint> indices;
 
 // Weight table: [num_embeddings, embDim]
-layout(set = 0, binding = 1, std430) restrict readonly buffer BufferWeight {
-    %VEC_DTYPE% weight_data[];
-};
+[[vk::binding(1, 0)]] StructuredBuffer<%VEC_DTYPE%> weight_data;
 
 // Output: [numIndices, embDim]
-layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferOutput {
-    %VEC_DTYPE% output_data[];
-};
+[[vk::binding(2, 0)]] RWStructuredBuffer<%VEC_DTYPE%> output_data;
 
-void main() {
-    uint gid = gl_GlobalInvocationID.x;
+[numthreads(256, 1, 1)]
+void main(uint3 DTid : SV_DispatchThreadID) {
+    uint gid = DTid.x;
 
-    uint alignedDim4 = ((embDim + 3) & ~3u) / 4;  // vec4 elements per row
-    uint totalVecElements = numIndices * alignedDim4;
+    uint alignedDim4 = ((pc.embDim + 3) & ~3u) / 4;  // vec4 elements per row
+    uint totalVecElements = pc.numIndices * alignedDim4;
     if (gid >= totalVecElements) return;
 
     uint idx = gid / alignedDim4;    // which index

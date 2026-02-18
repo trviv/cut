@@ -1,73 +1,65 @@
-#version 450
-#extension GL_GOOGLE_include_directive : enable
-
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES%
 
 #define TILE_SIZE 16
-layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE, local_size_z = 1) in;
 
-layout(push_constant) uniform PushConstants {
+struct PushConstants {
     uint M;  // rows of A
     uint K;  // cols of A / rows of B
     uint N;  // cols of B
 };
+[[vk::push_constant]] PushConstants pc;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer BufferA {
-    %SCALAR_DTYPE% dataA[];
-};
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataA;
 
-layout(set = 0, binding = 1, std430) restrict readonly buffer BufferB {
-    %SCALAR_DTYPE% dataB[];
-};
+[[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataB;
 
-layout(set = 0, binding = 2, std430) restrict writeonly buffer BufferC {
-    %SCALAR_DTYPE% dataC[];
-};
+[[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataC;
 
-shared %SCALAR_DTYPE% tileA[TILE_SIZE][TILE_SIZE];
-shared %SCALAR_DTYPE% tileB[TILE_SIZE][TILE_SIZE];
+groupshared %SCALAR_DTYPE% tileA[TILE_SIZE][TILE_SIZE];
+groupshared %SCALAR_DTYPE% tileB[TILE_SIZE][TILE_SIZE];
 
-void main() {
-    uint row = gl_GlobalInvocationID.y;
-    uint col = gl_GlobalInvocationID.x;
-    uint localRow = gl_LocalInvocationID.y;
-    uint localCol = gl_LocalInvocationID.x;
+[numthreads(TILE_SIZE, TILE_SIZE, 1)]
+void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID) {
+    uint row = DTid.y;
+    uint col = DTid.x;
+    uint localRow = GTid.y;
+    uint localCol = GTid.x;
 
-    %SCALAR_DTYPE% sum = %SCALAR_DTYPE%(0);
+    %SCALAR_DTYPE% sum = (%SCALAR_DTYPE%)(0);
 
     // Loop over tiles
-    uint numTiles = (K + TILE_SIZE - 1) / TILE_SIZE;
+    uint numTiles = (pc.K + TILE_SIZE - 1) / TILE_SIZE;
     for (uint t = 0; t < numTiles; t++) {
         // Load tile from A
         uint aCol = t * TILE_SIZE + localCol;
-        if (row < M && aCol < K) {
-            tileA[localRow][localCol] = dataA[row * K + aCol];
+        if (row < pc.M && aCol < pc.K) {
+            tileA[localRow][localCol] = dataA[row * pc.K + aCol];
         } else {
-            tileA[localRow][localCol] = %SCALAR_DTYPE%(0);
+            tileA[localRow][localCol] = (%SCALAR_DTYPE%)(0);
         }
 
         // Load tile from B
         uint bRow = t * TILE_SIZE + localRow;
-        if (bRow < K && col < N) {
-            tileB[localRow][localCol] = dataB[bRow * N + col];
+        if (bRow < pc.K && col < pc.N) {
+            tileB[localRow][localCol] = dataB[bRow * pc.N + col];
         } else {
-            tileB[localRow][localCol] = %SCALAR_DTYPE%(0);
+            tileB[localRow][localCol] = (%SCALAR_DTYPE%)(0);
         }
 
-        barrier();
+        GroupMemoryBarrierWithGroupSync();
 
         // Compute partial sum for this tile
         for (uint k = 0; k < TILE_SIZE; k++) {
             sum += tileA[localRow][k] * tileB[k][localCol];
         }
 
-        barrier();
+        GroupMemoryBarrierWithGroupSync();
     }
 
     // Write result
-    if (row < M && col < N) {
-        dataC[row * N + col] = sum;
+    if (row < pc.M && col < pc.N) {
+        dataC[row * pc.N + col] = sum;
     }
 }
