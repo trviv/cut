@@ -45,7 +45,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 #if CUT_USE_VMA
   VmaAllocatorCreateInfo allocatorInfo = {};
   allocatorInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
-  allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
+  allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_1;
   allocatorInfo.physicalDevice = physicalDevice;
   allocatorInfo.device = device_;
   allocatorInfo.instance = *owner_;
@@ -603,7 +603,7 @@ VulkanInstance::VulkanInstance() {
   appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   appInfo.pEngineName = "CUT";
   appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-  appInfo.apiVersion = VK_API_VERSION_1_0;
+  appInfo.apiVersion = VK_API_VERSION_1_1;
 
   VkInstanceCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;

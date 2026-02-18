@@ -219,12 +219,31 @@ bool isDimReductionOp(OperatorEnum op) {
 bool isMatrixOp(OperatorEnum op) {
   switch (op) {
   case MatMul:
+  case MatMulNaive:
+  case MatMulRegTiled:
+  case MatMulTiled2x2:
+  case MatMulT8R2x2:
+  case MatMulT8R4x4:
+  case MatMulT16R4x4:
+  case MatMulT16R8x8:
+  case MatMulT32R2x2:
+  case MatMulSimdR4x4:
+  case MatMulSimdR4x8:
+  case MatMulSimdR8x8:
   case Transpose:
   case Dot:
     return true;
   default:
     return false;
   }
+}
+
+/// Checks if an operator is any matmul variant.
+bool isMatMulOp(OperatorEnum op) {
+  return op == MatMul || op == MatMulNaive || op == MatMulRegTiled ||
+         op == MatMulTiled2x2 || op == MatMulT8R2x2 || op == MatMulT8R4x4 ||
+         op == MatMulT16R4x4 || op == MatMulT16R8x8 || op == MatMulT32R2x2 ||
+         op == MatMulSimdR4x4 || op == MatMulSimdR4x8 || op == MatMulSimdR8x8;
 }
 
 /// Threshold for switching from single-workgroup to multi-workgroup reduce.
@@ -338,7 +357,7 @@ void Dispatcher::encode(OperatorEnum op,
     }
   } else if (isMatrixOp(op)) {
     // Matrix operations: buffers + optional DataReference for dimensions
-    if (op == MatMul && bindings.size() < 3) {
+    if (isMatMulOp(op) && bindings.size() < 3) {
       throw std::runtime_error("MatMul requires at least 3 bindings (A, B, C)");
     } else if (op == Transpose && bindings.size() < 2) {
       throw std::runtime_error("Transpose requires at least 2 bindings");
@@ -681,11 +700,60 @@ void Dispatcher::encode(OperatorEnum op,
       }
     }
 
-    if (op == MatMul) {
-      // 2D dispatch for matmul
-      const uint32_t tileSize = 16;
-      uint32_t gridX = (N + tileSize - 1) / tileSize * tileSize;
-      uint32_t gridY = (M + tileSize - 1) / tileSize * tileSize;
+    if (isMatMulOp(op)) {
+      // 2D dispatch for matmul variants.
+      // Each variant has a different effective output tile per workgroup:
+      //   Naive/MatMul: 16x16 (1 output per thread)
+      //   RegTiled:     64x64 (4x4 outputs per thread)
+      //   Tiled2x2:    32x32 (2x2 outputs per thread)
+      uint32_t wgX = 16, wgY = 16;
+      uint32_t effTileM = 16, effTileN = 16;
+      if (op == MatMulRegTiled) {
+        effTileM = 64;
+        effTileN = 64;
+      } else if (op == MatMulTiled2x2) {
+        effTileM = 32;
+        effTileN = 32;
+      } else if (op == MatMulT8R2x2) {
+        wgX = 8;
+        wgY = 8;
+        effTileM = 16;
+        effTileN = 16;
+      } else if (op == MatMulT8R4x4) {
+        wgX = 8;
+        wgY = 8;
+        effTileM = 32;
+        effTileN = 32;
+      } else if (op == MatMulT16R4x4) {
+        effTileM = 64;
+        effTileN = 64;
+      } else if (op == MatMulT16R8x8) {
+        effTileM = 128;
+        effTileN = 128;
+      } else if (op == MatMulT32R2x2) {
+        wgX = 32;
+        wgY = 32;
+        effTileM = 64;
+        effTileN = 64;
+      } else if (op == MatMulSimdR4x4) {
+        wgX = 32;
+        wgY = 1;
+        effTileM = 32; // WR * TM = 8 * 4
+        effTileN = 16; // WC * TN = 4 * 4
+      } else if (op == MatMulSimdR4x8) {
+        wgX = 32;
+        wgY = 1;
+        effTileM = 32; // WR * TM = 8 * 4
+        effTileN = 32; // WC * TN = 4 * 8
+      } else if (op == MatMulSimdR8x8) {
+        wgX = 32;
+        wgY = 1;
+        effTileM = 64; // WR * TM = 8 * 8
+        effTileN = 32; // WC * TN = 4 * 8
+      }
+
+      uint32_t gridX = ((N + effTileN - 1) / effTileN) * wgX;
+      uint32_t gridY = ((M + effTileM - 1) / effTileM) * wgY;
 
       ThreadSize matmulWorkgroupSize{gridX, gridY, 1};
       ComputeDispatch matmulDispatch(shader, matmulWorkgroupSize,

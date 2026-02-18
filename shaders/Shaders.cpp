@@ -68,6 +68,28 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledUnary(datatype);
   } else if (shader == MatMul) {
     compiled = compiledMatMul(datatype);
+  } else if (shader == MatMulNaive) {
+    compiled = compiledMatMulNaive(datatype);
+  } else if (shader == MatMulRegTiled) {
+    compiled = compiledMatMulRegTiled(datatype);
+  } else if (shader == MatMulTiled2x2) {
+    compiled = compiledMatMulTiled2x2(datatype);
+  } else if (shader == MatMulT8R2x2) {
+    compiled = compiledMatMulT8R2x2(datatype);
+  } else if (shader == MatMulT8R4x4) {
+    compiled = compiledMatMulT8R4x4(datatype);
+  } else if (shader == MatMulT16R4x4) {
+    compiled = compiledMatMulT16R4x4(datatype);
+  } else if (shader == MatMulT16R8x8) {
+    compiled = compiledMatMulT16R8x8(datatype);
+  } else if (shader == MatMulT32R2x2) {
+    compiled = compiledMatMulT32R2x2(datatype);
+  } else if (shader == MatMulSimdR4x4) {
+    compiled = compiledMatMulSimdR4x4(datatype);
+  } else if (shader == MatMulSimdR4x8) {
+    compiled = compiledMatMulSimdR4x8(datatype);
+  } else if (shader == MatMulSimdR8x8) {
+    compiled = compiledMatMulSimdR8x8(datatype);
   } else if (shader == Transpose) {
     compiled = compiledTranspose(datatype);
   } else if (shader >= ReduceSum && shader <= ReduceAll) {
@@ -186,10 +208,15 @@ static bool isMultiPassOp(OperatorEnum op) {
 
 /// Matrix ops and tensor creation ops have mismatched buffer sizes by design.
 static bool isMismatchedSizeOp(OperatorEnum op) {
-  return op == MatMul || op == Transpose || op == Dot || op == Zeros ||
-         op == Ones || op == Full || op == Arange || op == Linspace ||
-         op == Copy || op == Conv1D || op == Conv2D || op == MaxPool2D ||
-         op == AvgPool2D || op == Embedding || op == Pad;
+  return op == MatMul || op == MatMulNaive || op == MatMulRegTiled ||
+         op == MatMulTiled2x2 || op == MatMulT8R2x2 || op == MatMulT8R4x4 ||
+         op == MatMulT16R4x4 || op == MatMulT16R8x8 || op == MatMulT32R2x2 ||
+         op == MatMulSimdR4x4 || op == MatMulSimdR4x8 ||
+         op == MatMulSimdR8x8 ||
+         op == Transpose || op == Dot || op == Zeros || op == Ones ||
+         op == Full || op == Arange || op == Linspace || op == Copy ||
+         op == Conv1D || op == Conv2D || op == MaxPool2D || op == AvgPool2D ||
+         op == Embedding || op == Pad;
 }
 
 size_t validateExecutionSize(OperatorEnum op,

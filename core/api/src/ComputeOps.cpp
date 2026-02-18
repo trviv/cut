@@ -307,6 +307,28 @@ const char *operatorName(OperatorEnum op) {
   // Matrix operations
   case MatMul:
     return "MatMul";
+  case MatMulNaive:
+    return "MatMulNaive";
+  case MatMulRegTiled:
+    return "MatMulRegTiled";
+  case MatMulTiled2x2:
+    return "MatMulTiled2x2";
+  case MatMulT8R2x2:
+    return "MatMulT8R2x2";
+  case MatMulT8R4x4:
+    return "MatMulT8R4x4";
+  case MatMulT16R4x4:
+    return "MatMulT16R4x4";
+  case MatMulT16R8x8:
+    return "MatMulT16R8x8";
+  case MatMulT32R2x2:
+    return "MatMulT32R2x2";
+  case MatMulSimdR4x4:
+    return "MatMulSimdR4x4";
+  case MatMulSimdR4x8:
+    return "MatMulSimdR4x8";
+  case MatMulSimdR8x8:
+    return "MatMulSimdR8x8";
   case Transpose:
     return "Transpose";
   case Dot:

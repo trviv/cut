@@ -41,6 +41,7 @@ public:
   // ===== Matrix ops =====
 
   Tensor matmul(const Tensor &a, const Tensor &b);
+  Tensor matmulVariant(const Tensor &a, const Tensor &b, OperatorEnum variant);
   Tensor transpose(const Tensor &a);
   Tensor dot(const Tensor &a, const Tensor &b);
 

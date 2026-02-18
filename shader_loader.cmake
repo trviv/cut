@@ -100,7 +100,7 @@ if(EXISTS \${CACHE_FILE})
 else()
     message(STATUS \"Cache miss: ${SHADER_NAME_WE}_${DTYPE_NAME} — compiling\")
     execute_process(
-        COMMAND ${DXC_EXECUTABLE} -T cs_6_0 -E main -spirv -fspv-target-env=vulkan1.0 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${PREPROCESSED_FILE}\" -Fo \"${SHADER_BINARY}\"
+        COMMAND ${DXC_EXECUTABLE} -T cs_6_0 -E main -spirv -fspv-target-env=vulkan1.1 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${PREPROCESSED_FILE}\" -Fo \"${SHADER_BINARY}\"
         RESULT_VARIABLE result
     )
     if(NOT result EQUAL 0)

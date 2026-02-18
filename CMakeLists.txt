@@ -189,6 +189,7 @@ endif()
 
 add_subdirectory(interface)
 add_subdirectory(tests)
+add_subdirectory(benchmarks)
 
 if(TARGET benchmarks)
     target_include_directories(benchmarks PRIVATE
