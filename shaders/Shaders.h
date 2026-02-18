@@ -147,17 +147,18 @@ std::optional<std::vector<uint32_t>>
 compiledPad(const DataType datatype = DataType::Float32);
 
 /*
- * Validates execution sizes for an operator and returns the resolved size.
- * For elementwise operators (unary, binary, ternary), all buffer execution
- * sizes must match. Future operators (e.g., matmul, reduce) may have
- * different validation rules based on their semantics.
+ * Validates tensor shapes for an operator and returns the resolved execution
+ * size. For elementwise operators (unary, binary, ternary), all buffer shapes
+ * must produce matching execution sizes. Reduction and multi-pass ops use
+ * actual (unpadded) element counts and return the maximum. Mismatched-size ops
+ * (matmul, transpose, etc.) use aligned element counts and return the maximum.
  *
  * @param op The operator being executed.
- * @param execSizes The execution sizes of all buffer bindings.
+ * @param shapes The shapes of all buffer bindings.
  * @return The validated execution size.
- * @throws std::runtime_error if sizes are invalid for the operator.
+ * @throws std::runtime_error if shapes are invalid for the operator.
  */
 size_t validateExecutionSize(OperatorEnum op,
-                             const std::vector<size_t> &execSizes);
+                             const std::vector<std::vector<uint32_t>> &shapes);
 
 } // namespace cut

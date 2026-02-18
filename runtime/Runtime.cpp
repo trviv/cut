@@ -204,7 +204,7 @@ Tensor Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
 size_t
 Runtime::getExecutionSize(OperatorEnum op,
                           const std::vector<ComputeBinding> &bindings) const {
-  std::vector<size_t> execSizes;
+  std::vector<std::vector<uint32_t>> shapes;
 
   for (const auto &binding : bindings) {
     if (!binding.isHandle()) {
@@ -212,21 +212,10 @@ Runtime::getExecutionSize(OperatorEnum op,
     }
 
     const ComputeBuffer &buffer = interface_->getBuffer(binding.getHandle());
-    // Reductions need actual element counts (not aligned) to avoid
-    // including padding zeros in the result. Elementwise ops use
-    // aligned sizes since they process in vec4 chunks.
-    if ((op >= ReduceSum && op <= ReduceAll) || op == NormDim ||
-        op == ReduceArgmax || op == ReduceArgmin || op == CumSum ||
-        op == CumProd || op == PrefixScanExclusiveSum ||
-        op == PrefixScanInclusiveSum || op == SortBitonic || op == SortRadix) {
-      execSizes.push_back(buffer.calculateActualSize() /
-                          dataTypeSize(buffer.getDtype()));
-    } else {
-      execSizes.push_back(buffer.executionSize());
-    }
+    shapes.push_back(buffer.getShape());
   }
 
-  return validateExecutionSize(op, execSizes);
+  return validateExecutionSize(op, shapes);
 }
 
 void Runtime::encodeOperator(OperatorEnum op,

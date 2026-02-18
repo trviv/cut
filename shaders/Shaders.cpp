@@ -1,8 +1,6 @@
 
 #include <Shaders.h>
 
-#include <algorithm>
-
 namespace cut {
 
 // Patch the default value of a specialization constant in SPIR-V bytecode.
@@ -211,35 +209,74 @@ static bool isMismatchedSizeOp(OperatorEnum op) {
   return op == MatMul || op == MatMulNaive || op == MatMulRegTiled ||
          op == MatMulTiled2x2 || op == MatMulT8R2x2 || op == MatMulT8R4x4 ||
          op == MatMulT16R4x4 || op == MatMulT16R8x8 || op == MatMulT32R2x2 ||
-         op == MatMulSimdR4x4 || op == MatMulSimdR4x8 ||
-         op == MatMulSimdR8x8 ||
+         op == MatMulSimdR4x4 || op == MatMulSimdR4x8 || op == MatMulSimdR8x8 ||
          op == Transpose || op == Dot || op == Zeros || op == Ones ||
          op == Full || op == Arange || op == Linspace || op == Copy ||
          op == Conv1D || op == Conv2D || op == MaxPool2D || op == AvgPool2D ||
          op == Embedding || op == Pad;
 }
 
+/// Computes the actual (unpadded) element count from a shape vector.
+static size_t actualElementCount(const std::vector<uint32_t> &shape) {
+  size_t count = 1;
+  for (uint32_t dim : shape) {
+    count *= dim;
+  }
+  return count;
+}
+
+/// Computes the aligned element count from a shape vector.
+/// Rounds the innermost dimension up to a multiple of 4.
+static size_t alignedElementCount(const std::vector<uint32_t> &shape) {
+  if (shape.empty()) {
+    return 0;
+  }
+  size_t count = 1;
+  for (size_t i = 0; i < shape.size() - 1; ++i) {
+    count *= shape[i];
+  }
+  size_t alignedInner = (shape.back() + 3) & ~static_cast<uint32_t>(3);
+  count *= alignedInner;
+  return count;
+}
+
 size_t validateExecutionSize(OperatorEnum op,
-                             const std::vector<size_t> &execSizes) {
-  if (execSizes.empty()) {
+                             const std::vector<std::vector<uint32_t>> &shapes) {
+  if (shapes.empty()) {
     throw std::runtime_error("No buffer bindings found");
   }
 
-  // Reduction ops have mismatched input/output sizes by design:
-  // input is the full tensor, output is a scalar.
-  // Use the maximum execution size (the input buffer).
-  if (isReductionOp(op) || isMultiPassOp(op) || isMismatchedSizeOp(op)) {
-    return *std::max_element(execSizes.begin(), execSizes.end());
+  // Reduction and multi-pass ops use actual (unpadded) element counts
+  // to avoid including padding in the result. Return the maximum size
+  // (input is the full tensor, output may be smaller).
+  if (isReductionOp(op) || isMultiPassOp(op)) {
+    size_t maxSize = 0;
+    for (const auto &shape : shapes) {
+      maxSize = std::max(maxSize, actualElementCount(shape));
+    }
+    return maxSize;
   }
 
-  // For elementwise ops, all buffer execution sizes must match.
-  size_t executionSize = execSizes[0];
-  for (size_t i = 1; i < execSizes.size(); ++i) {
-    if (execSizes[i] != executionSize) {
+  // Mismatched-size ops (matmul, transpose, tensor creation, etc.)
+  // have different input/output shapes by design. Return the maximum
+  // aligned execution size.
+  if (isMismatchedSizeOp(op)) {
+    size_t maxSize = 0;
+    for (const auto &shape : shapes) {
+      maxSize = std::max(maxSize, alignedElementCount(shape));
+    }
+    return maxSize;
+  }
+
+  // For elementwise ops, all buffer shapes must produce matching
+  // aligned execution sizes.
+  size_t executionSize = alignedElementCount(shapes[0]);
+  for (size_t i = 1; i < shapes.size(); ++i) {
+    size_t size = alignedElementCount(shapes[i]);
+    if (size != executionSize) {
       throw std::runtime_error(
           "Buffer shape mismatch: execution sizes do not match (" +
-          std::to_string(executionSize) + " vs " +
-          std::to_string(execSizes[i]) + ")");
+          std::to_string(executionSize) + " vs " + std::to_string(size) + ")");
     }
   }
 
