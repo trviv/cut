@@ -194,8 +194,7 @@ Operations::reduce(OperatorEnum op, const Tensor &a, std::optional<int> dim) {
 // Matrix ops
 // =========================================================================
 
-Tensor
-Operations::matmul(const Tensor &a, const Tensor &b, OperatorEnum variant) {
+Tensor Operations::matmul(const Tensor &a, const Tensor &b, int variantIndex) {
   auto shapeA = getShape(a);
   auto shapeB = getShape(b);
 
@@ -223,7 +222,7 @@ Operations::matmul(const Tensor &a, const Tensor &b, OperatorEnum variant) {
   bindings.emplace_back(2, output);
   bindings.emplace_back(3, DataReference(shapeData, sizeof(shapeData)));
 
-  runtime_->encodeOperator(variant, bindings);
+  runtime_->encodeOperator(OperatorEnum::MatMul, bindings, variantIndex);
   return output;
 }
 

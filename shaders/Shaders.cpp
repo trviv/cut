@@ -64,8 +64,6 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledUnary(datatype);
   } else if (shader >= UnaryRelu6 && shader <= UnaryIsFinite) {
     compiled = compiledUnary(datatype);
-  } else if (isMatMulOp(shader)) {
-    compiled = getCompiledMatMul(shader, datatype);
   } else if (shader == Transpose) {
     compiled = compiledTranspose(datatype);
   } else if (shader >= ReduceSum && shader <= ReduceAll) {
@@ -184,7 +182,7 @@ static bool isMultiPassOp(OperatorEnum op) {
 
 /// Matrix ops and tensor creation ops have mismatched buffer sizes by design.
 static bool isMismatchedSizeOp(OperatorEnum op) {
-  return isMatMulOp(op) || op == Transpose || op == Dot || op == Zeros ||
+  return op == MatMul || op == Transpose || op == Dot || op == Zeros ||
          op == Ones || op == Full || op == Arange || op == Linspace ||
          op == Copy || op == Conv1D || op == Conv2D || op == MaxPool2D ||
          op == AvgPool2D || op == Embedding || op == Pad;
@@ -221,10 +219,10 @@ validateExecutionSize(OperatorEnum op,
     throw std::runtime_error("No buffer bindings found");
   }
 
-  // Select the best matmul variant when the caller requests generic MatMul.
   OperatorEnum recommendedOp = op;
+  int recommendedVariant = -1;
   if (op == MatMul) {
-    recommendedOp = MatMulT16R4x4;
+    recommendedVariant = kMatMulDefaultVariant;
   }
 
   // Reduction and multi-pass ops use actual (unpadded) element counts
@@ -235,7 +233,7 @@ validateExecutionSize(OperatorEnum op,
     for (const auto &shape : shapes) {
       maxSize = std::max(maxSize, actualElementCount(shape));
     }
-    return {maxSize, recommendedOp};
+    return {maxSize, recommendedOp, recommendedVariant};
   }
 
   // Mismatched-size ops (matmul, transpose, tensor creation, etc.)
@@ -246,7 +244,7 @@ validateExecutionSize(OperatorEnum op,
     for (const auto &shape : shapes) {
       maxSize = std::max(maxSize, alignedElementCount(shape));
     }
-    return {maxSize, recommendedOp};
+    return {maxSize, recommendedOp, recommendedVariant};
   }
 
   // For elementwise ops, all buffer shapes must produce matching
@@ -261,7 +259,7 @@ validateExecutionSize(OperatorEnum op,
     }
   }
 
-  return {executionSize, recommendedOp};
+  return {executionSize, recommendedOp, recommendedVariant};
 }
 
 } // namespace cut

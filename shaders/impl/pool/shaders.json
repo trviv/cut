@@ -1,0 +1,7 @@
+{
+  "type": "shaders",
+  "shaders": [
+    "MaxPool2D",
+    "AvgPool2D"
+  ]
+}

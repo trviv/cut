@@ -1,0 +1,14 @@
+{
+  "type": "shaders",
+  "shaders": [
+    "Reduce",
+    "ReduceDim",
+    "ReduceArg",
+    "ReduceDimArg",
+    "PartialReduce",
+    "FinalReduce",
+    "CumOp",
+    "Norm",
+    "Dot"
+  ]
+}

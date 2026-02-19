@@ -2,12 +2,11 @@
 
 %DTYPE_DEFINES%
 
-// Tiled matmul: TILE_SIZE=16, TM=4, TN=4
-// 256 threads/WG, effective 64x64 tile, 8KB shared memory
+// Tiled matmul with register blocking: TILE_SIZE=32, TM=2, TN=2
 
-#define TILE_SIZE 16
-#define TM 4
-#define TN 4
+#define TILE_SIZE 32
+#define TM 2
+#define TN 2
 
 struct PushConstants {
     uint M;

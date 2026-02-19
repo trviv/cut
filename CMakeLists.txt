@@ -95,7 +95,7 @@ set(LIB_HEADERS
     core/backends/vulkan/VulkanCompute.h
     core/backends/vulkan/VulkanCommandBuffer.h
     shaders/Shaders.h
-    shaders/interface/MatMul.h
+    shaders/impl/matmul/MatMul.h
     shaders/ShaderUtils.h
     runtime/Runtime.h
     runtime/Dispatcher.h
@@ -107,7 +107,6 @@ set(LIB_SOURCES
     shaders/Shaders.cpp
     shaders/ShaderUtils.cpp
     shaders/CompiledShaders.cpp
-    shaders/interface/MatMul.cpp
     core/api/src/ComputeCommon.cpp
     core/api/src/ComputeHandle.cpp
     core/api/src/ComputeOps.cpp

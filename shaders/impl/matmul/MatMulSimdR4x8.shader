@@ -2,14 +2,13 @@
 
 %DTYPE_DEFINES%
 
-// SIMD group matmul: WR=8, WC=4, TM=4, TN=4
+// SIMD group matmul: WR=8, WC=4, TM=4, TN=8
 // 32 threads = 1 SIMD wave, no shared memory, data exchange via WaveReadLaneAt
-// Effective output tile: (WR*TM) x (WC*TN) = 32 x 16
 
 #define WR 8
 #define WC 4
 #define TM 4
-#define TN 4
+#define TN 8
 
 struct PushConstants {
     uint M;

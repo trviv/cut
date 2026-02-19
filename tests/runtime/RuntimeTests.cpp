@@ -4,6 +4,7 @@
 #include <ComputeOps.h>
 #include <Operations.h>
 #include <Runtime.h>
+#include "impl/matmul/MatMul.h"
 
 #include <algorithm>
 #include <array>
@@ -4015,12 +4016,8 @@ TEST_F(MatrixOpsTest, MatMul_LargerMatrices) {
 // MatMul Variant Tests
 // ============================================================================
 
-// All matmul variants to test
-constexpr std::array<OperatorEnum, 12> kMatMulVariants = {
-    MatMul,        MatMulNaive,    MatMulRegTiled, MatMulTiled2x2,
-    MatMulT8R2x2,  MatMulT8R4x4,   MatMulT16R4x4,  MatMulT16R8x8,
-    MatMulT32R2x2, MatMulSimdR4x4, MatMulSimdR4x8, MatMulSimdR8x8,
-};
+// Matmul variant count and names come from MatMulVariants.generated.h
+// via impl/matmul/MatMul.h (kMatMulVariantCount, getMatMulVariantName)
 
 TEST_F(MatrixOpsTest, MatMulVariants_Square) {
   const DataType dtype = DataType::Float32;
@@ -4036,12 +4033,12 @@ TEST_F(MatrixOpsTest, MatMulVariants_Square) {
       for (uint32_t j = 0; j < N; ++j)
         expected[i * N + j] += dataA[i * K + k] * dataB[k * N + j];
 
-  for (OperatorEnum variant : kMatMulVariants) {
-    SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+  for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
     auto bufA = runtime_->createTensor({M, K}, dtype, dataA.data());
     auto bufB = runtime_->createTensor({K, N}, dtype, dataB.data());
-    auto bufC = runtime_->ops().matmul(bufA, bufB, variant);
+    auto bufC = runtime_->ops().matmul(bufA, bufB, vi);
 
     std::vector<float> output(M * N);
     runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
@@ -4080,12 +4077,12 @@ TEST_F(MatrixOpsTest, MatMulVariants_Rectangular) {
         for (uint32_t j = 0; j < tc.N; ++j)
           expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
 
-    for (OperatorEnum variant : kMatMulVariants) {
-      SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
       auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
       auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
-      auto bufC = runtime_->ops().matmul(bufA, bufB, variant);
+      auto bufC = runtime_->ops().matmul(bufA, bufB, vi);
 
       std::vector<float> output(tc.M * tc.N);
       runtime_->copyFromTensor(bufC, output.data(),
@@ -4126,12 +4123,12 @@ TEST_F(MatrixOpsTest, MatMulVariants_NonMultipleOfTileSize) {
         for (uint32_t j = 0; j < tc.N; ++j)
           expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
 
-    for (OperatorEnum variant : kMatMulVariants) {
-      SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
       auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
       auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
-      auto bufC = runtime_->ops().matmul(bufA, bufB, variant);
+      auto bufC = runtime_->ops().matmul(bufA, bufB, vi);
 
       std::vector<float> output(tc.M * tc.N);
       runtime_->copyFromTensor(bufC, output.data(),
@@ -4174,12 +4171,12 @@ TEST_F(MatrixOpsTest, MatMulVariants_LargerMatrices) {
 
     float tolerance = tc.K * 1e-5f;
 
-    for (OperatorEnum variant : kMatMulVariants) {
-      SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
       auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
       auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
-      auto bufC = runtime_->ops().matmul(bufA, bufB, variant);
+      auto bufC = runtime_->ops().matmul(bufA, bufB, vi);
 
       std::vector<float> output(tc.M * tc.N);
       runtime_->copyFromTensor(bufC, output.data(),
@@ -4206,12 +4203,12 @@ TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
   for (uint32_t i = 0; i < N; ++i)
     identity[i * N + i] = 1.0f;
 
-  for (OperatorEnum variant : kMatMulVariants) {
-    SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+  for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
     auto bufA = runtime_->createTensor({N, N}, dtype, dataA.data());
     auto bufI = runtime_->createTensor({N, N}, dtype, identity.data());
-    auto bufC = runtime_->ops().matmul(bufA, bufI, variant);
+    auto bufC = runtime_->ops().matmul(bufA, bufI, vi);
 
     std::vector<float> output(N * N);
     runtime_->copyFromTensor(bufC, output.data(), N * N * sizeof(float));

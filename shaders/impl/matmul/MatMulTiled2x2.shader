@@ -2,10 +2,9 @@
 
 %DTYPE_DEFINES%
 
-// Tiled matmul: TILE_SIZE=8, TM=2, TN=2
-// 64 threads/WG, effective 16x16 tile, 1KB shared memory
+// Tiled matmul with register blocking: TILE_SIZE=16, TM=2, TN=2
 
-#define TILE_SIZE 8
+#define TILE_SIZE 16
 #define TM 2
 #define TN 2
 

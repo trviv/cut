@@ -41,7 +41,8 @@ public:
               const std::vector<ComputeBinding> &bindings,
               const Tensor &shader,
               size_t executionSize,
-              DataType dtype = DataType::Float32);
+              DataType dtype = DataType::Float32,
+              int variantIndex = -1);
 
   /**
    * Releases all temporary buffers back to the pool.

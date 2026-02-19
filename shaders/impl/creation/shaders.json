@@ -1,0 +1,8 @@
+{
+  "type": "shaders",
+  "shaders": [
+    "Fill",
+    "FillUint",
+    "Arange"
+  ]
+}

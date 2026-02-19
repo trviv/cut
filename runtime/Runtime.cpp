@@ -219,7 +219,8 @@ Runtime::getExecutionConfig(OperatorEnum op,
 }
 
 void Runtime::encodeOperator(OperatorEnum op,
-                             const std::vector<ComputeBinding> &bindings) {
+                             const std::vector<ComputeBinding> &bindings,
+                             int variantIndex) {
   if (!dispatcher_) {
     throw std::runtime_error("Dispatcher not initialized. Call init() first.");
   }
@@ -257,6 +258,12 @@ void Runtime::encodeOperator(OperatorEnum op,
   size_t executionSize = execConfig.size;
   op = execConfig.op;
 
+  // Resolve variant index: caller override > execConfig default
+  int resolvedVariant = variantIndex;
+  if (op == MatMul && resolvedVariant < 0) {
+    resolvedVariant = execConfig.recommendedVariant;
+  }
+
   // Sort with 0 or 1 elements is a no-op (nothing to reorder)
   if ((op == SortBitonic || op == SortRadix) && executionSize <= 1) {
     return;
@@ -275,13 +282,32 @@ void Runtime::encodeOperator(OperatorEnum op,
     }
   }
   Tensor shader;
-  if (op != PrefixScanExclusiveSum && op != PrefixScanInclusiveSum &&
-      op != SortBitonic && op != SortRadix && !isDimReduce) {
+  if (op == MatMul) {
+    // Matmul uses variant-index-based shader lookup.
+    // Cache key encodes (variant << 16 | dtype) in the upper bits.
+    uint64_t key = (static_cast<uint64_t>(op) << 32) |
+                   (static_cast<uint64_t>(resolvedVariant) << 16) |
+                   static_cast<uint64_t>(dtype);
+    auto it = shaderCache_.find(key);
+    if (it != shaderCache_.end()) {
+      shader = it->second;
+    } else {
+      auto spirv = getCompiledMatMul(resolvedVariant, dtype);
+      if (!spirv.has_value()) {
+        throw std::runtime_error("Failed to get matmul variant " +
+                                 std::to_string(resolvedVariant));
+      }
+      shader = getInterface()->createShaderModule(spirv.value());
+      shaderCache_[key] = shader;
+    }
+  } else if (op != PrefixScanExclusiveSum && op != PrefixScanInclusiveSum &&
+             op != SortBitonic && op != SortRadix && !isDimReduce) {
     shader = getOrCreateShader(op, dtype);
   }
 
   // Use dispatcher to encode with the shader and execution size
-  dispatcher_->encode(op, bindings, shader, executionSize, dtype);
+  dispatcher_->encode(op, bindings, shader, executionSize, dtype,
+                      resolvedVariant);
 
   // Handle submission based on backend type
   if (isGpuBackend()) {

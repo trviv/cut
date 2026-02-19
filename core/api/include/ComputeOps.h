@@ -249,17 +249,7 @@ enum OperatorEnum {
   // ===========================================================================
 
   MatMul = OP_MATMUL,
-  MatMulNaive = OP_MATMUL_NAIVE,
-  MatMulRegTiled = OP_MATMUL_REG_TILED,
-  MatMulTiled2x2 = OP_MATMUL_TILED_2X2,
-  MatMulT8R2x2 = OP_MATMUL_T8_R2X2,
-  MatMulT8R4x4 = OP_MATMUL_T8_R4X4,
-  MatMulT16R4x4 = OP_MATMUL_T16_R4X4,
-  MatMulT16R8x8 = OP_MATMUL_T16_R8X8,
-  MatMulT32R2x2 = OP_MATMUL_T32_R2X2,
-  MatMulSimdR4x4 = OP_MATMUL_SIMD_R4X4,
-  MatMulSimdR4x8 = OP_MATMUL_SIMD_R4X8,
-  MatMulSimdR8x8 = OP_MATMUL_SIMD_R8X8,
+  // Matmul variants are selected by index (see matmul_variants.json).
   Transpose = OP_TRANSPOSE,
   Dot = OP_DOT,
 
@@ -364,6 +354,8 @@ const char *operatorName(OperatorEnum op);
 struct ExecutionConfig {
   size_t size;     ///< Validated execution size.
   OperatorEnum op; ///< Recommended operator for the given shapes.
+  int recommendedVariant =
+      -1; ///< Recommended variant index (-1 = not applicable).
 };
 
 } // namespace cut

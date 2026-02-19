@@ -7,7 +7,20 @@
 #include <optional>
 #include <vector>
 
-#include "interface/MatMul.h"
+// MatMul variant dispatch (includes MatMulVariants.generated.h)
+#include "impl/matmul/MatMul.h"
+
+// Generated forward declarations for compiled shader functions
+#include "impl/binary/BinaryShaders.generated.h"
+#include "impl/conv/ConvShaders.generated.h"
+#include "impl/creation/CreationShaders.generated.h"
+#include "impl/memory/MemoryShaders.generated.h"
+#include "impl/pool/PoolShaders.generated.h"
+#include "impl/reduce/ReduceShaders.generated.h"
+#include "impl/scan/ScanShaders.generated.h"
+#include "impl/sort/SortShaders.generated.h"
+#include "impl/ternary/TernaryShaders.generated.h"
+#include "impl/unary/UnaryShaders.generated.h"
 
 namespace cut {
 
@@ -31,120 +44,6 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
 std::vector<uint32_t>
 getDimReduceShader(const OperatorEnum reduceOp,
                    const DataType datatype = DataType::Float32);
-
-/*
- * Pre-compiled shader functions.
- * Each function returns spirv encoding for a specific compiled shader.
- * The datatype parameter selects the SPIR-V variant for the requested type.
- * Returns std::nullopt if the datatype is not supported.
- */
-std::optional<std::vector<uint32_t>>
-compiledBinaryVecVec(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledBinaryVecScalar(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledUnary(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledTranspose(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledReduce(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledReduceDim(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledReduceArg(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledReduceDimArg(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledCumOp(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledDot(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledTernaryClamp(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledTernarySelect(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledNorm(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledArange(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledFill(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledCopy(const DataType datatype = DataType::Float32);
-
-// Dispatcher internal compiled shaders (prefix scan, bitonic sort, radix sort,
-// utility)
-std::optional<std::vector<uint32_t>>
-compiledPartialReduce(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledFinalReduce(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledScanPerWg(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledScanPartialSums(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledScanPropagate(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledBitonicStep(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledBitonicPadInit(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledBitonicCopyBack(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledRadixHistogram(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledRadixScatter(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledFillUint(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledScanUint(const DataType datatype = DataType::Float32);
-
-// Convolution compiled shaders
-std::optional<std::vector<uint32_t>>
-compiledConv1D(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledConv2D(const DataType datatype = DataType::Float32);
-
-// Pooling compiled shaders
-std::optional<std::vector<uint32_t>>
-compiledMaxPool2D(const DataType datatype = DataType::Float32);
-
-std::optional<std::vector<uint32_t>>
-compiledAvgPool2D(const DataType datatype = DataType::Float32);
-
-// Embedding compiled shaders
-std::optional<std::vector<uint32_t>>
-compiledEmbedding(const DataType datatype = DataType::Float32);
-
-// Padding compiled shaders
-std::optional<std::vector<uint32_t>>
-compiledPad(const DataType datatype = DataType::Float32);
 
 /*
  * Validates tensor shapes for an operator and returns the resolved execution

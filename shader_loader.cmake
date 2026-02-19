@@ -235,6 +235,23 @@ message(STATUS \"Generated CompiledShaders.cpp with \${NUM_SHADERS} shader(s)\")
 endfunction()
 
 # =============================================================================
+# Shader variant generation: scan impl/ subdirectories for shaders.json
+# =============================================================================
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+set(SHADER_VARIANT_GENERATOR ${CMAKE_SOURCE_DIR}/scripts/generate_shader_variants.py)
+
+# Run the generator at configure time so file(GLOB) finds generated .shader files.
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} ${SHADER_VARIANT_GENERATOR}
+        --impl-dir ${SHADER_SOURCE_DIR}
+    RESULT_VARIABLE SHADER_GEN_RESULT
+)
+if(NOT SHADER_GEN_RESULT EQUAL 0)
+    message(FATAL_ERROR "Shader variant generation failed")
+endif()
+
+# =============================================================================
 # Find all shader files and compile all variants
 # =============================================================================
 file(GLOB_RECURSE SHADER_SOURCES

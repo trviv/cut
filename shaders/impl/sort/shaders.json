@@ -1,0 +1,10 @@
+{
+  "type": "shaders",
+  "shaders": [
+    "BitonicStep",
+    "BitonicPadInit",
+    "BitonicCopyBack",
+    "RadixHistogram",
+    "RadixScatter"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "type": "shaders",
+  "shaders": [
+    "Copy",
+    "Transpose",
+    "Pad",
+    "Embedding"
+  ]
+}

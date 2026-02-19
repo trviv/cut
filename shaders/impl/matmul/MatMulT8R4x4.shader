@@ -2,14 +2,11 @@
 
 %DTYPE_DEFINES%
 
-// Tiled matrix multiplication with 2x2 register blocking per thread.
-// Combines shared memory tiling (cooperative loading) with per-thread
-// register blocking: each thread computes a 2x2 sub-tile of the output.
-// Effective tile: 32x32 output per workgroup (16 threads * 2 outputs each).
+// Tiled matmul with register blocking: TILE_SIZE=8, TM=4, TN=4
 
-#define TILE_SIZE 16
-#define TM 2
-#define TN 2
+#define TILE_SIZE 8
+#define TM 4
+#define TN 4
 
 struct PushConstants {
     uint M;
@@ -24,7 +21,6 @@ struct PushConstants {
 [[vk::binding(1, 0)]] StructuredBuffer<%VEC_DTYPE%> dataB;
 [[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataC;
 
-// Shared memory tiles sized to cover the expanded output region
 groupshared %SCALAR_DTYPE% tileA[TILE_SIZE * TM][TILE_SIZE];
 groupshared %SCALAR_DTYPE% tileB[TILE_SIZE][TILE_SIZE * TN];
 

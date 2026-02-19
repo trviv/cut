@@ -2,13 +2,11 @@
 
 %DTYPE_DEFINES%
 
-// Tiled matmul: TILE_SIZE=32, TM=2, TN=2
-// 1024 threads/WG (max for Metal), effective 64x64 tile, 16KB shared memory
-// Tests whether more threads per workgroup helps vs fewer threads + more registers
+// Tiled matmul with register blocking: TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%
 
-#define TILE_SIZE 32
-#define TM 2
-#define TN 2
+#define TILE_SIZE %TILE_SIZE%
+#define TM %TM%
+#define TN %TN%
 
 struct PushConstants {
     uint M;

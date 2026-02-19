@@ -2,9 +2,7 @@
 
 %DTYPE_DEFINES%
 
-// Tiled matmul: TILE_SIZE=16, TM=8, TN=8
-// 256 threads/WG, effective 128x128 tile, 16KB shared memory
-// High register pressure: 64 accumulators + 16 loads per thread per K step
+// Tiled matmul with register blocking: TILE_SIZE=16, TM=8, TN=8
 
 #define TILE_SIZE 16
 #define TM 8

@@ -1,3 +1,4 @@
+#include "impl/matmul/MatMul.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <Operations.h>
@@ -69,25 +70,8 @@ struct TimingResult {
   double std_ms;
 };
 
-struct MatMulVariant {
-  OperatorEnum op;
-  const char *name;
-};
-
-static const std::vector<MatMulVariant> kVariants = {
-    {MatMulNaive, "Naive (no tiling)"},
-    {MatMul, "SharedMem 16x16"},
-    {MatMulRegTiled, "RegTiled 4x4"},
-    {MatMulTiled2x2, "T16 R2x2 (4KB)"},
-    {MatMulT8R2x2, "T8 R2x2 (1KB)"},
-    {MatMulT8R4x4, "T8 R4x4 (2KB)"},
-    {MatMulT16R4x4, "T16 R4x4 (8KB)"},
-    {MatMulT16R8x8, "T16 R8x8 (16KB)"},
-    {MatMulT32R2x2, "T32 R2x2 (16KB)"},
-    {MatMulSimdR4x4, "SIMD R4x4 (32x16)"},
-    {MatMulSimdR4x8, "SIMD R4x8 (32x32)"},
-    {MatMulSimdR8x8, "SIMD R8x8 (64x32)"},
-};
+// Variant info comes from MatMulVariants.generated.h via impl/matmul/MatMul.h
+// (kMatMulVariants[], kMatMulVariantCount, getMatMulVariantName)
 
 /// Run a matmul variant multiple times and return timing statistics.
 static TimingResult benchmarkVariant(Runtime &runtime,
@@ -96,14 +80,14 @@ static TimingResult benchmarkVariant(Runtime &runtime,
                                      uint32_t M,
                                      uint32_t K,
                                      uint32_t N,
-                                     OperatorEnum variant,
+                                     int variantIndex,
                                      int warmup,
                                      int iterations) {
   // Warmup iterations
   for (int i = 0; i < warmup; i++) {
     auto bufA = runtime.createTensor({M, K}, DataType::Float32, hostA.data());
     auto bufB = runtime.createTensor({K, N}, DataType::Float32, hostB.data());
-    auto bufC = runtime.ops().matmul(bufA, bufB, variant);
+    auto bufC = runtime.ops().matmul(bufA, bufB, variantIndex);
     runtime.flush();
   }
 
@@ -116,7 +100,7 @@ static TimingResult benchmarkVariant(Runtime &runtime,
     auto bufB = runtime.createTensor({K, N}, DataType::Float32, hostB.data());
 
     auto start = std::chrono::high_resolution_clock::now();
-    auto bufC = runtime.ops().matmul(bufA, bufB, variant);
+    auto bufC = runtime.ops().matmul(bufA, bufB, variantIndex);
     runtime.flush();
     auto end = std::chrono::high_resolution_clock::now();
 
@@ -146,11 +130,11 @@ static bool verifyVariant(Runtime &runtime,
                           uint32_t M,
                           uint32_t K,
                           uint32_t N,
-                          OperatorEnum variant,
+                          int variantIndex,
                           const char *name) {
   auto bufA = runtime.createTensor({M, K}, DataType::Float32, hostA.data());
   auto bufB = runtime.createTensor({K, N}, DataType::Float32, hostB.data());
-  auto bufC = runtime.ops().matmul(bufA, bufB, variant);
+  auto bufC = runtime.ops().matmul(bufA, bufB, variantIndex);
 
   std::vector<float> gpuResult(M * N);
   runtime.copyFromTensor(bufC, gpuResult.data(), M * N * sizeof(float));
@@ -211,9 +195,10 @@ int main() {
 
     // Verify all variants first
     bool allCorrect = true;
-    for (const auto &v : kVariants) {
-      if (!verifyVariant(runtime, hostA, hostB, cpuRef, tc.M, tc.K, tc.N, v.op,
-                         v.name)) {
+    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      const auto &info = kMatMulVariants[vi];
+      if (!verifyVariant(runtime, hostA, hostB, cpuRef, tc.M, tc.K, tc.N, vi,
+                         info.name)) {
         allCorrect = false;
       }
     }
@@ -238,23 +223,24 @@ int main() {
 
     double naiveMean = 0.0;
 
-    for (const auto &v : kVariants) {
+    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      const auto &info = kMatMulVariants[vi];
       auto result = benchmarkVariant(runtime, hostA, hostB, tc.M, tc.K, tc.N,
-                                     v.op, warmup, iterations);
+                                     vi, warmup, iterations);
 
       double gflops = flops / (result.mean_ms * 1e6);
-      if (v.op == MatMulNaive)
+      if (vi == 0)
         naiveMean = result.mean_ms;
 
       double speedup = (naiveMean > 0) ? naiveMean / result.mean_ms : 1.0;
 
-      std::cout << std::left << std::setw(24) << v.name << " | " << std::right
-                << std::fixed << std::setprecision(3) << std::setw(10)
-                << result.mean_ms << " | " << std::setw(10) << result.min_ms
-                << " | " << std::setw(10) << result.std_ms << " | "
-                << std::setw(10) << std::setprecision(1) << gflops << " | "
-                << std::setw(9) << std::setprecision(2) << speedup << "x"
-                << std::endl;
+      std::cout << std::left << std::setw(24) << info.description << " | "
+                << std::right << std::fixed << std::setprecision(3)
+                << std::setw(10) << result.mean_ms << " | " << std::setw(10)
+                << result.min_ms << " | " << std::setw(10) << result.std_ms
+                << " | " << std::setw(10) << std::setprecision(1) << gflops
+                << " | " << std::setw(9) << std::setprecision(2) << speedup
+                << "x" << std::endl;
     }
   }
 

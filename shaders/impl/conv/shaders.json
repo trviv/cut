@@ -1,0 +1,7 @@
+{
+  "type": "shaders",
+  "shaders": [
+    "Conv1D",
+    "Conv2D"
+  ]
+}

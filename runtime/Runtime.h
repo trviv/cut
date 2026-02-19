@@ -207,7 +207,8 @@ private:
    * Infers dtype and workgroup size from buffer bindings.
    */
   void encodeOperator(OperatorEnum op,
-                      const std::vector<ComputeBinding> &bindings);
+                      const std::vector<ComputeBinding> &bindings,
+                      int variantIndex = -1);
 
   bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
 
