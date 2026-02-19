@@ -45,13 +45,13 @@ include_directories(${CUT_ROOT})
 include_directories(${CUT_ROOT}/core/api/include)
 include_directories(${CUT_ROOT}/core/backends/vulkan)
 include_directories(${CUT_ROOT}/runtime)
-include_directories(${CUT_ROOT}/shaders)
+include_directories(${CUT_ROOT}/operators)
 
 # Collect CUT library sources
 file(GLOB API_SOURCES ${CUT_ROOT}/core/api/src/*.cpp)
 file(GLOB VULKAN_SOURCES ${CUT_ROOT}/core/backends/vulkan/*.cpp)
 file(GLOB RUNTIME_SOURCES ${CUT_ROOT}/runtime/*.cpp)
-file(GLOB SHADER_SOURCES ${CUT_ROOT}/shaders/*.cpp)
+file(GLOB SHADER_SOURCES ${CUT_ROOT}/operators/*.cpp)
 
 # =============================================================================
 # Unified compute module (_cut_compute) - single binding for all backends

@@ -7,8 +7,8 @@
 #include <optional>
 #include <vector>
 
-// MatMul variant dispatch (includes MatMulVariants.generated.h)
-#include "impl/matmul/MatMul.h"
+// MatMul variant dispatch table and lookup functions
+#include "impl/matmul/MatMulVariants.generated.h"
 
 // Generated forward declarations for compiled shader functions
 #include "impl/binary/BinaryShaders.generated.h"
@@ -44,21 +44,5 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
 std::vector<uint32_t>
 getDimReduceShader(const OperatorEnum reduceOp,
                    const DataType datatype = DataType::Float32);
-
-/*
- * Validates tensor shapes for an operator and returns the resolved execution
- * config. For elementwise operators (unary, binary, ternary), all buffer shapes
- * must produce matching execution sizes. Reduction and multi-pass ops use
- * actual (unpadded) element counts and return the maximum. Mismatched-size ops
- * (matmul, transpose, etc.) use aligned element counts and return the maximum.
- *
- * @param op The operator being executed.
- * @param shapes The shapes of all buffer bindings.
- * @return ExecutionConfig with validated size and recommended operator.
- * @throws std::runtime_error if shapes are invalid for the operator.
- */
-ExecutionConfig
-validateExecutionSize(OperatorEnum op,
-                      const std::vector<std::vector<uint32_t>> &shapes);
 
 } // namespace cut

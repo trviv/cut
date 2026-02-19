@@ -1,9 +1,11 @@
 #pragma once
 
 #include <ComputeCommon.h>
+#include <ComputeHandle.h>
 #include <ComputeOps.h>
 #include <ComputeStructs.h>
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -11,6 +13,7 @@ namespace cut {
 
 // Forward declarations
 class ComputeInterface;
+class OpNode;
 
 /**
  * Dispatcher class for encoding math operators to the compute backend.
@@ -29,20 +32,13 @@ public:
   explicit Dispatcher(ComputeInterface *iface);
 
   /**
-   * Encodes a math operator dispatch to the compute backend.
+   * Encodes an operator dispatch using an OpNode.
+   * The OpNode provides dispatch sizing, push constants, and bindings.
    *
-   * @param op The operator to execute (from OperatorEnum).
-   * @param bindings Vector of compute bindings (buffers and data).
-   * @param shader Pre-created shader handle for this operator.
-   * @param executionSize Number of elements to process (from buffer execution
-   * size).
+   * @param node The operator node with all dispatch information.
+   * @param shader Pre-created shader handle (empty for multi-pass/dim-reduce).
    */
-  void encode(OperatorEnum op,
-              const std::vector<ComputeBinding> &bindings,
-              const Tensor &shader,
-              size_t executionSize,
-              DataType dtype = DataType::Float32,
-              int variantIndex = -1);
+  void encode(std::unique_ptr<OpNode> node, const Tensor &shader);
 
   /**
    * Releases all temporary buffers back to the pool.

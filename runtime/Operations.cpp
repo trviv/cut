@@ -1,6 +1,17 @@
 #include "Operations.h"
 #include "Runtime.h"
 
+#include "impl/binary/BinaryOp.h"
+#include "impl/conv/ConvOp.h"
+#include "impl/matmul/MatMulOp.h"
+#include "impl/memory/MemoryOp.h"
+#include "impl/pool/PoolOp.h"
+#include "impl/reduce/ReduceOp.h"
+#include "impl/scan/ScanOp.h"
+#include "impl/sort/SortOp.h"
+#include "impl/ternary/TernaryOp.h"
+#include "impl/unary/UnaryOp.h"
+
 #include <ComputeStructs.h>
 
 #include <algorithm>
@@ -70,30 +81,10 @@ void Operations::encodeCopy(const Tensor &src,
                             const Tensor &dst,
                             const std::vector<uint32_t> &srcShape,
                             const std::vector<uint32_t> &dstShape) {
-  // Compute innermost dim and alignment for source
-  uint32_t srcInner = srcShape.empty() ? 1 : srcShape.back();
-  uint32_t srcAlignedInner = (srcInner + 3) & ~static_cast<uint32_t>(3);
-
-  // Compute innermost dim and alignment for destination
-  uint32_t dstInner = dstShape.empty() ? 1 : dstShape.back();
-  uint32_t dstAlignedInner = (dstInner + 3) & ~static_cast<uint32_t>(3);
-
-  // Compute total logical elements
-  uint32_t totalElements = 1;
-  for (size_t i = 0; i < dstShape.size(); ++i)
-    totalElements *= dstShape[i];
-  if (dstShape.empty())
-    totalElements = 1;
-
-  uint32_t layoutData[5] = {srcAlignedInner, srcInner, dstAlignedInner,
-                            dstInner, totalElements};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, src);
-  bindings.emplace_back(1, dst);
-  bindings.emplace_back(2, DataReference(layoutData, sizeof(layoutData)));
-
-  runtime_->encodeOperator(OperatorEnum::Copy, bindings);
+  auto dtype = getDtype(src);
+  auto node = std::make_unique<CopyOpNode>(srcShape, dstShape, dtype);
+  node->setHandles({src}, dst);
+  runtime_->encodeOperator(std::move(node));
 }
 
 // =========================================================================
@@ -101,38 +92,27 @@ void Operations::encodeCopy(const Tensor &src,
 // =========================================================================
 
 Tensor Operations::binaryOp(OperatorEnum op, const Tensor &a, const Tensor &b) {
-  const auto &bufA = runtime_->getTensor(a);
-  const auto &bufB = runtime_->getTensor(b);
-
-  if (bufA.calculateActualSize() != bufB.calculateActualSize()) {
-    throw std::runtime_error(
-        "Size mismatch: " + std::to_string(bufA.calculateActualSize()) +
-        " vs " + std::to_string(bufB.calculateActualSize()));
-  }
-
-  auto shape = getShape(a);
+  auto shapeA = getShape(a);
+  auto shapeB = getShape(b);
   auto dtype = getDtype(a);
-  Tensor output = createOutput(shape, dtype);
 
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, b);
-  bindings.emplace_back(2, output);
+  auto node = std::make_unique<BinaryVecVecOpNode>(op, shapeA, shapeB, dtype);
+  node->validate();
 
-  runtime_->encodeOperator(op, bindings);
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({a, b}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
 Tensor Operations::unaryOp(OperatorEnum op, const Tensor &a) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  Tensor output = createOutput(shape, dtype);
 
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, output);
-
-  runtime_->encodeOperator(op, bindings);
+  auto node = std::make_unique<UnaryOpNode>(op, shape, dtype);
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({a}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
@@ -141,14 +121,15 @@ Tensor Operations::vecScalarOp(OperatorEnum op,
                                DataReference scalar) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  Tensor output = createOutput(shape, dtype);
 
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, output);
-  bindings.emplace_back(2, scalar);
+  uint32_t scalarBits = 0;
+  std::memcpy(&scalarBits, scalar.ptr, sizeof(uint32_t));
 
-  runtime_->encodeOperator(op, bindings);
+  auto node =
+      std::make_unique<BinaryVecScalarOpNode>(op, shape, dtype, scalarBits);
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({a}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
@@ -158,35 +139,25 @@ Tensor Operations::vecScalarOp(OperatorEnum op,
 
 Tensor
 Operations::reduce(OperatorEnum op, const Tensor &a, std::optional<int> dim) {
+  auto shape = getShape(a);
   auto dtype = getDtype(a);
+  const auto &buf = runtime_->getTensor(a);
 
   if (!dim.has_value()) {
-    // Global reduction → shape {1}
-    Tensor out = createOutput({1}, dtype);
-
-    std::vector<ComputeBinding> bindings;
-    bindings.emplace_back(0, a);
-    bindings.emplace_back(1, out);
-
-    runtime_->encodeOperator(op, bindings);
+    auto node = std::make_unique<GlobalReduceOpNode>(op, shape, dtype,
+                                                     buf.innerDimSize());
+    Tensor out = createOutput(node->outputShape(), node->outputDtype());
+    node->setHandles({a}, out);
+    runtime_->encodeOperator(std::move(node));
     return out;
   }
 
-  // Dimension-wise reduction
-  auto shape = getShape(a);
-  auto params = computeDimParams(shape, dim.value());
-
-  Tensor out = createOutput(params.outShape, dtype);
-
-  uint32_t shapeData[3] = {params.outerSize, params.reduceSize,
-                           params.innerSize};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, out);
-  bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
-
-  runtime_->encodeOperator(op, bindings);
+  auto node = std::make_unique<DimReduceOpNode>(op, shape, dim.value(), dtype,
+                                                buf.innerDimSize());
+  node->validate();
+  Tensor out = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({a}, out);
+  runtime_->encodeOperator(std::move(node));
   return out;
 }
 
@@ -197,85 +168,43 @@ Operations::reduce(OperatorEnum op, const Tensor &a, std::optional<int> dim) {
 Tensor Operations::matmul(const Tensor &a, const Tensor &b, int variantIndex) {
   auto shapeA = getShape(a);
   auto shapeB = getShape(b);
+  auto dtype = getDtype(a);
 
-  if (shapeA.size() != 2 || shapeB.size() != 2) {
-    throw std::runtime_error("matmul requires 2D matrices");
-  }
-
-  uint32_t M = shapeA[0], K = shapeA[1];
-  uint32_t K2 = shapeB[0], N = shapeB[1];
-
-  if (K != K2) {
-    throw std::runtime_error("Matrix dimension mismatch: A is " +
-                             std::to_string(M) + "x" + std::to_string(K) +
-                             ", B is " + std::to_string(K2) + "x" +
-                             std::to_string(N));
-  }
-
-  Tensor output = createOutput({M, N}, DataType::Float32);
-
-  uint32_t shapeData[3] = {M, K, N};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, b);
-  bindings.emplace_back(2, output);
-  bindings.emplace_back(3, DataReference(shapeData, sizeof(shapeData)));
-
-  runtime_->encodeOperator(OperatorEnum::MatMul, bindings, variantIndex);
+  auto node =
+      std::make_unique<MatMulOpNode>(shapeA, shapeB, dtype, variantIndex);
+  node->validate();
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({a, b}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
 Tensor Operations::transpose(const Tensor &a) {
   auto shape = getShape(a);
+  auto dtype = getDtype(a);
 
-  if (shape.size() != 2) {
-    throw std::runtime_error("transpose requires a 2D matrix");
-  }
-
-  uint32_t M = shape[0], N = shape[1];
-
-  Tensor output = createOutput({N, M}, DataType::Float32);
-
-  uint32_t shapeData[2] = {M, N};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, output);
-  bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
-
-  runtime_->encodeOperator(OperatorEnum::Transpose, bindings);
+  auto node = std::make_unique<TransposeOpNode>(shape, dtype);
+  node->validate();
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({a}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
 Tensor Operations::dot(const Tensor &a, const Tensor &b) {
-  const auto &bufA = runtime_->getTensor(a);
-  const auto &bufB = runtime_->getTensor(b);
+  auto shapeA = getShape(a);
+  auto shapeB = getShape(b);
+  auto dtype = getDtype(a);
 
-  if (bufA.calculateActualSize() != bufB.calculateActualSize()) {
-    throw std::runtime_error(
-        "Vector size mismatch: " + std::to_string(bufA.calculateActualSize()) +
-        " vs " + std::to_string(bufB.calculateActualSize()));
-  }
+  auto node = std::make_unique<DotOpNode>(shapeA, shapeB, dtype);
+  node->validate();
 
-  auto shape = getShape(a);
-  uint32_t count = static_cast<uint32_t>(shapeProduct(shape));
+  auto outShape = node->outputShape();
+  uint32_t numWorkgroups = outShape[0];
 
-  // Each workgroup of 256 threads produces one partial sum
-  constexpr uint32_t kWorkgroupSize = 256;
-  uint32_t numWorkgroups = (count + kWorkgroupSize - 1) / kWorkgroupSize;
-
-  Tensor partials = createOutput({numWorkgroups}, DataType::Float32);
-
-  uint32_t countData[1] = {count};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, b);
-  bindings.emplace_back(2, partials);
-  bindings.emplace_back(3, DataReference(countData, sizeof(countData)));
-
-  runtime_->encodeOperator(OperatorEnum::Dot, bindings);
+  Tensor partials = createOutput(outShape, DataType::Float32);
+  node->setHandles({a, b}, partials);
+  runtime_->encodeOperator(std::move(node));
 
   // Read back per-workgroup partial sums and accumulate on CPU
   std::vector<float> partialData(numWorkgroups);
@@ -298,38 +227,33 @@ Tensor Operations::dot(const Tensor &a, const Tensor &b) {
 Tensor Operations::clamp(const Tensor &a, DataReference clampData) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  Tensor output = createOutput(shape, dtype);
 
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, output);
-  bindings.emplace_back(2, clampData);
+  uint32_t minBits = 0, maxBits = 0;
+  std::memcpy(&minBits, clampData.ptr, sizeof(uint32_t));
+  std::memcpy(&maxBits,
+              static_cast<const uint8_t *>(clampData.ptr) + sizeof(uint32_t),
+              sizeof(uint32_t));
 
-  runtime_->encodeOperator(OperatorEnum::TernaryClamp, bindings);
+  auto node =
+      std::make_unique<TernaryClampOpNode>(shape, dtype, minBits, maxBits);
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({a}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
 Tensor Operations::where(const Tensor &cond, const Tensor &x, const Tensor &y) {
-  const auto &bufCond = runtime_->getTensor(cond);
-  const auto &bufX = runtime_->getTensor(x);
-  const auto &bufY = runtime_->getTensor(y);
-
-  if (bufCond.calculateActualSize() != bufX.calculateActualSize() ||
-      bufCond.calculateActualSize() != bufY.calculateActualSize()) {
-    throw std::runtime_error("condition, x, and y must have the same size");
-  }
-
-  auto shape = getShape(x);
+  auto condShape = getShape(cond);
+  auto xShape = getShape(x);
+  auto yShape = getShape(y);
   auto dtype = getDtype(x);
-  Tensor output = createOutput(shape, dtype);
 
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, cond);
-  bindings.emplace_back(1, x);
-  bindings.emplace_back(2, y);
-  bindings.emplace_back(3, output);
-
-  runtime_->encodeOperator(OperatorEnum::TernarySelect, bindings);
+  auto node =
+      std::make_unique<TernarySelectOpNode>(condShape, xShape, yShape, dtype);
+  node->validate();
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({cond, x, y}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
@@ -342,19 +266,14 @@ Operations::cumOp(const Tensor &a, OperatorEnum op, std::optional<int> dim) {
   int d = dim.value_or(0);
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  auto params = computeDimParams(shape, d);
+  const auto &buf = runtime_->getTensor(a);
 
-  Tensor out = createOutput(shape, dtype);
-
-  uint32_t shapeData[3] = {params.outerSize, params.reduceSize,
-                           params.innerSize};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, out);
-  bindings.emplace_back(2, DataReference(shapeData, sizeof(shapeData)));
-
-  runtime_->encodeOperator(op, bindings);
+  auto node =
+      std::make_unique<CumOpNode>(op, shape, d, dtype, buf.innerDimSize());
+  node->validate();
+  Tensor out = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({a}, out);
+  runtime_->encodeOperator(std::move(node));
   return out;
 }
 
@@ -844,14 +763,13 @@ Tensor Operations::flatten(const Tensor &a, int startDim, int endDim) {
 
 Tensor Operations::norm(const Tensor &a, std::optional<int> dim) {
   if (!dim.has_value()) {
+    auto shape = getShape(a);
     auto dtype = getDtype(a);
-    Tensor out = createOutput({1}, dtype);
 
-    std::vector<ComputeBinding> bindings;
-    bindings.emplace_back(0, a);
-    bindings.emplace_back(1, out);
-
-    runtime_->encodeOperator(OperatorEnum::Norm, bindings);
+    auto node = std::make_unique<NormOpNode>(shape, dtype);
+    Tensor out = createOutput(node->outputShape(), node->outputDtype());
+    node->setHandles({a}, out);
+    runtime_->encodeOperator(std::move(node));
     return out;
   }
   return reduce(OperatorEnum::NormDim, a, dim.value());
@@ -864,13 +782,11 @@ Tensor Operations::norm(const Tensor &a, std::optional<int> dim) {
 Tensor Operations::prefixScan(const Tensor &a, OperatorEnum op) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
-  Tensor out = createOutput(shape, dtype);
 
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, out);
-
-  runtime_->encodeOperator(op, bindings);
+  auto node = std::make_unique<PrefixScanOpNode>(op, shape, dtype);
+  Tensor out = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({a}, out);
+  runtime_->encodeOperator(std::move(node));
   return out;
 }
 
@@ -886,37 +802,16 @@ Tensor Operations::conv1d(const Tensor &input,
                           const Tensor &weight,
                           uint32_t stride,
                           uint32_t padding) {
-  auto inShape = getShape(input); // [N, C_in, L_in]
-  auto wShape = getShape(weight); // [C_out, C_in, kL]
+  auto inShape = getShape(input);
+  auto wShape = getShape(weight);
   auto dtype = getDtype(input);
 
-  if (inShape.size() != 3)
-    throw std::runtime_error("conv1d: input must be 3D [N, C_in, L_in]");
-  if (wShape.size() != 3)
-    throw std::runtime_error("conv1d: weight must be 3D [C_out, C_in, kL]");
-
-  uint32_t N = inShape[0], C_in = inShape[1], L_in = inShape[2];
-  uint32_t C_out = wShape[0], kL = wShape[2];
-
-  if (wShape[1] != C_in)
-    throw std::runtime_error("conv1d: weight C_in dimension mismatch");
-
-  uint32_t L_out = (L_in + 2 * padding - kL) / stride + 1;
-
-  Tensor output = createOutput({N, C_out, L_out}, dtype);
-
-  struct Conv1DParams {
-    uint32_t batchSize, C_in, L_in, C_out, kL;
-    uint32_t stride, padding;
-  } params{N, C_in, L_in, C_out, kL, stride, padding};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, input);
-  bindings.emplace_back(1, weight);
-  bindings.emplace_back(2, output);
-  bindings.emplace_back(3, DataReference(&params, sizeof(params)));
-
-  runtime_->encodeOperator(OperatorEnum::Conv1D, bindings);
+  auto node =
+      std::make_unique<Conv1DOpNode>(inShape, wShape, stride, padding, dtype);
+  node->validate();
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({input, weight}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
@@ -926,41 +821,16 @@ Tensor Operations::conv2d(const Tensor &input,
                           uint32_t strideW,
                           uint32_t padH,
                           uint32_t padW) {
-  auto inShape = getShape(input); // [N, C_in, H_in, W_in]
-  auto wShape = getShape(weight); // [C_out, C_in, kH, kW]
+  auto inShape = getShape(input);
+  auto wShape = getShape(weight);
   auto dtype = getDtype(input);
 
-  if (inShape.size() != 4)
-    throw std::runtime_error("conv2d: input must be 4D [N, C_in, H_in, W_in]");
-  if (wShape.size() != 4)
-    throw std::runtime_error("conv2d: weight must be 4D [C_out, C_in, kH, kW]");
-
-  uint32_t N = inShape[0], C_in = inShape[1], H_in = inShape[2],
-           W_in = inShape[3];
-  uint32_t C_out = wShape[0], kH = wShape[2], kW = wShape[3];
-
-  if (wShape[1] != C_in)
-    throw std::runtime_error("conv2d: weight C_in dimension mismatch");
-
-  uint32_t H_out = (H_in + 2 * padH - kH) / strideH + 1;
-  uint32_t W_out = (W_in + 2 * padW - kW) / strideW + 1;
-
-  Tensor output = createOutput({N, C_out, H_out, W_out}, dtype);
-
-  struct Conv2DParams {
-    uint32_t batchSize, C_in, H_in, W_in;
-    uint32_t C_out, kH, kW;
-    uint32_t strideH, strideW;
-    uint32_t padH, padW;
-  } params{N, C_in, H_in, W_in, C_out, kH, kW, strideH, strideW, padH, padW};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, input);
-  bindings.emplace_back(1, weight);
-  bindings.emplace_back(2, output);
-  bindings.emplace_back(3, DataReference(&params, sizeof(params)));
-
-  runtime_->encodeOperator(OperatorEnum::Conv2D, bindings);
+  auto node = std::make_unique<Conv2DOpNode>(inShape, wShape, strideH, strideW,
+                                             padH, padW, dtype);
+  node->validate();
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({input, weight}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
@@ -975,31 +845,15 @@ Tensor Operations::maxPool2d(const Tensor &input,
                              uint32_t strideW,
                              uint32_t padH,
                              uint32_t padW) {
-  auto inShape = getShape(input); // [N, C, H_in, W_in]
+  auto inShape = getShape(input);
   auto dtype = getDtype(input);
 
-  if (inShape.size() != 4)
-    throw std::runtime_error("max_pool2d: input must be 4D [N, C, H, W]");
-
-  uint32_t N = inShape[0], C = inShape[1], H_in = inShape[2], W_in = inShape[3];
-  uint32_t H_out = (H_in + 2 * padH - kernelH) / strideH + 1;
-  uint32_t W_out = (W_in + 2 * padW - kernelW) / strideW + 1;
-
-  Tensor output = createOutput({N, C, H_out, W_out}, dtype);
-
-  struct Pool2DParams {
-    uint32_t N, C, H_in, W_in;
-    uint32_t kernelH, kernelW;
-    uint32_t strideH, strideW;
-    uint32_t padH, padW;
-  } params{N, C, H_in, W_in, kernelH, kernelW, strideH, strideW, padH, padW};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, input);
-  bindings.emplace_back(1, output);
-  bindings.emplace_back(2, DataReference(&params, sizeof(params)));
-
-  runtime_->encodeOperator(OperatorEnum::MaxPool2D, bindings);
+  auto node = std::make_unique<MaxPool2DOpNode>(
+      inShape, kernelH, kernelW, strideH, strideW, padH, padW, dtype);
+  node->validate();
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({input}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
@@ -1010,31 +864,15 @@ Tensor Operations::avgPool2d(const Tensor &input,
                              uint32_t strideW,
                              uint32_t padH,
                              uint32_t padW) {
-  auto inShape = getShape(input); // [N, C, H_in, W_in]
+  auto inShape = getShape(input);
   auto dtype = getDtype(input);
 
-  if (inShape.size() != 4)
-    throw std::runtime_error("avg_pool2d: input must be 4D [N, C, H, W]");
-
-  uint32_t N = inShape[0], C = inShape[1], H_in = inShape[2], W_in = inShape[3];
-  uint32_t H_out = (H_in + 2 * padH - kernelH) / strideH + 1;
-  uint32_t W_out = (W_in + 2 * padW - kernelW) / strideW + 1;
-
-  Tensor output = createOutput({N, C, H_out, W_out}, dtype);
-
-  struct Pool2DParams {
-    uint32_t N, C, H_in, W_in;
-    uint32_t kernelH, kernelW;
-    uint32_t strideH, strideW;
-    uint32_t padH, padW;
-  } params{N, C, H_in, W_in, kernelH, kernelW, strideH, strideW, padH, padW};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, input);
-  bindings.emplace_back(1, output);
-  bindings.emplace_back(2, DataReference(&params, sizeof(params)));
-
-  runtime_->encodeOperator(OperatorEnum::AvgPool2D, bindings);
+  auto node = std::make_unique<AvgPool2DOpNode>(
+      inShape, kernelH, kernelW, strideH, strideW, padH, padW, dtype);
+  node->validate();
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({input}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
@@ -1217,34 +1055,14 @@ Tensor Operations::batchNorm(const Tensor &input,
 
 Tensor Operations::embedding(const Tensor &indices, const Tensor &weight) {
   auto idxShape = getShape(indices);
-  auto wShape = getShape(weight); // [num_embeddings, embedding_dim]
+  auto wShape = getShape(weight);
+  auto dtype = getDtype(weight);
 
-  if (wShape.size() != 2)
-    throw std::runtime_error(
-        "embedding: weight must be 2D [num_embeddings, embedding_dim]");
-
-  uint32_t embDim = wShape[1];
-
-  // Output shape = indices shape + [embedding_dim]
-  std::vector<uint32_t> outShape(idxShape.begin(), idxShape.end());
-  outShape.push_back(embDim);
-
-  Tensor output = createOutput(outShape, DataType::Float32);
-
-  size_t numIndices = shapeProduct(idxShape);
-
-  struct EmbeddingParams {
-    uint32_t numIndices;
-    uint32_t embDim;
-  } params{static_cast<uint32_t>(numIndices), embDim};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, indices);
-  bindings.emplace_back(1, weight);
-  bindings.emplace_back(2, output);
-  bindings.emplace_back(3, DataReference(&params, sizeof(params)));
-
-  runtime_->encodeOperator(OperatorEnum::Embedding, bindings);
+  auto node = std::make_unique<EmbeddingOpNode>(idxShape, wShape, dtype);
+  node->validate();
+  Tensor output = createOutput(node->outputShape(), DataType::Float32);
+  node->setHandles({indices, weight}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
@@ -1257,59 +1075,12 @@ Tensor Operations::pad(const Tensor &input,
                        float value) {
   auto shape = getShape(input);
   auto dtype = getDtype(input);
-  int ndim = static_cast<int>(shape.size());
 
-  // padWidths is in PyTorch order: (left, right) for last dim,
-  // then (left, right) for second-to-last, etc.
-  if (padWidths.size() % 2 != 0 ||
-      static_cast<int>(padWidths.size() / 2) > ndim) {
-    throw std::runtime_error("pad: invalid padWidths length");
-  }
-
-  int numPaddedDims = static_cast<int>(padWidths.size() / 2);
-
-  // Build output shape
-  std::vector<uint32_t> outShape = shape;
-  for (int i = 0; i < numPaddedDims; ++i) {
-    int dim = ndim - 1 - i;
-    outShape[dim] += padWidths[2 * i] + padWidths[2 * i + 1];
-  }
-
-  Tensor output = createOutput(outShape, dtype);
-
-  // Build params: input shape (4) + pad widths (up to 8) + fill value
-  // Fixed-size struct for push constants
-  struct PadParams {
-    uint32_t ndim;
-    uint32_t inShape[4];
-    uint32_t outShape[4];
-    uint32_t padBefore[4]; // padding before each dim (from dim 0)
-    uint32_t totalElements;
-    float fillValue;
-  } params{};
-
-  params.ndim = static_cast<uint32_t>(ndim);
-  params.totalElements = static_cast<uint32_t>(shapeProduct(outShape));
-  std::memcpy(&params.fillValue, &value, sizeof(float));
-
-  for (int i = 0; i < ndim; ++i) {
-    params.inShape[i] = shape[i];
-    params.outShape[i] = outShape[i];
-    params.padBefore[i] = 0;
-  }
-
-  // Map PyTorch padWidths (innermost first) to per-dim padBefore
-  for (int i = 0; i < numPaddedDims; ++i) {
-    int dim = ndim - 1 - i;
-    params.padBefore[dim] = padWidths[2 * i];
-  }
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, input);
-  bindings.emplace_back(1, output);
-  bindings.emplace_back(2, DataReference(&params, sizeof(params)));
-
-  runtime_->encodeOperator(OperatorEnum::Pad, bindings);
+  auto node = std::make_unique<PadOpNode>(shape, padWidths, value, dtype);
+  node->validate();
+  Tensor output = createOutput(node->outputShape(), node->outputDtype());
+  node->setHandles({input}, output);
+  runtime_->encodeOperator(std::move(node));
   return output;
 }
 
@@ -1318,19 +1089,23 @@ Tensor Operations::pad(const Tensor &input,
 // =========================================================================
 
 void Operations::sortBitonic(const Tensor &keys, const Tensor &vals) {
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, keys);
-  bindings.emplace_back(1, vals);
+  auto shape = getShape(keys);
+  auto dtype = getDtype(keys);
+  size_t execSize = actualElementCount(shape);
 
-  runtime_->encodeOperator(OperatorEnum::SortBitonic, bindings);
+  auto node = std::make_unique<BitonicSortOpNode>(execSize, dtype);
+  node->setHandles({keys, vals});
+  runtime_->encodeOperator(std::move(node));
 }
 
 void Operations::sortRadix(const Tensor &keys, const Tensor &vals) {
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, keys);
-  bindings.emplace_back(1, vals);
+  auto shape = getShape(keys);
+  auto dtype = getDtype(keys);
+  size_t execSize = actualElementCount(shape);
 
-  runtime_->encodeOperator(OperatorEnum::SortRadix, bindings);
+  auto node = std::make_unique<RadixSortOpNode>(execSize, dtype);
+  node->setHandles({keys, vals});
+  runtime_->encodeOperator(std::move(node));
 }
 
 } // namespace cut

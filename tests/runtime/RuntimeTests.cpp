@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
+#include "impl/matmul/MatMulVariants.generated.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <Operations.h>
 #include <Runtime.h>
-#include "impl/matmul/MatMul.h"
 
 #include <algorithm>
 #include <array>

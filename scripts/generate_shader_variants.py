@@ -103,7 +103,6 @@ def generate_shader_files(config, group_dir, output_dir):
     Returns a list of (full_name, dtype_name, output_path) tuples.
     """
     cpp_prefix = config.get("cpp_prefix", "")
-    template_dir = os.path.join(group_dir, "templates")
     generated = []
 
     for variant in config["variants"]:
@@ -112,11 +111,11 @@ def generate_shader_files(config, group_dir, output_dir):
 
         # Get base shader content
         if "template" in variant:
-            # Load from template and substitute define placeholders
-            template_path = os.path.join(template_dir,
-                                         variant["template"] + ".template")
+            # Load parameterised shader and substitute define placeholders
+            template_path = os.path.join(group_dir,
+                                         variant["template"] + ".shader")
             if not os.path.exists(template_path):
-                print(f"ERROR: Template not found: {template_path}",
+                print(f"ERROR: Shader template not found: {template_path}",
                       file=sys.stderr)
                 sys.exit(1)
             with open(template_path, "r") as f:

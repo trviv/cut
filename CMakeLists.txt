@@ -94,9 +94,9 @@ set(LIB_HEADERS
     core/backends/vulkan/VulkanContainers.h
     core/backends/vulkan/VulkanCompute.h
     core/backends/vulkan/VulkanCommandBuffer.h
-    shaders/Shaders.h
-    shaders/impl/matmul/MatMul.h
-    shaders/ShaderUtils.h
+    operators/Shaders.h
+    operators/impl/matmul/MatMulOp.h
+    operators/ShaderUtils.h
     runtime/Runtime.h
     runtime/Dispatcher.h
     runtime/Operations.h
@@ -104,9 +104,9 @@ set(LIB_HEADERS
 
 # Source files
 set(LIB_SOURCES
-    shaders/Shaders.cpp
-    shaders/ShaderUtils.cpp
-    shaders/CompiledShaders.cpp
+    operators/Shaders.cpp
+    operators/ShaderUtils.cpp
+    operators/CompiledShaders.cpp
     core/api/src/ComputeCommon.cpp
     core/api/src/ComputeHandle.cpp
     core/api/src/ComputeOps.cpp
@@ -153,7 +153,7 @@ target_include_directories(CUTLib PRIVATE
     ${Vulkan_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/core/api/include
     ${CMAKE_SOURCE_DIR}/core/backends/vulkan
-    ${CMAKE_SOURCE_DIR}/shaders
+    ${CMAKE_SOURCE_DIR}/operators
     ${CMAKE_SOURCE_DIR}/runtime
 )
 
@@ -197,7 +197,7 @@ if(TARGET benchmarks)
         ${Vulkan_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/core/api/include
         ${CMAKE_SOURCE_DIR}/core/backends/vulkan
-        ${CMAKE_SOURCE_DIR}/shaders
+        ${CMAKE_SOURCE_DIR}/operators
         ${CMAKE_SOURCE_DIR}/benchmarks
     )
 

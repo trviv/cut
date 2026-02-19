@@ -1,0 +1,148 @@
+#pragma once
+
+#include <ComputeCommon.h>
+#include <ComputeHandle.h>
+#include <ComputeOps.h>
+#include <ComputeStructs.h>
+
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <stdexcept>
+#include <vector>
+
+namespace cut {
+
+// ============================================================================
+// Utility functions shared across OpNode subclasses
+// ============================================================================
+
+/// Computes aligned element count (rounds innermost dim to multiple of 4).
+inline size_t alignedElementCount(const std::vector<uint32_t> &shape) {
+  if (shape.empty())
+    return 0;
+  size_t count = 1;
+  for (size_t i = 0; i < shape.size() - 1; ++i)
+    count *= shape[i];
+  size_t alignedInner = (shape.back() + 3) & ~static_cast<uint32_t>(3);
+  count *= alignedInner;
+  return count;
+}
+
+/// Computes actual (unpadded) element count from a shape vector.
+inline size_t actualElementCount(const std::vector<uint32_t> &shape) {
+  if (shape.empty())
+    return 0;
+  size_t count = 1;
+  for (uint32_t dim : shape)
+    count *= dim;
+  return count;
+}
+
+/// Converts a POD struct/value to a byte vector for push constants.
+template <typename T>
+inline std::vector<uint8_t> toBytes(const T &val) {
+  std::vector<uint8_t> bytes(sizeof(T));
+  std::memcpy(bytes.data(), &val, sizeof(T));
+  return bytes;
+}
+
+/// Appends bytes of a POD value to an existing byte vector.
+template <typename T>
+inline void appendBytes(std::vector<uint8_t> &vec, const T &val) {
+  size_t offset = vec.size();
+  vec.resize(offset + sizeof(T));
+  std::memcpy(vec.data() + offset, &val, sizeof(T));
+}
+
+// ============================================================================
+// OpNode base class
+// ============================================================================
+
+/**
+ * Base class for all operator nodes.
+ * Encapsulates validation, output shape computation, dispatch sizing,
+ * and push constant generation for a single GPU operator invocation.
+ *
+ * Subclasses are created by Operations methods, validated, then passed
+ * to Runtime::encodeOperator() for dispatch.
+ */
+class OpNode {
+public:
+  virtual ~OpNode() = default;
+
+  /// Validates inputs (shapes, dimensions, etc.). Throws on error.
+  virtual void validate() const = 0;
+
+  /// Returns the OperatorEnum for shader lookup.
+  virtual OperatorEnum op() const = 0;
+
+  /// Returns the DataType for shader dtype selection.
+  virtual DataType shaderDtype() const = 0;
+
+  /// Returns the variant index (-1 = not applicable).
+  virtual int variantIndex() const { return -1; }
+
+  /// Returns the computed output shape.
+  virtual std::vector<uint32_t> outputShape() const = 0;
+
+  /// Returns the output dtype (defaults to shaderDtype()).
+  virtual DataType outputDtype() const { return shaderDtype(); }
+
+  /// Returns the dispatch thread dimensions (total grid size).
+  virtual ThreadSize dispatchSize() const = 0;
+
+  /// Returns push constant data as a byte vector.
+  virtual std::vector<uint8_t> pushConstants() const = 0;
+
+  /// Returns true if this op requires multi-pass dispatch (scan, sort, etc.).
+  virtual bool isMultiPass() const { return false; }
+
+  /// Returns true if this op needs a dim-reduce shader (looked up internally
+  /// by Dispatcher).
+  virtual bool isDimReduce() const { return false; }
+
+  /// Returns the base reduce op for dim-reduce ops (used by Dispatcher to
+  /// look up the right dim-reduce shader variant).
+  virtual OperatorEnum baseReduceOp() const { return op(); }
+
+  /// Returns the execution size (for multi-WG reduce threshold, etc.).
+  virtual size_t executionSize() const {
+    auto ds = dispatchSize();
+    return static_cast<size_t>(ds.x) * ds.y * ds.z;
+  }
+
+  /// Sets buffer handles for input and output bindings.
+  /// Called by Operations after creating the output tensor.
+  void setHandles(std::vector<Tensor> inputs, Tensor output) {
+    inputs_ = std::move(inputs);
+    output_ = output;
+    hasOutput_ = true;
+  }
+
+  /// Overload for in-place ops (sort) with no separate output.
+  void setHandles(std::vector<Tensor> inputs) {
+    inputs_ = std::move(inputs);
+    hasOutput_ = false;
+  }
+
+  /// Returns the ComputeBinding vector for dispatch encoding.
+  virtual std::vector<ComputeBinding> handleBindings() const {
+    std::vector<ComputeBinding> bindings;
+    uint32_t idx = 0;
+    for (const auto &h : inputs_) {
+      bindings.emplace_back(idx++, h);
+    }
+    if (hasOutput_) {
+      bindings.emplace_back(idx++, output_);
+    }
+    return bindings;
+  }
+
+protected:
+  std::vector<Tensor> inputs_;
+  Tensor output_;
+  bool hasOutput_ = false;
+};
+
+} // namespace cut

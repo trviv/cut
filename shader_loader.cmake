@@ -1,12 +1,12 @@
 # Create shaders directory and compile all shaders
-set(SHADER_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+set(SHADER_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/operators)
 file(MAKE_DIRECTORY ${SHADER_BINARY_DIR})
 
-set(SHADER_SOURCE_DIR ${CMAKE_SOURCE_DIR}/shaders/impl)
+set(SHADER_SOURCE_DIR ${CMAKE_SOURCE_DIR}/operators/impl)
 
 set(SHADER_FILE_NAME CompiledShaders)
 
-set(SHADERS_SOURCE_FILE ${CMAKE_SOURCE_DIR}/shaders/${SHADER_FILE_NAME}.cpp)
+set(SHADERS_SOURCE_FILE ${CMAKE_SOURCE_DIR}/operators/${SHADER_FILE_NAME}.cpp)
 
 set(COMPILED_SHADERS "")
 set(EMBEDDED_SHADERS "")

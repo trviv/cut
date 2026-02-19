@@ -1,4 +1,4 @@
-#include "impl/matmul/MatMul.h"
+#include "impl/matmul/MatMulVariants.generated.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <Operations.h>

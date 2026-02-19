@@ -18,6 +18,7 @@ class VulkanInstance;
 class VulkanCompute;
 class Dispatcher;
 class Operations;
+class OpNode;
 
 /**
  * Backend type enum for runtime selection.
@@ -196,19 +197,10 @@ private:
   Tensor getOrCreateShader(OperatorEnum op, DataType dtype);
 
   /**
-   * Computes the execution config for an operator based on its bindings.
+   * Encodes a compute operator using an OpNode.
+   * The OpNode provides all operator-level information.
    */
-  ExecutionConfig
-  getExecutionConfig(OperatorEnum op,
-                     const std::vector<ComputeBinding> &bindings) const;
-
-  /**
-   * Encodes a compute operator using the Dispatcher.
-   * Infers dtype and workgroup size from buffer bindings.
-   */
-  void encodeOperator(OperatorEnum op,
-                      const std::vector<ComputeBinding> &bindings,
-                      int variantIndex = -1);
+  void encodeOperator(std::unique_ptr<OpNode> node);
 
   bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
 

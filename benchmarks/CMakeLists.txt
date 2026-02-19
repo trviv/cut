@@ -11,7 +11,7 @@ add_executable(benchmarks
 target_include_directories(benchmarks PRIVATE
     ${CMAKE_SOURCE_DIR}/core/api/include
     ${CMAKE_SOURCE_DIR}/core/backends/vulkan
-    ${CMAKE_SOURCE_DIR}/shaders
+    ${CMAKE_SOURCE_DIR}/operators
     ${CMAKE_SOURCE_DIR}/runtime
 )
 

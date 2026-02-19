@@ -64,7 +64,7 @@ add_executable(tests
 # Include directories
 target_include_directories(tests PRIVATE
     ${Vulkan_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/shaders
+    ${CMAKE_SOURCE_DIR}/operators
     ${CMAKE_SOURCE_DIR}/core/api/include
     ${CMAKE_SOURCE_DIR}/core/backends/vulkan
     ${CMAKE_SOURCE_DIR}/runtime
@@ -73,7 +73,7 @@ target_include_directories(tests PRIVATE
 
 # Define shader directory for tests
 target_compile_definitions(tests PRIVATE
-    SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders"
+    SHADER_DIR="${CMAKE_SOURCE_DIR}/operators"
 )
 
 target_link_libraries(tests PRIVATE

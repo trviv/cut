@@ -1,6 +1,7 @@
 #include "Runtime.h"
 
 #include "Dispatcher.h"
+#include "OpNode.h"
 #include "Operations.h"
 #include "Shaders.h"
 #include "VulkanCompute.h"
@@ -201,115 +202,45 @@ Tensor Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
   return shader;
 }
 
-ExecutionConfig
-Runtime::getExecutionConfig(OperatorEnum op,
-                            const std::vector<ComputeBinding> &bindings) const {
-  std::vector<std::vector<uint32_t>> shapes;
-
-  for (const auto &binding : bindings) {
-    if (!binding.isHandle()) {
-      continue; // Skip data bindings (e.g., scalar values)
-    }
-
-    const ComputeBuffer &buffer = interface_->getBuffer(binding.getHandle());
-    shapes.push_back(buffer.getShape());
-  }
-
-  return validateExecutionSize(op, shapes);
-}
-
-void Runtime::encodeOperator(OperatorEnum op,
-                             const std::vector<ComputeBinding> &bindings,
-                             int variantIndex) {
+void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
   if (!dispatcher_) {
     throw std::runtime_error("Dispatcher not initialized. Call init() first.");
   }
 
-  // Infer dtype from buffer bindings (also validates dtype consistency).
-  // Sort ops allow mixed dtypes (e.g., Float32 keys + UInt32 indices),
-  // so skip dtype validation and just use the first buffer's dtype.
-  // Embedding also has mixed dtypes (UInt32 indices + Float32 weight/output),
-  // so use the weight buffer's dtype (binding index 1).
-  DataType dtype = DataType::Float32;
-  if (op == SortBitonic || op == SortRadix) {
-    for (const auto &b : bindings) {
-      if (b.isHandle()) {
-        dtype = interface_->getBuffer(b.getHandle()).getDtype();
-        break;
-      }
-    }
-  } else if (op == Embedding) {
-    // Use weight buffer dtype (binding 1), not indices dtype (binding 0)
-    for (const auto &b : bindings) {
-      if (b.isHandle() && b.index() == 1) {
-        dtype = interface_->getBuffer(b.getHandle()).getDtype();
-        break;
-      }
-    }
-  } else {
-    dtype = ComputeBuffer::inferDataType(
-        bindings, [this](const Tensor &h) -> const ComputeBuffer & {
-          return interface_->getBuffer(h);
-        });
-  }
-
-  // Get execution config for this operator
-  ExecutionConfig execConfig = getExecutionConfig(op, bindings);
-  size_t executionSize = execConfig.size;
-  op = execConfig.op;
-
-  // Resolve variant index: caller override > execConfig default
-  int resolvedVariant = variantIndex;
-  if (op == MatMul && resolvedVariant < 0) {
-    resolvedVariant = execConfig.recommendedVariant;
-  }
-
   // Sort with 0 or 1 elements is a no-op (nothing to reorder)
-  if ((op == SortBitonic || op == SortRadix) && executionSize <= 1) {
+  OperatorEnum op = node->op();
+  if ((op == SortBitonic || op == SortRadix) && node->executionSize() <= 1) {
     return;
   }
 
-  // Prefix scan, sort, and dim-wise reduction ops use internally-generated
-  // shaders in the Dispatcher, so skip the normal shader creation path.
-  bool isDimReduce = false;
-  if ((op >= ReduceSum && op <= ReduceAll) || op == ReduceArgmax ||
-      op == ReduceArgmin) {
-    for (const auto &b : bindings) {
-      if (b.isData()) {
-        isDimReduce = true;
-        break;
-      }
-    }
-  }
   Tensor shader;
-  if (op == MatMul) {
-    // Matmul uses variant-index-based shader lookup.
-    // Cache key encodes (variant << 16 | dtype) in the upper bits.
-    uint64_t key = (static_cast<uint64_t>(op) << 32) |
-                   (static_cast<uint64_t>(resolvedVariant) << 16) |
-                   static_cast<uint64_t>(dtype);
-    auto it = shaderCache_.find(key);
-    if (it != shaderCache_.end()) {
-      shader = it->second;
-    } else {
-      auto spirv = getCompiledMatMul(resolvedVariant, dtype);
-      if (!spirv.has_value()) {
-        throw std::runtime_error("Failed to get matmul variant " +
-                                 std::to_string(resolvedVariant));
+  // Multi-pass and dim-reduce ops use internally-generated shaders
+  if (!node->isMultiPass() && !node->isDimReduce()) {
+    if (node->op() == MatMul) {
+      int variant = node->variantIndex();
+      DataType dtype = node->shaderDtype();
+      uint64_t key = (static_cast<uint64_t>(MatMul) << 32) |
+                     (static_cast<uint64_t>(variant) << 16) |
+                     static_cast<uint64_t>(dtype);
+      auto it = shaderCache_.find(key);
+      if (it != shaderCache_.end()) {
+        shader = it->second;
+      } else {
+        auto spirv = getCompiledMatMul(variant, dtype);
+        if (!spirv.has_value()) {
+          throw std::runtime_error("Failed to get matmul variant " +
+                                   std::to_string(variant));
+        }
+        shader = getInterface()->createShaderModule(spirv.value());
+        shaderCache_[key] = shader;
       }
-      shader = getInterface()->createShaderModule(spirv.value());
-      shaderCache_[key] = shader;
+    } else {
+      shader = getOrCreateShader(node->op(), node->shaderDtype());
     }
-  } else if (op != PrefixScanExclusiveSum && op != PrefixScanInclusiveSum &&
-             op != SortBitonic && op != SortRadix && !isDimReduce) {
-    shader = getOrCreateShader(op, dtype);
   }
 
-  // Use dispatcher to encode with the shader and execution size
-  dispatcher_->encode(op, bindings, shader, executionSize, dtype,
-                      resolvedVariant);
+  dispatcher_->encode(std::move(node), shader);
 
-  // Handle submission based on backend type
   if (isGpuBackend()) {
     pendingCommands_ = true;
   } else {
