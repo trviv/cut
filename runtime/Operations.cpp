@@ -194,55 +194,8 @@ Operations::reduce(OperatorEnum op, const Tensor &a, std::optional<int> dim) {
 // Matrix ops
 // =========================================================================
 
-Tensor Operations::matmul(const Tensor &a, const Tensor &b) {
-  auto shapeA = getShape(a);
-  auto shapeB = getShape(b);
-
-  if (shapeA.size() != 2 || shapeB.size() != 2) {
-    throw std::runtime_error("matmul requires 2D matrices");
-  }
-
-  uint32_t M = shapeA[0], K = shapeA[1];
-  uint32_t K2 = shapeB[0], N = shapeB[1];
-
-  if (K != K2) {
-    throw std::runtime_error("Matrix dimension mismatch: A is " +
-                             std::to_string(M) + "x" + std::to_string(K) +
-                             ", B is " + std::to_string(K2) + "x" +
-                             std::to_string(N));
-  }
-
-  Tensor output = createOutput({M, N}, DataType::Float32);
-
-  uint32_t shapeData[3] = {M, K, N};
-
-  std::vector<ComputeBinding> bindings;
-  bindings.emplace_back(0, a);
-  bindings.emplace_back(1, b);
-  bindings.emplace_back(2, output);
-  bindings.emplace_back(3, DataReference(shapeData, sizeof(shapeData)));
-
-  runtime_->encodeOperator(OperatorEnum::MatMul, bindings);
-  return output;
-}
-
-Tensor Operations::matmulVariant(const Tensor &a,
-                                 const Tensor &b,
-                                 OperatorEnum variant) {
-  if (variant != OperatorEnum::MatMul && variant != OperatorEnum::MatMulNaive &&
-      variant != OperatorEnum::MatMulRegTiled &&
-      variant != OperatorEnum::MatMulTiled2x2 &&
-      variant != OperatorEnum::MatMulT8R2x2 &&
-      variant != OperatorEnum::MatMulT8R4x4 &&
-      variant != OperatorEnum::MatMulT16R4x4 &&
-      variant != OperatorEnum::MatMulT16R8x8 &&
-      variant != OperatorEnum::MatMulT32R2x2 &&
-      variant != OperatorEnum::MatMulSimdR4x4 &&
-      variant != OperatorEnum::MatMulSimdR4x8 &&
-      variant != OperatorEnum::MatMulSimdR8x8) {
-    throw std::runtime_error("matmulVariant: invalid variant");
-  }
-
+Tensor
+Operations::matmul(const Tensor &a, const Tensor &b, OperatorEnum variant) {
   auto shapeA = getShape(a);
   auto shapeB = getShape(b);
 

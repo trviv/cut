@@ -103,7 +103,7 @@ static TimingResult benchmarkVariant(Runtime &runtime,
   for (int i = 0; i < warmup; i++) {
     auto bufA = runtime.createTensor({M, K}, DataType::Float32, hostA.data());
     auto bufB = runtime.createTensor({K, N}, DataType::Float32, hostB.data());
-    auto bufC = runtime.ops().matmulVariant(bufA, bufB, variant);
+    auto bufC = runtime.ops().matmul(bufA, bufB, variant);
     runtime.flush();
   }
 
@@ -116,7 +116,7 @@ static TimingResult benchmarkVariant(Runtime &runtime,
     auto bufB = runtime.createTensor({K, N}, DataType::Float32, hostB.data());
 
     auto start = std::chrono::high_resolution_clock::now();
-    auto bufC = runtime.ops().matmulVariant(bufA, bufB, variant);
+    auto bufC = runtime.ops().matmul(bufA, bufB, variant);
     runtime.flush();
     auto end = std::chrono::high_resolution_clock::now();
 
@@ -150,7 +150,7 @@ static bool verifyVariant(Runtime &runtime,
                           const char *name) {
   auto bufA = runtime.createTensor({M, K}, DataType::Float32, hostA.data());
   auto bufB = runtime.createTensor({K, N}, DataType::Float32, hostB.data());
-  auto bufC = runtime.ops().matmulVariant(bufA, bufB, variant);
+  auto bufC = runtime.ops().matmul(bufA, bufB, variant);
 
   std::vector<float> gpuResult(M * N);
   runtime.copyFromTensor(bufC, gpuResult.data(), M * N * sizeof(float));

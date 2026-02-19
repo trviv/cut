@@ -107,6 +107,7 @@ set(LIB_SOURCES
     shaders/Shaders.cpp
     shaders/ShaderUtils.cpp
     shaders/CompiledShaders.cpp
+    shaders/interface/MatMul.cpp
     core/api/src/ComputeCommon.cpp
     core/api/src/ComputeHandle.cpp
     core/api/src/ComputeOps.cpp
