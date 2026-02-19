@@ -96,6 +96,16 @@ set(LIB_HEADERS
     core/backends/vulkan/VulkanCommandBuffer.h
     operators/Shaders.h
     operators/impl/matmul/MatMulOp.h
+    operators/impl/binary/BinaryOp.h
+    operators/impl/conv/ConvOp.h
+    operators/impl/creation/CreationOp.h
+    operators/impl/memory/MemoryOp.h
+    operators/impl/pool/PoolOp.h
+    operators/impl/reduce/ReduceOp.h
+    operators/impl/scan/ScanOp.h
+    operators/impl/sort/SortOp.h
+    operators/impl/ternary/TernaryOp.h
+    operators/impl/unary/UnaryOp.h
     operators/ShaderUtils.h
     runtime/Runtime.h
     runtime/Dispatcher.h
@@ -117,6 +127,17 @@ set(LIB_SOURCES
     core/backends/vulkan/VulkanContainers.cpp
     core/backends/vulkan/VulkanCompute.cpp
     core/backends/vulkan/VulkanCommandBuffer.cpp
+    operators/impl/binary/BinaryOp.cpp
+    operators/impl/conv/ConvOp.cpp
+    operators/impl/creation/CreationOp.cpp
+    operators/impl/matmul/MatMulOp.cpp
+    operators/impl/memory/MemoryOp.cpp
+    operators/impl/pool/PoolOp.cpp
+    operators/impl/reduce/ReduceOp.cpp
+    operators/impl/scan/ScanOp.cpp
+    operators/impl/sort/SortOp.cpp
+    operators/impl/ternary/TernaryOp.cpp
+    operators/impl/unary/UnaryOp.cpp
     runtime/Runtime.cpp
     runtime/Dispatcher.cpp
     runtime/Operations.cpp

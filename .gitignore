@@ -1,7 +1,7 @@
 .claude
 /.shader_cache/
 /build/
-/shaders/CompiledShaders.cpp
+/operators/CompiledShaders.cpp
 .DS_Store
 /interface/python/.pytest_cache
 /interface/python/build
