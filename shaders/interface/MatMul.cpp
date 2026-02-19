@@ -18,6 +18,13 @@ std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x4(DataType datatype);
 std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x8(DataType datatype);
 std::optional<std::vector<uint32_t>> compiledMatMulSimdR8x8(DataType datatype);
 
+bool isMatMulOp(OperatorEnum op) {
+  return op == MatMul || op == MatMulNaive || op == MatMulRegTiled ||
+         op == MatMulTiled2x2 || op == MatMulT8R2x2 || op == MatMulT8R4x4 ||
+         op == MatMulT16R4x4 || op == MatMulT16R8x8 || op == MatMulT32R2x2 ||
+         op == MatMulSimdR4x4 || op == MatMulSimdR4x8 || op == MatMulSimdR8x8;
+}
+
 std::optional<std::vector<uint32_t>> getCompiledMatMul(OperatorEnum op,
                                                        DataType datatype) {
   switch (op) {

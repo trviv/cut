@@ -51,14 +51,6 @@ static void patchSpecConstant(std::vector<uint32_t> &spirv,
   }
 }
 
-/// Checks if an operator is any matmul variant.
-static bool isMatMulOp(OperatorEnum op) {
-  return op == MatMul || op == MatMulNaive || op == MatMulRegTiled ||
-         op == MatMulTiled2x2 || op == MatMulT8R2x2 || op == MatMulT8R4x4 ||
-         op == MatMulT16R4x4 || op == MatMulT16R8x8 || op == MatMulT32R2x2 ||
-         op == MatMulSimdR4x4 || op == MatMulSimdR4x8 || op == MatMulSimdR8x8;
-}
-
 std::vector<uint32_t> getShader(const OperatorEnum shader,
                                 const DataType datatype) {
   // First try pre-compiled shaders

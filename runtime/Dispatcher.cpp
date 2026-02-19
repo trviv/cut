@@ -238,14 +238,6 @@ bool isMatrixOp(OperatorEnum op) {
   }
 }
 
-/// Checks if an operator is any matmul variant.
-bool isMatMulOp(OperatorEnum op) {
-  return op == MatMul || op == MatMulNaive || op == MatMulRegTiled ||
-         op == MatMulTiled2x2 || op == MatMulT8R2x2 || op == MatMulT8R4x4 ||
-         op == MatMulT16R4x4 || op == MatMulT16R8x8 || op == MatMulT32R2x2 ||
-         op == MatMulSimdR4x4 || op == MatMulSimdR4x8 || op == MatMulSimdR8x8;
-}
-
 /// Threshold for switching from single-workgroup to multi-workgroup reduce.
 constexpr uint32_t kMultiReduceThreshold = 65536;
 
