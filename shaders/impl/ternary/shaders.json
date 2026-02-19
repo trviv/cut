@@ -1,7 +1,26 @@
 {
-  "type": "shaders",
-  "shaders": [
-    "TernaryClamp",
-    "TernarySelect"
+  "type": "variants",
+  "cpp_prefix": "Ternary",
+  "variants": [
+    {
+      "name": "Clamp",
+      "description": "Ternary clamp",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "Select",
+      "description": "Ternary select",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
   ]
 }

@@ -3,12 +3,30 @@
 
 Scans subdirectories of --impl-dir for shaders.json files and produces:
 
-For "type": "variants" groups (e.g. matmul):
-  1. Concrete .shader files from templates (one per variant)
-  2. {Group}Variants.generated.h with dispatch table and lookup functions
+1. Dtype-preprocessed .shader files in --output-dir (one per variant per dtype)
+2. {Group}Variants.generated.h with dispatch table and lookup functions
+   (for groups that have wg/eff_tile metadata)
+3. {Group}Shaders.generated.h with forward declarations
+   (for groups without dispatch metadata)
+4. generated_shaders.cmake manifest for the build system
 
-For "type": "shaders" groups (simple shader listings):
-  1. {Group}Shaders.generated.h with forward declarations for compiled functions
+JSON format (unified for all shader groups):
+{
+  "type": "variants",
+  "cpp_prefix": "MatMul",           // prepended to variant name for full name
+  "default_variant": "T16R4x4",     // optional, suffix form
+  "variants": [
+    {
+      "name": "Naive",              // suffix after cpp_prefix (can be "")
+      "description": "...",
+      "dtypes": ["Float32", ...],
+      "template": "MatMulNaive",    // optional: generate from template
+      "defines": {},                // optional: template substitutions
+      "wg": [16, 16],              // optional: workgroup size
+      "eff_tile": [16, 16]         // optional: effective tile size
+    }
+  ]
+}
 """
 
 import argparse
@@ -18,49 +36,136 @@ import sys
 
 
 # =============================================================================
-# Variant group processing (matmul-style)
+# Datatype definitions (moved from shader_loader.cmake)
 # =============================================================================
 
-def generate_variant_shaders(config, group_dir):
-    """Generate .shader files by substituting defines into templates."""
+DTYPE_DEFS = {
+    "Float32": {
+        "vec":     "float4",
+        "scalar":  "float",
+        "size":    "4",
+        "defines": "#define DTYPE_IS_FLOAT 1",
+    },
+    "Float16": {
+        "vec":     "float4",
+        "scalar":  "float",
+        "size":    "4",
+        "defines": "#define DTYPE_IS_FLOAT 1",
+    },
+    "Int32": {
+        "vec":     "int4",
+        "scalar":  "int",
+        "size":    "4",
+        "defines": "#define DTYPE_IS_INT 1",
+    },
+    "UInt32": {
+        "vec":     "uint4",
+        "scalar":  "uint",
+        "size":    "4",
+        "defines": "#define DTYPE_IS_UINT 1",
+    },
+}
+
+
+def substitute_dtype(content, dtype_name):
+    """Replace dtype placeholders with concrete types for a given dtype."""
+    d = DTYPE_DEFS[dtype_name]
+    content = content.replace("%VEC_DTYPE%", d["vec"])
+    content = content.replace("%SCALAR_DTYPE%", d["scalar"])
+    content = content.replace("%DTYPE_SIZE%", d["size"])
+    content = content.replace("%DTYPE_DEFINES%", d["defines"])
+    return content
+
+
+def write_if_changed(path, content):
+    """Write file only if content differs from existing. Returns True if written."""
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            if f.read() == content:
+                return False
+    with open(path, "w") as f:
+        f.write(content)
+    return True
+
+
+def full_name_for(cpp_prefix, variant_name):
+    """Compute full shader name: cpp_prefix + name."""
+    return cpp_prefix + variant_name
+
+
+# =============================================================================
+# Shader file generation (template expansion + dtype preprocessing)
+# =============================================================================
+
+def generate_shader_files(config, group_dir, output_dir):
+    """Generate dtype-preprocessed .shader files for all variants.
+
+    Returns a list of (full_name, dtype_name, output_path) tuples.
+    """
+    cpp_prefix = config.get("cpp_prefix", "")
     template_dir = os.path.join(group_dir, "templates")
+    generated = []
 
     for variant in config["variants"]:
-        template_name = variant["template"] + ".template"
-        template_path = os.path.join(template_dir, template_name)
+        name = variant["name"]
+        fname = full_name_for(cpp_prefix, name)
 
-        if not os.path.exists(template_path):
-            print(f"ERROR: Template not found: {template_path}", file=sys.stderr)
-            sys.exit(1)
-
-        with open(template_path, "r") as f:
-            content = f.read()
-
-        # Substitute %KEY% placeholders with define values
-        for key, value in variant.get("defines", {}).items():
-            content = content.replace(f"%{key}%", str(value))
-
-        shader_path = os.path.join(group_dir, variant["name"] + ".shader")
-
-        # Only write if changed
-        if os.path.exists(shader_path):
+        # Get base shader content
+        if "template" in variant:
+            # Load from template and substitute define placeholders
+            template_path = os.path.join(template_dir,
+                                         variant["template"] + ".template")
+            if not os.path.exists(template_path):
+                print(f"ERROR: Template not found: {template_path}",
+                      file=sys.stderr)
+                sys.exit(1)
+            with open(template_path, "r") as f:
+                base_content = f.read()
+            for key, value in variant.get("defines", {}).items():
+                base_content = base_content.replace(f"%{key}%", str(value))
+        else:
+            # Read existing .shader source file
+            shader_path = os.path.join(group_dir, fname + ".shader")
+            if not os.path.exists(shader_path):
+                print(f"ERROR: Shader source not found: {shader_path}",
+                      file=sys.stderr)
+                sys.exit(1)
             with open(shader_path, "r") as f:
-                if f.read() == content:
-                    continue
+                base_content = f.read()
 
-        with open(shader_path, "w") as f:
-            f.write(content)
+        # Generate dtype-specific shader files
+        for dtype in variant["dtypes"]:
+            if dtype not in DTYPE_DEFS:
+                print(f"ERROR: Unknown dtype '{dtype}' in variant '{fname}'",
+                      file=sys.stderr)
+                sys.exit(1)
 
-        print(f"  Generated {variant['name']}.shader")
+            preprocessed = substitute_dtype(base_content, dtype)
+            out_path = os.path.join(output_dir, f"{fname}_{dtype}.shader")
+
+            if write_if_changed(out_path, preprocessed):
+                print(f"  Generated {fname}_{dtype}.shader")
+
+            generated.append((fname, dtype, out_path))
+
+    return generated
+
+
+# =============================================================================
+# Header generation: dispatch table (matmul-style with wg/eff_tile)
+# =============================================================================
+
+def has_dispatch_metadata(config):
+    """Check if any variant has wg/eff_tile (matmul-style dispatch table)."""
+    return any("wg" in v and "eff_tile" in v for v in config["variants"])
 
 
 def generate_variant_header(config, group_dir, group_name):
-    """Generate {Group}Variants.generated.h with dispatch table and functions."""
+    """Generate {Prefix}Variants.generated.h with dispatch table and functions."""
     variants = config["variants"]
     count = len(variants)
-
-    # Use cpp_prefix if specified, otherwise capitalize directory name
-    cap = config.get("cpp_prefix", group_name[0].upper() + group_name[1:])
+    cpp_prefix = config.get("cpp_prefix", "")
+    cap = cpp_prefix if cpp_prefix else (group_name[0].upper() + group_name[1:])
 
     # Find default variant index
     default_name = config.get("default_variant", "")
@@ -70,12 +175,13 @@ def generate_variant_header(config, group_dir, group_name):
             default_index = i
             break
     if default_index < 0:
-        print(f"WARNING: default_variant '{default_name}' not found, using 0",
-              file=sys.stderr)
+        if default_name:
+            print(f"WARNING: default_variant '{default_name}' not found, using 0",
+                  file=sys.stderr)
         default_index = 0
 
     lines = []
-    lines.append(f"// Auto-generated by generate_shader_variants.py — do not edit")
+    lines.append("// Auto-generated by generate_shader_variants.py — do not edit")
     lines.append("#pragma once")
     lines.append("")
     lines.append("#include <ComputeCommon.h>")
@@ -110,9 +216,10 @@ def generate_variant_header(config, group_dir, group_name):
     for v in variants:
         wg = v["wg"]
         eff = v["eff_tile"]
-        desc = v.get("description", v["name"])
+        fname = full_name_for(cpp_prefix, v["name"])
+        desc = v.get("description", fname)
         lines.append(
-            f'    {{"{v["name"]}", {wg[0]}, {wg[1]}, '
+            f'    {{"{fname}", {wg[0]}, {wg[1]}, '
             f'{eff[0]}, {eff[1]}, "{desc}"}},'
         )
     lines.append("};")
@@ -121,9 +228,10 @@ def generate_variant_header(config, group_dir, group_name):
     # Forward declarations for compiled shader functions
     lines.append("// Forward declarations (defined in CompiledShaders.cpp)")
     for v in variants:
+        fname = full_name_for(cpp_prefix, v["name"])
         lines.append(
             f"std::optional<std::vector<uint32_t>> "
-            f"compiled{v['name']}(DataType datatype);"
+            f"compiled{fname}(DataType datatype);"
         )
     lines.append("")
 
@@ -138,7 +246,8 @@ def generate_variant_header(config, group_dir, group_name):
         f"k{cap}CompiledFns[k{cap}VariantCount] = {{"
     )
     for v in variants:
-        lines.append(f"    compiled{v['name']},")
+        fname = full_name_for(cpp_prefix, v["name"])
+        lines.append(f"    compiled{fname},")
     lines.append("};")
     lines.append("")
 
@@ -180,25 +289,19 @@ def generate_variant_header(config, group_dir, group_name):
     header_path = os.path.join(group_dir, header_name)
     content = "\n".join(lines)
 
-    # Only write if changed
-    if os.path.exists(header_path):
-        with open(header_path, "r") as f:
-            if f.read() == content:
-                print(f"  {header_name} unchanged")
-                return
-
-    with open(header_path, "w") as f:
-        f.write(content)
-    print(f"  Generated {header_name}")
+    if write_if_changed(header_path, content):
+        print(f"  Generated {header_name}")
+    else:
+        print(f"  {header_name} unchanged")
 
 
 # =============================================================================
-# Simple shader group processing
+# Header generation: simple forward declarations
 # =============================================================================
 
 def generate_simple_header(config, group_dir, group_name):
     """Generate {Group}Shaders.generated.h with forward declarations."""
-    shaders = config["shaders"]
+    cpp_prefix = config.get("cpp_prefix", "")
     cap = group_name[0].upper() + group_name[1:]
 
     lines = []
@@ -212,10 +315,11 @@ def generate_simple_header(config, group_dir, group_name):
     lines.append("namespace cut {")
     lines.append("")
 
-    for shader_name in shaders:
+    for v in config["variants"]:
+        fname = full_name_for(cpp_prefix, v["name"])
         lines.append(
             f"std::optional<std::vector<uint32_t>> "
-            f"compiled{shader_name}(DataType datatype = DataType::Float32);"
+            f"compiled{fname}(DataType datatype = DataType::Float32);"
         )
 
     lines.append("")
@@ -226,16 +330,54 @@ def generate_simple_header(config, group_dir, group_name):
     header_path = os.path.join(group_dir, header_name)
     content = "\n".join(lines)
 
-    # Only write if changed
-    if os.path.exists(header_path):
-        with open(header_path, "r") as f:
-            if f.read() == content:
-                print(f"  {header_name} unchanged")
-                return
+    if write_if_changed(header_path, content):
+        print(f"  Generated {header_name}")
+    else:
+        print(f"  {header_name} unchanged")
 
-    with open(header_path, "w") as f:
-        f.write(content)
-    print(f"  Generated {header_name}")
+
+# =============================================================================
+# CMake manifest generation
+# =============================================================================
+
+def generate_cmake_manifest(all_generated, output_dir):
+    """Write generated_shaders.cmake with file list and per-function dtype info."""
+    # Collect per-function dtype lists (preserving order)
+    func_dtypes = {}
+    func_order = []
+    all_files = []
+
+    for full_name, dtype, out_path in all_generated:
+        all_files.append(out_path)
+        if full_name not in func_dtypes:
+            func_dtypes[full_name] = []
+            func_order.append(full_name)
+        func_dtypes[full_name].append(dtype)
+
+    lines = []
+    lines.append("# Auto-generated by generate_shader_variants.py — do not edit")
+    lines.append("")
+
+    # List of all preprocessed shader files
+    lines.append("set(GENERATED_SHADER_FILES")
+    for path in all_files:
+        lines.append(f"    {path}")
+    lines.append(")")
+    lines.append("")
+
+    # Per-function dtype info for CompiledShaders.cpp generation
+    # Format: "FunctionName|Dtype1,Dtype2,..."
+    lines.append("set(SHADER_FUNCTION_DTYPES")
+    for full_name in func_order:
+        dtypes_str = ",".join(func_dtypes[full_name])
+        lines.append(f'    "{full_name}|{dtypes_str}"')
+    lines.append(")")
+    lines.append("")
+
+    manifest_path = os.path.join(output_dir, "generated_shaders.cmake")
+    content = "\n".join(lines)
+    write_if_changed(manifest_path, content)
+    print(f"Generated manifest: generated_shaders.cmake")
 
 
 # =============================================================================
@@ -250,12 +392,23 @@ def main():
         "--impl-dir", required=True,
         help="Root directory containing shader group subdirectories"
     )
+    parser.add_argument(
+        "--output-dir", required=True,
+        help="Output directory for dtype-preprocessed shader files"
+    )
     args = parser.parse_args()
 
     impl_dir = args.impl_dir
+    output_dir = args.output_dir
+
     if not os.path.isdir(impl_dir):
         print(f"ERROR: --impl-dir does not exist: {impl_dir}", file=sys.stderr)
         sys.exit(1)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Collect all generated shader files across groups
+    all_generated = []
 
     # Scan subdirectories for shaders.json
     processed = 0
@@ -269,23 +422,27 @@ def main():
         with open(config_path, "r") as f:
             config = json.load(f)
 
-        group_type = config.get("type", "shaders")
         group_name = entry
 
-        print(f"Processing group: {group_name} (type={group_type})")
+        print(f"Processing group: {group_name}")
 
-        if group_type == "variants":
-            generate_variant_shaders(config, group_dir)
+        # Generate dtype-preprocessed shader files
+        generated = generate_shader_files(config, group_dir, output_dir)
+        all_generated.extend(generated)
+
+        # Generate appropriate header
+        if has_dispatch_metadata(config):
             generate_variant_header(config, group_dir, group_name)
-        elif group_type == "shaders":
-            generate_simple_header(config, group_dir, group_name)
         else:
-            print(f"WARNING: Unknown type '{group_type}' in {config_path}",
-                  file=sys.stderr)
+            generate_simple_header(config, group_dir, group_name)
 
         processed += 1
 
-    print(f"Done. Processed {processed} shader group(s).")
+    # Write CMake manifest
+    generate_cmake_manifest(all_generated, output_dir)
+
+    print(f"Done. Processed {processed} shader group(s), "
+          f"generated {len(all_generated)} shader file(s).")
 
 
 if __name__ == "__main__":

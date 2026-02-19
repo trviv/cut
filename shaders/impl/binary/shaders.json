@@ -1,7 +1,26 @@
 {
-  "type": "shaders",
-  "shaders": [
-    "BinaryVecVec",
-    "BinaryVecScalar"
+  "type": "variants",
+  "cpp_prefix": "Binary",
+  "variants": [
+    {
+      "name": "VecVec",
+      "description": "Binary vec-vec operations",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "VecScalar",
+      "description": "Binary vec-scalar operations",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
   ]
 }

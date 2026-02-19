@@ -1,103 +1,286 @@
 {
   "type": "variants",
   "cpp_prefix": "MatMul",
-  "default_variant": "MatMulT16R4x4",
+  "default_variant": "T16R4x4",
   "variants": [
     {
-      "name": "MatMulNaive",
+      "name": "Naive",
       "template": "MatMulNaive",
       "defines": {},
-      "wg": [16, 16],
-      "eff_tile": [16, 16],
-      "description": "Naive (no tiling)"
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        16,
+        16
+      ],
+      "description": "Naive (no tiling)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMul",
+      "name": "",
       "template": "MatMulBasicTiled",
       "defines": {},
-      "wg": [16, 16],
-      "eff_tile": [16, 16],
-      "description": "SharedMem 16x16"
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        16,
+        16
+      ],
+      "description": "SharedMem 16x16",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulRegTiled",
+      "name": "RegTiled",
       "template": "MatMulRegTiled",
       "defines": {},
-      "wg": [16, 16],
-      "eff_tile": [64, 64],
-      "description": "RegTiled 4x4"
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        64,
+        64
+      ],
+      "description": "RegTiled 4x4",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulTiled2x2",
+      "name": "Tiled2x2",
       "template": "MatMulTiledReg",
-      "defines": {"TILE_SIZE": 16, "TM": 2, "TN": 2},
-      "wg": [16, 16],
-      "eff_tile": [32, 32],
-      "description": "T16 R2x2 (4KB)"
+      "defines": {
+        "TILE_SIZE": 16,
+        "TM": 2,
+        "TN": 2
+      },
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        32,
+        32
+      ],
+      "description": "T16 R2x2 (4KB)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulT8R2x2",
+      "name": "T8R2x2",
       "template": "MatMulTiledReg",
-      "defines": {"TILE_SIZE": 8, "TM": 2, "TN": 2},
-      "wg": [8, 8],
-      "eff_tile": [16, 16],
-      "description": "T8 R2x2 (1KB)"
+      "defines": {
+        "TILE_SIZE": 8,
+        "TM": 2,
+        "TN": 2
+      },
+      "wg": [
+        8,
+        8
+      ],
+      "eff_tile": [
+        16,
+        16
+      ],
+      "description": "T8 R2x2 (1KB)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulT8R4x4",
+      "name": "T8R4x4",
       "template": "MatMulTiledReg",
-      "defines": {"TILE_SIZE": 8, "TM": 4, "TN": 4},
-      "wg": [8, 8],
-      "eff_tile": [32, 32],
-      "description": "T8 R4x4 (2KB)"
+      "defines": {
+        "TILE_SIZE": 8,
+        "TM": 4,
+        "TN": 4
+      },
+      "wg": [
+        8,
+        8
+      ],
+      "eff_tile": [
+        32,
+        32
+      ],
+      "description": "T8 R4x4 (2KB)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulT16R4x4",
+      "name": "T16R4x4",
       "template": "MatMulTiledReg",
-      "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
-      "wg": [16, 16],
-      "eff_tile": [64, 64],
-      "description": "T16 R4x4 (8KB)"
+      "defines": {
+        "TILE_SIZE": 16,
+        "TM": 4,
+        "TN": 4
+      },
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        64,
+        64
+      ],
+      "description": "T16 R4x4 (8KB)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulT16R8x8",
+      "name": "T16R8x8",
       "template": "MatMulTiledReg",
-      "defines": {"TILE_SIZE": 16, "TM": 8, "TN": 8},
-      "wg": [16, 16],
-      "eff_tile": [128, 128],
-      "description": "T16 R8x8 (16KB)"
+      "defines": {
+        "TILE_SIZE": 16,
+        "TM": 8,
+        "TN": 8
+      },
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        128,
+        128
+      ],
+      "description": "T16 R8x8 (16KB)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulT32R2x2",
+      "name": "T32R2x2",
       "template": "MatMulTiledReg",
-      "defines": {"TILE_SIZE": 32, "TM": 2, "TN": 2},
-      "wg": [32, 32],
-      "eff_tile": [64, 64],
-      "description": "T32 R2x2 (16KB)"
+      "defines": {
+        "TILE_SIZE": 32,
+        "TM": 2,
+        "TN": 2
+      },
+      "wg": [
+        32,
+        32
+      ],
+      "eff_tile": [
+        64,
+        64
+      ],
+      "description": "T32 R2x2 (16KB)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulSimdR4x4",
+      "name": "SimdR4x4",
       "template": "MatMulSimdWave",
-      "defines": {"WR": 8, "WC": 4, "TM": 4, "TN": 4},
-      "wg": [32, 1],
-      "eff_tile": [32, 16],
-      "description": "SIMD R4x4 (32x16)"
+      "defines": {
+        "WR": 8,
+        "WC": 4,
+        "TM": 4,
+        "TN": 4
+      },
+      "wg": [
+        32,
+        1
+      ],
+      "eff_tile": [
+        32,
+        16
+      ],
+      "description": "SIMD R4x4 (32x16)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulSimdR4x8",
+      "name": "SimdR4x8",
       "template": "MatMulSimdWave",
-      "defines": {"WR": 8, "WC": 4, "TM": 4, "TN": 8},
-      "wg": [32, 1],
-      "eff_tile": [32, 32],
-      "description": "SIMD R4x8 (32x32)"
+      "defines": {
+        "WR": 8,
+        "WC": 4,
+        "TM": 4,
+        "TN": 8
+      },
+      "wg": [
+        32,
+        1
+      ],
+      "eff_tile": [
+        32,
+        32
+      ],
+      "description": "SIMD R4x8 (32x32)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     },
     {
-      "name": "MatMulSimdR8x8",
+      "name": "SimdR8x8",
       "template": "MatMulSimdWave",
-      "defines": {"WR": 8, "WC": 4, "TM": 8, "TN": 8},
-      "wg": [32, 1],
-      "eff_tile": [64, 32],
-      "description": "SIMD R8x8 (64x32)"
+      "defines": {
+        "WR": 8,
+        "WC": 4,
+        "TM": 8,
+        "TN": 8
+      },
+      "wg": [
+        32,
+        1
+      ],
+      "eff_tile": [
+        64,
+        32
+      ],
+      "description": "SIMD R8x8 (64x32)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     }
   ]
 }

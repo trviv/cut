@@ -1,7 +1,26 @@
 {
-  "type": "shaders",
-  "shaders": [
-    "MaxPool2D",
-    "AvgPool2D"
+  "type": "variants",
+  "cpp_prefix": "",
+  "variants": [
+    {
+      "name": "MaxPool2D",
+      "description": "Max pooling 2D",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "AvgPool2D",
+      "description": "Average pooling 2D",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
   ]
 }

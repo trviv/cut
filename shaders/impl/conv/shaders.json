@@ -1,7 +1,26 @@
 {
-  "type": "shaders",
-  "shaders": [
-    "Conv1D",
-    "Conv2D"
+  "type": "variants",
+  "cpp_prefix": "Conv",
+  "variants": [
+    {
+      "name": "1D",
+      "description": "1D convolution",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "2D",
+      "description": "2D convolution",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
   ]
 }

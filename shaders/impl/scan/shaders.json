@@ -1,9 +1,46 @@
 {
-  "type": "shaders",
-  "shaders": [
-    "ScanPerWg",
-    "ScanPartialSums",
-    "ScanPropagate",
-    "ScanUint"
+  "type": "variants",
+  "cpp_prefix": "",
+  "variants": [
+    {
+      "name": "ScanPerWg",
+      "description": "Per-workgroup scan",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "ScanPartialSums",
+      "description": "Scan partial sums",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "ScanPropagate",
+      "description": "Scan propagation",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "ScanUint",
+      "description": "Scan for uint data",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
   ]
 }

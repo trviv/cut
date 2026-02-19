@@ -1,8 +1,36 @@
 {
-  "type": "shaders",
-  "shaders": [
-    "Fill",
-    "FillUint",
-    "Arange"
+  "type": "variants",
+  "cpp_prefix": "",
+  "variants": [
+    {
+      "name": "Fill",
+      "description": "Fill tensor with typed value",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "FillUint",
+      "description": "Fill tensor with uint value",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "Arange",
+      "description": "Arange / linspace",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
   ]
 }

@@ -23,99 +23,49 @@ find_program(DXC_EXECUTABLE dxc REQUIRED)
 message(STATUS "DXC compiler: ${DXC_EXECUTABLE}")
 
 # =============================================================================
-# Datatype variant definitions
-# Each .shader template is compiled once per variant listed here.
+# Function to compile an already-preprocessed .shader file to SPIR-V
+# (dtype substitution is now handled by generate_shader_variants.py)
 # =============================================================================
-set(DTYPE_VARIANTS "Float32" "Float16" "Int32" "UInt32")
-
-# Float32: float4 / float
-set(DTYPE_Float32_VEC "float4")
-set(DTYPE_Float32_SCALAR "float")
-set(DTYPE_Float32_SIZE "4")
-set(DTYPE_Float32_DEFINES "#define DTYPE_IS_FLOAT 1")
-
-# Float16: float4 / float (mediump qualifier breaks constructors, use float4)
-set(DTYPE_Float16_VEC "float4")
-set(DTYPE_Float16_SCALAR "float")
-set(DTYPE_Float16_SIZE "4")
-set(DTYPE_Float16_DEFINES "#define DTYPE_IS_FLOAT 1")
-
-# Int32: int4 / int
-set(DTYPE_Int32_VEC "int4")
-set(DTYPE_Int32_SCALAR "int")
-set(DTYPE_Int32_SIZE "4")
-set(DTYPE_Int32_DEFINES "#define DTYPE_IS_INT 1")
-
-# UInt32: uint4 / uint
-set(DTYPE_UInt32_VEC "uint4")
-set(DTYPE_UInt32_SCALAR "uint")
-set(DTYPE_UInt32_SIZE "4")
-set(DTYPE_UInt32_DEFINES "#define DTYPE_IS_UINT 1")
-
-# =============================================================================
-# Function to preprocess a .shader template and compile a single variant
-# =============================================================================
-function(compile_shader_variant SHADER_SOURCE DTYPE_NAME VEC_TYPE SCALAR_TYPE DTYPE_SIZE DTYPE_DEFINES)
-    # Optional 7th argument: extra DXC flags (e.g. "-Od")
+function(compile_shader SHADER_SOURCE)
+    # Optional 2nd argument: extra DXC flags (e.g. "-Od")
     set(EXTRA_DXC_FLAGS "${ARGN}")
     get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
     get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
 
-    set(PREPROCESSED_FILE ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}_${DTYPE_NAME}.shader)
-    set(SHADER_BINARY ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}_${DTYPE_NAME}.spv)
-
-    # Create a CMake script that preprocesses the template at build time
-    set(PREPROCESS_SCRIPT ${SHADER_BINARY_DIR}/preprocess_${SHADER_NAME_WE}_${DTYPE_NAME}.cmake)
-    file(WRITE ${PREPROCESS_SCRIPT} "
-file(READ \"${SHADER_SOURCE}\" SHADER_CONTENT)
-string(REPLACE \"%VEC_DTYPE%\" \"${VEC_TYPE}\" SHADER_CONTENT \"\${SHADER_CONTENT}\")
-string(REPLACE \"%SCALAR_DTYPE%\" \"${SCALAR_TYPE}\" SHADER_CONTENT \"\${SHADER_CONTENT}\")
-string(REPLACE \"%DTYPE_SIZE%\" \"${DTYPE_SIZE}\" SHADER_CONTENT \"\${SHADER_CONTENT}\")
-string(REPLACE \"%DTYPE_DEFINES%\" \"${DTYPE_DEFINES}\" SHADER_CONTENT \"\${SHADER_CONTENT}\")
-file(WRITE \"${PREPROCESSED_FILE}\" \"\${SHADER_CONTENT}\")
-")
-
-    # Preprocess at build time
-    add_custom_command(
-        OUTPUT ${PREPROCESSED_FILE}
-        COMMAND ${CMAKE_COMMAND} -P ${PREPROCESS_SCRIPT}
-        DEPENDS ${SHADER_SOURCE}
-        COMMENT "Preprocessing ${SHADER_NAME_WE} for ${DTYPE_NAME}"
-        VERBATIM
-    )
+    set(SHADER_BINARY ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}.spv)
 
     # Create a CMake script that compiles with hash-based caching
-    set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${SHADER_NAME_WE}_${DTYPE_NAME}.cmake)
+    set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${SHADER_NAME_WE}.cmake)
     file(WRITE ${COMPILE_SCRIPT} "
-# Hash the preprocessed shader and included header to form a cache key
-file(MD5 \"${PREPROCESSED_FILE}\" HLSL_HASH)
+# Hash the shader and included header to form a cache key
+file(MD5 \"${SHADER_SOURCE}\" HLSL_HASH)
 file(MD5 \"${SHADER_INCLUDE_DIR}/ComputeOpsShared.h\" HEADER_HASH)
 string(MD5 CACHE_KEY \"\${HLSL_HASH}_\${HEADER_HASH}\")
 
 set(CACHE_FILE \"${SHADER_CACHE_DIR}/\${CACHE_KEY}.spv\")
 
 if(EXISTS \${CACHE_FILE})
-    message(STATUS \"Cache hit: ${SHADER_NAME_WE}_${DTYPE_NAME}\")
+    message(STATUS \"Cache hit: ${SHADER_NAME_WE}\")
     execute_process(COMMAND \${CMAKE_COMMAND} -E copy \${CACHE_FILE} \"${SHADER_BINARY}\")
 else()
-    message(STATUS \"Cache miss: ${SHADER_NAME_WE}_${DTYPE_NAME} — compiling\")
+    message(STATUS \"Cache miss: ${SHADER_NAME_WE} — compiling\")
     execute_process(
-        COMMAND ${DXC_EXECUTABLE} -T cs_6_0 -E main -spirv -fspv-target-env=vulkan1.1 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${PREPROCESSED_FILE}\" -Fo \"${SHADER_BINARY}\"
+        COMMAND ${DXC_EXECUTABLE} -T cs_6_0 -E main -spirv -fspv-target-env=vulkan1.1 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${SHADER_SOURCE}\" -Fo \"${SHADER_BINARY}\"
         RESULT_VARIABLE result
     )
     if(NOT result EQUAL 0)
-        message(FATAL_ERROR \"Shader compilation failed for ${SHADER_NAME_WE}_${DTYPE_NAME}\")
+        message(FATAL_ERROR \"Shader compilation failed for ${SHADER_NAME_WE}\")
     endif()
     execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SHADER_BINARY}\" \${CACHE_FILE})
 endif()
 ")
 
-    # Compile the preprocessed shader to SPIR-V (with caching)
+    # Compile the shader to SPIR-V (with caching)
     add_custom_command(
         OUTPUT ${SHADER_BINARY}
         COMMAND ${CMAKE_COMMAND} -P ${COMPILE_SCRIPT}
-        DEPENDS ${PREPROCESSED_FILE} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
-        COMMENT "Compiling ${SHADER_NAME_WE}_${DTYPE_NAME} to SPIR-V (cached)"
+        DEPENDS ${SHADER_SOURCE} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
+        COMMENT "Compiling ${SHADER_NAME_WE} to SPIR-V (cached)"
         VERBATIM
     )
 
@@ -126,44 +76,52 @@ endfunction()
 
 # =============================================================================
 # Generate CompiledShaders.cpp with per-datatype switching
+# Uses SHADER_FUNCTION_DTYPES from the manifest to know which dtypes each
+# function supports (instead of assuming all 4 dtypes for every shader).
 # =============================================================================
-function(generate_shader_source SHADER_SOURCES)
-    # Build lists of shader enum names and all binary outputs
-    set(SHADER_ENUMS "")
+function(generate_shader_source)
+    # Build lists from manifest
     set(ALL_BINARIES "")
+    set(FUNC_NAMES "")
+    set(FUNC_DTYPE_STRS "")
 
-    foreach(SHADER_SOURCE ${SHADER_SOURCES})
-        get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
-        list(APPEND SHADER_ENUMS ${SHADER_NAME_WE})
-        foreach(VARIANT ${DTYPE_VARIANTS})
-            list(APPEND ALL_BINARIES ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}_${VARIANT}.spv)
+    foreach(ENTRY ${SHADER_FUNCTION_DTYPES})
+        # Parse "FunctionName|Dtype1,Dtype2,..."
+        string(REPLACE "|" ";" PARTS "${ENTRY}")
+        list(GET PARTS 0 FUNC_NAME)
+        list(GET PARTS 1 DTYPES_CSV)
+
+        list(APPEND FUNC_NAMES ${FUNC_NAME})
+        list(APPEND FUNC_DTYPE_STRS "${DTYPES_CSV}")
+
+        # Add expected binary outputs
+        string(REPLACE "," ";" DTYPE_LIST "${DTYPES_CSV}")
+        foreach(DTYPE ${DTYPE_LIST})
+            list(APPEND ALL_BINARIES ${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv)
         endforeach()
     endforeach()
 
-    # Log found shaders for debugging
-    list(LENGTH SHADER_SOURCES NUM_SHADERS)
-    message(STATUS "generate_shader_source: Processing ${NUM_SHADERS} shaders with variants: ${DTYPE_VARIANTS}")
-    foreach(SHADER_SOURCE ${SHADER_SOURCES})
-        message(STATUS "  - ${SHADER_SOURCE}")
-    endforeach()
+    # Log found shaders
+    list(LENGTH FUNC_NAMES NUM_FUNCS)
+    message(STATUS "generate_shader_source: Processing ${NUM_FUNCS} shader functions")
 
     # Create a CMake script that generates the source file at build time
     set(GENERATOR_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/generate_compiled_shaders.cmake)
 
     # Convert lists to strings for the script (use | as separator)
-    string(REPLACE ";" "|" SHADER_ENUMS_STR "${SHADER_ENUMS}")
-    string(REPLACE ";" "|" DTYPE_VARIANTS_STR "${DTYPE_VARIANTS}")
+    string(REPLACE ";" "|" FUNC_NAMES_STR "${FUNC_NAMES}")
+    string(REPLACE ";" "|" FUNC_DTYPE_STRS_STR "${FUNC_DTYPE_STRS}")
 
     file(WRITE ${GENERATOR_SCRIPT} "
 # Generated script to embed shader SPIR-V into C++ source
-set(SHADER_ENUMS_STR \"${SHADER_ENUMS_STR}\")
-set(DTYPE_VARIANTS_STR \"${DTYPE_VARIANTS_STR}\")
+set(FUNC_NAMES_STR \"${FUNC_NAMES_STR}\")
+set(FUNC_DTYPE_STRS_STR \"${FUNC_DTYPE_STRS_STR}\")
 set(SHADER_BINARY_DIR \"${SHADER_BINARY_DIR}\")
 set(OUTPUT_FILE \"${SHADERS_SOURCE_FILE}\")
 
 # Convert back to lists
-string(REPLACE \"|\" \";\" SHADER_ENUMS \"\${SHADER_ENUMS_STR}\")
-string(REPLACE \"|\" \";\" DTYPE_VARIANTS \"\${DTYPE_VARIANTS_STR}\")
+string(REPLACE \"|\" \";\" FUNC_NAMES \"\${FUNC_NAMES_STR}\")
+string(REPLACE \"|\" \";\" FUNC_DTYPE_STRS \"\${FUNC_DTYPE_STRS_STR}\")
 
 # Write header
 file(WRITE \${OUTPUT_FILE} \"
@@ -173,33 +131,37 @@ namespace cut {
 
 \")
 
-# Process each shader - generate one function per shader file with datatype switch
-list(LENGTH SHADER_ENUMS NUM_SHADERS)
-message(STATUS \"Embedding \${NUM_SHADERS} shader(s) into CompiledShaders.cpp\")
-if(NUM_SHADERS GREATER 0)
-    math(EXPR LAST_INDEX \"\${NUM_SHADERS} - 1\")
+# Process each shader function
+list(LENGTH FUNC_NAMES NUM_FUNCS)
+message(STATUS \"Embedding \${NUM_FUNCS} shader function(s) into CompiledShaders.cpp\")
+if(NUM_FUNCS GREATER 0)
+    math(EXPR LAST_INDEX \"\${NUM_FUNCS} - 1\")
     foreach(IDX RANGE \${LAST_INDEX})
-        list(GET SHADER_ENUMS \${IDX} ENUM_NAME)
+        list(GET FUNC_NAMES \${IDX} FUNC_NAME)
+        list(GET FUNC_DTYPE_STRS \${IDX} DTYPES_CSV)
 
-        message(STATUS \"  Generating compiled\${ENUM_NAME} with datatype variants\")
+        # Parse per-function dtype list
+        string(REPLACE \",\" \";\" DTYPE_LIST \"\${DTYPES_CSV}\")
 
-        file(APPEND \${OUTPUT_FILE} \"std::optional<std::vector<uint32_t>> compiled\${ENUM_NAME}(const DataType datatype) {
+        message(STATUS \"  Generating compiled\${FUNC_NAME} with dtypes: \${DTYPES_CSV}\")
+
+        file(APPEND \${OUTPUT_FILE} \"std::optional<std::vector<uint32_t>> compiled\${FUNC_NAME}(const DataType datatype) {
     switch (datatype) {
 \")
 
-        foreach(VARIANT \${DTYPE_VARIANTS})
-            set(BINARY \${SHADER_BINARY_DIR}/\${ENUM_NAME}_\${VARIANT}.spv)
+        foreach(DTYPE \${DTYPE_LIST})
+            set(BINARY \${SHADER_BINARY_DIR}/\${FUNC_NAME}_\${DTYPE}.spv)
             if(EXISTS \${BINARY})
                 # Read binary SPIR-V and convert to C-style uint32_t hex array
                 file(READ \${BINARY} SPIRV_HEX HEX)
                 # Convert little-endian bytes to uint32_t hex values
                 string(REGEX REPLACE \"([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])\" \"0x\\\\4\\\\3\\\\2\\\\1,\" SPIRV_DATA \"\${SPIRV_HEX}\")
-                file(APPEND \${OUTPUT_FILE} \"    case DataType::\${VARIANT}:
+                file(APPEND \${OUTPUT_FILE} \"    case DataType::\${DTYPE}:
         return {{\${SPIRV_DATA}}};
 \")
-                message(STATUS \"    - \${VARIANT}: embedded\")
+                message(STATUS \"    - \${DTYPE}: embedded\")
             else()
-                message(STATUS \"    - \${VARIANT}: SKIPPED (binary not found)\")
+                message(STATUS \"    - \${DTYPE}: SKIPPED (binary not found)\")
             endif()
         endforeach()
 
@@ -217,7 +179,7 @@ file(APPEND \${OUTPUT_FILE} \"
 } // namespace cut
 \")
 
-message(STATUS \"Generated CompiledShaders.cpp with \${NUM_SHADERS} shader(s)\")
+message(STATUS \"Generated CompiledShaders.cpp with \${NUM_FUNCS} shader function(s)\")
 ")
 
     # Single custom command that generates the source file
@@ -225,7 +187,7 @@ message(STATUS \"Generated CompiledShaders.cpp with \${NUM_SHADERS} shader(s)\")
         OUTPUT ${SHADERS_SOURCE_FILE}
         COMMAND ${CMAKE_COMMAND} -P ${GENERATOR_SCRIPT}
         DEPENDS ${ALL_BINARIES}
-        COMMENT "Generating CompiledShaders.cpp with ${NUM_SHADERS} shaders"
+        COMMENT "Generating CompiledShaders.cpp with ${NUM_FUNCS} shader functions"
         VERBATIM
     )
 
@@ -235,62 +197,43 @@ message(STATUS \"Generated CompiledShaders.cpp with \${NUM_SHADERS} shader(s)\")
 endfunction()
 
 # =============================================================================
-# Shader variant generation: scan impl/ subdirectories for shaders.json
+# Shader variant generation: run Python script to produce dtype-preprocessed
+# shader files and CMake manifest
 # =============================================================================
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 set(SHADER_VARIANT_GENERATOR ${CMAKE_SOURCE_DIR}/scripts/generate_shader_variants.py)
+set(GENERATED_SHADER_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated_shaders)
+file(MAKE_DIRECTORY ${GENERATED_SHADER_DIR})
 
-# Run the generator at configure time so file(GLOB) finds generated .shader files.
+# Run the generator at configure time to produce preprocessed .shader files
+# and the generated_shaders.cmake manifest.
 execute_process(
     COMMAND ${Python3_EXECUTABLE} ${SHADER_VARIANT_GENERATOR}
         --impl-dir ${SHADER_SOURCE_DIR}
+        --output-dir ${GENERATED_SHADER_DIR}
     RESULT_VARIABLE SHADER_GEN_RESULT
 )
 if(NOT SHADER_GEN_RESULT EQUAL 0)
     message(FATAL_ERROR "Shader variant generation failed")
 endif()
 
-# =============================================================================
-# Find all shader files and compile all variants
-# =============================================================================
-file(GLOB_RECURSE SHADER_SOURCES
-    "${SHADER_SOURCE_DIR}/*.shader"
-)
+# Include the manifest (sets GENERATED_SHADER_FILES and SHADER_FUNCTION_DTYPES)
+include(${GENERATED_SHADER_DIR}/generated_shaders.cmake)
 
-# Separate linkable shaders (compiled with -Od so late-bound functions are
-# preserved as distinct SPIR-V functions for runtime linking).
-set(LINKABLE_SHADERS "")
-message(STATUS "Found shader files ${SHADER_SOURCES}")
-message(STATUS "Linkable shader files ${LINKABLE_SHADERS}")
+# =============================================================================
+# Compile all generated shader files
+# =============================================================================
+list(LENGTH GENERATED_SHADER_FILES NUM_GEN_SHADERS)
+message(STATUS "Found ${NUM_GEN_SHADERS} generated shader files")
 
-# Compile each shader for each datatype variant
-foreach(SHADER_SOURCE ${SHADER_SOURCES})
-    foreach(VARIANT ${DTYPE_VARIANTS})
-        compile_shader_variant(${SHADER_SOURCE} ${VARIANT}
-            "${DTYPE_${VARIANT}_VEC}"
-            "${DTYPE_${VARIANT}_SCALAR}"
-            "${DTYPE_${VARIANT}_SIZE}"
-            "${DTYPE_${VARIANT}_DEFINES}")
-    endforeach()
+foreach(SHADER_FILE ${GENERATED_SHADER_FILES})
+    compile_shader(${SHADER_FILE})
 endforeach()
 
-# Compile linkable shaders with -Od to preserve function boundaries
-foreach(SHADER_SOURCE ${LINKABLE_SHADERS})
-    foreach(VARIANT ${DTYPE_VARIANTS})
-        compile_shader_variant(${SHADER_SOURCE} ${VARIANT}
-            "${DTYPE_${VARIANT}_VEC}"
-            "${DTYPE_${VARIANT}_SCALAR}"
-            "${DTYPE_${VARIANT}_SIZE}"
-            "${DTYPE_${VARIANT}_DEFINES}"
-            "-Od")
-    endforeach()
-endforeach()
-
-# Combine all shader sources for embedding
-set(ALL_SHADER_SOURCES ${SHADER_SOURCES} ${LINKABLE_SHADERS})
-if(ALL_SHADER_SOURCES)
-    generate_shader_source("${ALL_SHADER_SOURCES}")
+# Generate CompiledShaders.cpp from compiled SPIR-V binaries
+if(SHADER_FUNCTION_DTYPES)
+    generate_shader_source()
 else()
     # Generate a stub CompiledShaders.cpp when there are no shader sources
     file(WRITE ${SHADERS_SOURCE_FILE} "
@@ -314,11 +257,8 @@ if(COMPILED_SHADERS)
 
     # Print shader compilation info
     list(LENGTH COMPILED_SHADERS SHADER_COUNT)
-    message(STATUS "Found ${SHADER_COUNT} shader variant(s) to compile:")
-    foreach(SHADER_SOURCE ${SHADER_SOURCES})
-        get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
-        message(STATUS "  - ${SHADER_NAME} (variants: ${DTYPE_VARIANTS})")
-    endforeach()
+    list(LENGTH SHADER_FUNCTION_DTYPES FUNC_COUNT)
+    message(STATUS "Found ${SHADER_COUNT} shader file(s) to compile across ${FUNC_COUNT} function(s)")
 else()
-    message(WARNING "No shader files found in ${SHADER_SOURCE_DIR}")
+    message(WARNING "No shader files found")
 endif()

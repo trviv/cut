@@ -1,14 +1,96 @@
 {
-  "type": "shaders",
-  "shaders": [
-    "Reduce",
-    "ReduceDim",
-    "ReduceArg",
-    "ReduceDimArg",
-    "PartialReduce",
-    "FinalReduce",
-    "CumOp",
-    "Norm",
-    "Dot"
+  "type": "variants",
+  "cpp_prefix": "",
+  "variants": [
+    {
+      "name": "Reduce",
+      "description": "Full reduction",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "ReduceDim",
+      "description": "Reduce along dimension",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "ReduceArg",
+      "description": "Argmax/Argmin reduction",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "ReduceDimArg",
+      "description": "Dim argmax/argmin reduction",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "PartialReduce",
+      "description": "Partial reduction",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "FinalReduce",
+      "description": "Final reduction",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "CumOp",
+      "description": "Cumulative operations",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "Norm",
+      "description": "Normalization",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "Dot",
+      "description": "Dot product",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
   ]
 }

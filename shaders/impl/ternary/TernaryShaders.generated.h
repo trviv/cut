@@ -7,9 +7,7 @@
 
 namespace cut {
 
-std::optional<std::vector<uint32_t>>
-compiledTernaryClamp(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>>
-compiledTernarySelect(DataType datatype = DataType::Float32);
+std::optional<std::vector<uint32_t>> compiledTernaryClamp(DataType datatype = DataType::Float32);
+std::optional<std::vector<uint32_t>> compiledTernarySelect(DataType datatype = DataType::Float32);
 
 } // namespace cut
