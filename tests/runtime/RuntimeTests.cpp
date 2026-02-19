@@ -4011,6 +4011,217 @@ TEST_F(MatrixOpsTest, MatMul_LargerMatrices) {
   }
 }
 
+// ============================================================================
+// MatMul Variant Tests
+// ============================================================================
+
+// All matmul variants to test
+constexpr std::array<OperatorEnum, 12> kMatMulVariants = {
+    MatMul,        MatMulNaive,    MatMulRegTiled, MatMulTiled2x2,
+    MatMulT8R2x2,  MatMulT8R4x4,   MatMulT16R4x4,  MatMulT16R8x8,
+    MatMulT32R2x2, MatMulSimdR4x4, MatMulSimdR4x8, MatMulSimdR8x8,
+};
+
+TEST_F(MatrixOpsTest, MatMulVariants_Square) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t M = 32, K = 32, N = 32;
+
+  auto dataA = generateTestData<float>(M * K, 42);
+  auto dataB = generateTestData<float>(K * N, 123);
+
+  // CPU reference
+  std::vector<float> expected(M * N, 0.0f);
+  for (uint32_t i = 0; i < M; ++i)
+    for (uint32_t k = 0; k < K; ++k)
+      for (uint32_t j = 0; j < N; ++j)
+        expected[i * N + j] += dataA[i * K + k] * dataB[k * N + j];
+
+  for (OperatorEnum variant : kMatMulVariants) {
+    SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+
+    auto bufA = runtime_->createTensor({M, K}, dtype, dataA.data());
+    auto bufB = runtime_->createTensor({K, N}, dtype, dataB.data());
+    auto bufC = runtime_->ops().matmul(bufA, bufB, variant);
+
+    std::vector<float> output(M * N);
+    runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
+
+    for (uint32_t i = 0; i < M; ++i) {
+      for (uint32_t j = 0; j < N; ++j) {
+        EXPECT_NEAR(output[i * N + j], expected[i * N + j],
+                    std::abs(expected[i * N + j]) * 1e-4f + 1e-5f)
+            << "Mismatch at [" << i << ", " << j << "]";
+      }
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, MatMulVariants_Rectangular) {
+  const DataType dtype = DataType::Float32;
+
+  struct TestCase {
+    uint32_t M, K, N;
+  };
+  std::array<TestCase, 4> testCases = {
+      {{16, 32, 64}, {64, 16, 32}, {8, 64, 8}, {48, 24, 36}}};
+
+  for (const auto &tc : testCases) {
+    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.K) +
+                 "] * [" + std::to_string(tc.K) + "x" + std::to_string(tc.N) +
+                 "]");
+
+    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
+    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
+
+    // CPU reference
+    std::vector<float> expected(tc.M * tc.N, 0.0f);
+    for (uint32_t i = 0; i < tc.M; ++i)
+      for (uint32_t k = 0; k < tc.K; ++k)
+        for (uint32_t j = 0; j < tc.N; ++j)
+          expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
+
+    for (OperatorEnum variant : kMatMulVariants) {
+      SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+
+      auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
+      auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
+      auto bufC = runtime_->ops().matmul(bufA, bufB, variant);
+
+      std::vector<float> output(tc.M * tc.N);
+      runtime_->copyFromTensor(bufC, output.data(),
+                               tc.M * tc.N * sizeof(float));
+
+      for (uint32_t i = 0; i < tc.M; ++i) {
+        for (uint32_t j = 0; j < tc.N; ++j) {
+          EXPECT_NEAR(output[i * tc.N + j], expected[i * tc.N + j],
+                      std::abs(expected[i * tc.N + j]) * 1e-4f + 1e-5f)
+              << "Mismatch at [" << i << ", " << j << "]";
+        }
+      }
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, MatMulVariants_NonMultipleOfTileSize) {
+  const DataType dtype = DataType::Float32;
+
+  struct TestCase {
+    uint32_t M, K, N;
+  };
+  std::array<TestCase, 4> testCases = {
+      {{7, 13, 5}, {15, 17, 9}, {33, 7, 31}, {3, 65, 11}}};
+
+  for (const auto &tc : testCases) {
+    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.K) +
+                 "] * [" + std::to_string(tc.K) + "x" + std::to_string(tc.N) +
+                 "]");
+
+    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
+    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
+
+    // CPU reference
+    std::vector<float> expected(tc.M * tc.N, 0.0f);
+    for (uint32_t i = 0; i < tc.M; ++i)
+      for (uint32_t k = 0; k < tc.K; ++k)
+        for (uint32_t j = 0; j < tc.N; ++j)
+          expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
+
+    for (OperatorEnum variant : kMatMulVariants) {
+      SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+
+      auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
+      auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
+      auto bufC = runtime_->ops().matmul(bufA, bufB, variant);
+
+      std::vector<float> output(tc.M * tc.N);
+      runtime_->copyFromTensor(bufC, output.data(),
+                               tc.M * tc.N * sizeof(float));
+
+      for (uint32_t i = 0; i < tc.M; ++i) {
+        for (uint32_t j = 0; j < tc.N; ++j) {
+          EXPECT_NEAR(output[i * tc.N + j], expected[i * tc.N + j],
+                      std::abs(expected[i * tc.N + j]) * 1e-4f + 1e-5f)
+              << "Mismatch at [" << i << ", " << j << "]";
+        }
+      }
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, MatMulVariants_LargerMatrices) {
+  const DataType dtype = DataType::Float32;
+
+  struct TestCase {
+    uint32_t M, K, N;
+  };
+  std::array<TestCase, 3> testCases = {
+      {{64, 64, 64}, {128, 128, 128}, {128, 256, 64}}};
+
+  for (const auto &tc : testCases) {
+    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.K) +
+                 "] * [" + std::to_string(tc.K) + "x" + std::to_string(tc.N) +
+                 "]");
+
+    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
+    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
+
+    // CPU reference
+    std::vector<float> expected(tc.M * tc.N, 0.0f);
+    for (uint32_t i = 0; i < tc.M; ++i)
+      for (uint32_t k = 0; k < tc.K; ++k)
+        for (uint32_t j = 0; j < tc.N; ++j)
+          expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
+
+    float tolerance = tc.K * 1e-5f;
+
+    for (OperatorEnum variant : kMatMulVariants) {
+      SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+
+      auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
+      auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
+      auto bufC = runtime_->ops().matmul(bufA, bufB, variant);
+
+      std::vector<float> output(tc.M * tc.N);
+      runtime_->copyFromTensor(bufC, output.data(),
+                               tc.M * tc.N * sizeof(float));
+
+      for (uint32_t i = 0; i < tc.M; ++i) {
+        for (uint32_t j = 0; j < tc.N; ++j) {
+          EXPECT_NEAR(output[i * tc.N + j], expected[i * tc.N + j], tolerance)
+              << "Mismatch at [" << i << ", " << j << "]";
+        }
+      }
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t N = 16;
+
+  auto dataA = generateTestData<float>(N * N, 42);
+
+  // Identity matrix
+  std::vector<float> identity(N * N, 0.0f);
+  for (uint32_t i = 0; i < N; ++i)
+    identity[i * N + i] = 1.0f;
+
+  for (OperatorEnum variant : kMatMulVariants) {
+    SCOPED_TRACE(std::string("Variant: ") + operatorName(variant));
+
+    auto bufA = runtime_->createTensor({N, N}, dtype, dataA.data());
+    auto bufI = runtime_->createTensor({N, N}, dtype, identity.data());
+    auto bufC = runtime_->ops().matmul(bufA, bufI, variant);
+
+    std::vector<float> output(N * N);
+    runtime_->copyFromTensor(bufC, output.data(), N * N * sizeof(float));
+
+    for (uint32_t i = 0; i < N * N; ++i) {
+      EXPECT_NEAR(output[i], dataA[i], 1e-5f) << "Mismatch at index " << i;
+    }
+  }
+}
+
 TEST_F(MatrixOpsTest, Transpose_Square) {
   const DataType dtype = DataType::Float32;
   const uint32_t M = 4, N = 4;
