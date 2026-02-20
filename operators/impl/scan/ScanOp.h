@@ -10,7 +10,6 @@ public:
                    std::vector<uint32_t> shape,
                    DataType dtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

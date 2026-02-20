@@ -12,7 +12,6 @@ public:
                DataType dtype,
                int variantIdx = -1);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   DataType outputDtype() const override;

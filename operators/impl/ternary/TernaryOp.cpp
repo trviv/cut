@@ -11,8 +11,6 @@ TernaryClampOpNode::TernaryClampOpNode(std::vector<uint32_t> shape,
     : shape_(std::move(shape)), dtype_(dtype), minBits_(minBits),
       maxBits_(maxBits), numElements_(alignedElementCount(shape_)) {}
 
-void TernaryClampOpNode::validate() const {}
-
 OperatorEnum TernaryClampOpNode::op() const {
   return TernaryClamp;
 }
@@ -45,9 +43,7 @@ TernarySelectOpNode::TernarySelectOpNode(std::vector<uint32_t> condShape,
                                          DataType dtype)
     : condShape_(std::move(condShape)), xShape_(std::move(xShape)),
       yShape_(std::move(yShape)), dtype_(dtype),
-      numElements_(alignedElementCount(xShape_)) {}
-
-void TernarySelectOpNode::validate() const {
+      numElements_(alignedElementCount(xShape_)) {
   if (actualElementCount(condShape_) != actualElementCount(xShape_) ||
       actualElementCount(condShape_) != actualElementCount(yShape_)) {
     throw std::runtime_error("condition, x, and y must have the same size");

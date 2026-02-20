@@ -11,21 +11,18 @@ Conv1DOpNode::Conv1DOpNode(std::vector<uint32_t> inShape,
                            DataType dtype)
     : inShape_(std::move(inShape)), wShape_(std::move(wShape)), stride_(stride),
       padding_(padding), dtype_(dtype) {
+  if (inShape_.size() != 3)
+    throw std::runtime_error("conv1d: input must be 3D [N, C_in, L_in]");
+  if (wShape_.size() != 3)
+    throw std::runtime_error("conv1d: weight must be 3D [C_out, C_in, kL]");
   N_ = inShape_[0];
   C_in_ = inShape_[1];
   L_in_ = inShape_[2];
   C_out_ = wShape_[0];
   kL_ = wShape_[2];
-  L_out_ = (L_in_ + 2 * padding_ - kL_) / stride_ + 1;
-}
-
-void Conv1DOpNode::validate() const {
-  if (inShape_.size() != 3)
-    throw std::runtime_error("conv1d: input must be 3D [N, C_in, L_in]");
-  if (wShape_.size() != 3)
-    throw std::runtime_error("conv1d: weight must be 3D [C_out, C_in, kL]");
   if (wShape_[1] != C_in_)
     throw std::runtime_error("conv1d: weight C_in dimension mismatch");
+  L_out_ = (L_in_ + 2 * padding_ - kL_) / stride_ + 1;
 }
 
 OperatorEnum Conv1DOpNode::op() const {
@@ -65,6 +62,10 @@ Conv2DOpNode::Conv2DOpNode(std::vector<uint32_t> inShape,
     : inShape_(std::move(inShape)), wShape_(std::move(wShape)),
       strideH_(strideH), strideW_(strideW), padH_(padH), padW_(padW),
       dtype_(dtype) {
+  if (inShape_.size() != 4)
+    throw std::runtime_error("conv2d: input must be 4D [N, C_in, H_in, W_in]");
+  if (wShape_.size() != 4)
+    throw std::runtime_error("conv2d: weight must be 4D [C_out, C_in, kH, kW]");
   N_ = inShape_[0];
   C_in_ = inShape_[1];
   H_in_ = inShape_[2];
@@ -72,17 +73,10 @@ Conv2DOpNode::Conv2DOpNode(std::vector<uint32_t> inShape,
   C_out_ = wShape_[0];
   kH_ = wShape_[2];
   kW_ = wShape_[3];
-  H_out_ = (H_in_ + 2 * padH_ - kH_) / strideH_ + 1;
-  W_out_ = (W_in_ + 2 * padW_ - kW_) / strideW_ + 1;
-}
-
-void Conv2DOpNode::validate() const {
-  if (inShape_.size() != 4)
-    throw std::runtime_error("conv2d: input must be 4D [N, C_in, H_in, W_in]");
-  if (wShape_.size() != 4)
-    throw std::runtime_error("conv2d: weight must be 4D [C_out, C_in, kH, kW]");
   if (wShape_[1] != C_in_)
     throw std::runtime_error("conv2d: weight C_in dimension mismatch");
+  H_out_ = (H_in_ + 2 * padH_ - kH_) / strideH_ + 1;
+  W_out_ = (W_in_ + 2 * padW_ - kW_) / strideW_ + 1;
 }
 
 OperatorEnum Conv2DOpNode::op() const {

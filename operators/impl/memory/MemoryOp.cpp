@@ -6,14 +6,11 @@ namespace cut {
 
 TransposeOpNode::TransposeOpNode(std::vector<uint32_t> shape, DataType dtype)
     : shape_(std::move(shape)), dtype_(dtype) {
-  M_ = shape_[0];
-  N_ = shape_[1];
-}
-
-void TransposeOpNode::validate() const {
   if (shape_.size() != 2) {
     throw std::runtime_error("transpose requires a 2D matrix");
   }
+  M_ = shape_[0];
+  N_ = shape_[1];
 }
 
 OperatorEnum TransposeOpNode::op() const {
@@ -66,8 +63,6 @@ CopyOpNode::CopyOpNode(std::vector<uint32_t> srcShape,
     totalElements_ = 1;
 }
 
-void CopyOpNode::validate() const {}
-
 OperatorEnum CopyOpNode::op() const {
   return Copy;
 }
@@ -102,19 +97,16 @@ EmbeddingOpNode::EmbeddingOpNode(std::vector<uint32_t> idxShape,
                                  DataType weightDtype)
     : idxShape_(std::move(idxShape)), wShape_(std::move(wShape)),
       dtype_(weightDtype) {
+  if (wShape_.size() != 2) {
+    throw std::runtime_error(
+        "embedding: weight must be 2D [num_embeddings, embedding_dim]");
+  }
   embDim_ = wShape_[1];
   numIndices_ = 1;
   for (auto d : idxShape_)
     numIndices_ *= d;
   outShape_ = idxShape_;
   outShape_.push_back(embDim_);
-}
-
-void EmbeddingOpNode::validate() const {
-  if (wShape_.size() != 2) {
-    throw std::runtime_error(
-        "embedding: weight must be 2D [num_embeddings, embedding_dim]");
-  }
 }
 
 OperatorEnum EmbeddingOpNode::op() const {
@@ -152,6 +144,10 @@ PadOpNode::PadOpNode(std::vector<uint32_t> shape,
     : shape_(std::move(shape)), padWidths_(std::move(padWidths)), value_(value),
       dtype_(dtype) {
   int ndim = static_cast<int>(shape_.size());
+  if (padWidths_.size() % 2 != 0 ||
+      static_cast<int>(padWidths_.size() / 2) > ndim) {
+    throw std::runtime_error("pad: invalid padWidths length");
+  }
   int numPaddedDims = static_cast<int>(padWidths_.size() / 2);
 
   outShape_ = shape_;
@@ -177,14 +173,6 @@ PadOpNode::PadOpNode(std::vector<uint32_t> shape,
   for (int i = 0; i < numPaddedDims; ++i) {
     int dim = ndim - 1 - i;
     params_.padBefore[dim] = padWidths_[2 * i];
-  }
-}
-
-void PadOpNode::validate() const {
-  int ndim = static_cast<int>(shape_.size());
-  if (padWidths_.size() % 2 != 0 ||
-      static_cast<int>(padWidths_.size() / 2) > ndim) {
-    throw std::runtime_error("pad: invalid padWidths length");
   }
 }
 

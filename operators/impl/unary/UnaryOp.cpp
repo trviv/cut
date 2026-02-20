@@ -8,10 +8,6 @@ UnaryOpNode::UnaryOpNode(OperatorEnum op,
     : op_(op), shape_(std::move(shape)), dtype_(dtype),
       numElements_(alignedElementCount(shape_)) {}
 
-void UnaryOpNode::validate() const {
-  // Unary ops have no cross-input validation
-}
-
 OperatorEnum UnaryOpNode::op() const {
   return op_;
 }

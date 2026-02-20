@@ -15,17 +15,14 @@ MaxPool2DOpNode::MaxPool2DOpNode(std::vector<uint32_t> inShape,
     : inShape_(std::move(inShape)), kernelH_(kernelH), kernelW_(kernelW),
       strideH_(strideH), strideW_(strideW), padH_(padH), padW_(padW),
       dtype_(dtype) {
+  if (inShape_.size() != 4)
+    throw std::runtime_error("max_pool2d: input must be 4D [N, C, H, W]");
   N_ = inShape_[0];
   C_ = inShape_[1];
   H_in_ = inShape_[2];
   W_in_ = inShape_[3];
   H_out_ = (H_in_ + 2 * padH_ - kernelH_) / strideH_ + 1;
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
-}
-
-void MaxPool2DOpNode::validate() const {
-  if (inShape_.size() != 4)
-    throw std::runtime_error("max_pool2d: input must be 4D [N, C, H, W]");
 }
 
 OperatorEnum MaxPool2DOpNode::op() const {
@@ -71,17 +68,14 @@ AvgPool2DOpNode::AvgPool2DOpNode(std::vector<uint32_t> inShape,
     : inShape_(std::move(inShape)), kernelH_(kernelH), kernelW_(kernelW),
       strideH_(strideH), strideW_(strideW), padH_(padH), padW_(padW),
       dtype_(dtype) {
+  if (inShape_.size() != 4)
+    throw std::runtime_error("avg_pool2d: input must be 4D [N, C, H, W]");
   N_ = inShape_[0];
   C_ = inShape_[1];
   H_in_ = inShape_[2];
   W_in_ = inShape_[3];
   H_out_ = (H_in_ + 2 * padH_ - kernelH_) / strideH_ + 1;
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
-}
-
-void AvgPool2DOpNode::validate() const {
-  if (inShape_.size() != 4)
-    throw std::runtime_error("avg_pool2d: input must be 4D [N, C, H, W]");
 }
 
 OperatorEnum AvgPool2DOpNode::op() const {

@@ -8,8 +8,6 @@ PrefixScanOpNode::PrefixScanOpNode(OperatorEnum op,
     : op_(op), shape_(std::move(shape)), dtype_(dtype),
       numElements_(actualElementCount(shape_)) {}
 
-void PrefixScanOpNode::validate() const {}
-
 OperatorEnum PrefixScanOpNode::op() const {
   return op_;
 }

@@ -11,7 +11,6 @@ public:
                      uint32_t minBits,
                      uint32_t maxBits);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -33,7 +32,6 @@ public:
                       std::vector<uint32_t> yShape,
                       DataType dtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

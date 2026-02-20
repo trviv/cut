@@ -61,18 +61,15 @@ inline void appendBytes(std::vector<uint8_t> &vec, const T &val) {
 
 /**
  * Base class for all operator nodes.
- * Encapsulates validation, output shape computation, dispatch sizing,
+ * Encapsulates output shape computation, dispatch sizing,
  * and push constant generation for a single GPU operator invocation.
  *
- * Subclasses are created by Operations methods, validated, then passed
+ * Subclasses validate inputs in their constructors, then are passed
  * to Runtime::encodeOperator() for dispatch.
  */
 class OpNode {
 public:
   virtual ~OpNode() = default;
-
-  /// Validates inputs (shapes, dimensions, etc.). Throws on error.
-  virtual void validate() const = 0;
 
   /// Returns the OperatorEnum for shader lookup.
   virtual OperatorEnum op() const = 0;

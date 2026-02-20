@@ -31,8 +31,6 @@ GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
       numElements_(actualElementCount(shape_)), actualInner_(innerDimSize),
       alignedInner_((innerDimSize + 3) & ~static_cast<uint32_t>(3)) {}
 
-void GlobalReduceOpNode::validate() const {}
-
 OperatorEnum GlobalReduceOpNode::op() const {
   return op_;
 }
@@ -79,6 +77,11 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
   if (dim < 0)
     dim = ndim + dim;
   dim_ = dim;
+  if (dim_ < 0 || dim_ >= ndim) {
+    throw std::invalid_argument("dim " + std::to_string(dim_) +
+                                " out of range for tensor with " +
+                                std::to_string(ndim) + " dimensions");
+  }
 
   outerSize_ = 1;
   for (int i = 0; i < dim_; ++i)
@@ -104,15 +107,6 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
   } else if (innerSize_ == 1) {
     inReduceStride_ = 1;
     inOuterStride_ = alignedBufInner_;
-  }
-}
-
-void DimReduceOpNode::validate() const {
-  int ndim = static_cast<int>(shape_.size());
-  if (dim_ < 0 || dim_ >= ndim) {
-    throw std::invalid_argument("dim " + std::to_string(dim_) +
-                                " out of range for tensor with " +
-                                std::to_string(ndim) + " dimensions");
   }
 }
 
@@ -156,8 +150,6 @@ NormOpNode::NormOpNode(std::vector<uint32_t> shape, DataType dtype)
     : shape_(std::move(shape)), dtype_(dtype),
       numElements_(actualElementCount(shape_)) {}
 
-void NormOpNode::validate() const {}
-
 OperatorEnum NormOpNode::op() const {
   return Norm;
 }
@@ -188,16 +180,13 @@ DotOpNode::DotOpNode(std::vector<uint32_t> shapeA,
                      std::vector<uint32_t> shapeB,
                      DataType dtype)
     : shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)), dtype_(dtype) {
-  count_ = static_cast<uint32_t>(actualElementCount(shapeA_));
-  numWorkgroups_ = (count_ + 255) / 256;
-}
-
-void DotOpNode::validate() const {
   if (actualElementCount(shapeA_) != actualElementCount(shapeB_)) {
     throw std::runtime_error(
         "Vector size mismatch: " + std::to_string(actualElementCount(shapeA_)) +
         " vs " + std::to_string(actualElementCount(shapeB_)));
   }
+  count_ = static_cast<uint32_t>(actualElementCount(shapeA_));
+  numWorkgroups_ = (count_ + 255) / 256;
 }
 
 OperatorEnum DotOpNode::op() const {
@@ -245,6 +234,11 @@ CumOpNode::CumOpNode(OperatorEnum op,
   if (dim < 0)
     dim = ndim + dim;
   dim_ = dim;
+  if (dim_ < 0 || dim_ >= ndim) {
+    throw std::invalid_argument("dim " + std::to_string(dim_) +
+                                " out of range for tensor with " +
+                                std::to_string(ndim) + " dimensions");
+  }
 
   outerSize_ = 1;
   for (int i = 0; i < dim_; ++i)
@@ -262,15 +256,6 @@ CumOpNode::CumOpNode(OperatorEnum op,
   } else if (innerSize_ == 1) {
     inReduceStride_ = 1;
     inOuterStride_ = alignedBufInner_;
-  }
-}
-
-void CumOpNode::validate() const {
-  int ndim = static_cast<int>(shape_.size());
-  if (dim_ < 0 || dim_ >= ndim) {
-    throw std::invalid_argument("dim " + std::to_string(dim_) +
-                                " out of range for tensor with " +
-                                std::to_string(ndim) + " dimensions");
   }
 }
 

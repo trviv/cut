@@ -8,7 +8,6 @@ class BitonicSortOpNode : public OpNode {
 public:
   BitonicSortOpNode(size_t executionSize, DataType dtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -26,7 +25,6 @@ class RadixSortOpNode : public OpNode {
 public:
   RadixSortOpNode(size_t executionSize, DataType dtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

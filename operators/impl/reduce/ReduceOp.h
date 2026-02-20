@@ -11,7 +11,6 @@ public:
                      DataType dtype,
                      uint32_t innerDimSize);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -37,7 +36,6 @@ public:
                   DataType dtype,
                   uint32_t bufInnerDimSize);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   bool isDimReduce() const override;
@@ -61,7 +59,6 @@ class NormOpNode : public OpNode {
 public:
   NormOpNode(std::vector<uint32_t> shape, DataType dtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -81,7 +78,6 @@ public:
             std::vector<uint32_t> shapeB,
             DataType dtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -105,7 +101,6 @@ public:
             DataType dtype,
             uint32_t bufInnerDimSize);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

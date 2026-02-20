@@ -7,8 +7,6 @@ namespace cut {
 BitonicSortOpNode::BitonicSortOpNode(size_t executionSize, DataType dtype)
     : executionSize_(executionSize), dtype_(dtype) {}
 
-void BitonicSortOpNode::validate() const {}
-
 OperatorEnum BitonicSortOpNode::op() const {
   return SortBitonic;
 }
@@ -38,8 +36,6 @@ std::vector<uint8_t> BitonicSortOpNode::pushConstants() const {
 
 RadixSortOpNode::RadixSortOpNode(size_t executionSize, DataType dtype)
     : executionSize_(executionSize), dtype_(dtype) {}
-
-void RadixSortOpNode::validate() const {}
 
 OperatorEnum RadixSortOpNode::op() const {
   return SortRadix;

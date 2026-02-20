@@ -8,7 +8,6 @@ class TransposeOpNode : public OpNode {
 public:
   TransposeOpNode(std::vector<uint32_t> shape, DataType dtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   DataType outputDtype() const override;
@@ -28,7 +27,6 @@ public:
              std::vector<uint32_t> dstShape,
              DataType dtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -50,7 +48,6 @@ public:
                   std::vector<uint32_t> wShape,
                   DataType weightDtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -73,7 +70,6 @@ public:
             float value,
             DataType dtype);
 
-  void validate() const override;
   OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

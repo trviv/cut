@@ -14,8 +14,6 @@ FillOpNode::FillOpNode(OperatorEnum op,
     fillValue_ = 1.0f;
 }
 
-void FillOpNode::validate() const {}
-
 OperatorEnum FillOpNode::op() const {
   return op_;
 }
@@ -56,8 +54,6 @@ ArangeOpNode::ArangeOpNode(OperatorEnum op,
                            float step)
     : op_(op), shape_(std::move(shape)), dtype_(dtype), start_(start),
       step_(step), numElements_(alignedElementCount(shape_)) {}
-
-void ArangeOpNode::validate() const {}
 
 OperatorEnum ArangeOpNode::op() const {
   return op_;
