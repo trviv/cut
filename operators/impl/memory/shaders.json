@@ -13,16 +13,6 @@
       ]
     },
     {
-      "name": "Transpose",
-      "description": "Transpose",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
-    },
-    {
       "name": "Pad",
       "description": "Pad tensor",
       "dtypes": [

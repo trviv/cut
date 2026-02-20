@@ -1,28 +1,9 @@
 #pragma once
 
 #include "OpNode.h"
+#include "impl/conv2d/Conv2DVariants.generated.h"
 
 namespace cut {
-
-class Conv1DOpNode : public OpNode {
-public:
-  Conv1DOpNode(Runtime &runtime,
-               const Tensor &input,
-               const Tensor &weight,
-               uint32_t stride,
-               uint32_t padding,
-               std::optional<uint32_t> spec = {});
-
-  DataType shaderDtype() const override;
-  std::vector<uint32_t> outputShape() const override;
-  ThreadSize dispatchSize() const override;
-  std::vector<uint8_t> pushConstants() const override;
-
-private:
-  uint32_t stride_, padding_;
-  DataType dtype_;
-  uint32_t N_, C_in_, L_in_, C_out_, kL_, L_out_;
-};
 
 class Conv2DOpNode : public OpNode {
 public:
@@ -36,6 +17,7 @@ public:
                std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
+  std::optional<uint32_t> spec() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
@@ -44,6 +26,7 @@ private:
   uint32_t strideH_, strideW_, padH_, padW_;
   DataType dtype_;
   uint32_t N_, C_in_, H_in_, W_in_, C_out_, kH_, kW_, H_out_, W_out_;
+  uint32_t resolvedVariant_;
 };
 
 } // namespace cut

@@ -197,6 +197,13 @@ private:
   Tensor getOrCreateShader(OperatorEnum op, DataType dtype);
 
   /**
+   * Gets or creates a cached variant shader for the given operator, variant
+   * index, and data type.
+   */
+  Tensor
+  getOrCreateVariantShader(OperatorEnum op, uint32_t variant, DataType dtype);
+
+  /**
    * Encodes a compute operator using an OpNode.
    * The OpNode provides all operator-level information.
    */

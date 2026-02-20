@@ -1,0 +1,70 @@
+{
+  "type": "variants",
+  "cpp_prefix": "Transpose",
+  "default_variant": "Naive",
+  "variants": [
+    {
+      "name": "Naive",
+      "template": "TransposeNaive",
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        16,
+        16
+      ],
+      "description": "Naive (no shared mem)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "Tiled16",
+      "template": "TransposeTiled",
+      "defines": {
+        "TILE_SIZE": 16
+      },
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        16,
+        16
+      ],
+      "description": "SharedMem 16x16",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "Tiled32",
+      "template": "TransposeTiled",
+      "defines": {
+        "TILE_SIZE": 32
+      },
+      "wg": [
+        32,
+        32
+      ],
+      "eff_tile": [
+        32,
+        32
+      ],
+      "description": "SharedMem 32x32",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
+  ]
+}

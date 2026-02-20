@@ -1,6 +1,12 @@
 #include <gtest/gtest.h>
 
+#include "impl/avgpool2d/AvgPool2DVariants.generated.h"
+#include "impl/conv1d/Conv1DVariants.generated.h"
+#include "impl/conv2d/Conv2DVariants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
+#include "impl/maxpool2d/MaxPool2DVariants.generated.h"
+#include "impl/reducedim/ReduceDimVariants.generated.h"
+#include "impl/transpose/TransposeVariants.generated.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <Operations.h>
@@ -5858,6 +5864,476 @@ TEST_F(PadTest, PadWithFillValue) {
   std::vector<float> expected = {99, 99, 1, 2, 3, 4, 99, 99};
   for (uint32_t i = 0; i < output.size(); ++i) {
     EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+// ============================================================================
+// Transpose Variant Tests
+// ============================================================================
+
+TEST_F(MatrixOpsTest, TransposeVariants_Square) {
+  const DataType dtype = DataType::Float32;
+  struct TestCase {
+    uint32_t M, N;
+  };
+  std::array<TestCase, 4> testCases = {{{8, 8}, {16, 16}, {32, 32}, {64, 64}}};
+
+  for (const auto &tc : testCases) {
+    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.N) +
+                 "]");
+    auto data = generateTestData<float>(tc.M * tc.N, 42);
+
+    // CPU reference: transpose
+    std::vector<float> expected(tc.M * tc.N);
+    for (uint32_t i = 0; i < tc.M; ++i)
+      for (uint32_t j = 0; j < tc.N; ++j)
+        expected[j * tc.M + i] = data[i * tc.N + j];
+
+    for (int vi = 0; vi < kTransposeVariantCount; ++vi) {
+      SCOPED_TRACE(std::string("Variant: ") + getTransposeVariantName(vi));
+      auto buf = runtime_->createTensor({tc.M, tc.N}, dtype, data.data());
+      auto bufOut = runtime_->ops().transpose(buf, vi);
+
+      std::vector<float> output(tc.M * tc.N);
+      runtime_->copyFromTensor(bufOut, output.data(),
+                               tc.M * tc.N * sizeof(float));
+
+      for (uint32_t i = 0; i < tc.N; ++i) {
+        for (uint32_t j = 0; j < tc.M; ++j) {
+          EXPECT_NEAR(output[i * tc.M + j], expected[i * tc.M + j], 1e-5f)
+              << "Mismatch at [" << i << ", " << j << "]";
+        }
+      }
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, TransposeVariants_Rectangular) {
+  const DataType dtype = DataType::Float32;
+  struct TestCase {
+    uint32_t M, N;
+  };
+  std::array<TestCase, 4> testCases = {{{16, 32}, {64, 8}, {48, 24}, {7, 13}}};
+
+  for (const auto &tc : testCases) {
+    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.N) +
+                 "]");
+    auto data = generateTestData<float>(tc.M * tc.N, 42);
+
+    std::vector<float> expected(tc.M * tc.N);
+    for (uint32_t i = 0; i < tc.M; ++i)
+      for (uint32_t j = 0; j < tc.N; ++j)
+        expected[j * tc.M + i] = data[i * tc.N + j];
+
+    for (int vi = 0; vi < kTransposeVariantCount; ++vi) {
+      SCOPED_TRACE(std::string("Variant: ") + getTransposeVariantName(vi));
+      auto buf = runtime_->createTensor({tc.M, tc.N}, dtype, data.data());
+      auto bufOut = runtime_->ops().transpose(buf, vi);
+
+      std::vector<float> output(tc.M * tc.N);
+      runtime_->copyFromTensor(bufOut, output.data(),
+                               tc.M * tc.N * sizeof(float));
+
+      for (uint32_t i = 0; i < tc.N; ++i) {
+        for (uint32_t j = 0; j < tc.M; ++j) {
+          EXPECT_NEAR(output[i * tc.M + j], expected[i * tc.M + j], 1e-5f)
+              << "Mismatch at [" << i << ", " << j << "]";
+        }
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Conv1D Variant Tests
+// ============================================================================
+
+TEST_F(ConvolutionTest, Conv1DVariants_Basic) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t N = 1, C_in = 3, L_in = 16, C_out = 2, kL = 3;
+
+  auto inputData = generateTestData<float>(N * C_in * L_in, 42);
+  auto weightData = generateTestData<float>(C_out * C_in * kL, 123);
+
+  uint32_t L_out = L_in - kL + 1;
+  // CPU reference
+  std::vector<float> expected(N * C_out * L_out, 0.0f);
+  for (uint32_t n = 0; n < N; ++n)
+    for (uint32_t co = 0; co < C_out; ++co)
+      for (uint32_t l = 0; l < L_out; ++l)
+        for (uint32_t ci = 0; ci < C_in; ++ci)
+          for (uint32_t k = 0; k < kL; ++k)
+            expected[n * C_out * L_out + co * L_out + l] +=
+                inputData[n * C_in * L_in + ci * L_in + l + k] *
+                weightData[co * C_in * kL + ci * kL + k];
+
+  for (int vi = 0; vi < kConv1DVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getConv1DVariantName(vi));
+    auto bufIn =
+        runtime_->createTensor({N, C_in, L_in}, dtype, inputData.data());
+    auto bufW =
+        runtime_->createTensor({C_out, C_in, kL}, dtype, weightData.data());
+    auto bufOut = runtime_->ops().conv1d(bufIn, bufW, 1, 0, vi);
+
+    std::vector<float> output(N * C_out * L_out);
+    runtime_->copyFromTensor(bufOut, output.data(),
+                             output.size() * sizeof(float));
+
+    for (size_t i = 0; i < expected.size(); ++i) {
+      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+TEST_F(ConvolutionTest, Conv1DVariants_WithPadding) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t N = 1, C_in = 2, L_in = 8, C_out = 2, kL = 3;
+  const uint32_t stride = 1, padding = 1;
+
+  auto inputData = generateTestData<float>(N * C_in * L_in, 42);
+  auto weightData = generateTestData<float>(C_out * C_in * kL, 123);
+
+  uint32_t L_out = (L_in + 2 * padding - kL) / stride + 1;
+  std::vector<float> expected(N * C_out * L_out, 0.0f);
+  for (uint32_t n = 0; n < N; ++n)
+    for (uint32_t co = 0; co < C_out; ++co)
+      for (uint32_t l = 0; l < L_out; ++l)
+        for (uint32_t ci = 0; ci < C_in; ++ci)
+          for (uint32_t k = 0; k < kL; ++k) {
+            int il =
+                static_cast<int>(l * stride + k) - static_cast<int>(padding);
+            if (il >= 0 && il < static_cast<int>(L_in))
+              expected[n * C_out * L_out + co * L_out + l] +=
+                  inputData[n * C_in * L_in + ci * L_in + il] *
+                  weightData[co * C_in * kL + ci * kL + k];
+          }
+
+  for (int vi = 0; vi < kConv1DVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getConv1DVariantName(vi));
+    auto bufIn =
+        runtime_->createTensor({N, C_in, L_in}, dtype, inputData.data());
+    auto bufW =
+        runtime_->createTensor({C_out, C_in, kL}, dtype, weightData.data());
+    auto bufOut = runtime_->ops().conv1d(bufIn, bufW, stride, padding, vi);
+
+    std::vector<float> output(N * C_out * L_out);
+    runtime_->copyFromTensor(bufOut, output.data(),
+                             output.size() * sizeof(float));
+
+    for (size_t i = 0; i < expected.size(); ++i) {
+      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+// ============================================================================
+// Conv2D Variant Tests
+// ============================================================================
+
+TEST_F(ConvolutionTest, Conv2DVariants_Basic) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t N = 1, C_in = 3, H_in = 8, W_in = 8;
+  const uint32_t C_out = 2, kH = 3, kW = 3;
+
+  auto inputData = generateTestData<float>(N * C_in * H_in * W_in, 42);
+  auto weightData = generateTestData<float>(C_out * C_in * kH * kW, 123);
+
+  uint32_t H_out = H_in - kH + 1;
+  uint32_t W_out = W_in - kW + 1;
+  std::vector<float> expected(N * C_out * H_out * W_out, 0.0f);
+  for (uint32_t n = 0; n < N; ++n)
+    for (uint32_t co = 0; co < C_out; ++co)
+      for (uint32_t oh = 0; oh < H_out; ++oh)
+        for (uint32_t ow = 0; ow < W_out; ++ow)
+          for (uint32_t ci = 0; ci < C_in; ++ci)
+            for (uint32_t kh = 0; kh < kH; ++kh)
+              for (uint32_t kw = 0; kw < kW; ++kw)
+                expected[n * C_out * H_out * W_out + co * H_out * W_out +
+                         oh * W_out + ow] +=
+                    inputData[n * C_in * H_in * W_in + ci * H_in * W_in +
+                              (oh + kh) * W_in + (ow + kw)] *
+                    weightData[co * C_in * kH * kW + ci * kH * kW + kh * kW +
+                               kw];
+
+  for (int vi = 0; vi < kConv2DVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getConv2DVariantName(vi));
+    auto bufIn =
+        runtime_->createTensor({N, C_in, H_in, W_in}, dtype, inputData.data());
+    auto bufW =
+        runtime_->createTensor({C_out, C_in, kH, kW}, dtype, weightData.data());
+    auto bufOut = runtime_->ops().conv2d(bufIn, bufW, 1, 1, 0, 0, vi);
+
+    std::vector<float> output(N * C_out * H_out * W_out);
+    runtime_->copyFromTensor(bufOut, output.data(),
+                             output.size() * sizeof(float));
+
+    for (size_t i = 0; i < expected.size(); ++i) {
+      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+TEST_F(ConvolutionTest, Conv2DVariants_WithPadding) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t N = 1, C_in = 2, H_in = 6, W_in = 6;
+  const uint32_t C_out = 2, kH = 3, kW = 3;
+  const uint32_t strideH = 1, strideW = 1, padH = 1, padW = 1;
+
+  auto inputData = generateTestData<float>(N * C_in * H_in * W_in, 42);
+  auto weightData = generateTestData<float>(C_out * C_in * kH * kW, 123);
+
+  uint32_t H_out = (H_in + 2 * padH - kH) / strideH + 1;
+  uint32_t W_out = (W_in + 2 * padW - kW) / strideW + 1;
+  std::vector<float> expected(N * C_out * H_out * W_out, 0.0f);
+  for (uint32_t n = 0; n < N; ++n)
+    for (uint32_t co = 0; co < C_out; ++co)
+      for (uint32_t oh = 0; oh < H_out; ++oh)
+        for (uint32_t ow = 0; ow < W_out; ++ow)
+          for (uint32_t ci = 0; ci < C_in; ++ci)
+            for (uint32_t kh = 0; kh < kH; ++kh)
+              for (uint32_t kw = 0; kw < kW; ++kw) {
+                int ih = static_cast<int>(oh * strideH + kh) -
+                         static_cast<int>(padH);
+                int iw = static_cast<int>(ow * strideW + kw) -
+                         static_cast<int>(padW);
+                if (ih >= 0 && ih < static_cast<int>(H_in) && iw >= 0 &&
+                    iw < static_cast<int>(W_in))
+                  expected[n * C_out * H_out * W_out + co * H_out * W_out +
+                           oh * W_out + ow] +=
+                      inputData[n * C_in * H_in * W_in + ci * H_in * W_in +
+                                ih * W_in + iw] *
+                      weightData[co * C_in * kH * kW + ci * kH * kW + kh * kW +
+                                 kw];
+              }
+
+  for (int vi = 0; vi < kConv2DVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getConv2DVariantName(vi));
+    auto bufIn =
+        runtime_->createTensor({N, C_in, H_in, W_in}, dtype, inputData.data());
+    auto bufW =
+        runtime_->createTensor({C_out, C_in, kH, kW}, dtype, weightData.data());
+    auto bufOut =
+        runtime_->ops().conv2d(bufIn, bufW, strideH, strideW, padH, padW, vi);
+
+    std::vector<float> output(N * C_out * H_out * W_out);
+    runtime_->copyFromTensor(bufOut, output.data(),
+                             output.size() * sizeof(float));
+
+    for (size_t i = 0; i < expected.size(); ++i) {
+      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+// ============================================================================
+// MaxPool2D Variant Tests
+// ============================================================================
+
+TEST_F(PoolingTest, MaxPool2DVariants_Basic) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t N = 1, C = 2, H_in = 8, W_in = 8;
+  const uint32_t kH = 2, kW = 2, sH = 2, sW = 2;
+
+  auto inputData = generateTestData<float>(N * C * H_in * W_in, 42);
+
+  uint32_t H_out = (H_in - kH) / sH + 1;
+  uint32_t W_out = (W_in - kW) / sW + 1;
+  std::vector<float> expected(N * C * H_out * W_out);
+  for (uint32_t n = 0; n < N; ++n)
+    for (uint32_t c = 0; c < C; ++c)
+      for (uint32_t oh = 0; oh < H_out; ++oh)
+        for (uint32_t ow = 0; ow < W_out; ++ow) {
+          float maxVal = -std::numeric_limits<float>::max();
+          for (uint32_t kh = 0; kh < kH; ++kh)
+            for (uint32_t kw = 0; kw < kW; ++kw) {
+              uint32_t ih = oh * sH + kh;
+              uint32_t iw = ow * sW + kw;
+              float v = inputData[n * C * H_in * W_in + c * H_in * W_in +
+                                  ih * W_in + iw];
+              maxVal = std::max(maxVal, v);
+            }
+          expected[n * C * H_out * W_out + c * H_out * W_out + oh * W_out +
+                   ow] = maxVal;
+        }
+
+  for (int vi = 0; vi < kMaxPool2DVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getMaxPool2DVariantName(vi));
+    auto bufIn =
+        runtime_->createTensor({N, C, H_in, W_in}, dtype, inputData.data());
+    auto bufOut = runtime_->ops().maxPool2d(bufIn, kH, kW, sH, sW, 0, 0, vi);
+
+    std::vector<float> output(N * C * H_out * W_out);
+    runtime_->copyFromTensor(bufOut, output.data(),
+                             output.size() * sizeof(float));
+
+    for (size_t i = 0; i < expected.size(); ++i) {
+      EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    }
+  }
+}
+
+// ============================================================================
+// AvgPool2D Variant Tests
+// ============================================================================
+
+TEST_F(PoolingTest, AvgPool2DVariants_Basic) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t N = 1, C = 2, H_in = 8, W_in = 8;
+  const uint32_t kH = 2, kW = 2, sH = 2, sW = 2;
+
+  auto inputData = generateTestData<float>(N * C * H_in * W_in, 42);
+
+  uint32_t H_out = (H_in - kH) / sH + 1;
+  uint32_t W_out = (W_in - kW) / sW + 1;
+  std::vector<float> expected(N * C * H_out * W_out);
+  for (uint32_t n = 0; n < N; ++n)
+    for (uint32_t c = 0; c < C; ++c)
+      for (uint32_t oh = 0; oh < H_out; ++oh)
+        for (uint32_t ow = 0; ow < W_out; ++ow) {
+          float sum = 0.0f;
+          for (uint32_t kh = 0; kh < kH; ++kh)
+            for (uint32_t kw = 0; kw < kW; ++kw) {
+              uint32_t ih = oh * sH + kh;
+              uint32_t iw = ow * sW + kw;
+              sum += inputData[n * C * H_in * W_in + c * H_in * W_in +
+                               ih * W_in + iw];
+            }
+          expected[n * C * H_out * W_out + c * H_out * W_out + oh * W_out +
+                   ow] = sum / static_cast<float>(kH * kW);
+        }
+
+  for (int vi = 0; vi < kAvgPool2DVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getAvgPool2DVariantName(vi));
+    auto bufIn =
+        runtime_->createTensor({N, C, H_in, W_in}, dtype, inputData.data());
+    auto bufOut = runtime_->ops().avgPool2d(bufIn, kH, kW, sH, sW, 0, 0, vi);
+
+    std::vector<float> output(N * C * H_out * W_out);
+    runtime_->copyFromTensor(bufOut, output.data(),
+                             output.size() * sizeof(float));
+
+    for (size_t i = 0; i < expected.size(); ++i) {
+      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-5f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+// ============================================================================
+// ReduceDim Variant Tests
+// ============================================================================
+
+TEST_F(VulkanBackendTest, ReduceDimVariants_Dim0) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t M = 16, N = 8;
+
+  auto data = generateTestData<float>(M * N, 42);
+
+  // CPU reference: sum along dim 0 → shape [N]
+  std::vector<float> expected(N, 0.0f);
+  for (uint32_t i = 0; i < M; ++i)
+    for (uint32_t j = 0; j < N; ++j)
+      expected[j] += data[i * N + j];
+
+  for (int vi = 0; vi < kReduceDimVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getReduceDimVariantName(vi));
+    auto buf = runtime_->createTensor({M, N}, dtype, data.data());
+    auto bufOut = runtime_->ops().reduce(ReduceSum, buf, 0, vi);
+
+    std::vector<float> output(N);
+    runtime_->copyFromTensor(bufOut, output.data(), N * sizeof(float));
+
+    for (uint32_t j = 0; j < N; ++j) {
+      EXPECT_NEAR(output[j], expected[j], std::abs(expected[j]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << j;
+    }
+  }
+}
+
+TEST_F(VulkanBackendTest, ReduceDimVariants_Dim1) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t M = 8, N = 16;
+
+  auto data = generateTestData<float>(M * N, 42);
+
+  // CPU reference: sum along dim 1 → shape [M]
+  std::vector<float> expected(M, 0.0f);
+  for (uint32_t i = 0; i < M; ++i)
+    for (uint32_t j = 0; j < N; ++j)
+      expected[i] += data[i * N + j];
+
+  for (int vi = 0; vi < kReduceDimVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getReduceDimVariantName(vi));
+    auto buf = runtime_->createTensor({M, N}, dtype, data.data());
+    auto bufOut = runtime_->ops().reduce(ReduceSum, buf, 1, vi);
+
+    std::vector<float> output(M);
+    runtime_->copyFromTensor(bufOut, output.data(), M * sizeof(float));
+
+    for (uint32_t i = 0; i < M; ++i) {
+      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << i;
+    }
+  }
+}
+
+TEST_F(VulkanBackendTest, ReduceDimVariants_Mean) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t M = 16, N = 8;
+
+  auto data = generateTestData<float>(M * N, 42);
+
+  // CPU reference: mean along dim 0 → shape [N]
+  std::vector<float> expected(N, 0.0f);
+  for (uint32_t i = 0; i < M; ++i)
+    for (uint32_t j = 0; j < N; ++j)
+      expected[j] += data[i * N + j];
+  for (uint32_t j = 0; j < N; ++j)
+    expected[j] /= static_cast<float>(M);
+
+  for (int vi = 0; vi < kReduceDimVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getReduceDimVariantName(vi));
+    auto buf = runtime_->createTensor({M, N}, dtype, data.data());
+    auto bufOut = runtime_->ops().reduce(ReduceMean, buf, 0, vi);
+
+    std::vector<float> output(N);
+    runtime_->copyFromTensor(bufOut, output.data(), N * sizeof(float));
+
+    for (uint32_t j = 0; j < N; ++j) {
+      EXPECT_NEAR(output[j], expected[j], std::abs(expected[j]) * 1e-4f + 1e-5f)
+          << "Mismatch at index " << j;
+    }
+  }
+}
+
+TEST_F(VulkanBackendTest, ReduceDimVariants_Max) {
+  const DataType dtype = DataType::Float32;
+  const uint32_t M = 16, N = 8;
+
+  auto data = generateTestData<float>(M * N, 42);
+
+  // CPU reference: max along dim 0 → shape [N]
+  std::vector<float> expected(N, -std::numeric_limits<float>::max());
+  for (uint32_t i = 0; i < M; ++i)
+    for (uint32_t j = 0; j < N; ++j)
+      expected[j] = std::max(expected[j], data[i * N + j]);
+
+  for (int vi = 0; vi < kReduceDimVariantCount; ++vi) {
+    SCOPED_TRACE(std::string("Variant: ") + getReduceDimVariantName(vi));
+    auto buf = runtime_->createTensor({M, N}, dtype, data.data());
+    auto bufOut = runtime_->ops().reduce(ReduceMax, buf, 0, vi);
+
+    std::vector<float> output(N);
+    runtime_->copyFromTensor(bufOut, output.data(), N * sizeof(float));
+
+    for (uint32_t j = 0; j < N; ++j) {
+      EXPECT_NEAR(output[j], expected[j], std::abs(expected[j]) * 1e-5f + 1e-5f)
+          << "Mismatch at index " << j;
+    }
   }
 }
 

@@ -4,23 +4,6 @@
 
 namespace cut {
 
-class TransposeOpNode : public OpNode {
-public:
-  TransposeOpNode(Runtime &runtime,
-                  const Tensor &a,
-                  std::optional<uint32_t> spec = {});
-
-  DataType shaderDtype() const override;
-  DataType outputDtype() const override;
-  std::vector<uint32_t> outputShape() const override;
-  ThreadSize dispatchSize() const override;
-  std::vector<uint8_t> pushConstants() const override;
-
-private:
-  DataType dtype_;
-  uint32_t M_, N_;
-};
-
 class CopyOpNode : public OpNode {
 public:
   CopyOpNode(Runtime &runtime,

@@ -13,16 +13,6 @@
       ]
     },
     {
-      "name": "ReduceDim",
-      "description": "Reduce along dimension",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
-    },
-    {
       "name": "ReduceArg",
       "description": "Argmax/Argmin reduction",
       "dtypes": [

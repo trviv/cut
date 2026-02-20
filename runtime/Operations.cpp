@@ -1,15 +1,19 @@
 #include "Operations.h"
 #include "Runtime.h"
 
+#include "impl/avgpool2d/AvgPool2DOp.h"
 #include "impl/binary/BinaryOp.h"
-#include "impl/conv/ConvOp.h"
+#include "impl/conv1d/Conv1DOp.h"
+#include "impl/conv2d/Conv2DOp.h"
 #include "impl/matmul/MatMulOp.h"
+#include "impl/maxpool2d/MaxPool2DOp.h"
 #include "impl/memory/MemoryOp.h"
-#include "impl/pool/PoolOp.h"
 #include "impl/reduce/ReduceOp.h"
+#include "impl/reducedim/ReduceDimOp.h"
 #include "impl/scan/ScanOp.h"
 #include "impl/sort/SortOp.h"
 #include "impl/ternary/TernaryOp.h"
+#include "impl/transpose/TransposeOp.h"
 #include "impl/unary/UnaryOp.h"
 
 #include <algorithm>

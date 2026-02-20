@@ -8,7 +8,6 @@
 namespace cut {
 
 std::optional<std::vector<uint32_t>> compiledCopy(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>> compiledTranspose(DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>> compiledPad(DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>> compiledEmbedding(DataType datatype = DataType::Float32);
 

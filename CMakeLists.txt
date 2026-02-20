@@ -95,16 +95,20 @@ set(LIB_HEADERS
     core/backends/vulkan/VulkanCompute.h
     core/backends/vulkan/VulkanCommandBuffer.h
     operators/Shaders.h
-    operators/impl/matmul/MatMulOp.h
+    operators/impl/avgpool2d/AvgPool2DOp.h
     operators/impl/binary/BinaryOp.h
-    operators/impl/conv/ConvOp.h
+    operators/impl/conv1d/Conv1DOp.h
+    operators/impl/conv2d/Conv2DOp.h
     operators/impl/creation/CreationOp.h
+    operators/impl/matmul/MatMulOp.h
+    operators/impl/maxpool2d/MaxPool2DOp.h
     operators/impl/memory/MemoryOp.h
-    operators/impl/pool/PoolOp.h
     operators/impl/reduce/ReduceOp.h
+    operators/impl/reducedim/ReduceDimOp.h
     operators/impl/scan/ScanOp.h
     operators/impl/sort/SortOp.h
     operators/impl/ternary/TernaryOp.h
+    operators/impl/transpose/TransposeOp.h
     operators/impl/unary/UnaryOp.h
     operators/ShaderUtils.h
     runtime/Runtime.h
@@ -128,16 +132,20 @@ set(LIB_SOURCES
     core/backends/vulkan/VulkanCompute.cpp
     core/backends/vulkan/VulkanCommandBuffer.cpp
     operators/OpNode.cpp
+    operators/impl/avgpool2d/AvgPool2DOp.cpp
     operators/impl/binary/BinaryOp.cpp
-    operators/impl/conv/ConvOp.cpp
+    operators/impl/conv1d/Conv1DOp.cpp
+    operators/impl/conv2d/Conv2DOp.cpp
     operators/impl/creation/CreationOp.cpp
     operators/impl/matmul/MatMulOp.cpp
+    operators/impl/maxpool2d/MaxPool2DOp.cpp
     operators/impl/memory/MemoryOp.cpp
-    operators/impl/pool/PoolOp.cpp
     operators/impl/reduce/ReduceOp.cpp
+    operators/impl/reducedim/ReduceDimOp.cpp
     operators/impl/scan/ScanOp.cpp
     operators/impl/sort/SortOp.cpp
     operators/impl/ternary/TernaryOp.cpp
+    operators/impl/transpose/TransposeOp.cpp
     operators/impl/unary/UnaryOp.cpp
     runtime/Runtime.cpp
     runtime/Dispatcher.cpp

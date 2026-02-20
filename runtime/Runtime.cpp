@@ -157,6 +157,50 @@ Tensor Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
   return shader;
 }
 
+Tensor Runtime::getOrCreateVariantShader(OperatorEnum op,
+                                         uint32_t variant,
+                                         DataType dtype) {
+  uint64_t key = (static_cast<uint64_t>(op) << 32) |
+                 (static_cast<uint64_t>(variant) << 16) |
+                 static_cast<uint64_t>(dtype);
+  auto it = shaderCache_.find(key);
+  if (it != shaderCache_.end()) {
+    return it->second;
+  }
+
+  std::optional<std::vector<uint32_t>> spirv;
+  switch (op) {
+  case MatMul:
+    spirv = getCompiledMatMul(variant, dtype);
+    break;
+  case Transpose:
+    spirv = getCompiledTranspose(variant, dtype);
+    break;
+  case Conv1D:
+    spirv = getCompiledConv1D(variant, dtype);
+    break;
+  case Conv2D:
+    spirv = getCompiledConv2D(variant, dtype);
+    break;
+  case MaxPool2D:
+    spirv = getCompiledMaxPool2D(variant, dtype);
+    break;
+  case AvgPool2D:
+    spirv = getCompiledAvgPool2D(variant, dtype);
+    break;
+  default:
+    throw std::runtime_error("No variant support for op " + std::to_string(op));
+  }
+  if (!spirv.has_value()) {
+    throw std::runtime_error("Failed to get variant " +
+                             std::to_string(variant) + " for op " +
+                             std::to_string(op));
+  }
+  Tensor shader = getInterface()->createShaderModule(spirv.value());
+  shaderCache_[key] = shader;
+  return shader;
+}
+
 void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
   if (!dispatcher_) {
     throw std::runtime_error("Dispatcher not initialized. Call init() first.");
@@ -171,24 +215,10 @@ void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
   Tensor shader;
   // Multi-pass and dim-reduce ops use internally-generated shaders
   if (!node->isMultiPass() && !node->isDimReduce()) {
-    if (node->op() == MatMul) {
-      uint32_t variant = node->spec().value();
-      DataType dtype = node->shaderDtype();
-      uint64_t key = (static_cast<uint64_t>(MatMul) << 32) |
-                     (static_cast<uint64_t>(variant) << 16) |
-                     static_cast<uint64_t>(dtype);
-      auto it = shaderCache_.find(key);
-      if (it != shaderCache_.end()) {
-        shader = it->second;
-      } else {
-        auto spirv = getCompiledMatMul(variant, dtype);
-        if (!spirv.has_value()) {
-          throw std::runtime_error("Failed to get matmul variant " +
-                                   std::to_string(variant));
-        }
-        shader = getInterface()->createShaderModule(spirv.value());
-        shaderCache_[key] = shader;
-      }
+    if (node->spec().has_value()) {
+      // Variant-based shader lookup for any operator with spec
+      shader = getOrCreateVariantShader(node->op(), node->spec().value(),
+                                        node->shaderDtype());
     } else {
       shader = getOrCreateShader(node->op(), node->shaderDtype());
     }

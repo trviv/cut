@@ -6,6 +6,7 @@
 #include <ComputeStructs.h>
 
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -87,7 +88,8 @@ private:
    * Uses getDimReduceShader() to compile the ReduceDim/ReduceDimArg template.
    */
   Tensor getOrCreateDimReduceShader(OperatorEnum reduceOp,
-                                    DataType dtype = DataType::Float32);
+                                    DataType dtype = DataType::Float32,
+                                    std::optional<uint32_t> variant = {});
 
   /**
    * Dispatches an internal shader with the given bindings and push constants.

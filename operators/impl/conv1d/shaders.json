@@ -1,0 +1,48 @@
+{
+  "type": "variants",
+  "cpp_prefix": "Conv1D",
+  "default_variant": "Naive",
+  "variants": [
+    {
+      "name": "Naive",
+      "template": "Conv1DNaive",
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        256,
+        1
+      ],
+      "description": "Naive (global memory)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "Tiled",
+      "template": "Conv1DTiled",
+      "defines": {
+        "TILE_SIZE": 256
+      },
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        256,
+        1
+      ],
+      "description": "SharedMem input tiled",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
+  ]
+}

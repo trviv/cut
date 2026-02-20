@@ -64,12 +64,10 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledUnary(datatype);
   } else if (shader >= UnaryRelu6 && shader <= UnaryIsFinite) {
     compiled = compiledUnary(datatype);
-  } else if (shader == Transpose) {
-    compiled = compiledTranspose(datatype);
   } else if (shader >= ReduceSum && shader <= ReduceAll) {
     compiled = compiledReduce(datatype);
   } else if (shader == NormDim) {
-    compiled = compiledReduceDim(datatype);
+    compiled = getCompiledReduceDim(0, datatype); // Naive variant for NormDim
   } else if (shader == ReduceArgmax || shader == ReduceArgmin) {
     compiled = compiledReduceArg(datatype);
   } else if (shader == CumSum || shader == CumProd) {
@@ -88,14 +86,6 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledFill(datatype);
   } else if (shader == Copy) {
     compiled = compiledCopy(datatype);
-  } else if (shader == Conv1D) {
-    compiled = compiledConv1D(datatype);
-  } else if (shader == Conv2D) {
-    compiled = compiledConv2D(datatype);
-  } else if (shader == MaxPool2D) {
-    compiled = compiledMaxPool2D(datatype);
-  } else if (shader == AvgPool2D) {
-    compiled = compiledAvgPool2D(datatype);
   } else if (shader == Embedding) {
     compiled = compiledEmbedding(datatype);
   } else if (shader == Pad) {
@@ -153,12 +143,15 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
 }
 
 std::vector<uint32_t> getDimReduceShader(const OperatorEnum reduceOp,
-                                         const DataType datatype) {
+                                         const DataType datatype,
+                                         std::optional<uint32_t> variant) {
   std::optional<std::vector<uint32_t>> compiled;
   if (reduceOp == ReduceArgmax || reduceOp == ReduceArgmin) {
     compiled = compiledReduceDimArg(datatype);
+  } else if (variant.has_value()) {
+    compiled = getCompiledReduceDim(variant.value(), datatype);
   } else {
-    compiled = compiledReduceDim(datatype);
+    compiled = getCompiledReduceDim(0, datatype); // Naive variant as fallback
   }
   if (!compiled.has_value()) {
     throw std::runtime_error("Unsupported dtype for dim reduce shader");

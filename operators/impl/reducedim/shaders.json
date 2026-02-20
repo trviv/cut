@@ -1,0 +1,48 @@
+{
+  "type": "variants",
+  "cpp_prefix": "ReduceDim",
+  "default_variant": "Naive",
+  "variants": [
+    {
+      "name": "Naive",
+      "template": "ReduceDimNaive",
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        256,
+        1
+      ],
+      "description": "Naive (serial reduce per thread)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "Shared",
+      "template": "ReduceDimShared",
+      "defines": {
+        "WG_SIZE": 256
+      },
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        256,
+        1
+      ],
+      "description": "SharedMem parallel reduction",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "type": "variants",
+  "cpp_prefix": "MaxPool2D",
+  "default_variant": "Naive",
+  "variants": [
+    {
+      "name": "Naive",
+      "template": "MaxPool2DNaive",
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        16,
+        16
+      ],
+      "description": "Naive (global memory)",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    },
+    {
+      "name": "Tiled",
+      "template": "MaxPool2DTiled",
+      "defines": {
+        "TILE_W": 16,
+        "TILE_H": 16
+      },
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        16,
+        16
+      ],
+      "description": "SharedMem input tiled",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
+    }
+  ]
+}

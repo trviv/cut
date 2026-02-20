@@ -52,10 +52,10 @@ void Dispatcher::encode(std::unique_ptr<OpNode> node, const Tensor &shader) {
     return;
   }
 
-  // Dim-reduce ops need internal shader lookup
+  // Dim-reduce ops need internal shader lookup with spec constant patching
   if (node->isDimReduce()) {
-    Tensor dimShader =
-        getOrCreateDimReduceShader(node->baseReduceOp(), node->shaderDtype());
+    Tensor dimShader = getOrCreateDimReduceShader(
+        node->baseReduceOp(), node->shaderDtype(), node->spec());
     auto bindings = node->handleBindings();
     auto pushData = node->pushConstants();
     ComputeDispatch dispatch(dimShader, node->dispatchSize(), bindings);
@@ -391,17 +391,20 @@ Tensor Dispatcher::getOrCreateInternalShader(OperatorEnum op, DataType dtype) {
 }
 
 Tensor Dispatcher::getOrCreateDimReduceShader(OperatorEnum reduceOp,
-                                              DataType dtype) {
+                                              DataType dtype,
+                                              std::optional<uint32_t> variant) {
   // Use bit 49 to distinguish dim-reduce shaders from global-reduce shaders
+  // Include variant in the cache key (bits 32-47)
   size_t key = static_cast<size_t>(reduceOp) |
-               (static_cast<size_t>(dtype) << 16) | (size_t(2) << 48);
+               (static_cast<size_t>(dtype) << 16) | (size_t(2) << 48) |
+               (static_cast<size_t>(variant.value_or(0)) << 32);
 
   auto it = internalShaderCache_.find(key);
   if (it != internalShaderCache_.end()) {
     return it->second;
   }
 
-  auto spirv = getDimReduceShader(reduceOp, dtype);
+  auto spirv = getDimReduceShader(reduceOp, dtype, variant);
   Tensor handle = iface_->createShaderModule(spirv);
   internalShaderCache_[key] = handle;
   return handle;

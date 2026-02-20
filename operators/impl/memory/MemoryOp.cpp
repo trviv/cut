@@ -3,54 +3,6 @@
 
 namespace cut {
 
-// --- TransposeOpNode ---
-
-TransposeOpNode::TransposeOpNode(Runtime &runtime,
-                                 const Tensor &a,
-                                 std::optional<uint32_t> spec)
-    : OpNode(Transpose, runtime, spec) {
-  const auto &buf = runtime.getTensor(a);
-  const auto shape = buf.getShape();
-  dtype_ = buf.getDtype();
-  if (shape.size() != 2) {
-    throw std::runtime_error("transpose requires a 2D matrix");
-  }
-  M_ = shape[0];
-  N_ = shape[1];
-  inputs_ = {a};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
-}
-
-DataType TransposeOpNode::shaderDtype() const {
-  return dtype_;
-}
-DataType TransposeOpNode::outputDtype() const {
-  return DataType::Float32;
-}
-
-std::vector<uint32_t> TransposeOpNode::outputShape() const {
-  return {N_, M_};
-}
-
-ThreadSize TransposeOpNode::dispatchSize() const {
-  const uint32_t tileSize = 16;
-  uint32_t strideOut = (M_ + 3) & ~3u;
-  uint32_t strideOut4 = strideOut / 4;
-  uint32_t gridX = (N_ + tileSize - 1) / tileSize * tileSize;
-  uint32_t gridY = (strideOut4 + tileSize - 1) / tileSize * tileSize;
-  return {gridX, gridY, 1};
-}
-
-std::vector<uint8_t> TransposeOpNode::pushConstants() const {
-  uint32_t strideIn = (N_ + 3) & ~3u;
-  uint32_t strideOut = (M_ + 3) & ~3u;
-  struct PushConstants {
-    uint32_t M, N, strideIn, strideOut;
-  } pc{M_, N_, strideIn, strideOut};
-  return toBytes(pc);
-}
-
 // --- CopyOpNode ---
 
 CopyOpNode::CopyOpNode(Runtime &runtime,

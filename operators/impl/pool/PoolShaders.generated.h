@@ -7,7 +7,5 @@
 
 namespace cut {
 
-std::optional<std::vector<uint32_t>> compiledMaxPool2D(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>> compiledAvgPool2D(DataType datatype = DataType::Float32);
 
 } // namespace cut

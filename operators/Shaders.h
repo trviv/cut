@@ -7,15 +7,19 @@
 #include <optional>
 #include <vector>
 
-// MatMul variant dispatch table and lookup functions
+// Variant dispatch tables and lookup functions
+#include "impl/avgpool2d/AvgPool2DVariants.generated.h"
+#include "impl/conv1d/Conv1DVariants.generated.h"
+#include "impl/conv2d/Conv2DVariants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
+#include "impl/maxpool2d/MaxPool2DVariants.generated.h"
+#include "impl/reducedim/ReduceDimVariants.generated.h"
+#include "impl/transpose/TransposeVariants.generated.h"
 
 // Generated forward declarations for compiled shader functions
 #include "impl/binary/BinaryShaders.generated.h"
-#include "impl/conv/ConvShaders.generated.h"
 #include "impl/creation/CreationShaders.generated.h"
 #include "impl/memory/MemoryShaders.generated.h"
-#include "impl/pool/PoolShaders.generated.h"
 #include "impl/reduce/ReduceShaders.generated.h"
 #include "impl/scan/ScanShaders.generated.h"
 #include "impl/sort/SortShaders.generated.h"
@@ -40,9 +44,11 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
  *
  * @param reduceOp Base reduce op (e.g. ReduceSum, ReduceArgmax).
  * @param datatype Data type variant.
+ * @param variant Optional variant index for variant-based lookup.
  */
 std::vector<uint32_t>
 getDimReduceShader(const OperatorEnum reduceOp,
-                   const DataType datatype = DataType::Float32);
+                   const DataType datatype = DataType::Float32,
+                   std::optional<uint32_t> variant = {});
 
 } // namespace cut

@@ -8,7 +8,6 @@
 namespace cut {
 
 std::optional<std::vector<uint32_t>> compiledReduce(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>> compiledReduceDim(DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>> compiledReduceArg(DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>> compiledReduceDimArg(DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>> compiledPartialReduce(DataType datatype = DataType::Float32);
