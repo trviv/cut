@@ -1,20 +1,29 @@
 #include "BinaryOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
 // --- BinaryVecVecOpNode ---
 
 BinaryVecVecOpNode::BinaryVecVecOpNode(OperatorEnum op,
-                                       std::vector<uint32_t> &&shapeA,
-                                       std::vector<uint32_t> &&shapeB,
-                                       DataType dtype)
-    : OpNode(op), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),
-      dtype_(dtype), numElements_(alignedElementCount(shapeA_)) {
+                                       Runtime &runtime,
+                                       const Tensor &a,
+                                       const Tensor &b)
+    : OpNode(op, runtime) {
+  const auto &bufA = runtime.getTensor(a);
+  const auto &bufB = runtime.getTensor(b);
+  shapeA_ = bufA.getShape();
+  shapeB_ = bufB.getShape();
+  dtype_ = bufA.getDtype();
+  numElements_ = alignedElementCount(shapeA_);
   if (actualElementCount(shapeA_) != actualElementCount(shapeB_)) {
     throw std::runtime_error(
         "Size mismatch: " + std::to_string(actualElementCount(shapeA_)) +
         " vs " + std::to_string(actualElementCount(shapeB_)));
   }
+  inputs_ = {a, b};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType BinaryVecVecOpNode::shaderDtype() const {
@@ -37,11 +46,19 @@ std::vector<uint8_t> BinaryVecVecOpNode::pushConstants() const {
 // --- BinaryVecScalarOpNode ---
 
 BinaryVecScalarOpNode::BinaryVecScalarOpNode(OperatorEnum op,
-                                             std::vector<uint32_t> &&shape,
-                                             DataType dtype,
+                                             Runtime &runtime,
+                                             const Tensor &a,
                                              uint32_t scalarBits)
-    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
-      scalarBits_(scalarBits), numElements_(alignedElementCount(shape_)) {}
+    : OpNode(op, runtime) {
+  const auto &buf = runtime.getTensor(a);
+  shape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  scalarBits_ = scalarBits;
+  numElements_ = alignedElementCount(shape_);
+  inputs_ = {a};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
+}
 
 DataType BinaryVecScalarOpNode::shaderDtype() const {
   return dtype_;

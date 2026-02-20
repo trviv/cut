@@ -1,20 +1,28 @@
 #include "PoolOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
 // --- MaxPool2DOpNode ---
 
-MaxPool2DOpNode::MaxPool2DOpNode(std::vector<uint32_t> &&inShape,
+MaxPool2DOpNode::MaxPool2DOpNode(Runtime &runtime,
+                                 const Tensor &input,
                                  uint32_t kernelH,
                                  uint32_t kernelW,
                                  uint32_t strideH,
                                  uint32_t strideW,
                                  uint32_t padH,
-                                 uint32_t padW,
-                                 DataType dtype)
-    : OpNode(MaxPool2D), inShape_(std::move(inShape)), kernelH_(kernelH),
-      kernelW_(kernelW), strideH_(strideH), strideW_(strideW), padH_(padH),
-      padW_(padW), dtype_(dtype) {
+                                 uint32_t padW)
+    : OpNode(MaxPool2D, runtime) {
+  const auto &buf = runtime.getTensor(input);
+  inShape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  kernelH_ = kernelH;
+  kernelW_ = kernelW;
+  strideH_ = strideH;
+  strideW_ = strideW;
+  padH_ = padH;
+  padW_ = padW;
   if (inShape_.size() != 4)
     throw std::runtime_error("max_pool2d: input must be 4D [N, C, H, W]");
   N_ = inShape_[0];
@@ -23,6 +31,9 @@ MaxPool2DOpNode::MaxPool2DOpNode(std::vector<uint32_t> &&inShape,
   W_in_ = inShape_[3];
   H_out_ = (H_in_ + 2 * padH_ - kernelH_) / strideH_ + 1;
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
+  inputs_ = {input};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType MaxPool2DOpNode::shaderDtype() const {
@@ -54,17 +65,24 @@ std::vector<uint8_t> MaxPool2DOpNode::pushConstants() const {
 
 // --- AvgPool2DOpNode ---
 
-AvgPool2DOpNode::AvgPool2DOpNode(std::vector<uint32_t> &&inShape,
+AvgPool2DOpNode::AvgPool2DOpNode(Runtime &runtime,
+                                 const Tensor &input,
                                  uint32_t kernelH,
                                  uint32_t kernelW,
                                  uint32_t strideH,
                                  uint32_t strideW,
                                  uint32_t padH,
-                                 uint32_t padW,
-                                 DataType dtype)
-    : OpNode(AvgPool2D), inShape_(std::move(inShape)), kernelH_(kernelH),
-      kernelW_(kernelW), strideH_(strideH), strideW_(strideW), padH_(padH),
-      padW_(padW), dtype_(dtype) {
+                                 uint32_t padW)
+    : OpNode(AvgPool2D, runtime) {
+  const auto &buf = runtime.getTensor(input);
+  inShape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  kernelH_ = kernelH;
+  kernelW_ = kernelW;
+  strideH_ = strideH;
+  strideW_ = strideW;
+  padH_ = padH;
+  padW_ = padW;
   if (inShape_.size() != 4)
     throw std::runtime_error("avg_pool2d: input must be 4D [N, C, H, W]");
   N_ = inShape_[0];
@@ -73,6 +91,9 @@ AvgPool2DOpNode::AvgPool2DOpNode(std::vector<uint32_t> &&inShape,
   W_in_ = inShape_[3];
   H_out_ = (H_in_ + 2 * padH_ - kernelH_) / strideH_ + 1;
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
+  inputs_ = {input};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType AvgPool2DOpNode::shaderDtype() const {

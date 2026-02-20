@@ -1,11 +1,19 @@
 #include "SortOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
 // --- BitonicSortOpNode ---
 
-BitonicSortOpNode::BitonicSortOpNode(size_t executionSize, DataType dtype)
-    : OpNode(SortBitonic), executionSize_(executionSize), dtype_(dtype) {}
+BitonicSortOpNode::BitonicSortOpNode(Runtime &runtime,
+                                     const Tensor &keys,
+                                     const Tensor &vals)
+    : OpNode(SortBitonic, runtime) {
+  const auto &buf = runtime.getTensor(keys);
+  executionSize_ = actualElementCount(buf.getShape());
+  dtype_ = buf.getDtype();
+  inputs_ = {keys, vals};
+}
 
 DataType BitonicSortOpNode::shaderDtype() const {
   return dtype_;
@@ -31,8 +39,15 @@ std::vector<uint8_t> BitonicSortOpNode::pushConstants() const {
 
 // --- RadixSortOpNode ---
 
-RadixSortOpNode::RadixSortOpNode(size_t executionSize, DataType dtype)
-    : OpNode(SortRadix), executionSize_(executionSize), dtype_(dtype) {}
+RadixSortOpNode::RadixSortOpNode(Runtime &runtime,
+                                 const Tensor &keys,
+                                 const Tensor &vals)
+    : OpNode(SortRadix, runtime) {
+  const auto &buf = runtime.getTensor(keys);
+  executionSize_ = actualElementCount(buf.getShape());
+  dtype_ = buf.getDtype();
+  inputs_ = {keys, vals};
+}
 
 DataType RadixSortOpNode::shaderDtype() const {
   return dtype_;

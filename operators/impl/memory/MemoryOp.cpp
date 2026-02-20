@@ -1,16 +1,23 @@
 #include "MemoryOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
 // --- TransposeOpNode ---
 
-TransposeOpNode::TransposeOpNode(std::vector<uint32_t> &&shape, DataType dtype)
-    : OpNode(Transpose), shape_(std::move(shape)), dtype_(dtype) {
+TransposeOpNode::TransposeOpNode(Runtime &runtime, const Tensor &a)
+    : OpNode(Transpose, runtime) {
+  const auto &buf = runtime.getTensor(a);
+  shape_ = buf.getShape();
+  dtype_ = buf.getDtype();
   if (shape_.size() != 2) {
     throw std::runtime_error("transpose requires a 2D matrix");
   }
   M_ = shape_[0];
   N_ = shape_[1];
+  inputs_ = {a};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType TransposeOpNode::shaderDtype() const {
@@ -44,11 +51,14 @@ std::vector<uint8_t> TransposeOpNode::pushConstants() const {
 
 // --- CopyOpNode ---
 
-CopyOpNode::CopyOpNode(std::vector<uint32_t> &&srcShape,
-                       std::vector<uint32_t> &&dstShape,
-                       DataType dtype)
-    : OpNode(Copy), srcShape_(std::move(srcShape)),
-      dstShape_(std::move(dstShape)), dtype_(dtype) {
+CopyOpNode::CopyOpNode(Runtime &runtime,
+                       const Tensor &src,
+                       std::vector<uint32_t> &&dstShape)
+    : OpNode(Copy, runtime) {
+  const auto &buf = runtime.getTensor(src);
+  srcShape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  dstShape_ = std::move(dstShape);
   srcInner_ = srcShape_.empty() ? 1 : srcShape_.back();
   srcAlignedInner_ = (srcInner_ + 3) & ~static_cast<uint32_t>(3);
   dstInner_ = dstShape_.empty() ? 1 : dstShape_.back();
@@ -58,6 +68,9 @@ CopyOpNode::CopyOpNode(std::vector<uint32_t> &&srcShape,
     totalElements_ *= d;
   if (dstShape_.empty())
     totalElements_ = 1;
+  inputs_ = {src};
+  output_ = runtime.createTensorEmpty(dstShape_, dtype_);
+  hasOutput_ = true;
 }
 
 DataType CopyOpNode::shaderDtype() const {
@@ -86,11 +99,15 @@ std::vector<uint8_t> CopyOpNode::pushConstants() const {
 
 // --- EmbeddingOpNode ---
 
-EmbeddingOpNode::EmbeddingOpNode(std::vector<uint32_t> &&idxShape,
-                                 std::vector<uint32_t> &&wShape,
-                                 DataType weightDtype)
-    : OpNode(Embedding), idxShape_(std::move(idxShape)),
-      wShape_(std::move(wShape)), dtype_(weightDtype) {
+EmbeddingOpNode::EmbeddingOpNode(Runtime &runtime,
+                                 const Tensor &indices,
+                                 const Tensor &weight)
+    : OpNode(Embedding, runtime) {
+  const auto &idxBuf = runtime.getTensor(indices);
+  const auto &wBuf = runtime.getTensor(weight);
+  idxShape_ = idxBuf.getShape();
+  wShape_ = wBuf.getShape();
+  dtype_ = wBuf.getDtype();
   if (wShape_.size() != 2) {
     throw std::runtime_error(
         "embedding: weight must be 2D [num_embeddings, embedding_dim]");
@@ -101,6 +118,9 @@ EmbeddingOpNode::EmbeddingOpNode(std::vector<uint32_t> &&idxShape,
     numIndices_ *= d;
   outShape_ = idxShape_;
   outShape_.push_back(embDim_);
+  inputs_ = {indices, weight};
+  output_ = runtime.createTensorEmpty(outputShape(), DataType::Float32);
+  hasOutput_ = true;
 }
 
 DataType EmbeddingOpNode::shaderDtype() const {
@@ -128,12 +148,16 @@ std::vector<uint8_t> EmbeddingOpNode::pushConstants() const {
 
 // --- PadOpNode ---
 
-PadOpNode::PadOpNode(std::vector<uint32_t> &&shape,
+PadOpNode::PadOpNode(Runtime &runtime,
+                     const Tensor &input,
                      std::vector<uint32_t> &&padWidths,
-                     float value,
-                     DataType dtype)
-    : OpNode(Pad), shape_(std::move(shape)), padWidths_(std::move(padWidths)),
-      value_(value), dtype_(dtype) {
+                     float value)
+    : OpNode(Pad, runtime) {
+  const auto &buf = runtime.getTensor(input);
+  shape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  padWidths_ = std::move(padWidths);
+  value_ = value;
   int ndim = static_cast<int>(shape_.size());
   if (padWidths_.size() % 2 != 0 ||
       static_cast<int>(padWidths_.size() / 2) > ndim) {
@@ -151,7 +175,6 @@ PadOpNode::PadOpNode(std::vector<uint32_t> &&shape,
   for (auto d : outShape_)
     totalOutputElements_ *= d;
 
-  // Build PadParams struct
   std::memset(&params_, 0, sizeof(params_));
   params_.ndim = static_cast<uint32_t>(ndim);
   params_.totalElements = totalOutputElements_;
@@ -165,6 +188,9 @@ PadOpNode::PadOpNode(std::vector<uint32_t> &&shape,
     int dim = ndim - 1 - i;
     params_.padBefore[dim] = padWidths_[2 * i];
   }
+  inputs_ = {input};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType PadOpNode::shaderDtype() const {

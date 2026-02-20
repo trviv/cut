@@ -2618,31 +2618,6 @@ TEST_F(RuntimeLifecycleTest, MultipleInitShutdown) {
   runtime.shutdown();
 }
 
-TEST_F(RuntimeLifecycleTest, MoveSemantics) {
-  Runtime runtime1;
-
-  if (!runtime1.isVulkanAvailable()) {
-    GTEST_SKIP() << "Vulkan not available";
-  }
-
-  runtime1.init(BackendType::Vulkan);
-  {
-    auto buf = runtime1.createTensorEmpty({16}, DataType::Float32);
-    EXPECT_TRUE(buf);
-  } // buf goes out of scope here
-
-  // Move construct
-  Runtime runtime2 = std::move(runtime1);
-  EXPECT_EQ(runtime2.currentBackend(), BackendType::Vulkan);
-
-  // Move assign
-  Runtime runtime3;
-  runtime3 = std::move(runtime2);
-  EXPECT_EQ(runtime3.currentBackend(), BackendType::Vulkan);
-
-  runtime3.shutdown();
-}
-
 // ============================================================================
 // Argmax/Argmin Tests
 // ============================================================================

@@ -1,4 +1,5 @@
 #include "ReduceOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
@@ -24,12 +25,19 @@ inline bool isMultiReduceCapable(OperatorEnum op) {
 // --- GlobalReduceOpNode ---
 
 GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
-                                       std::vector<uint32_t> &&shape,
-                                       DataType dtype,
-                                       uint32_t innerDimSize)
-    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
-      numElements_(actualElementCount(shape_)), actualInner_(innerDimSize),
-      alignedInner_((innerDimSize + 3) & ~static_cast<uint32_t>(3)) {}
+                                       Runtime &runtime,
+                                       const Tensor &a)
+    : OpNode(op, runtime) {
+  const auto &buf = runtime.getTensor(a);
+  shape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  numElements_ = actualElementCount(shape_);
+  actualInner_ = buf.innerDimSize();
+  alignedInner_ = (actualInner_ + 3) & ~static_cast<uint32_t>(3);
+  inputs_ = {a};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
+}
 
 DataType GlobalReduceOpNode::shaderDtype() const {
   return dtype_;
@@ -63,13 +71,15 @@ std::vector<uint8_t> GlobalReduceOpNode::pushConstants() const {
 // --- DimReduceOpNode ---
 
 DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
-                                 std::vector<uint32_t> &&shape,
-                                 int dim,
-                                 DataType dtype,
-                                 uint32_t bufInnerDimSize)
-    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
-      bufInnerDim_(bufInnerDimSize),
-      alignedBufInner_((bufInnerDimSize + 3) & ~static_cast<uint32_t>(3)) {
+                                 Runtime &runtime,
+                                 const Tensor &a,
+                                 int dim)
+    : OpNode(op, runtime) {
+  const auto &buf = runtime.getTensor(a);
+  shape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  bufInnerDim_ = buf.innerDimSize();
+  alignedBufInner_ = (bufInnerDim_ + 3) & ~static_cast<uint32_t>(3);
   int ndim = static_cast<int>(shape_.size());
   if (dim < 0)
     dim = ndim + dim;
@@ -105,6 +115,9 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
     inReduceStride_ = 1;
     inOuterStride_ = alignedBufInner_;
   }
+  inputs_ = {a};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType DimReduceOpNode::shaderDtype() const {
@@ -140,9 +153,16 @@ std::vector<uint8_t> DimReduceOpNode::pushConstants() const {
 
 // --- NormOpNode ---
 
-NormOpNode::NormOpNode(std::vector<uint32_t> &&shape, DataType dtype)
-    : OpNode(Norm), shape_(std::move(shape)), dtype_(dtype),
-      numElements_(actualElementCount(shape_)) {}
+NormOpNode::NormOpNode(Runtime &runtime, const Tensor &a)
+    : OpNode(Norm, runtime) {
+  const auto &buf = runtime.getTensor(a);
+  shape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  numElements_ = actualElementCount(shape_);
+  inputs_ = {a};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
+}
 
 DataType NormOpNode::shaderDtype() const {
   return dtype_;
@@ -167,11 +187,13 @@ size_t NormOpNode::executionSize() const {
 
 // --- DotOpNode ---
 
-DotOpNode::DotOpNode(std::vector<uint32_t> &&shapeA,
-                     std::vector<uint32_t> &&shapeB,
-                     DataType dtype)
-    : OpNode(Dot), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),
-      dtype_(dtype) {
+DotOpNode::DotOpNode(Runtime &runtime, const Tensor &a, const Tensor &b)
+    : OpNode(Dot, runtime) {
+  const auto &bufA = runtime.getTensor(a);
+  const auto &bufB = runtime.getTensor(b);
+  shapeA_ = bufA.getShape();
+  shapeB_ = bufB.getShape();
+  dtype_ = bufA.getDtype();
   if (actualElementCount(shapeA_) != actualElementCount(shapeB_)) {
     throw std::runtime_error(
         "Vector size mismatch: " + std::to_string(actualElementCount(shapeA_)) +
@@ -179,6 +201,9 @@ DotOpNode::DotOpNode(std::vector<uint32_t> &&shapeA,
   }
   count_ = static_cast<uint32_t>(actualElementCount(shapeA_));
   numWorkgroups_ = (count_ + 255) / 256;
+  inputs_ = {a, b};
+  output_ = runtime.createTensorEmpty(outputShape(), DataType::Float32);
+  hasOutput_ = true;
 }
 
 DataType DotOpNode::shaderDtype() const {
@@ -212,13 +237,15 @@ std::vector<ComputeBinding> DotOpNode::handleBindings() const {
 // --- CumOpNode ---
 
 CumOpNode::CumOpNode(OperatorEnum op,
-                     std::vector<uint32_t> &&shape,
-                     int dim,
-                     DataType dtype,
-                     uint32_t bufInnerDimSize)
-    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
-      bufInnerDim_(bufInnerDimSize),
-      alignedBufInner_((bufInnerDimSize + 3) & ~static_cast<uint32_t>(3)) {
+                     Runtime &runtime,
+                     const Tensor &a,
+                     int dim)
+    : OpNode(op, runtime) {
+  const auto &buf = runtime.getTensor(a);
+  shape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  bufInnerDim_ = buf.innerDimSize();
+  alignedBufInner_ = (bufInnerDim_ + 3) & ~static_cast<uint32_t>(3);
   int ndim = static_cast<int>(shape_.size());
   if (dim < 0)
     dim = ndim + dim;
@@ -246,6 +273,9 @@ CumOpNode::CumOpNode(OperatorEnum op,
     inReduceStride_ = 1;
     inOuterStride_ = alignedBufInner_;
   }
+  inputs_ = {a};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType CumOpNode::shaderDtype() const {

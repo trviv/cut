@@ -1,14 +1,16 @@
 #include "CreationOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
 // --- FillOpNode ---
 
 FillOpNode::FillOpNode(OperatorEnum op,
+                       Runtime &runtime,
                        std::vector<uint32_t> &&shape,
                        DataType dtype,
                        float fillValue)
-    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
+    : OpNode(op, runtime), shape_(std::move(shape)), dtype_(dtype),
       fillValue_(fillValue), numElements_(alignedElementCount(shape_)) {
   if (op_ == Ones)
     fillValue_ = 1.0f;
@@ -45,12 +47,13 @@ std::vector<ComputeBinding> FillOpNode::handleBindings() const {
 // --- ArangeOpNode ---
 
 ArangeOpNode::ArangeOpNode(OperatorEnum op,
+                           Runtime &runtime,
                            std::vector<uint32_t> &&shape,
                            DataType dtype,
                            float start,
                            float step)
-    : OpNode(op), shape_(std::move(shape)), dtype_(dtype), start_(start),
-      step_(step), numElements_(alignedElementCount(shape_)) {}
+    : OpNode(op, runtime), shape_(std::move(shape)), dtype_(dtype),
+      start_(start), step_(step), numElements_(alignedElementCount(shape_)) {}
 
 DataType ArangeOpNode::shaderDtype() const {
   return dtype_;

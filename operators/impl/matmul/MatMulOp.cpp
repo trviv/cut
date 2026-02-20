@@ -1,13 +1,18 @@
 #include "MatMulOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
-MatMulOpNode::MatMulOpNode(std::vector<uint32_t> &&shapeA,
-                           std::vector<uint32_t> &&shapeB,
-                           DataType dtype,
+MatMulOpNode::MatMulOpNode(Runtime &runtime,
+                           const Tensor &a,
+                           const Tensor &b,
                            int variantIdx)
-    : OpNode(MatMul), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),
-      dtype_(dtype) {
+    : OpNode(MatMul, runtime) {
+  const auto &bufA = runtime.getTensor(a);
+  const auto &bufB = runtime.getTensor(b);
+  shapeA_ = bufA.getShape();
+  shapeB_ = bufB.getShape();
+  dtype_ = bufA.getDtype();
   if (shapeA_.size() != 2 || shapeB_.size() != 2) {
     throw std::runtime_error("matmul requires 2D matrices");
   }
@@ -21,6 +26,9 @@ MatMulOpNode::MatMulOpNode(std::vector<uint32_t> &&shapeA,
   K_ = shapeA_[1];
   N_ = shapeB_[1];
   resolvedVariant_ = variantIdx >= 0 ? variantIdx : kMatMulDefaultVariant;
+  inputs_ = {a, b};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType MatMulOpNode::shaderDtype() const {

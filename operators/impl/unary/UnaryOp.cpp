@@ -1,12 +1,18 @@
 #include "UnaryOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
-UnaryOpNode::UnaryOpNode(OperatorEnum op,
-                         std::vector<uint32_t> &&shape,
-                         DataType dtype)
-    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
-      numElements_(alignedElementCount(shape_)) {}
+UnaryOpNode::UnaryOpNode(OperatorEnum op, Runtime &runtime, const Tensor &a)
+    : OpNode(op, runtime) {
+  const auto &buf = runtime.getTensor(a);
+  shape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  numElements_ = alignedElementCount(shape_);
+  inputs_ = {a};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
+}
 
 DataType UnaryOpNode::shaderDtype() const {
   return dtype_;

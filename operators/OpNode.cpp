@@ -35,17 +35,6 @@ size_t OpNode::executionSize() const {
   return static_cast<size_t>(ds.x) * ds.y * ds.z;
 }
 
-void OpNode::setHandles(std::vector<Tensor> inputs, Tensor output) {
-  inputs_ = std::move(inputs);
-  output_ = output;
-  hasOutput_ = true;
-}
-
-void OpNode::setHandles(std::vector<Tensor> inputs) {
-  inputs_ = std::move(inputs);
-  hasOutput_ = false;
-}
-
 std::vector<ComputeBinding> OpNode::handleBindings() const {
   std::vector<ComputeBinding> bindings;
   uint32_t idx = 0;

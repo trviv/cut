@@ -7,9 +7,9 @@ namespace cut {
 
 class MatMulOpNode : public OpNode {
 public:
-  MatMulOpNode(std::vector<uint32_t> &&shapeA,
-               std::vector<uint32_t> &&shapeB,
-               DataType dtype,
+  MatMulOpNode(Runtime &runtime,
+               const Tensor &a,
+               const Tensor &b,
                int variantIdx = -1);
 
   DataType shaderDtype() const override;

@@ -16,51 +16,6 @@ Runtime::~Runtime() {
   shutdown();
 }
 
-Runtime::Runtime(Runtime &&other) noexcept
-    : backendType_(other.backendType_),
-      vulkanInstance_(std::move(other.vulkanInstance_)),
-      interface_(std::move(other.interface_)),
-      vulkanAvailable_(other.vulkanAvailable_),
-      vulkanChecked_(other.vulkanChecked_),
-      pendingCommands_(other.pendingCommands_),
-      dispatcher_(std::move(other.dispatcher_)),
-      operations_(std::move(other.operations_)) {
-  // Update the Operations pointer to this Runtime
-  if (operations_) {
-    operations_->runtime_ = this;
-  }
-  other.backendType_ = BackendType::Vulkan;
-  other.vulkanAvailable_ = false;
-  other.vulkanChecked_ = false;
-  other.pendingCommands_ = false;
-}
-
-Runtime &Runtime::operator=(Runtime &&other) noexcept {
-  if (this != &other) {
-    shutdown();
-
-    backendType_ = other.backendType_;
-    vulkanInstance_ = std::move(other.vulkanInstance_);
-    interface_ = std::move(other.interface_);
-    vulkanAvailable_ = other.vulkanAvailable_;
-    vulkanChecked_ = other.vulkanChecked_;
-    pendingCommands_ = other.pendingCommands_;
-    dispatcher_ = std::move(other.dispatcher_);
-    operations_ = std::move(other.operations_);
-
-    // Update the Operations pointer to this Runtime
-    if (operations_) {
-      operations_->runtime_ = this;
-    }
-
-    other.backendType_ = BackendType::Vulkan;
-    other.vulkanAvailable_ = false;
-    other.vulkanChecked_ = false;
-    other.pendingCommands_ = false;
-  }
-  return *this;
-}
-
 bool Runtime::isVulkanAvailable() {
   if (!vulkanChecked_) {
     try {

@@ -6,11 +6,11 @@ namespace cut {
 
 class Conv1DOpNode : public OpNode {
 public:
-  Conv1DOpNode(std::vector<uint32_t> &&inShape,
-               std::vector<uint32_t> &&wShape,
+  Conv1DOpNode(Runtime &runtime,
+               const Tensor &input,
+               const Tensor &weight,
                uint32_t stride,
-               uint32_t padding,
-               DataType dtype);
+               uint32_t padding);
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -27,13 +27,13 @@ private:
 
 class Conv2DOpNode : public OpNode {
 public:
-  Conv2DOpNode(std::vector<uint32_t> &&inShape,
-               std::vector<uint32_t> &&wShape,
+  Conv2DOpNode(Runtime &runtime,
+               const Tensor &input,
+               const Tensor &weight,
                uint32_t strideH,
                uint32_t strideW,
                uint32_t padH,
-               uint32_t padW,
-               DataType dtype);
+               uint32_t padW);
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

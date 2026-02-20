@@ -1,16 +1,23 @@
 #include "ConvOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
 // --- Conv1DOpNode ---
 
-Conv1DOpNode::Conv1DOpNode(std::vector<uint32_t> &&inShape,
-                           std::vector<uint32_t> &&wShape,
+Conv1DOpNode::Conv1DOpNode(Runtime &runtime,
+                           const Tensor &input,
+                           const Tensor &weight,
                            uint32_t stride,
-                           uint32_t padding,
-                           DataType dtype)
-    : OpNode(Conv1D), inShape_(std::move(inShape)), wShape_(std::move(wShape)),
-      stride_(stride), padding_(padding), dtype_(dtype) {
+                           uint32_t padding)
+    : OpNode(Conv1D, runtime) {
+  const auto &inputBuf = runtime.getTensor(input);
+  const auto &weightBuf = runtime.getTensor(weight);
+  inShape_ = inputBuf.getShape();
+  wShape_ = weightBuf.getShape();
+  stride_ = stride;
+  padding_ = padding;
+  dtype_ = inputBuf.getDtype();
   if (inShape_.size() != 3)
     throw std::runtime_error("conv1d: input must be 3D [N, C_in, L_in]");
   if (wShape_.size() != 3)
@@ -23,6 +30,9 @@ Conv1DOpNode::Conv1DOpNode(std::vector<uint32_t> &&inShape,
   if (wShape_[1] != C_in_)
     throw std::runtime_error("conv1d: weight C_in dimension mismatch");
   L_out_ = (L_in_ + 2 * padding_ - kL_) / stride_ + 1;
+  inputs_ = {input, weight};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType Conv1DOpNode::shaderDtype() const {
@@ -49,16 +59,23 @@ std::vector<uint8_t> Conv1DOpNode::pushConstants() const {
 
 // --- Conv2DOpNode ---
 
-Conv2DOpNode::Conv2DOpNode(std::vector<uint32_t> &&inShape,
-                           std::vector<uint32_t> &&wShape,
+Conv2DOpNode::Conv2DOpNode(Runtime &runtime,
+                           const Tensor &input,
+                           const Tensor &weight,
                            uint32_t strideH,
                            uint32_t strideW,
                            uint32_t padH,
-                           uint32_t padW,
-                           DataType dtype)
-    : OpNode(Conv2D), inShape_(std::move(inShape)), wShape_(std::move(wShape)),
-      strideH_(strideH), strideW_(strideW), padH_(padH), padW_(padW),
-      dtype_(dtype) {
+                           uint32_t padW)
+    : OpNode(Conv2D, runtime) {
+  const auto &inputBuf = runtime.getTensor(input);
+  const auto &weightBuf = runtime.getTensor(weight);
+  inShape_ = inputBuf.getShape();
+  wShape_ = weightBuf.getShape();
+  strideH_ = strideH;
+  strideW_ = strideW;
+  padH_ = padH;
+  padW_ = padW;
+  dtype_ = inputBuf.getDtype();
   if (inShape_.size() != 4)
     throw std::runtime_error("conv2d: input must be 4D [N, C_in, H_in, W_in]");
   if (wShape_.size() != 4)
@@ -74,6 +91,9 @@ Conv2DOpNode::Conv2DOpNode(std::vector<uint32_t> &&inShape,
     throw std::runtime_error("conv2d: weight C_in dimension mismatch");
   H_out_ = (H_in_ + 2 * padH_ - kH_) / strideH_ + 1;
   W_out_ = (W_in_ + 2 * padW_ - kW_) / strideW_ + 1;
+  inputs_ = {input, weight};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
 }
 
 DataType Conv2DOpNode::shaderDtype() const {

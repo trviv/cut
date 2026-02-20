@@ -11,7 +11,6 @@
 namespace cut {
 
 class Runtime;
-struct ComputeBuffer;
 
 /**
  * High-level tensor operations implemented in C++.
@@ -160,20 +159,14 @@ private:
   friend class Runtime;
   Runtime *runtime_;
 
-  Tensor createOutput(const std::vector<uint32_t> &shape, DataType dtype);
-
   /// Returns the unpadded shape for a tensor handle.
   std::vector<uint32_t> getShape(const Tensor &h) const;
 
   /// Returns the dtype for a tensor handle.
   DataType getDtype(const Tensor &h) const;
 
-  /// Dispatches a Copy shader to copy data from src to dst with different
-  /// innermost-dim alignments.
-  void encodeCopy(const Tensor &src,
-                  const Tensor &dst,
-                  const std::vector<uint32_t> &srcShape,
-                  const std::vector<uint32_t> &dstShape);
+  /// Creates a CopyOpNode, encodes it, and returns the output tensor.
+  Tensor encodeCopy(const Tensor &src, std::vector<uint32_t> dstShape);
 
   struct DimParams {
     uint32_t outerSize;

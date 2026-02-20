@@ -51,9 +51,9 @@ public:
   Runtime(const Runtime &) = delete;
   Runtime &operator=(const Runtime &) = delete;
 
-  // Movable
-  Runtime(Runtime &&) noexcept;
-  Runtime &operator=(Runtime &&) noexcept;
+  // Non-movable
+  Runtime(Runtime &&) = delete;
+  Runtime &operator=(Runtime &&) = delete;
 
   /**
    * Checks if Vulkan backend is available on this system.

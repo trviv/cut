@@ -6,10 +6,7 @@ namespace cut {
 
 class GlobalReduceOpNode : public OpNode {
 public:
-  GlobalReduceOpNode(OperatorEnum op,
-                     std::vector<uint32_t> &&shape,
-                     DataType dtype,
-                     uint32_t innerDimSize);
+  GlobalReduceOpNode(OperatorEnum op, Runtime &runtime, const Tensor &a);
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -28,11 +25,7 @@ private:
 
 class DimReduceOpNode : public OpNode {
 public:
-  DimReduceOpNode(OperatorEnum op,
-                  std::vector<uint32_t> &&shape,
-                  int dim,
-                  DataType dtype,
-                  uint32_t bufInnerDimSize);
+  DimReduceOpNode(OperatorEnum op, Runtime &runtime, const Tensor &a, int dim);
 
   DataType shaderDtype() const override;
   bool isDimReduce() const override;
@@ -53,7 +46,7 @@ private:
 
 class NormOpNode : public OpNode {
 public:
-  NormOpNode(std::vector<uint32_t> &&shape, DataType dtype);
+  NormOpNode(Runtime &runtime, const Tensor &a);
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -69,9 +62,7 @@ private:
 
 class DotOpNode : public OpNode {
 public:
-  DotOpNode(std::vector<uint32_t> &&shapeA,
-            std::vector<uint32_t> &&shapeB,
-            DataType dtype);
+  DotOpNode(Runtime &runtime, const Tensor &a, const Tensor &b);
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -89,11 +80,7 @@ private:
 
 class CumOpNode : public OpNode {
 public:
-  CumOpNode(OperatorEnum op,
-            std::vector<uint32_t> &&shape,
-            int dim,
-            DataType dtype,
-            uint32_t bufInnerDimSize);
+  CumOpNode(OperatorEnum op, Runtime &runtime, const Tensor &a, int dim);
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

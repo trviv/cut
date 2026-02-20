@@ -6,14 +6,14 @@ namespace cut {
 
 class MaxPool2DOpNode : public OpNode {
 public:
-  MaxPool2DOpNode(std::vector<uint32_t> &&inShape,
+  MaxPool2DOpNode(Runtime &runtime,
+                  const Tensor &input,
                   uint32_t kernelH,
                   uint32_t kernelW,
                   uint32_t strideH,
                   uint32_t strideW,
                   uint32_t padH,
-                  uint32_t padW,
-                  DataType dtype);
+                  uint32_t padW);
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -29,14 +29,14 @@ private:
 
 class AvgPool2DOpNode : public OpNode {
 public:
-  AvgPool2DOpNode(std::vector<uint32_t> &&inShape,
+  AvgPool2DOpNode(Runtime &runtime,
+                  const Tensor &input,
                   uint32_t kernelH,
                   uint32_t kernelW,
                   uint32_t strideH,
                   uint32_t strideW,
                   uint32_t padH,
-                  uint32_t padW,
-                  DataType dtype);
+                  uint32_t padW);
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

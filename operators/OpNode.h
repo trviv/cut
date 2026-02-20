@@ -13,6 +13,8 @@
 
 namespace cut {
 
+class Runtime;
+
 // ============================================================================
 // Utility functions shared across OpNode subclasses
 // ============================================================================
@@ -58,6 +60,9 @@ public:
   /// Returns the OperatorEnum for shader lookup.
   OperatorEnum op() const { return op_; }
 
+  /// Returns the output tensor handle.
+  const Tensor &output() const { return output_; }
+
   /// Returns the DataType for shader dtype selection.
   virtual DataType shaderDtype() const = 0;
 
@@ -90,20 +95,14 @@ public:
   /// Returns the execution size (for multi-WG reduce threshold, etc.).
   virtual size_t executionSize() const;
 
-  /// Sets buffer handles for input and output bindings.
-  /// Called by Operations after creating the output tensor.
-  void setHandles(std::vector<Tensor> inputs, Tensor output);
-
-  /// Overload for in-place ops (sort) with no separate output.
-  void setHandles(std::vector<Tensor> inputs);
-
   /// Returns the ComputeBinding vector for dispatch encoding.
   virtual std::vector<ComputeBinding> handleBindings() const;
 
 protected:
-  explicit OpNode(OperatorEnum op) : op_(op) {}
+  OpNode(OperatorEnum op, Runtime &runtime) : op_(op), runtime_(&runtime) {}
 
   OperatorEnum op_;
+  Runtime *runtime_;
   std::vector<Tensor> inputs_;
   Tensor output_;
   bool hasOutput_ = false;

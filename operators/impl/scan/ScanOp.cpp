@@ -1,12 +1,20 @@
 #include "ScanOp.h"
+#include "Runtime.h"
 
 namespace cut {
 
 PrefixScanOpNode::PrefixScanOpNode(OperatorEnum op,
-                                   std::vector<uint32_t> &&shape,
-                                   DataType dtype)
-    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
-      numElements_(actualElementCount(shape_)) {}
+                                   Runtime &runtime,
+                                   const Tensor &a)
+    : OpNode(op, runtime) {
+  const auto &buf = runtime.getTensor(a);
+  shape_ = buf.getShape();
+  dtype_ = buf.getDtype();
+  numElements_ = actualElementCount(shape_);
+  inputs_ = {a};
+  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  hasOutput_ = true;
+}
 
 DataType PrefixScanOpNode::shaderDtype() const {
   return dtype_;
