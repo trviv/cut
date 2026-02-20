@@ -56,10 +56,18 @@ std::vector<uint32_t> Conv2DOpNode::outputShape() const {
 
 ThreadSize Conv2DOpNode::dispatchSize() const {
   const auto &info = kConv2DVariants[resolvedVariant_];
+  if (resolvedVariant_ == 0) {
+    // Naive: x = W_out, y = linearized(N*C_out*H_out)
+    uint32_t gridX = ((W_out_ + info.effTileN - 1) / info.effTileN) * info.wgX;
+    uint32_t gridY =
+        ((N_ * C_out_ * H_out_ + info.effTileM - 1) / info.effTileM) * info.wgY;
+    return {gridX, gridY, 1};
+  }
+  // Tiled: x = tiles along W_out, y = tiles along H_out, z = N * C_out
   uint32_t gridX = ((W_out_ + info.effTileN - 1) / info.effTileN) * info.wgX;
-  uint32_t gridY =
-      ((N_ * C_out_ * H_out_ + info.effTileM - 1) / info.effTileM) * info.wgY;
-  return {gridX, gridY, 1};
+  uint32_t gridY = ((H_out_ + info.effTileM - 1) / info.effTileM) * info.wgY;
+  uint32_t gridZ = N_ * C_out_;
+  return {gridX, gridY, gridZ};
 }
 
 std::vector<uint8_t> Conv2DOpNode::pushConstants() const {

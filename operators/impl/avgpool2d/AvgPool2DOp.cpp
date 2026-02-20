@@ -57,11 +57,11 @@ ThreadSize AvgPool2DOpNode::dispatchSize() const {
     uint32_t gridY = ((N_ * C_ * H_out_ + info.wgY - 1) / info.wgY) * info.wgY;
     return {gridX, gridY, 1};
   }
-  // Tiled variant: one thread per output element
+  // Tiled: x = tiles along W_out, y = tiles along H_out, z = N * C
   uint32_t gridX = ((W_out_ + info.effTileN - 1) / info.effTileN) * info.wgX;
-  uint32_t gridY =
-      ((N_ * C_ * H_out_ + info.effTileM - 1) / info.effTileM) * info.wgY;
-  return {gridX, gridY, 1};
+  uint32_t gridY = ((H_out_ + info.effTileM - 1) / info.effTileM) * info.wgY;
+  uint32_t gridZ = N_ * C_;
+  return {gridX, gridY, gridZ};
 }
 
 std::vector<uint8_t> AvgPool2DOpNode::pushConstants() const {

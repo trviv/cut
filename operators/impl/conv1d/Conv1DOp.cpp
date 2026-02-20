@@ -49,9 +49,16 @@ std::vector<uint32_t> Conv1DOpNode::outputShape() const {
 
 ThreadSize Conv1DOpNode::dispatchSize() const {
   const auto &info = kConv1DVariants[resolvedVariant_];
-  uint32_t totalOutputs = N_ * C_out_ * L_out_;
-  uint32_t gridX = ((totalOutputs + info.wgX - 1) / info.wgX) * info.wgX;
-  return {gridX, 1, 1};
+  if (resolvedVariant_ == 0) {
+    // Naive: linear dispatch over all output elements
+    uint32_t totalOutputs = N_ * C_out_ * L_out_;
+    uint32_t gridX = ((totalOutputs + info.wgX - 1) / info.wgX) * info.wgX;
+    return {gridX, 1, 1};
+  }
+  // Tiled: x = tiles along L_out, y = N * C_out
+  uint32_t gridX = ((L_out_ + info.effTileN - 1) / info.effTileN) * info.wgX;
+  uint32_t gridY = N_ * C_out_;
+  return {gridX, gridY, 1};
 }
 
 std::vector<uint8_t> Conv1DOpNode::pushConstants() const {

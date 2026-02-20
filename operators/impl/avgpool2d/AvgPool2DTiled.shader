@@ -3,12 +3,17 @@
 %DTYPE_DEFINES%
 
 // Tiled AvgPool2D: loads input tile + halo into shared memory
+// Dispatch: x = tiles along W_out, y = tiles along H_out, z = N * C
 // TILE_W=%TILE_W%, TILE_H=%TILE_H%
 
 #define TILE_W %TILE_W%
 #define TILE_H %TILE_H%
 #define MAX_KH 11
 #define MAX_KW 11
+
+// Shared memory dimensions (support stride up to 2)
+#define SHARED_H (TILE_H * 2 + MAX_KH - 1)
+#define SHARED_W (TILE_W * 2 + MAX_KW - 1)
 
 // Sentinel value to mark out-of-bounds positions
 #ifdef DTYPE_IS_FLOAT
@@ -35,7 +40,7 @@ struct PushConstants {
 
 [[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> output_data;
 
-groupshared %SCALAR_DTYPE% sharedInput[TILE_H + MAX_KH - 1][TILE_W + MAX_KW - 1];
+groupshared %SCALAR_DTYPE% sharedInput[SHARED_H][SHARED_W];
 
 [numthreads(TILE_W, TILE_H, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
@@ -44,23 +49,22 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
     uint inAlignedW = (pc.W_in + 3) & ~3u;
     uint outAlignedW = (W_out + 3) & ~3u;
 
-    uint w_out = Gid.x * TILE_W + GTid.x;
-    uint linear_y = DTid.y;
+    // z encodes (n, c), x/y are spatial
+    uint c = DTid.z % pc.C;
+    uint n = DTid.z / pc.C;
+    uint h_out = DTid.y;
+    uint w_out = DTid.x;
 
-    uint h_out = linear_y % H_out;
-    uint nc = linear_y / H_out;
-    uint c = nc % pc.C;
-    uint n = nc / pc.C;
+    bool active = (w_out < W_out && h_out < H_out);
 
-    if (n >= pc.N) return;
-
-    // Cooperatively load input tile + halo into shared memory
-    uint sharedH = pc.kernelH + TILE_H - 1;
-    uint sharedW = pc.kernelW + TILE_W - 1;
+    // Actual shared memory region needed for this tile
+    uint sharedH = (TILE_H - 1) * pc.strideH + pc.kernelH;
+    uint sharedW = (TILE_W - 1) * pc.strideW + pc.kernelW;
 
     int baseH = int(Gid.y * TILE_H * pc.strideH) - int(pc.padH);
     int baseW = int(Gid.x * TILE_W * pc.strideW) - int(pc.padW);
 
+    // Cooperatively load input tile + halo into shared memory
     for (uint sh = GTid.y; sh < sharedH; sh += TILE_H) {
         for (uint sw = GTid.x; sw < sharedW; sw += TILE_W) {
             int ih = baseH + int(sh);
@@ -73,12 +77,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
                             + uint(iw);
                 val = input_data[in_idx];
             }
-            sharedInput[sh][sw] = val;
+            if (sh < SHARED_H && sw < SHARED_W) {
+                sharedInput[sh][sw] = val;
+            }
         }
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (w_out >= W_out) return;
+    if (!active) return;
 
     // Compute average pooling from shared memory
     uint localH = GTid.y * pc.strideH;

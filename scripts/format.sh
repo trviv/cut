@@ -9,7 +9,7 @@ echo "==> Running clang-format on .cpp and .h files"
 find "${DIRS[@]}" \
   \( -name "*.cpp" -o -name "*.h" \) \
   | grep -v '\.generated\.h$' \
-  | grep -v 'operators/compiled.*\.cpp$' \
+  | grep -v 'CompiledShaders\.cpp$' \
   | xargs clang-format -i -style=file
 
 echo "==> Done"
