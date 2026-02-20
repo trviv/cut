@@ -7,8 +7,8 @@ namespace cut {
 
 class MatMulOpNode : public OpNode {
 public:
-  MatMulOpNode(std::vector<uint32_t> shapeA,
-               std::vector<uint32_t> shapeB,
+  MatMulOpNode(std::vector<uint32_t> &&shapeA,
+               std::vector<uint32_t> &&shapeB,
                DataType dtype,
                int variantIdx = -1);
 

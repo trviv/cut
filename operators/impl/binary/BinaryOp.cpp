@@ -5,8 +5,8 @@ namespace cut {
 // --- BinaryVecVecOpNode ---
 
 BinaryVecVecOpNode::BinaryVecVecOpNode(OperatorEnum op,
-                                       std::vector<uint32_t> shapeA,
-                                       std::vector<uint32_t> shapeB,
+                                       std::vector<uint32_t> &&shapeA,
+                                       std::vector<uint32_t> &&shapeB,
                                        DataType dtype)
     : OpNode(op), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),
       dtype_(dtype), numElements_(alignedElementCount(shapeA_)) {
@@ -37,7 +37,7 @@ std::vector<uint8_t> BinaryVecVecOpNode::pushConstants() const {
 // --- BinaryVecScalarOpNode ---
 
 BinaryVecScalarOpNode::BinaryVecScalarOpNode(OperatorEnum op,
-                                             std::vector<uint32_t> shape,
+                                             std::vector<uint32_t> &&shape,
                                              DataType dtype,
                                              uint32_t scalarBits)
     : OpNode(op), shape_(std::move(shape)), dtype_(dtype),

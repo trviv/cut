@@ -7,7 +7,7 @@ namespace cut {
 class GlobalReduceOpNode : public OpNode {
 public:
   GlobalReduceOpNode(OperatorEnum op,
-                     std::vector<uint32_t> shape,
+                     std::vector<uint32_t> &&shape,
                      DataType dtype,
                      uint32_t innerDimSize);
 
@@ -29,7 +29,7 @@ private:
 class DimReduceOpNode : public OpNode {
 public:
   DimReduceOpNode(OperatorEnum op,
-                  std::vector<uint32_t> shape,
+                  std::vector<uint32_t> &&shape,
                   int dim,
                   DataType dtype,
                   uint32_t bufInnerDimSize);
@@ -53,7 +53,7 @@ private:
 
 class NormOpNode : public OpNode {
 public:
-  NormOpNode(std::vector<uint32_t> shape, DataType dtype);
+  NormOpNode(std::vector<uint32_t> &&shape, DataType dtype);
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -69,8 +69,8 @@ private:
 
 class DotOpNode : public OpNode {
 public:
-  DotOpNode(std::vector<uint32_t> shapeA,
-            std::vector<uint32_t> shapeB,
+  DotOpNode(std::vector<uint32_t> &&shapeA,
+            std::vector<uint32_t> &&shapeB,
             DataType dtype);
 
   DataType shaderDtype() const override;
@@ -90,7 +90,7 @@ private:
 class CumOpNode : public OpNode {
 public:
   CumOpNode(OperatorEnum op,
-            std::vector<uint32_t> shape,
+            std::vector<uint32_t> &&shape,
             int dim,
             DataType dtype,
             uint32_t bufInnerDimSize);

@@ -4,7 +4,7 @@ namespace cut {
 
 // --- TernaryClampOpNode ---
 
-TernaryClampOpNode::TernaryClampOpNode(std::vector<uint32_t> shape,
+TernaryClampOpNode::TernaryClampOpNode(std::vector<uint32_t> &&shape,
                                        DataType dtype,
                                        uint32_t minBits,
                                        uint32_t maxBits)
@@ -35,9 +35,9 @@ std::vector<uint8_t> TernaryClampOpNode::pushConstants() const {
 
 // --- TernarySelectOpNode ---
 
-TernarySelectOpNode::TernarySelectOpNode(std::vector<uint32_t> condShape,
-                                         std::vector<uint32_t> xShape,
-                                         std::vector<uint32_t> yShape,
+TernarySelectOpNode::TernarySelectOpNode(std::vector<uint32_t> &&condShape,
+                                         std::vector<uint32_t> &&xShape,
+                                         std::vector<uint32_t> &&yShape,
                                          DataType dtype)
     : OpNode(TernarySelect), condShape_(std::move(condShape)),
       xShape_(std::move(xShape)), yShape_(std::move(yShape)), dtype_(dtype),

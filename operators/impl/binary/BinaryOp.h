@@ -7,8 +7,8 @@ namespace cut {
 class BinaryVecVecOpNode : public OpNode {
 public:
   BinaryVecVecOpNode(OperatorEnum op,
-                     std::vector<uint32_t> shapeA,
-                     std::vector<uint32_t> shapeB,
+                     std::vector<uint32_t> &&shapeA,
+                     std::vector<uint32_t> &&shapeB,
                      DataType dtype);
 
   DataType shaderDtype() const override;
@@ -26,7 +26,7 @@ private:
 class BinaryVecScalarOpNode : public OpNode {
 public:
   BinaryVecScalarOpNode(OperatorEnum op,
-                        std::vector<uint32_t> shape,
+                        std::vector<uint32_t> &&shape,
                         DataType dtype,
                         uint32_t scalarBits);
 

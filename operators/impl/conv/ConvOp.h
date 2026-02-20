@@ -6,8 +6,8 @@ namespace cut {
 
 class Conv1DOpNode : public OpNode {
 public:
-  Conv1DOpNode(std::vector<uint32_t> inShape,
-               std::vector<uint32_t> wShape,
+  Conv1DOpNode(std::vector<uint32_t> &&inShape,
+               std::vector<uint32_t> &&wShape,
                uint32_t stride,
                uint32_t padding,
                DataType dtype);
@@ -27,8 +27,8 @@ private:
 
 class Conv2DOpNode : public OpNode {
 public:
-  Conv2DOpNode(std::vector<uint32_t> inShape,
-               std::vector<uint32_t> wShape,
+  Conv2DOpNode(std::vector<uint32_t> &&inShape,
+               std::vector<uint32_t> &&wShape,
                uint32_t strideH,
                uint32_t strideW,
                uint32_t padH,

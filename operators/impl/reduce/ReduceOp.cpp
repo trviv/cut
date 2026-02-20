@@ -24,7 +24,7 @@ inline bool isMultiReduceCapable(OperatorEnum op) {
 // --- GlobalReduceOpNode ---
 
 GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
-                                       std::vector<uint32_t> shape,
+                                       std::vector<uint32_t> &&shape,
                                        DataType dtype,
                                        uint32_t innerDimSize)
     : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
@@ -63,7 +63,7 @@ std::vector<uint8_t> GlobalReduceOpNode::pushConstants() const {
 // --- DimReduceOpNode ---
 
 DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
-                                 std::vector<uint32_t> shape,
+                                 std::vector<uint32_t> &&shape,
                                  int dim,
                                  DataType dtype,
                                  uint32_t bufInnerDimSize)
@@ -140,7 +140,7 @@ std::vector<uint8_t> DimReduceOpNode::pushConstants() const {
 
 // --- NormOpNode ---
 
-NormOpNode::NormOpNode(std::vector<uint32_t> shape, DataType dtype)
+NormOpNode::NormOpNode(std::vector<uint32_t> &&shape, DataType dtype)
     : OpNode(Norm), shape_(std::move(shape)), dtype_(dtype),
       numElements_(actualElementCount(shape_)) {}
 
@@ -167,8 +167,8 @@ size_t NormOpNode::executionSize() const {
 
 // --- DotOpNode ---
 
-DotOpNode::DotOpNode(std::vector<uint32_t> shapeA,
-                     std::vector<uint32_t> shapeB,
+DotOpNode::DotOpNode(std::vector<uint32_t> &&shapeA,
+                     std::vector<uint32_t> &&shapeB,
                      DataType dtype)
     : OpNode(Dot), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),
       dtype_(dtype) {
@@ -212,7 +212,7 @@ std::vector<ComputeBinding> DotOpNode::handleBindings() const {
 // --- CumOpNode ---
 
 CumOpNode::CumOpNode(OperatorEnum op,
-                     std::vector<uint32_t> shape,
+                     std::vector<uint32_t> &&shape,
                      int dim,
                      DataType dtype,
                      uint32_t bufInnerDimSize)

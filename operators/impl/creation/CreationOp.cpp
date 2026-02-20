@@ -5,7 +5,7 @@ namespace cut {
 // --- FillOpNode ---
 
 FillOpNode::FillOpNode(OperatorEnum op,
-                       std::vector<uint32_t> shape,
+                       std::vector<uint32_t> &&shape,
                        DataType dtype,
                        float fillValue)
     : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
@@ -45,7 +45,7 @@ std::vector<ComputeBinding> FillOpNode::handleBindings() const {
 // --- ArangeOpNode ---
 
 ArangeOpNode::ArangeOpNode(OperatorEnum op,
-                           std::vector<uint32_t> shape,
+                           std::vector<uint32_t> &&shape,
                            DataType dtype,
                            float start,
                            float step)

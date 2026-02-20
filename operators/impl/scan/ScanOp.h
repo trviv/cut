@@ -7,7 +7,7 @@ namespace cut {
 class PrefixScanOpNode : public OpNode {
 public:
   PrefixScanOpNode(OperatorEnum op,
-                   std::vector<uint32_t> shape,
+                   std::vector<uint32_t> &&shape,
                    DataType dtype);
 
   DataType shaderDtype() const override;

@@ -6,7 +6,7 @@ namespace cut {
 
 class TernaryClampOpNode : public OpNode {
 public:
-  TernaryClampOpNode(std::vector<uint32_t> shape,
+  TernaryClampOpNode(std::vector<uint32_t> &&shape,
                      DataType dtype,
                      uint32_t minBits,
                      uint32_t maxBits);
@@ -26,9 +26,9 @@ private:
 
 class TernarySelectOpNode : public OpNode {
 public:
-  TernarySelectOpNode(std::vector<uint32_t> condShape,
-                      std::vector<uint32_t> xShape,
-                      std::vector<uint32_t> yShape,
+  TernarySelectOpNode(std::vector<uint32_t> &&condShape,
+                      std::vector<uint32_t> &&xShape,
+                      std::vector<uint32_t> &&yShape,
                       DataType dtype);
 
   DataType shaderDtype() const override;

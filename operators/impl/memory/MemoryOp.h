@@ -6,7 +6,7 @@ namespace cut {
 
 class TransposeOpNode : public OpNode {
 public:
-  TransposeOpNode(std::vector<uint32_t> shape, DataType dtype);
+  TransposeOpNode(std::vector<uint32_t> &&shape, DataType dtype);
 
   DataType shaderDtype() const override;
   DataType outputDtype() const override;
@@ -22,8 +22,8 @@ private:
 
 class CopyOpNode : public OpNode {
 public:
-  CopyOpNode(std::vector<uint32_t> srcShape,
-             std::vector<uint32_t> dstShape,
+  CopyOpNode(std::vector<uint32_t> &&srcShape,
+             std::vector<uint32_t> &&dstShape,
              DataType dtype);
 
   DataType shaderDtype() const override;
@@ -42,8 +42,8 @@ private:
 
 class EmbeddingOpNode : public OpNode {
 public:
-  EmbeddingOpNode(std::vector<uint32_t> idxShape,
-                  std::vector<uint32_t> wShape,
+  EmbeddingOpNode(std::vector<uint32_t> &&idxShape,
+                  std::vector<uint32_t> &&wShape,
                   DataType weightDtype);
 
   DataType shaderDtype() const override;
@@ -62,8 +62,8 @@ private:
 
 class PadOpNode : public OpNode {
 public:
-  PadOpNode(std::vector<uint32_t> shape,
-            std::vector<uint32_t> padWidths,
+  PadOpNode(std::vector<uint32_t> &&shape,
+            std::vector<uint32_t> &&padWidths,
             float value,
             DataType dtype);
 

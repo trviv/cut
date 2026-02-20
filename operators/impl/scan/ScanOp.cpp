@@ -3,7 +3,7 @@
 namespace cut {
 
 PrefixScanOpNode::PrefixScanOpNode(OperatorEnum op,
-                                   std::vector<uint32_t> shape,
+                                   std::vector<uint32_t> &&shape,
                                    DataType dtype)
     : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
       numElements_(actualElementCount(shape_)) {}

@@ -7,7 +7,7 @@ namespace cut {
 class FillOpNode : public OpNode {
 public:
   FillOpNode(OperatorEnum op,
-             std::vector<uint32_t> shape,
+             std::vector<uint32_t> &&shape,
              DataType dtype,
              float fillValue = 0.0f);
 
@@ -27,7 +27,7 @@ private:
 class ArangeOpNode : public OpNode {
 public:
   ArangeOpNode(OperatorEnum op,
-               std::vector<uint32_t> shape,
+               std::vector<uint32_t> &&shape,
                DataType dtype,
                float start,
                float step);

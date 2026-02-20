@@ -6,7 +6,7 @@ namespace cut {
 
 class MaxPool2DOpNode : public OpNode {
 public:
-  MaxPool2DOpNode(std::vector<uint32_t> inShape,
+  MaxPool2DOpNode(std::vector<uint32_t> &&inShape,
                   uint32_t kernelH,
                   uint32_t kernelW,
                   uint32_t strideH,
@@ -29,7 +29,7 @@ private:
 
 class AvgPool2DOpNode : public OpNode {
 public:
-  AvgPool2DOpNode(std::vector<uint32_t> inShape,
+  AvgPool2DOpNode(std::vector<uint32_t> &&inShape,
                   uint32_t kernelH,
                   uint32_t kernelW,
                   uint32_t strideH,

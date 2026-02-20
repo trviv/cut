@@ -82,7 +82,8 @@ void Operations::encodeCopy(const Tensor &src,
                             const std::vector<uint32_t> &srcShape,
                             const std::vector<uint32_t> &dstShape) {
   auto dtype = getDtype(src);
-  auto node = std::make_unique<CopyOpNode>(srcShape, dstShape, dtype);
+  auto node = std::make_unique<CopyOpNode>(
+      std::vector<uint32_t>(srcShape), std::vector<uint32_t>(dstShape), dtype);
   node->setHandles({src}, dst);
   runtime_->encodeOperator(std::move(node));
 }
@@ -96,7 +97,8 @@ Tensor Operations::binaryOp(OperatorEnum op, const Tensor &a, const Tensor &b) {
   auto shapeB = getShape(b);
   auto dtype = getDtype(a);
 
-  auto node = std::make_unique<BinaryVecVecOpNode>(op, shapeA, shapeB, dtype);
+  auto node = std::make_unique<BinaryVecVecOpNode>(op, std::move(shapeA),
+                                                   std::move(shapeB), dtype);
 
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({a, b}, output);
@@ -108,7 +110,7 @@ Tensor Operations::unaryOp(OperatorEnum op, const Tensor &a) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
 
-  auto node = std::make_unique<UnaryOpNode>(op, shape, dtype);
+  auto node = std::make_unique<UnaryOpNode>(op, std::move(shape), dtype);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({a}, output);
   runtime_->encodeOperator(std::move(node));
@@ -124,8 +126,8 @@ Tensor Operations::vecScalarOp(OperatorEnum op,
   uint32_t scalarBits = 0;
   std::memcpy(&scalarBits, scalar.ptr, sizeof(uint32_t));
 
-  auto node =
-      std::make_unique<BinaryVecScalarOpNode>(op, shape, dtype, scalarBits);
+  auto node = std::make_unique<BinaryVecScalarOpNode>(op, std::move(shape),
+                                                      dtype, scalarBits);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({a}, output);
   runtime_->encodeOperator(std::move(node));
@@ -143,16 +145,16 @@ Operations::reduce(OperatorEnum op, const Tensor &a, std::optional<int> dim) {
   const auto &buf = runtime_->getTensor(a);
 
   if (!dim.has_value()) {
-    auto node = std::make_unique<GlobalReduceOpNode>(op, shape, dtype,
-                                                     buf.innerDimSize());
+    auto node = std::make_unique<GlobalReduceOpNode>(op, std::move(shape),
+                                                     dtype, buf.innerDimSize());
     Tensor out = createOutput(node->outputShape(), node->outputDtype());
     node->setHandles({a}, out);
     runtime_->encodeOperator(std::move(node));
     return out;
   }
 
-  auto node = std::make_unique<DimReduceOpNode>(op, shape, dim.value(), dtype,
-                                                buf.innerDimSize());
+  auto node = std::make_unique<DimReduceOpNode>(
+      op, std::move(shape), dim.value(), dtype, buf.innerDimSize());
   Tensor out = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({a}, out);
   runtime_->encodeOperator(std::move(node));
@@ -168,8 +170,8 @@ Tensor Operations::matmul(const Tensor &a, const Tensor &b, int variantIndex) {
   auto shapeB = getShape(b);
   auto dtype = getDtype(a);
 
-  auto node =
-      std::make_unique<MatMulOpNode>(shapeA, shapeB, dtype, variantIndex);
+  auto node = std::make_unique<MatMulOpNode>(
+      std::move(shapeA), std::move(shapeB), dtype, variantIndex);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({a, b}, output);
   runtime_->encodeOperator(std::move(node));
@@ -180,7 +182,7 @@ Tensor Operations::transpose(const Tensor &a) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
 
-  auto node = std::make_unique<TransposeOpNode>(shape, dtype);
+  auto node = std::make_unique<TransposeOpNode>(std::move(shape), dtype);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({a}, output);
   runtime_->encodeOperator(std::move(node));
@@ -192,7 +194,8 @@ Tensor Operations::dot(const Tensor &a, const Tensor &b) {
   auto shapeB = getShape(b);
   auto dtype = getDtype(a);
 
-  auto node = std::make_unique<DotOpNode>(shapeA, shapeB, dtype);
+  auto node =
+      std::make_unique<DotOpNode>(std::move(shapeA), std::move(shapeB), dtype);
 
   auto outShape = node->outputShape();
   uint32_t numWorkgroups = outShape[0];
@@ -229,8 +232,8 @@ Tensor Operations::clamp(const Tensor &a, DataReference clampData) {
               static_cast<const uint8_t *>(clampData.ptr) + sizeof(uint32_t),
               sizeof(uint32_t));
 
-  auto node =
-      std::make_unique<TernaryClampOpNode>(shape, dtype, minBits, maxBits);
+  auto node = std::make_unique<TernaryClampOpNode>(std::move(shape), dtype,
+                                                   minBits, maxBits);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({a}, output);
   runtime_->encodeOperator(std::move(node));
@@ -243,8 +246,8 @@ Tensor Operations::where(const Tensor &cond, const Tensor &x, const Tensor &y) {
   auto yShape = getShape(y);
   auto dtype = getDtype(x);
 
-  auto node =
-      std::make_unique<TernarySelectOpNode>(condShape, xShape, yShape, dtype);
+  auto node = std::make_unique<TernarySelectOpNode>(
+      std::move(condShape), std::move(xShape), std::move(yShape), dtype);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({cond, x, y}, output);
   runtime_->encodeOperator(std::move(node));
@@ -262,8 +265,8 @@ Operations::cumOp(const Tensor &a, OperatorEnum op, std::optional<int> dim) {
   auto dtype = getDtype(a);
   const auto &buf = runtime_->getTensor(a);
 
-  auto node =
-      std::make_unique<CumOpNode>(op, shape, d, dtype, buf.innerDimSize());
+  auto node = std::make_unique<CumOpNode>(op, std::move(shape), d, dtype,
+                                          buf.innerDimSize());
   Tensor out = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({a}, out);
   runtime_->encodeOperator(std::move(node));
@@ -759,7 +762,7 @@ Tensor Operations::norm(const Tensor &a, std::optional<int> dim) {
     auto shape = getShape(a);
     auto dtype = getDtype(a);
 
-    auto node = std::make_unique<NormOpNode>(shape, dtype);
+    auto node = std::make_unique<NormOpNode>(std::move(shape), dtype);
     Tensor out = createOutput(node->outputShape(), node->outputDtype());
     node->setHandles({a}, out);
     runtime_->encodeOperator(std::move(node));
@@ -776,7 +779,7 @@ Tensor Operations::prefixScan(const Tensor &a, OperatorEnum op) {
   auto shape = getShape(a);
   auto dtype = getDtype(a);
 
-  auto node = std::make_unique<PrefixScanOpNode>(op, shape, dtype);
+  auto node = std::make_unique<PrefixScanOpNode>(op, std::move(shape), dtype);
   Tensor out = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({a}, out);
   runtime_->encodeOperator(std::move(node));
@@ -799,8 +802,8 @@ Tensor Operations::conv1d(const Tensor &input,
   auto wShape = getShape(weight);
   auto dtype = getDtype(input);
 
-  auto node =
-      std::make_unique<Conv1DOpNode>(inShape, wShape, stride, padding, dtype);
+  auto node = std::make_unique<Conv1DOpNode>(
+      std::move(inShape), std::move(wShape), stride, padding, dtype);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({input, weight}, output);
   runtime_->encodeOperator(std::move(node));
@@ -817,8 +820,9 @@ Tensor Operations::conv2d(const Tensor &input,
   auto wShape = getShape(weight);
   auto dtype = getDtype(input);
 
-  auto node = std::make_unique<Conv2DOpNode>(inShape, wShape, strideH, strideW,
-                                             padH, padW, dtype);
+  auto node =
+      std::make_unique<Conv2DOpNode>(std::move(inShape), std::move(wShape),
+                                     strideH, strideW, padH, padW, dtype);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({input, weight}, output);
   runtime_->encodeOperator(std::move(node));
@@ -839,8 +843,9 @@ Tensor Operations::maxPool2d(const Tensor &input,
   auto inShape = getShape(input);
   auto dtype = getDtype(input);
 
-  auto node = std::make_unique<MaxPool2DOpNode>(
-      inShape, kernelH, kernelW, strideH, strideW, padH, padW, dtype);
+  auto node =
+      std::make_unique<MaxPool2DOpNode>(std::move(inShape), kernelH, kernelW,
+                                        strideH, strideW, padH, padW, dtype);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({input}, output);
   runtime_->encodeOperator(std::move(node));
@@ -857,8 +862,9 @@ Tensor Operations::avgPool2d(const Tensor &input,
   auto inShape = getShape(input);
   auto dtype = getDtype(input);
 
-  auto node = std::make_unique<AvgPool2DOpNode>(
-      inShape, kernelH, kernelW, strideH, strideW, padH, padW, dtype);
+  auto node =
+      std::make_unique<AvgPool2DOpNode>(std::move(inShape), kernelH, kernelW,
+                                        strideH, strideW, padH, padW, dtype);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({input}, output);
   runtime_->encodeOperator(std::move(node));
@@ -1047,7 +1053,8 @@ Tensor Operations::embedding(const Tensor &indices, const Tensor &weight) {
   auto wShape = getShape(weight);
   auto dtype = getDtype(weight);
 
-  auto node = std::make_unique<EmbeddingOpNode>(idxShape, wShape, dtype);
+  auto node = std::make_unique<EmbeddingOpNode>(std::move(idxShape),
+                                                std::move(wShape), dtype);
   Tensor output = createOutput(node->outputShape(), DataType::Float32);
   node->setHandles({indices, weight}, output);
   runtime_->encodeOperator(std::move(node));
@@ -1064,7 +1071,8 @@ Tensor Operations::pad(const Tensor &input,
   auto shape = getShape(input);
   auto dtype = getDtype(input);
 
-  auto node = std::make_unique<PadOpNode>(shape, padWidths, value, dtype);
+  auto node = std::make_unique<PadOpNode>(
+      std::move(shape), std::vector<uint32_t>(padWidths), value, dtype);
   Tensor output = createOutput(node->outputShape(), node->outputDtype());
   node->setHandles({input}, output);
   runtime_->encodeOperator(std::move(node));

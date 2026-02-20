@@ -4,7 +4,7 @@ namespace cut {
 
 // --- MaxPool2DOpNode ---
 
-MaxPool2DOpNode::MaxPool2DOpNode(std::vector<uint32_t> inShape,
+MaxPool2DOpNode::MaxPool2DOpNode(std::vector<uint32_t> &&inShape,
                                  uint32_t kernelH,
                                  uint32_t kernelW,
                                  uint32_t strideH,
@@ -54,7 +54,7 @@ std::vector<uint8_t> MaxPool2DOpNode::pushConstants() const {
 
 // --- AvgPool2DOpNode ---
 
-AvgPool2DOpNode::AvgPool2DOpNode(std::vector<uint32_t> inShape,
+AvgPool2DOpNode::AvgPool2DOpNode(std::vector<uint32_t> &&inShape,
                                  uint32_t kernelH,
                                  uint32_t kernelW,
                                  uint32_t strideH,

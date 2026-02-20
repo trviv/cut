@@ -4,7 +4,7 @@ namespace cut {
 
 // --- TransposeOpNode ---
 
-TransposeOpNode::TransposeOpNode(std::vector<uint32_t> shape, DataType dtype)
+TransposeOpNode::TransposeOpNode(std::vector<uint32_t> &&shape, DataType dtype)
     : OpNode(Transpose), shape_(std::move(shape)), dtype_(dtype) {
   if (shape_.size() != 2) {
     throw std::runtime_error("transpose requires a 2D matrix");
@@ -44,8 +44,8 @@ std::vector<uint8_t> TransposeOpNode::pushConstants() const {
 
 // --- CopyOpNode ---
 
-CopyOpNode::CopyOpNode(std::vector<uint32_t> srcShape,
-                       std::vector<uint32_t> dstShape,
+CopyOpNode::CopyOpNode(std::vector<uint32_t> &&srcShape,
+                       std::vector<uint32_t> &&dstShape,
                        DataType dtype)
     : OpNode(Copy), srcShape_(std::move(srcShape)),
       dstShape_(std::move(dstShape)), dtype_(dtype) {
@@ -86,8 +86,8 @@ std::vector<uint8_t> CopyOpNode::pushConstants() const {
 
 // --- EmbeddingOpNode ---
 
-EmbeddingOpNode::EmbeddingOpNode(std::vector<uint32_t> idxShape,
-                                 std::vector<uint32_t> wShape,
+EmbeddingOpNode::EmbeddingOpNode(std::vector<uint32_t> &&idxShape,
+                                 std::vector<uint32_t> &&wShape,
                                  DataType weightDtype)
     : OpNode(Embedding), idxShape_(std::move(idxShape)),
       wShape_(std::move(wShape)), dtype_(weightDtype) {
@@ -128,8 +128,8 @@ std::vector<uint8_t> EmbeddingOpNode::pushConstants() const {
 
 // --- PadOpNode ---
 
-PadOpNode::PadOpNode(std::vector<uint32_t> shape,
-                     std::vector<uint32_t> padWidths,
+PadOpNode::PadOpNode(std::vector<uint32_t> &&shape,
+                     std::vector<uint32_t> &&padWidths,
                      float value,
                      DataType dtype)
     : OpNode(Pad), shape_(std::move(shape)), padWidths_(std::move(padWidths)),

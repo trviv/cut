@@ -2,8 +2,8 @@
 
 namespace cut {
 
-MatMulOpNode::MatMulOpNode(std::vector<uint32_t> shapeA,
-                           std::vector<uint32_t> shapeB,
+MatMulOpNode::MatMulOpNode(std::vector<uint32_t> &&shapeA,
+                           std::vector<uint32_t> &&shapeB,
                            DataType dtype,
                            int variantIdx)
     : OpNode(MatMul), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),

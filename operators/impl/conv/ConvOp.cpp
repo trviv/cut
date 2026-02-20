@@ -4,8 +4,8 @@ namespace cut {
 
 // --- Conv1DOpNode ---
 
-Conv1DOpNode::Conv1DOpNode(std::vector<uint32_t> inShape,
-                           std::vector<uint32_t> wShape,
+Conv1DOpNode::Conv1DOpNode(std::vector<uint32_t> &&inShape,
+                           std::vector<uint32_t> &&wShape,
                            uint32_t stride,
                            uint32_t padding,
                            DataType dtype)
@@ -49,8 +49,8 @@ std::vector<uint8_t> Conv1DOpNode::pushConstants() const {
 
 // --- Conv2DOpNode ---
 
-Conv2DOpNode::Conv2DOpNode(std::vector<uint32_t> inShape,
-                           std::vector<uint32_t> wShape,
+Conv2DOpNode::Conv2DOpNode(std::vector<uint32_t> &&inShape,
+                           std::vector<uint32_t> &&wShape,
                            uint32_t strideH,
                            uint32_t strideW,
                            uint32_t padH,
