@@ -6,8 +6,10 @@ if [[ -z "$SCRIPT_DIR" ]]; then
     SCRIPT_DIR="."
 fi
 
-mkdir -p $SCRIPT_DIR/build
-cd build
+ROOT_DIR="$SCRIPT_DIR/.."
+
+mkdir -p $ROOT_DIR/build
+cd $ROOT_DIR/build
 
 # # Option 2: Manual installation
 # git clone https://github.com/google/clspv.git

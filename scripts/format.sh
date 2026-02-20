@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+DIRS=("$ROOT_DIR/core" "$ROOT_DIR/operators" "$ROOT_DIR/tests" "$ROOT_DIR/benchmarks" "$ROOT_DIR/runtime")
 
 echo "==> Running clang-format on .cpp and .h files"
-find "$ROOT_DIR" \
-  -path "$ROOT_DIR/build" -prune -o \
-  -path "$ROOT_DIR/.venv" -prune -o \
-  \( -name "*.cpp" -o -name "*.h" \) -print \
+find "${DIRS[@]}" \
+  \( -name "*.cpp" -o -name "*.h" \) \
   | grep -v '\.generated\.h$' \
   | grep -v 'operators/compiled.*\.cpp$' \
   | xargs clang-format -i -style=file
