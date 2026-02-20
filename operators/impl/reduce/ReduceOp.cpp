@@ -27,13 +27,10 @@ GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
                                        std::vector<uint32_t> shape,
                                        DataType dtype,
                                        uint32_t innerDimSize)
-    : op_(op), shape_(std::move(shape)), dtype_(dtype),
+    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
       numElements_(actualElementCount(shape_)), actualInner_(innerDimSize),
       alignedInner_((innerDimSize + 3) & ~static_cast<uint32_t>(3)) {}
 
-OperatorEnum GlobalReduceOpNode::op() const {
-  return op_;
-}
 DataType GlobalReduceOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -70,7 +67,7 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
                                  int dim,
                                  DataType dtype,
                                  uint32_t bufInnerDimSize)
-    : op_(op), shape_(std::move(shape)), dtype_(dtype),
+    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
       bufInnerDim_(bufInnerDimSize),
       alignedBufInner_((bufInnerDimSize + 3) & ~static_cast<uint32_t>(3)) {
   int ndim = static_cast<int>(shape_.size());
@@ -110,9 +107,6 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
   }
 }
 
-OperatorEnum DimReduceOpNode::op() const {
-  return op_;
-}
 DataType DimReduceOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -147,12 +141,9 @@ std::vector<uint8_t> DimReduceOpNode::pushConstants() const {
 // --- NormOpNode ---
 
 NormOpNode::NormOpNode(std::vector<uint32_t> shape, DataType dtype)
-    : shape_(std::move(shape)), dtype_(dtype),
+    : OpNode(Norm), shape_(std::move(shape)), dtype_(dtype),
       numElements_(actualElementCount(shape_)) {}
 
-OperatorEnum NormOpNode::op() const {
-  return Norm;
-}
 DataType NormOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -179,7 +170,8 @@ size_t NormOpNode::executionSize() const {
 DotOpNode::DotOpNode(std::vector<uint32_t> shapeA,
                      std::vector<uint32_t> shapeB,
                      DataType dtype)
-    : shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)), dtype_(dtype) {
+    : OpNode(Dot), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),
+      dtype_(dtype) {
   if (actualElementCount(shapeA_) != actualElementCount(shapeB_)) {
     throw std::runtime_error(
         "Vector size mismatch: " + std::to_string(actualElementCount(shapeA_)) +
@@ -189,9 +181,6 @@ DotOpNode::DotOpNode(std::vector<uint32_t> shapeA,
   numWorkgroups_ = (count_ + 255) / 256;
 }
 
-OperatorEnum DotOpNode::op() const {
-  return Dot;
-}
 DataType DotOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -227,7 +216,7 @@ CumOpNode::CumOpNode(OperatorEnum op,
                      int dim,
                      DataType dtype,
                      uint32_t bufInnerDimSize)
-    : op_(op), shape_(std::move(shape)), dtype_(dtype),
+    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
       bufInnerDim_(bufInnerDimSize),
       alignedBufInner_((bufInnerDimSize + 3) & ~static_cast<uint32_t>(3)) {
   int ndim = static_cast<int>(shape_.size());
@@ -259,9 +248,6 @@ CumOpNode::CumOpNode(OperatorEnum op,
   }
 }
 
-OperatorEnum CumOpNode::op() const {
-  return op_;
-}
 DataType CumOpNode::shaderDtype() const {
   return dtype_;
 }

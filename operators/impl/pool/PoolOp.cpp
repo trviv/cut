@@ -12,9 +12,9 @@ MaxPool2DOpNode::MaxPool2DOpNode(std::vector<uint32_t> inShape,
                                  uint32_t padH,
                                  uint32_t padW,
                                  DataType dtype)
-    : inShape_(std::move(inShape)), kernelH_(kernelH), kernelW_(kernelW),
-      strideH_(strideH), strideW_(strideW), padH_(padH), padW_(padW),
-      dtype_(dtype) {
+    : OpNode(MaxPool2D), inShape_(std::move(inShape)), kernelH_(kernelH),
+      kernelW_(kernelW), strideH_(strideH), strideW_(strideW), padH_(padH),
+      padW_(padW), dtype_(dtype) {
   if (inShape_.size() != 4)
     throw std::runtime_error("max_pool2d: input must be 4D [N, C, H, W]");
   N_ = inShape_[0];
@@ -25,9 +25,6 @@ MaxPool2DOpNode::MaxPool2DOpNode(std::vector<uint32_t> inShape,
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
 }
 
-OperatorEnum MaxPool2DOpNode::op() const {
-  return MaxPool2D;
-}
 DataType MaxPool2DOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -65,9 +62,9 @@ AvgPool2DOpNode::AvgPool2DOpNode(std::vector<uint32_t> inShape,
                                  uint32_t padH,
                                  uint32_t padW,
                                  DataType dtype)
-    : inShape_(std::move(inShape)), kernelH_(kernelH), kernelW_(kernelW),
-      strideH_(strideH), strideW_(strideW), padH_(padH), padW_(padW),
-      dtype_(dtype) {
+    : OpNode(AvgPool2D), inShape_(std::move(inShape)), kernelH_(kernelH),
+      kernelW_(kernelW), strideH_(strideH), strideW_(strideW), padH_(padH),
+      padW_(padW), dtype_(dtype) {
   if (inShape_.size() != 4)
     throw std::runtime_error("avg_pool2d: input must be 4D [N, C, H, W]");
   N_ = inShape_[0];
@@ -78,9 +75,6 @@ AvgPool2DOpNode::AvgPool2DOpNode(std::vector<uint32_t> inShape,
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
 }
 
-OperatorEnum AvgPool2DOpNode::op() const {
-  return AvgPool2D;
-}
 DataType AvgPool2DOpNode::shaderDtype() const {
   return dtype_;
 }

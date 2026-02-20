@@ -6,7 +6,8 @@ MatMulOpNode::MatMulOpNode(std::vector<uint32_t> shapeA,
                            std::vector<uint32_t> shapeB,
                            DataType dtype,
                            int variantIdx)
-    : shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)), dtype_(dtype) {
+    : OpNode(MatMul), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),
+      dtype_(dtype) {
   if (shapeA_.size() != 2 || shapeB_.size() != 2) {
     throw std::runtime_error("matmul requires 2D matrices");
   }
@@ -22,9 +23,6 @@ MatMulOpNode::MatMulOpNode(std::vector<uint32_t> shapeA,
   resolvedVariant_ = variantIdx >= 0 ? variantIdx : kMatMulDefaultVariant;
 }
 
-OperatorEnum MatMulOpNode::op() const {
-  return MatMul;
-}
 DataType MatMulOpNode::shaderDtype() const {
   return dtype_;
 }

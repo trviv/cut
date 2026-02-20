@@ -5,11 +5,8 @@ namespace cut {
 // --- BitonicSortOpNode ---
 
 BitonicSortOpNode::BitonicSortOpNode(size_t executionSize, DataType dtype)
-    : executionSize_(executionSize), dtype_(dtype) {}
+    : OpNode(SortBitonic), executionSize_(executionSize), dtype_(dtype) {}
 
-OperatorEnum BitonicSortOpNode::op() const {
-  return SortBitonic;
-}
 DataType BitonicSortOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -35,11 +32,8 @@ std::vector<uint8_t> BitonicSortOpNode::pushConstants() const {
 // --- RadixSortOpNode ---
 
 RadixSortOpNode::RadixSortOpNode(size_t executionSize, DataType dtype)
-    : executionSize_(executionSize), dtype_(dtype) {}
+    : OpNode(SortRadix), executionSize_(executionSize), dtype_(dtype) {}
 
-OperatorEnum RadixSortOpNode::op() const {
-  return SortRadix;
-}
 DataType RadixSortOpNode::shaderDtype() const {
   return dtype_;
 }

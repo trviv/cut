@@ -11,14 +11,12 @@ public:
                      std::vector<uint32_t> shapeB,
                      DataType dtype);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  OperatorEnum op_;
   std::vector<uint32_t> shapeA_;
   std::vector<uint32_t> shapeB_;
   DataType dtype_;
@@ -32,7 +30,6 @@ public:
                         DataType dtype,
                         uint32_t scalarBits);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -40,7 +37,6 @@ public:
   std::vector<ComputeBinding> handleBindings() const override;
 
 private:
-  OperatorEnum op_;
   std::vector<uint32_t> shape_;
   DataType dtype_;
   uint32_t scalarBits_;

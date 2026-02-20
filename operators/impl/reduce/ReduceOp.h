@@ -11,7 +11,6 @@ public:
                      DataType dtype,
                      uint32_t innerDimSize);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   bool isMultiPass() const override;
@@ -20,7 +19,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  OperatorEnum op_;
   std::vector<uint32_t> shape_;
   DataType dtype_;
   size_t numElements_;
@@ -36,7 +34,6 @@ public:
                   DataType dtype,
                   uint32_t bufInnerDimSize);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   bool isDimReduce() const override;
   OperatorEnum baseReduceOp() const override;
@@ -45,7 +42,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  OperatorEnum op_;
   std::vector<uint32_t> shape_;
   DataType dtype_;
   int dim_;
@@ -59,7 +55,6 @@ class NormOpNode : public OpNode {
 public:
   NormOpNode(std::vector<uint32_t> shape, DataType dtype);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -78,7 +73,6 @@ public:
             std::vector<uint32_t> shapeB,
             DataType dtype);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -101,14 +95,12 @@ public:
             DataType dtype,
             uint32_t bufInnerDimSize);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  OperatorEnum op_;
   std::vector<uint32_t> shape_;
   DataType dtype_;
   int dim_;

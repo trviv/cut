@@ -56,7 +56,7 @@ public:
   virtual ~OpNode() = default;
 
   /// Returns the OperatorEnum for shader lookup.
-  virtual OperatorEnum op() const = 0;
+  OperatorEnum op() const { return op_; }
 
   /// Returns the DataType for shader dtype selection.
   virtual DataType shaderDtype() const = 0;
@@ -101,6 +101,9 @@ public:
   virtual std::vector<ComputeBinding> handleBindings() const;
 
 protected:
+  explicit OpNode(OperatorEnum op) : op_(op) {}
+
+  OperatorEnum op_;
   std::vector<Tensor> inputs_;
   Tensor output_;
   bool hasOutput_ = false;

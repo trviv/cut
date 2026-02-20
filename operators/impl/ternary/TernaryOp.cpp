@@ -8,12 +8,10 @@ TernaryClampOpNode::TernaryClampOpNode(std::vector<uint32_t> shape,
                                        DataType dtype,
                                        uint32_t minBits,
                                        uint32_t maxBits)
-    : shape_(std::move(shape)), dtype_(dtype), minBits_(minBits),
-      maxBits_(maxBits), numElements_(alignedElementCount(shape_)) {}
+    : OpNode(TernaryClamp), shape_(std::move(shape)), dtype_(dtype),
+      minBits_(minBits), maxBits_(maxBits),
+      numElements_(alignedElementCount(shape_)) {}
 
-OperatorEnum TernaryClampOpNode::op() const {
-  return TernaryClamp;
-}
 DataType TernaryClampOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -41,8 +39,8 @@ TernarySelectOpNode::TernarySelectOpNode(std::vector<uint32_t> condShape,
                                          std::vector<uint32_t> xShape,
                                          std::vector<uint32_t> yShape,
                                          DataType dtype)
-    : condShape_(std::move(condShape)), xShape_(std::move(xShape)),
-      yShape_(std::move(yShape)), dtype_(dtype),
+    : OpNode(TernarySelect), condShape_(std::move(condShape)),
+      xShape_(std::move(xShape)), yShape_(std::move(yShape)), dtype_(dtype),
       numElements_(alignedElementCount(xShape_)) {
   if (actualElementCount(condShape_) != actualElementCount(xShape_) ||
       actualElementCount(condShape_) != actualElementCount(yShape_)) {
@@ -50,9 +48,6 @@ TernarySelectOpNode::TernarySelectOpNode(std::vector<uint32_t> condShape,
   }
 }
 
-OperatorEnum TernarySelectOpNode::op() const {
-  return TernarySelect;
-}
 DataType TernarySelectOpNode::shaderDtype() const {
   return dtype_;
 }

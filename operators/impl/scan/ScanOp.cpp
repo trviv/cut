@@ -5,12 +5,9 @@ namespace cut {
 PrefixScanOpNode::PrefixScanOpNode(OperatorEnum op,
                                    std::vector<uint32_t> shape,
                                    DataType dtype)
-    : op_(op), shape_(std::move(shape)), dtype_(dtype),
+    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
       numElements_(actualElementCount(shape_)) {}
 
-OperatorEnum PrefixScanOpNode::op() const {
-  return op_;
-}
 DataType PrefixScanOpNode::shaderDtype() const {
   return dtype_;
 }

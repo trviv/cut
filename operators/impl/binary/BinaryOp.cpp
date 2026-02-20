@@ -8,7 +8,7 @@ BinaryVecVecOpNode::BinaryVecVecOpNode(OperatorEnum op,
                                        std::vector<uint32_t> shapeA,
                                        std::vector<uint32_t> shapeB,
                                        DataType dtype)
-    : op_(op), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),
+    : OpNode(op), shapeA_(std::move(shapeA)), shapeB_(std::move(shapeB)),
       dtype_(dtype), numElements_(alignedElementCount(shapeA_)) {
   if (actualElementCount(shapeA_) != actualElementCount(shapeB_)) {
     throw std::runtime_error(
@@ -17,9 +17,6 @@ BinaryVecVecOpNode::BinaryVecVecOpNode(OperatorEnum op,
   }
 }
 
-OperatorEnum BinaryVecVecOpNode::op() const {
-  return op_;
-}
 DataType BinaryVecVecOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -43,12 +40,9 @@ BinaryVecScalarOpNode::BinaryVecScalarOpNode(OperatorEnum op,
                                              std::vector<uint32_t> shape,
                                              DataType dtype,
                                              uint32_t scalarBits)
-    : op_(op), shape_(std::move(shape)), dtype_(dtype), scalarBits_(scalarBits),
-      numElements_(alignedElementCount(shape_)) {}
+    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
+      scalarBits_(scalarBits), numElements_(alignedElementCount(shape_)) {}
 
-OperatorEnum BinaryVecScalarOpNode::op() const {
-  return op_;
-}
 DataType BinaryVecScalarOpNode::shaderDtype() const {
   return dtype_;
 }

@@ -5,7 +5,7 @@ namespace cut {
 // --- TransposeOpNode ---
 
 TransposeOpNode::TransposeOpNode(std::vector<uint32_t> shape, DataType dtype)
-    : shape_(std::move(shape)), dtype_(dtype) {
+    : OpNode(Transpose), shape_(std::move(shape)), dtype_(dtype) {
   if (shape_.size() != 2) {
     throw std::runtime_error("transpose requires a 2D matrix");
   }
@@ -13,9 +13,6 @@ TransposeOpNode::TransposeOpNode(std::vector<uint32_t> shape, DataType dtype)
   N_ = shape_[1];
 }
 
-OperatorEnum TransposeOpNode::op() const {
-  return Transpose;
-}
 DataType TransposeOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -50,8 +47,8 @@ std::vector<uint8_t> TransposeOpNode::pushConstants() const {
 CopyOpNode::CopyOpNode(std::vector<uint32_t> srcShape,
                        std::vector<uint32_t> dstShape,
                        DataType dtype)
-    : srcShape_(std::move(srcShape)), dstShape_(std::move(dstShape)),
-      dtype_(dtype) {
+    : OpNode(Copy), srcShape_(std::move(srcShape)),
+      dstShape_(std::move(dstShape)), dtype_(dtype) {
   srcInner_ = srcShape_.empty() ? 1 : srcShape_.back();
   srcAlignedInner_ = (srcInner_ + 3) & ~static_cast<uint32_t>(3);
   dstInner_ = dstShape_.empty() ? 1 : dstShape_.back();
@@ -63,9 +60,6 @@ CopyOpNode::CopyOpNode(std::vector<uint32_t> srcShape,
     totalElements_ = 1;
 }
 
-OperatorEnum CopyOpNode::op() const {
-  return Copy;
-}
 DataType CopyOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -95,8 +89,8 @@ std::vector<uint8_t> CopyOpNode::pushConstants() const {
 EmbeddingOpNode::EmbeddingOpNode(std::vector<uint32_t> idxShape,
                                  std::vector<uint32_t> wShape,
                                  DataType weightDtype)
-    : idxShape_(std::move(idxShape)), wShape_(std::move(wShape)),
-      dtype_(weightDtype) {
+    : OpNode(Embedding), idxShape_(std::move(idxShape)),
+      wShape_(std::move(wShape)), dtype_(weightDtype) {
   if (wShape_.size() != 2) {
     throw std::runtime_error(
         "embedding: weight must be 2D [num_embeddings, embedding_dim]");
@@ -109,9 +103,6 @@ EmbeddingOpNode::EmbeddingOpNode(std::vector<uint32_t> idxShape,
   outShape_.push_back(embDim_);
 }
 
-OperatorEnum EmbeddingOpNode::op() const {
-  return Embedding;
-}
 DataType EmbeddingOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -141,8 +132,8 @@ PadOpNode::PadOpNode(std::vector<uint32_t> shape,
                      std::vector<uint32_t> padWidths,
                      float value,
                      DataType dtype)
-    : shape_(std::move(shape)), padWidths_(std::move(padWidths)), value_(value),
-      dtype_(dtype) {
+    : OpNode(Pad), shape_(std::move(shape)), padWidths_(std::move(padWidths)),
+      value_(value), dtype_(dtype) {
   int ndim = static_cast<int>(shape_.size());
   if (padWidths_.size() % 2 != 0 ||
       static_cast<int>(padWidths_.size() / 2) > ndim) {
@@ -176,9 +167,6 @@ PadOpNode::PadOpNode(std::vector<uint32_t> shape,
   }
 }
 
-OperatorEnum PadOpNode::op() const {
-  return Pad;
-}
 DataType PadOpNode::shaderDtype() const {
   return dtype_;
 }

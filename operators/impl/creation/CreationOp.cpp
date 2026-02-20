@@ -8,15 +8,12 @@ FillOpNode::FillOpNode(OperatorEnum op,
                        std::vector<uint32_t> shape,
                        DataType dtype,
                        float fillValue)
-    : op_(op), shape_(std::move(shape)), dtype_(dtype), fillValue_(fillValue),
-      numElements_(alignedElementCount(shape_)) {
+    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
+      fillValue_(fillValue), numElements_(alignedElementCount(shape_)) {
   if (op_ == Ones)
     fillValue_ = 1.0f;
 }
 
-OperatorEnum FillOpNode::op() const {
-  return op_;
-}
 DataType FillOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -52,12 +49,9 @@ ArangeOpNode::ArangeOpNode(OperatorEnum op,
                            DataType dtype,
                            float start,
                            float step)
-    : op_(op), shape_(std::move(shape)), dtype_(dtype), start_(start),
+    : OpNode(op), shape_(std::move(shape)), dtype_(dtype), start_(start),
       step_(step), numElements_(alignedElementCount(shape_)) {}
 
-OperatorEnum ArangeOpNode::op() const {
-  return op_;
-}
 DataType ArangeOpNode::shaderDtype() const {
   return dtype_;
 }

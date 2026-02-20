@@ -5,12 +5,9 @@ namespace cut {
 UnaryOpNode::UnaryOpNode(OperatorEnum op,
                          std::vector<uint32_t> shape,
                          DataType dtype)
-    : op_(op), shape_(std::move(shape)), dtype_(dtype),
+    : OpNode(op), shape_(std::move(shape)), dtype_(dtype),
       numElements_(alignedElementCount(shape_)) {}
 
-OperatorEnum UnaryOpNode::op() const {
-  return op_;
-}
 DataType UnaryOpNode::shaderDtype() const {
   return dtype_;
 }

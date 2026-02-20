@@ -12,7 +12,6 @@ public:
                DataType dtype,
                int variantIdx = -1);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   DataType outputDtype() const override;
   int variantIndex() const override;

@@ -11,7 +11,6 @@ public:
              DataType dtype,
              float fillValue = 0.0f);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -19,7 +18,6 @@ public:
   std::vector<ComputeBinding> handleBindings() const override;
 
 private:
-  OperatorEnum op_;
   std::vector<uint32_t> shape_;
   DataType dtype_;
   float fillValue_;
@@ -34,7 +32,6 @@ public:
                float start,
                float step);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -42,7 +39,6 @@ public:
   std::vector<ComputeBinding> handleBindings() const override;
 
 private:
-  OperatorEnum op_;
   std::vector<uint32_t> shape_;
   DataType dtype_;
   float start_;

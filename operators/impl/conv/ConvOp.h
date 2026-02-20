@@ -12,7 +12,6 @@ public:
                uint32_t padding,
                DataType dtype);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -36,7 +35,6 @@ public:
                uint32_t padW,
                DataType dtype);
 
-  OperatorEnum op() const override;
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;

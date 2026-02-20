@@ -9,8 +9,8 @@ Conv1DOpNode::Conv1DOpNode(std::vector<uint32_t> inShape,
                            uint32_t stride,
                            uint32_t padding,
                            DataType dtype)
-    : inShape_(std::move(inShape)), wShape_(std::move(wShape)), stride_(stride),
-      padding_(padding), dtype_(dtype) {
+    : OpNode(Conv1D), inShape_(std::move(inShape)), wShape_(std::move(wShape)),
+      stride_(stride), padding_(padding), dtype_(dtype) {
   if (inShape_.size() != 3)
     throw std::runtime_error("conv1d: input must be 3D [N, C_in, L_in]");
   if (wShape_.size() != 3)
@@ -25,9 +25,6 @@ Conv1DOpNode::Conv1DOpNode(std::vector<uint32_t> inShape,
   L_out_ = (L_in_ + 2 * padding_ - kL_) / stride_ + 1;
 }
 
-OperatorEnum Conv1DOpNode::op() const {
-  return Conv1D;
-}
 DataType Conv1DOpNode::shaderDtype() const {
   return dtype_;
 }
@@ -59,7 +56,7 @@ Conv2DOpNode::Conv2DOpNode(std::vector<uint32_t> inShape,
                            uint32_t padH,
                            uint32_t padW,
                            DataType dtype)
-    : inShape_(std::move(inShape)), wShape_(std::move(wShape)),
+    : OpNode(Conv2D), inShape_(std::move(inShape)), wShape_(std::move(wShape)),
       strideH_(strideH), strideW_(strideW), padH_(padH), padW_(padW),
       dtype_(dtype) {
   if (inShape_.size() != 4)
@@ -79,9 +76,6 @@ Conv2DOpNode::Conv2DOpNode(std::vector<uint32_t> inShape,
   W_out_ = (W_in_ + 2 * padW_ - kW_) / strideW_ + 1;
 }
 
-OperatorEnum Conv2DOpNode::op() const {
-  return Conv2D;
-}
 DataType Conv2DOpNode::shaderDtype() const {
   return dtype_;
 }
