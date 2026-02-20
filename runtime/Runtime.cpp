@@ -138,65 +138,60 @@ void Runtime::copyFromTensor(Tensor handle,
 // Operator Execution
 // =========================================================================
 
-Tensor Runtime::createShader(OperatorEnum op, DataType dtype) {
-  auto *iface = getInterface();
-
-  // Get SPIR-V and create shader module for Vulkan backend
-  std::vector<uint32_t> spirv = getShader(op, dtype);
-  return iface->createShaderModule(spirv);
-}
-
-Tensor Runtime::getOrCreateShader(OperatorEnum op, DataType dtype) {
-  uint64_t key = makeCacheKey(op, dtype);
-  auto it = shaderCache_.find(key);
-  if (it != shaderCache_.end()) {
-    return it->second;
+Tensor Runtime::getOrCreateShader(OperatorEnum op,
+                                  DataType dtype,
+                                  std::optional<uint32_t> variant) {
+  uint64_t key;
+  if (variant.has_value()) {
+    key = (static_cast<uint64_t>(op) << 32) |
+          (static_cast<uint64_t>(variant.value()) << 16) |
+          static_cast<uint64_t>(dtype);
+  } else {
+    key = makeCacheKey(op, dtype);
   }
-  Tensor shader = createShader(op, dtype);
-  shaderCache_[key] = shader;
-  return shader;
-}
 
-Tensor Runtime::getOrCreateVariantShader(OperatorEnum op,
-                                         uint32_t variant,
-                                         DataType dtype) {
-  uint64_t key = (static_cast<uint64_t>(op) << 32) |
-                 (static_cast<uint64_t>(variant) << 16) |
-                 static_cast<uint64_t>(dtype);
   auto it = shaderCache_.find(key);
   if (it != shaderCache_.end()) {
     return it->second;
   }
 
-  std::optional<std::vector<uint32_t>> spirv;
-  switch (op) {
-  case MatMul:
-    spirv = getCompiledMatMul(variant, dtype);
-    break;
-  case Transpose:
-    spirv = getCompiledTranspose(variant, dtype);
-    break;
-  case Conv1D:
-    spirv = getCompiledConv1D(variant, dtype);
-    break;
-  case Conv2D:
-    spirv = getCompiledConv2D(variant, dtype);
-    break;
-  case MaxPool2D:
-    spirv = getCompiledMaxPool2D(variant, dtype);
-    break;
-  case AvgPool2D:
-    spirv = getCompiledAvgPool2D(variant, dtype);
-    break;
-  default:
-    throw std::runtime_error("No variant support for op " + std::to_string(op));
+  Tensor shader;
+  if (variant.has_value()) {
+    uint32_t v = variant.value();
+    std::optional<std::vector<uint32_t>> spirv;
+    switch (op) {
+    case MatMul:
+      spirv = getCompiledMatMul(v, dtype);
+      break;
+    case Transpose:
+      spirv = getCompiledTranspose(v, dtype);
+      break;
+    case Conv1D:
+      spirv = getCompiledConv1D(v, dtype);
+      break;
+    case Conv2D:
+      spirv = getCompiledConv2D(v, dtype);
+      break;
+    case MaxPool2D:
+      spirv = getCompiledMaxPool2D(v, dtype);
+      break;
+    case AvgPool2D:
+      spirv = getCompiledAvgPool2D(v, dtype);
+      break;
+    default:
+      throw std::runtime_error("No variant support for op " +
+                               std::to_string(op));
+    }
+    if (!spirv.has_value()) {
+      throw std::runtime_error("Failed to get variant " + std::to_string(v) +
+                               " for op " + std::to_string(op));
+    }
+    shader = getInterface()->createShaderModule(spirv.value());
+  } else {
+    std::vector<uint32_t> spirv = getShader(op, dtype);
+    shader = getInterface()->createShaderModule(spirv);
   }
-  if (!spirv.has_value()) {
-    throw std::runtime_error("Failed to get variant " +
-                             std::to_string(variant) + " for op " +
-                             std::to_string(op));
-  }
-  Tensor shader = getInterface()->createShaderModule(spirv.value());
+
   shaderCache_[key] = shader;
   return shader;
 }
@@ -215,13 +210,7 @@ void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
   Tensor shader;
   // Multi-pass and dim-reduce ops use internally-generated shaders
   if (!node->isMultiPass() && !node->isDimReduce()) {
-    if (node->spec().has_value()) {
-      // Variant-based shader lookup for any operator with spec
-      shader = getOrCreateVariantShader(node->op(), node->spec().value(),
-                                        node->shaderDtype());
-    } else {
-      shader = getOrCreateShader(node->op(), node->shaderDtype());
-    }
+    shader = getOrCreateShader(node->op(), node->shaderDtype(), node->spec());
   }
 
   dispatcher_->encode(std::move(node), shader);
@@ -229,23 +218,15 @@ void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
   if (isGpuBackend()) {
     pendingCommands_ = true;
   } else {
-    Tensor cmd = submit();
-    wait(cmd);
+    Tensor cmd = getInterface()->submit();
+    getInterface()->wait(cmd);
   }
-}
-
-Tensor Runtime::submit() {
-  return getInterface()->submit();
-}
-
-void Runtime::wait(Tensor cmdBuffer) {
-  getInterface()->wait(cmdBuffer);
 }
 
 void Runtime::flushPendingCommands() {
   if (pendingCommands_ && interface_) {
-    Tensor cmd = submit();
-    wait(cmd);
+    Tensor cmd = interface_->submit();
+    interface_->wait(cmd);
     pendingCommands_ = false;
   }
 }

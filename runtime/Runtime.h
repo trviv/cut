@@ -8,6 +8,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -187,21 +188,12 @@ private:
   ComputeInterface *getInterface();
 
   /**
-   * Creates a shader/kernel for the specified operator.
-   */
-  Tensor createShader(OperatorEnum op, DataType dtype);
-
-  /**
    * Gets or creates a cached shader for the given operator and data type.
+   * If variant is provided, looks up/creates a variant-specific shader.
    */
-  Tensor getOrCreateShader(OperatorEnum op, DataType dtype);
-
-  /**
-   * Gets or creates a cached variant shader for the given operator, variant
-   * index, and data type.
-   */
-  Tensor
-  getOrCreateVariantShader(OperatorEnum op, uint32_t variant, DataType dtype);
+  Tensor getOrCreateShader(OperatorEnum op,
+                           DataType dtype,
+                           std::optional<uint32_t> variant = std::nullopt);
 
   /**
    * Encodes a compute operator using an OpNode.
@@ -212,10 +204,6 @@ private:
   bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
 
   void flushPendingCommands();
-
-  Tensor submit();
-
-  void wait(Tensor cmdBuffer);
 };
 
 } // namespace cut
