@@ -9,9 +9,8 @@ UnaryOpNode::UnaryOpNode(OperatorEnum op,
                          std::optional<uint32_t> spec)
     : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
-  shape_ = buf.getShape();
   dtype_ = buf.getDtype();
-  numElements_ = alignedElementCount(shape_);
+  numElements_ = alignedElementCount(buf.getShape());
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
   hasOutput_ = true;
@@ -22,7 +21,7 @@ DataType UnaryOpNode::shaderDtype() const {
 }
 
 std::vector<uint32_t> UnaryOpNode::outputShape() const {
-  return shape_;
+  return runtime_->getTensor(inputs_[0]).getShape();
 }
 
 ThreadSize UnaryOpNode::dispatchSize() const {

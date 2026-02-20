@@ -10,13 +10,13 @@ TransposeOpNode::TransposeOpNode(Runtime &runtime,
                                  std::optional<uint32_t> spec)
     : OpNode(Transpose, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
-  shape_ = buf.getShape();
+  const auto shape = buf.getShape();
   dtype_ = buf.getDtype();
-  if (shape_.size() != 2) {
+  if (shape.size() != 2) {
     throw std::runtime_error("transpose requires a 2D matrix");
   }
-  M_ = shape_[0];
-  N_ = shape_[1];
+  M_ = shape[0];
+  N_ = shape[1];
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
   hasOutput_ = true;
@@ -59,10 +59,10 @@ CopyOpNode::CopyOpNode(Runtime &runtime,
                        std::optional<uint32_t> spec)
     : OpNode(Copy, runtime, spec) {
   const auto &buf = runtime.getTensor(src);
-  srcShape_ = buf.getShape();
+  const auto srcShape = buf.getShape();
   dtype_ = buf.getDtype();
   dstShape_ = std::move(dstShape);
-  srcInner_ = srcShape_.empty() ? 1 : srcShape_.back();
+  srcInner_ = srcShape.empty() ? 1 : srcShape.back();
   srcAlignedInner_ = (srcInner_ + 3) & ~static_cast<uint32_t>(3);
   dstInner_ = dstShape_.empty() ? 1 : dstShape_.back();
   dstAlignedInner_ = (dstInner_ + 3) & ~static_cast<uint32_t>(3);
@@ -109,18 +109,18 @@ EmbeddingOpNode::EmbeddingOpNode(Runtime &runtime,
     : OpNode(Embedding, runtime, spec) {
   const auto &idxBuf = runtime.getTensor(indices);
   const auto &wBuf = runtime.getTensor(weight);
-  idxShape_ = idxBuf.getShape();
-  wShape_ = wBuf.getShape();
+  const auto idxShape = idxBuf.getShape();
+  const auto wShape = wBuf.getShape();
   dtype_ = wBuf.getDtype();
-  if (wShape_.size() != 2) {
+  if (wShape.size() != 2) {
     throw std::runtime_error(
         "embedding: weight must be 2D [num_embeddings, embedding_dim]");
   }
-  embDim_ = wShape_[1];
+  embDim_ = wShape[1];
   numIndices_ = 1;
-  for (auto d : idxShape_)
+  for (auto d : idxShape)
     numIndices_ *= d;
-  outShape_ = idxShape_;
+  outShape_ = idxShape;
   outShape_.push_back(embDim_);
   inputs_ = {indices, weight};
   output_ = runtime.createTensorEmpty(outputShape(), DataType::Float32);
@@ -159,18 +159,18 @@ PadOpNode::PadOpNode(Runtime &runtime,
                      std::optional<uint32_t> spec)
     : OpNode(Pad, runtime, spec) {
   const auto &buf = runtime.getTensor(input);
-  shape_ = buf.getShape();
+  const auto shape = buf.getShape();
   dtype_ = buf.getDtype();
   padWidths_ = std::move(padWidths);
   value_ = value;
-  int ndim = static_cast<int>(shape_.size());
+  int ndim = static_cast<int>(shape.size());
   if (padWidths_.size() % 2 != 0 ||
       static_cast<int>(padWidths_.size() / 2) > ndim) {
     throw std::runtime_error("pad: invalid padWidths length");
   }
   int numPaddedDims = static_cast<int>(padWidths_.size() / 2);
 
-  outShape_ = shape_;
+  outShape_ = shape;
   for (int i = 0; i < numPaddedDims; ++i) {
     int dim = ndim - 1 - i;
     outShape_[dim] += padWidths_[2 * i] + padWidths_[2 * i + 1];
@@ -185,7 +185,7 @@ PadOpNode::PadOpNode(Runtime &runtime,
   params_.totalElements = totalOutputElements_;
   std::memcpy(&params_.fillValue, &value_, sizeof(float));
   for (int i = 0; i < ndim; ++i) {
-    params_.inShape[i] = shape_[i];
+    params_.inShape[i] = shape[i];
     params_.outShape[i] = outShape_[i];
     params_.padBefore[i] = 0;
   }

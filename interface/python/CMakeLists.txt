@@ -52,6 +52,8 @@ file(GLOB API_SOURCES ${CUT_ROOT}/core/api/src/*.cpp)
 file(GLOB VULKAN_SOURCES ${CUT_ROOT}/core/backends/vulkan/*.cpp)
 file(GLOB RUNTIME_SOURCES ${CUT_ROOT}/runtime/*.cpp)
 file(GLOB SHADER_SOURCES ${CUT_ROOT}/operators/*.cpp)
+file(GLOB_RECURSE SHADER_IMPL_SOURCES ${CUT_ROOT}/operators/impl/*.cpp)
+list(APPEND SHADER_SOURCES ${SHADER_IMPL_SOURCES})
 
 # =============================================================================
 # Unified compute module (_cut_compute) - single binding for all backends

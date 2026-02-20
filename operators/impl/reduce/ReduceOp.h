@@ -19,7 +19,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> shape_;
   DataType dtype_;
   size_t numElements_;
   uint32_t actualInner_;
@@ -42,7 +41,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> shape_;
   DataType dtype_;
   int dim_;
   uint32_t outerSize_, reduceSize_, innerSize_;
@@ -64,7 +62,6 @@ public:
   size_t executionSize() const override;
 
 private:
-  std::vector<uint32_t> shape_;
   DataType dtype_;
   size_t numElements_;
 };
@@ -83,8 +80,6 @@ public:
   std::vector<ComputeBinding> handleBindings() const override;
 
 private:
-  std::vector<uint32_t> shapeA_;
-  std::vector<uint32_t> shapeB_;
   DataType dtype_;
   uint32_t count_;
   uint32_t numWorkgroups_;
@@ -104,7 +99,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> shape_;
   DataType dtype_;
   int dim_;
   uint32_t outerSize_, reduceSize_, innerSize_;

@@ -18,8 +18,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> shapeA_;
-  std::vector<uint32_t> shapeB_;
   DataType dtype_;
   size_t numElements_;
 };
@@ -39,7 +37,6 @@ public:
   std::vector<ComputeBinding> handleBindings() const override;
 
 private:
-  std::vector<uint32_t> shape_;
   DataType dtype_;
   uint32_t scalarBits_;
   size_t numElements_;

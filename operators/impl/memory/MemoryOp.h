@@ -17,7 +17,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> shape_;
   DataType dtype_;
   uint32_t M_, N_;
 };
@@ -35,7 +34,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> srcShape_;
   std::vector<uint32_t> dstShape_;
   DataType dtype_;
   uint32_t srcInner_, srcAlignedInner_;
@@ -56,8 +54,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> idxShape_;
-  std::vector<uint32_t> wShape_;
   DataType dtype_;
   uint32_t embDim_;
   uint32_t numIndices_;
@@ -87,7 +83,6 @@ private:
     float fillValue;
   };
 
-  std::vector<uint32_t> shape_;
   std::vector<uint32_t> padWidths_;
   float value_;
   DataType dtype_;

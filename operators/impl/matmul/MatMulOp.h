@@ -20,8 +20,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> shapeA_;
-  std::vector<uint32_t> shapeB_;
   DataType dtype_;
   uint32_t M_, K_, N_;
   uint32_t resolvedVariant_;

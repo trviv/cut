@@ -19,8 +19,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> inShape_;
-  std::vector<uint32_t> wShape_;
   uint32_t stride_, padding_;
   DataType dtype_;
   uint32_t N_, C_in_, L_in_, C_out_, kL_, L_out_;
@@ -43,8 +41,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> inShape_;
-  std::vector<uint32_t> wShape_;
   uint32_t strideH_, strideW_, padH_, padW_;
   DataType dtype_;
   uint32_t N_, C_in_, H_in_, W_in_, C_out_, kH_, kW_, H_out_, W_out_;

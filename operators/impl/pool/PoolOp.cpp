@@ -16,7 +16,7 @@ MaxPool2DOpNode::MaxPool2DOpNode(Runtime &runtime,
                                  std::optional<uint32_t> spec)
     : OpNode(MaxPool2D, runtime, spec) {
   const auto &buf = runtime.getTensor(input);
-  inShape_ = buf.getShape();
+  const auto inShape = buf.getShape();
   dtype_ = buf.getDtype();
   kernelH_ = kernelH;
   kernelW_ = kernelW;
@@ -24,12 +24,12 @@ MaxPool2DOpNode::MaxPool2DOpNode(Runtime &runtime,
   strideW_ = strideW;
   padH_ = padH;
   padW_ = padW;
-  if (inShape_.size() != 4)
+  if (inShape.size() != 4)
     throw std::runtime_error("max_pool2d: input must be 4D [N, C, H, W]");
-  N_ = inShape_[0];
-  C_ = inShape_[1];
-  H_in_ = inShape_[2];
-  W_in_ = inShape_[3];
+  N_ = inShape[0];
+  C_ = inShape[1];
+  H_in_ = inShape[2];
+  W_in_ = inShape[3];
   H_out_ = (H_in_ + 2 * padH_ - kernelH_) / strideH_ + 1;
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
   inputs_ = {input};
@@ -77,7 +77,7 @@ AvgPool2DOpNode::AvgPool2DOpNode(Runtime &runtime,
                                  std::optional<uint32_t> spec)
     : OpNode(AvgPool2D, runtime, spec) {
   const auto &buf = runtime.getTensor(input);
-  inShape_ = buf.getShape();
+  const auto inShape = buf.getShape();
   dtype_ = buf.getDtype();
   kernelH_ = kernelH;
   kernelW_ = kernelW;
@@ -85,12 +85,12 @@ AvgPool2DOpNode::AvgPool2DOpNode(Runtime &runtime,
   strideW_ = strideW;
   padH_ = padH;
   padW_ = padW;
-  if (inShape_.size() != 4)
+  if (inShape.size() != 4)
     throw std::runtime_error("avg_pool2d: input must be 4D [N, C, H, W]");
-  N_ = inShape_[0];
-  C_ = inShape_[1];
-  H_in_ = inShape_[2];
-  W_in_ = inShape_[3];
+  N_ = inShape[0];
+  C_ = inShape[1];
+  H_in_ = inShape[2];
+  W_in_ = inShape[3];
   H_out_ = (H_in_ + 2 * padH_ - kernelH_) / strideH_ + 1;
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
   inputs_ = {input};

@@ -30,9 +30,8 @@ GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
                                        std::optional<uint32_t> spec)
     : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
-  shape_ = buf.getShape();
   dtype_ = buf.getDtype();
-  numElements_ = actualElementCount(shape_);
+  numElements_ = actualElementCount(buf.getShape());
   actualInner_ = buf.innerDimSize();
   alignedInner_ = (actualInner_ + 3) & ~static_cast<uint32_t>(3);
   inputs_ = {a};
@@ -78,11 +77,11 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
                                  std::optional<uint32_t> spec)
     : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
-  shape_ = buf.getShape();
+  const auto shape = buf.getShape();
   dtype_ = buf.getDtype();
   bufInnerDim_ = buf.innerDimSize();
   alignedBufInner_ = (bufInnerDim_ + 3) & ~static_cast<uint32_t>(3);
-  int ndim = static_cast<int>(shape_.size());
+  int ndim = static_cast<int>(shape.size());
   if (dim < 0)
     dim = ndim + dim;
   dim_ = dim;
@@ -94,15 +93,15 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
 
   outerSize_ = 1;
   for (int i = 0; i < dim_; ++i)
-    outerSize_ *= shape_[i];
-  reduceSize_ = shape_[dim_];
+    outerSize_ *= shape[i];
+  reduceSize_ = shape[dim_];
   innerSize_ = 1;
   for (int i = dim_ + 1; i < ndim; ++i)
-    innerSize_ *= shape_[i];
+    innerSize_ *= shape[i];
 
   for (int i = 0; i < ndim; ++i) {
     if (i != dim_)
-      outShape_.push_back(shape_[i]);
+      outShape_.push_back(shape[i]);
   }
   if (outShape_.empty())
     outShape_.push_back(1);
@@ -160,9 +159,8 @@ NormOpNode::NormOpNode(Runtime &runtime,
                        std::optional<uint32_t> spec)
     : OpNode(Norm, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
-  shape_ = buf.getShape();
   dtype_ = buf.getDtype();
-  numElements_ = actualElementCount(shape_);
+  numElements_ = actualElementCount(buf.getShape());
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
   hasOutput_ = true;
@@ -198,15 +196,15 @@ DotOpNode::DotOpNode(Runtime &runtime,
     : OpNode(Dot, runtime, spec) {
   const auto &bufA = runtime.getTensor(a);
   const auto &bufB = runtime.getTensor(b);
-  shapeA_ = bufA.getShape();
-  shapeB_ = bufB.getShape();
+  const auto shapeA = bufA.getShape();
+  const auto shapeB = bufB.getShape();
   dtype_ = bufA.getDtype();
-  if (actualElementCount(shapeA_) != actualElementCount(shapeB_)) {
+  if (actualElementCount(shapeA) != actualElementCount(shapeB)) {
     throw std::runtime_error(
-        "Vector size mismatch: " + std::to_string(actualElementCount(shapeA_)) +
-        " vs " + std::to_string(actualElementCount(shapeB_)));
+        "Vector size mismatch: " + std::to_string(actualElementCount(shapeA)) +
+        " vs " + std::to_string(actualElementCount(shapeB)));
   }
-  count_ = static_cast<uint32_t>(actualElementCount(shapeA_));
+  count_ = static_cast<uint32_t>(actualElementCount(shapeA));
   numWorkgroups_ = (count_ + 255) / 256;
   inputs_ = {a, b};
   output_ = runtime.createTensorEmpty(outputShape(), DataType::Float32);
@@ -250,11 +248,11 @@ CumOpNode::CumOpNode(OperatorEnum op,
                      std::optional<uint32_t> spec)
     : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
-  shape_ = buf.getShape();
+  const auto shape = buf.getShape();
   dtype_ = buf.getDtype();
   bufInnerDim_ = buf.innerDimSize();
   alignedBufInner_ = (bufInnerDim_ + 3) & ~static_cast<uint32_t>(3);
-  int ndim = static_cast<int>(shape_.size());
+  int ndim = static_cast<int>(shape.size());
   if (dim < 0)
     dim = ndim + dim;
   dim_ = dim;
@@ -266,11 +264,11 @@ CumOpNode::CumOpNode(OperatorEnum op,
 
   outerSize_ = 1;
   for (int i = 0; i < dim_; ++i)
-    outerSize_ *= shape_[i];
-  reduceSize_ = shape_[dim_];
+    outerSize_ *= shape[i];
+  reduceSize_ = shape[dim_];
   innerSize_ = 1;
   for (int i = dim_ + 1; i < ndim; ++i)
-    innerSize_ *= shape_[i];
+    innerSize_ *= shape[i];
 
   inReduceStride_ = innerSize_;
   inOuterStride_ = reduceSize_ * innerSize_;
@@ -291,7 +289,7 @@ DataType CumOpNode::shaderDtype() const {
 }
 
 std::vector<uint32_t> CumOpNode::outputShape() const {
-  return shape_;
+  return runtime_->getTensor(inputs_[0]).getShape();
 }
 
 ThreadSize CumOpNode::dispatchSize() const {

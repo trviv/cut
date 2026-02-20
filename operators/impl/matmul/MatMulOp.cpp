@@ -10,21 +10,21 @@ MatMulOpNode::MatMulOpNode(Runtime &runtime,
     : OpNode(MatMul, runtime, spec) {
   const auto &bufA = runtime.getTensor(a);
   const auto &bufB = runtime.getTensor(b);
-  shapeA_ = bufA.getShape();
-  shapeB_ = bufB.getShape();
+  const auto shapeA = bufA.getShape();
+  const auto shapeB = bufB.getShape();
   dtype_ = bufA.getDtype();
-  if (shapeA_.size() != 2 || shapeB_.size() != 2) {
+  if (shapeA.size() != 2 || shapeB.size() != 2) {
     throw std::runtime_error("matmul requires 2D matrices");
   }
-  if (shapeA_[1] != shapeB_[0]) {
+  if (shapeA[1] != shapeB[0]) {
     throw std::runtime_error(
-        "Matrix dimension mismatch: A is " + std::to_string(shapeA_[0]) + "x" +
-        std::to_string(shapeA_[1]) + ", B is " + std::to_string(shapeB_[0]) +
-        "x" + std::to_string(shapeB_[1]));
+        "Matrix dimension mismatch: A is " + std::to_string(shapeA[0]) + "x" +
+        std::to_string(shapeA[1]) + ", B is " + std::to_string(shapeB[0]) +
+        "x" + std::to_string(shapeB[1]));
   }
-  M_ = shapeA_[0];
-  K_ = shapeA_[1];
-  N_ = shapeB_[1];
+  M_ = shapeA[0];
+  K_ = shapeA[1];
+  N_ = shapeB[1];
   resolvedVariant_ = spec.value_or(kMatMulDefaultVariant);
   inputs_ = {a, b};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());

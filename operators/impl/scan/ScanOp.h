@@ -19,7 +19,6 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  std::vector<uint32_t> shape_;
   DataType dtype_;
   size_t numElements_;
 };

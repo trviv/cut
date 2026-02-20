@@ -13,14 +13,14 @@ BinaryVecVecOpNode::BinaryVecVecOpNode(OperatorEnum op,
     : OpNode(op, runtime, spec) {
   const auto &bufA = runtime.getTensor(a);
   const auto &bufB = runtime.getTensor(b);
-  shapeA_ = bufA.getShape();
-  shapeB_ = bufB.getShape();
+  const auto shapeA = bufA.getShape();
+  const auto shapeB = bufB.getShape();
   dtype_ = bufA.getDtype();
-  numElements_ = alignedElementCount(shapeA_);
-  if (actualElementCount(shapeA_) != actualElementCount(shapeB_)) {
+  numElements_ = alignedElementCount(shapeA);
+  if (actualElementCount(shapeA) != actualElementCount(shapeB)) {
     throw std::runtime_error(
-        "Size mismatch: " + std::to_string(actualElementCount(shapeA_)) +
-        " vs " + std::to_string(actualElementCount(shapeB_)));
+        "Size mismatch: " + std::to_string(actualElementCount(shapeA)) +
+        " vs " + std::to_string(actualElementCount(shapeB)));
   }
   inputs_ = {a, b};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
@@ -32,7 +32,7 @@ DataType BinaryVecVecOpNode::shaderDtype() const {
 }
 
 std::vector<uint32_t> BinaryVecVecOpNode::outputShape() const {
-  return shapeA_;
+  return runtime_->getTensor(inputs_[0]).getShape();
 }
 
 ThreadSize BinaryVecVecOpNode::dispatchSize() const {
@@ -53,10 +53,9 @@ BinaryVecScalarOpNode::BinaryVecScalarOpNode(OperatorEnum op,
                                              std::optional<uint32_t> spec)
     : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
-  shape_ = buf.getShape();
   dtype_ = buf.getDtype();
   scalarBits_ = scalarBits;
-  numElements_ = alignedElementCount(shape_);
+  numElements_ = alignedElementCount(buf.getShape());
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
   hasOutput_ = true;
@@ -67,7 +66,7 @@ DataType BinaryVecScalarOpNode::shaderDtype() const {
 }
 
 std::vector<uint32_t> BinaryVecScalarOpNode::outputShape() const {
-  return shape_;
+  return runtime_->getTensor(inputs_[0]).getShape();
 }
 
 ThreadSize BinaryVecScalarOpNode::dispatchSize() const {

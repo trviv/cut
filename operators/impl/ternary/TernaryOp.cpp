@@ -12,11 +12,10 @@ TernaryClampOpNode::TernaryClampOpNode(Runtime &runtime,
                                        std::optional<uint32_t> spec)
     : OpNode(TernaryClamp, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
-  shape_ = buf.getShape();
   dtype_ = buf.getDtype();
   minBits_ = minBits;
   maxBits_ = maxBits;
-  numElements_ = alignedElementCount(shape_);
+  numElements_ = alignedElementCount(buf.getShape());
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
   hasOutput_ = true;
@@ -27,7 +26,7 @@ DataType TernaryClampOpNode::shaderDtype() const {
 }
 
 std::vector<uint32_t> TernaryClampOpNode::outputShape() const {
-  return shape_;
+  return runtime_->getTensor(inputs_[0]).getShape();
 }
 
 ThreadSize TernaryClampOpNode::dispatchSize() const {
@@ -54,13 +53,13 @@ TernarySelectOpNode::TernarySelectOpNode(Runtime &runtime,
   const auto &condBuf = runtime.getTensor(cond);
   const auto &xBuf = runtime.getTensor(x);
   const auto &yBuf = runtime.getTensor(y);
-  condShape_ = condBuf.getShape();
-  xShape_ = xBuf.getShape();
-  yShape_ = yBuf.getShape();
+  const auto condShape = condBuf.getShape();
+  const auto xShape = xBuf.getShape();
+  const auto yShape = yBuf.getShape();
   dtype_ = xBuf.getDtype();
-  numElements_ = alignedElementCount(xShape_);
-  if (actualElementCount(condShape_) != actualElementCount(xShape_) ||
-      actualElementCount(condShape_) != actualElementCount(yShape_)) {
+  numElements_ = alignedElementCount(xShape);
+  if (actualElementCount(condShape) != actualElementCount(xShape) ||
+      actualElementCount(condShape) != actualElementCount(yShape)) {
     throw std::runtime_error("condition, x, and y must have the same size");
   }
   inputs_ = {cond, x, y};
@@ -73,7 +72,7 @@ DataType TernarySelectOpNode::shaderDtype() const {
 }
 
 std::vector<uint32_t> TernarySelectOpNode::outputShape() const {
-  return xShape_;
+  return runtime_->getTensor(inputs_[1]).getShape();
 }
 
 ThreadSize TernarySelectOpNode::dispatchSize() const {
