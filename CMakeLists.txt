@@ -167,9 +167,6 @@ target_link_libraries(CUTLib PRIVATE
     ${SPIRV_TOOLS_LIB}
 )
 
-# Create executable
-add_executable(${PROJECT_NAME} "main.cpp")
-
 # Include directories
 target_include_directories(CUTLib PRIVATE
     ${Vulkan_INCLUDE_DIRS}
@@ -183,7 +180,6 @@ target_include_directories(CUTLib PRIVATE
 if(APPLE)
     target_compile_definitions(CUTLib PRIVATE VK_USE_PLATFORM_MACOS_MVK)
     target_compile_options(CUTLib PRIVATE ${MACOS_OBJCXX_FLAGS})
-    target_compile_options(${PROJECT_NAME} PRIVATE ${MACOS_OBJCXX_FLAGS})
 
     target_link_libraries(CUTLib PRIVATE
         "-framework Metal"
@@ -196,18 +192,7 @@ endif()
 
 # Compiler-specific options
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra)
-endif()
-
-# Include the generated header directory
-# target_include_directories(CUTLib PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-
-# Development helpers
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_definitions(${PROJECT_NAME} PRIVATE DEBUG_BUILD)
-    
-    # Enable validation layers in debug mode
-    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_VALIDATION_LAYERS)
+    target_compile_options(CUTLib PRIVATE -Wall -Wextra)
 endif()
 
 add_subdirectory(interface)
