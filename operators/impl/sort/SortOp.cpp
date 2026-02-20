@@ -7,8 +7,9 @@ namespace cut {
 
 BitonicSortOpNode::BitonicSortOpNode(Runtime &runtime,
                                      const Tensor &keys,
-                                     const Tensor &vals)
-    : OpNode(SortBitonic, runtime) {
+                                     const Tensor &vals,
+                                     std::optional<uint32_t> spec)
+    : OpNode(SortBitonic, runtime, spec) {
   const auto &buf = runtime.getTensor(keys);
   executionSize_ = actualElementCount(buf.getShape());
   dtype_ = buf.getDtype();
@@ -41,8 +42,9 @@ std::vector<uint8_t> BitonicSortOpNode::pushConstants() const {
 
 RadixSortOpNode::RadixSortOpNode(Runtime &runtime,
                                  const Tensor &keys,
-                                 const Tensor &vals)
-    : OpNode(SortRadix, runtime) {
+                                 const Tensor &vals,
+                                 std::optional<uint32_t> spec)
+    : OpNode(SortRadix, runtime, spec) {
   const auto &buf = runtime.getTensor(keys);
   executionSize_ = actualElementCount(buf.getShape());
   dtype_ = buf.getDtype();

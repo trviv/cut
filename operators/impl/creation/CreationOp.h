@@ -10,7 +10,8 @@ public:
              Runtime &runtime,
              std::vector<uint32_t> &&shape,
              DataType dtype,
-             float fillValue = 0.0f);
+             float fillValue = 0.0f,
+             std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -32,7 +33,8 @@ public:
                std::vector<uint32_t> &&shape,
                DataType dtype,
                float start,
-               float step);
+               float step,
+               std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

@@ -8,8 +8,9 @@ namespace cut {
 BinaryVecVecOpNode::BinaryVecVecOpNode(OperatorEnum op,
                                        Runtime &runtime,
                                        const Tensor &a,
-                                       const Tensor &b)
-    : OpNode(op, runtime) {
+                                       const Tensor &b,
+                                       std::optional<uint32_t> spec)
+    : OpNode(op, runtime, spec) {
   const auto &bufA = runtime.getTensor(a);
   const auto &bufB = runtime.getTensor(b);
   shapeA_ = bufA.getShape();
@@ -48,8 +49,9 @@ std::vector<uint8_t> BinaryVecVecOpNode::pushConstants() const {
 BinaryVecScalarOpNode::BinaryVecScalarOpNode(OperatorEnum op,
                                              Runtime &runtime,
                                              const Tensor &a,
-                                             uint32_t scalarBits)
-    : OpNode(op, runtime) {
+                                             uint32_t scalarBits,
+                                             std::optional<uint32_t> spec)
+    : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
   shape_ = buf.getShape();
   dtype_ = buf.getDtype();

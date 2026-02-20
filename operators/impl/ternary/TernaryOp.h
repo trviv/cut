@@ -9,7 +9,8 @@ public:
   TernaryClampOpNode(Runtime &runtime,
                      const Tensor &a,
                      uint32_t minBits,
-                     uint32_t maxBits);
+                     uint32_t maxBits,
+                     std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -29,7 +30,8 @@ public:
   TernarySelectOpNode(Runtime &runtime,
                       const Tensor &cond,
                       const Tensor &x,
-                      const Tensor &y);
+                      const Tensor &y,
+                      std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

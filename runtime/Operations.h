@@ -23,11 +23,18 @@ public:
 
   // ===== Generic element-wise ops =====
 
-  Tensor binaryOp(OperatorEnum op, const Tensor &a, const Tensor &b);
+  Tensor binaryOp(OperatorEnum op,
+                  const Tensor &a,
+                  const Tensor &b,
+                  std::optional<uint32_t> spec = {});
 
-  Tensor unaryOp(OperatorEnum op, const Tensor &a);
+  Tensor
+  unaryOp(OperatorEnum op, const Tensor &a, std::optional<uint32_t> spec = {});
 
-  Tensor vecScalarOp(OperatorEnum op, const Tensor &a, DataReference scalar);
+  Tensor vecScalarOp(OperatorEnum op,
+                     const Tensor &a,
+                     DataReference scalar,
+                     std::optional<uint32_t> spec = {});
 
   // ===== Reduction ops =====
 
@@ -35,23 +42,36 @@ public:
   /// With dim: dimension-wise reduction (dim is removed from output shape).
   /// Always pass the global op enum (e.g. ReduceSum); the dim variant is
   /// resolved automatically.
-  Tensor reduce(OperatorEnum op, const Tensor &a, std::optional<int> dim = {});
+  Tensor reduce(OperatorEnum op,
+                const Tensor &a,
+                std::optional<int> dim = {},
+                std::optional<uint32_t> spec = {});
 
   // ===== Matrix ops =====
 
-  Tensor matmul(const Tensor &a, const Tensor &b, int variantIndex = -1);
-  Tensor transpose(const Tensor &a);
-  Tensor dot(const Tensor &a, const Tensor &b);
+  Tensor
+  matmul(const Tensor &a, const Tensor &b, std::optional<uint32_t> spec = {});
+  Tensor transpose(const Tensor &a, std::optional<uint32_t> spec = {});
+  Tensor
+  dot(const Tensor &a, const Tensor &b, std::optional<uint32_t> spec = {});
 
   // ===== Special ops =====
 
-  Tensor clamp(const Tensor &a, DataReference clampData);
+  Tensor clamp(const Tensor &a,
+               DataReference clampData,
+               std::optional<uint32_t> spec = {});
 
-  Tensor where(const Tensor &cond, const Tensor &x, const Tensor &y);
+  Tensor where(const Tensor &cond,
+               const Tensor &x,
+               const Tensor &y,
+               std::optional<uint32_t> spec = {});
 
   // ===== Cumulative ops =====
 
-  Tensor cumOp(const Tensor &a, OperatorEnum op, std::optional<int> dim = {});
+  Tensor cumOp(const Tensor &a,
+               OperatorEnum op,
+               std::optional<int> dim = {},
+               std::optional<uint32_t> spec = {});
 
   // ===== Statistical ops =====
 
@@ -85,25 +105,31 @@ public:
 
   // ===== Norm =====
 
-  Tensor norm(const Tensor &a, std::optional<int> dim = {});
+  Tensor norm(const Tensor &a,
+              std::optional<int> dim = {},
+              std::optional<uint32_t> spec = {});
 
   // ===== Prefix scan =====
 
-  Tensor prefixScan(const Tensor &a, OperatorEnum op);
+  Tensor prefixScan(const Tensor &a,
+                    OperatorEnum op,
+                    std::optional<uint32_t> spec = {});
 
   // ===== Convolution ops =====
 
   Tensor conv1d(const Tensor &input,
                 const Tensor &weight,
                 uint32_t stride = 1,
-                uint32_t padding = 0);
+                uint32_t padding = 0,
+                std::optional<uint32_t> spec = {});
 
   Tensor conv2d(const Tensor &input,
                 const Tensor &weight,
                 uint32_t strideH = 1,
                 uint32_t strideW = 1,
                 uint32_t padH = 0,
-                uint32_t padW = 0);
+                uint32_t padW = 0,
+                std::optional<uint32_t> spec = {});
 
   // ===== Pooling ops =====
 
@@ -113,7 +139,8 @@ public:
                    uint32_t strideH = 1,
                    uint32_t strideW = 1,
                    uint32_t padH = 0,
-                   uint32_t padW = 0);
+                   uint32_t padW = 0,
+                   std::optional<uint32_t> spec = {});
 
   Tensor avgPool2d(const Tensor &input,
                    uint32_t kernelH,
@@ -121,9 +148,13 @@ public:
                    uint32_t strideH = 1,
                    uint32_t strideW = 1,
                    uint32_t padH = 0,
-                   uint32_t padW = 0);
+                   uint32_t padW = 0,
+                   std::optional<uint32_t> spec = {});
 
-  Tensor adaptiveAvgPool2d(const Tensor &input, uint32_t outH, uint32_t outW);
+  Tensor adaptiveAvgPool2d(const Tensor &input,
+                           uint32_t outH,
+                           uint32_t outW,
+                           std::optional<uint32_t> spec = {});
 
   // ===== Normalization ops =====
 
@@ -142,18 +173,25 @@ public:
 
   // ===== Embedding ops =====
 
-  Tensor embedding(const Tensor &indices, const Tensor &weight);
+  Tensor embedding(const Tensor &indices,
+                   const Tensor &weight,
+                   std::optional<uint32_t> spec = {});
 
   // ===== Padding ops =====
 
   Tensor pad(const Tensor &input,
              const std::vector<uint32_t> &padWidths,
-             float value = 0.0f);
+             float value = 0.0f,
+             std::optional<uint32_t> spec = {});
 
   // ===== Sort (in-place) =====
 
-  void sortBitonic(const Tensor &keys, const Tensor &vals);
-  void sortRadix(const Tensor &keys, const Tensor &vals);
+  void sortBitonic(const Tensor &keys,
+                   const Tensor &vals,
+                   std::optional<uint32_t> spec = {});
+  void sortRadix(const Tensor &keys,
+                 const Tensor &vals,
+                 std::optional<uint32_t> spec = {});
 
 private:
   friend class Runtime;

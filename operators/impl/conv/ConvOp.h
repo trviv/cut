@@ -10,7 +10,8 @@ public:
                const Tensor &input,
                const Tensor &weight,
                uint32_t stride,
-               uint32_t padding);
+               uint32_t padding,
+               std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -33,7 +34,8 @@ public:
                uint32_t strideH,
                uint32_t strideW,
                uint32_t padH,
-               uint32_t padW);
+               uint32_t padW,
+               std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

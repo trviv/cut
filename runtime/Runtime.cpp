@@ -172,7 +172,7 @@ void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
   // Multi-pass and dim-reduce ops use internally-generated shaders
   if (!node->isMultiPass() && !node->isDimReduce()) {
     if (node->op() == MatMul) {
-      int variant = node->variantIndex();
+      uint32_t variant = node->spec().value();
       DataType dtype = node->shaderDtype();
       uint64_t key = (static_cast<uint64_t>(MatMul) << 32) |
                      (static_cast<uint64_t>(variant) << 16) |

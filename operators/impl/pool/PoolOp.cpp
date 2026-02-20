@@ -12,8 +12,9 @@ MaxPool2DOpNode::MaxPool2DOpNode(Runtime &runtime,
                                  uint32_t strideH,
                                  uint32_t strideW,
                                  uint32_t padH,
-                                 uint32_t padW)
-    : OpNode(MaxPool2D, runtime) {
+                                 uint32_t padW,
+                                 std::optional<uint32_t> spec)
+    : OpNode(MaxPool2D, runtime, spec) {
   const auto &buf = runtime.getTensor(input);
   inShape_ = buf.getShape();
   dtype_ = buf.getDtype();
@@ -72,8 +73,9 @@ AvgPool2DOpNode::AvgPool2DOpNode(Runtime &runtime,
                                  uint32_t strideH,
                                  uint32_t strideW,
                                  uint32_t padH,
-                                 uint32_t padW)
-    : OpNode(AvgPool2D, runtime) {
+                                 uint32_t padW,
+                                 std::optional<uint32_t> spec)
+    : OpNode(AvgPool2D, runtime, spec) {
   const auto &buf = runtime.getTensor(input);
   inShape_ = buf.getShape();
   dtype_ = buf.getDtype();

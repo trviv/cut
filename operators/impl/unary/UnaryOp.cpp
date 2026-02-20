@@ -3,8 +3,11 @@
 
 namespace cut {
 
-UnaryOpNode::UnaryOpNode(OperatorEnum op, Runtime &runtime, const Tensor &a)
-    : OpNode(op, runtime) {
+UnaryOpNode::UnaryOpNode(OperatorEnum op,
+                         Runtime &runtime,
+                         const Tensor &a,
+                         std::optional<uint32_t> spec)
+    : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
   shape_ = buf.getShape();
   dtype_ = buf.getDtype();

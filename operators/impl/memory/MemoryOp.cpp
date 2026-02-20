@@ -5,8 +5,10 @@ namespace cut {
 
 // --- TransposeOpNode ---
 
-TransposeOpNode::TransposeOpNode(Runtime &runtime, const Tensor &a)
-    : OpNode(Transpose, runtime) {
+TransposeOpNode::TransposeOpNode(Runtime &runtime,
+                                 const Tensor &a,
+                                 std::optional<uint32_t> spec)
+    : OpNode(Transpose, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
   shape_ = buf.getShape();
   dtype_ = buf.getDtype();
@@ -53,8 +55,9 @@ std::vector<uint8_t> TransposeOpNode::pushConstants() const {
 
 CopyOpNode::CopyOpNode(Runtime &runtime,
                        const Tensor &src,
-                       std::vector<uint32_t> &&dstShape)
-    : OpNode(Copy, runtime) {
+                       std::vector<uint32_t> &&dstShape,
+                       std::optional<uint32_t> spec)
+    : OpNode(Copy, runtime, spec) {
   const auto &buf = runtime.getTensor(src);
   srcShape_ = buf.getShape();
   dtype_ = buf.getDtype();
@@ -101,8 +104,9 @@ std::vector<uint8_t> CopyOpNode::pushConstants() const {
 
 EmbeddingOpNode::EmbeddingOpNode(Runtime &runtime,
                                  const Tensor &indices,
-                                 const Tensor &weight)
-    : OpNode(Embedding, runtime) {
+                                 const Tensor &weight,
+                                 std::optional<uint32_t> spec)
+    : OpNode(Embedding, runtime, spec) {
   const auto &idxBuf = runtime.getTensor(indices);
   const auto &wBuf = runtime.getTensor(weight);
   idxShape_ = idxBuf.getShape();
@@ -151,8 +155,9 @@ std::vector<uint8_t> EmbeddingOpNode::pushConstants() const {
 PadOpNode::PadOpNode(Runtime &runtime,
                      const Tensor &input,
                      std::vector<uint32_t> &&padWidths,
-                     float value)
-    : OpNode(Pad, runtime) {
+                     float value,
+                     std::optional<uint32_t> spec)
+    : OpNode(Pad, runtime, spec) {
   const auto &buf = runtime.getTensor(input);
   shape_ = buf.getShape();
   dtype_ = buf.getDtype();

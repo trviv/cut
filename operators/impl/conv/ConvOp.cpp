@@ -9,8 +9,9 @@ Conv1DOpNode::Conv1DOpNode(Runtime &runtime,
                            const Tensor &input,
                            const Tensor &weight,
                            uint32_t stride,
-                           uint32_t padding)
-    : OpNode(Conv1D, runtime) {
+                           uint32_t padding,
+                           std::optional<uint32_t> spec)
+    : OpNode(Conv1D, runtime, spec) {
   const auto &inputBuf = runtime.getTensor(input);
   const auto &weightBuf = runtime.getTensor(weight);
   inShape_ = inputBuf.getShape();
@@ -65,8 +66,9 @@ Conv2DOpNode::Conv2DOpNode(Runtime &runtime,
                            uint32_t strideH,
                            uint32_t strideW,
                            uint32_t padH,
-                           uint32_t padW)
-    : OpNode(Conv2D, runtime) {
+                           uint32_t padW,
+                           std::optional<uint32_t> spec)
+    : OpNode(Conv2D, runtime, spec) {
   const auto &inputBuf = runtime.getTensor(input);
   const auto &weightBuf = runtime.getTensor(weight);
   inShape_ = inputBuf.getShape();

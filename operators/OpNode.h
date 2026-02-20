@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -66,8 +67,8 @@ public:
   /// Returns the DataType for shader dtype selection.
   virtual DataType shaderDtype() const = 0;
 
-  /// Returns the variant index (-1 = not applicable).
-  virtual int variantIndex() const { return -1; }
+  /// Returns the optional specialization index.
+  virtual std::optional<uint32_t> spec() const { return spec_; }
 
   /// Returns the computed output shape.
   virtual std::vector<uint32_t> outputShape() const = 0;
@@ -99,10 +100,12 @@ public:
   virtual std::vector<ComputeBinding> handleBindings() const;
 
 protected:
-  OpNode(OperatorEnum op, Runtime &runtime) : op_(op), runtime_(&runtime) {}
+  OpNode(OperatorEnum op, Runtime &runtime, std::optional<uint32_t> spec = {})
+      : op_(op), runtime_(&runtime), spec_(spec) {}
 
   OperatorEnum op_;
   Runtime *runtime_;
+  std::optional<uint32_t> spec_;
   std::vector<Tensor> inputs_;
   Tensor output_;
   bool hasOutput_ = false;

@@ -8,8 +8,9 @@ namespace cut {
 TernaryClampOpNode::TernaryClampOpNode(Runtime &runtime,
                                        const Tensor &a,
                                        uint32_t minBits,
-                                       uint32_t maxBits)
-    : OpNode(TernaryClamp, runtime) {
+                                       uint32_t maxBits,
+                                       std::optional<uint32_t> spec)
+    : OpNode(TernaryClamp, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
   shape_ = buf.getShape();
   dtype_ = buf.getDtype();
@@ -47,8 +48,9 @@ std::vector<uint8_t> TernaryClampOpNode::pushConstants() const {
 TernarySelectOpNode::TernarySelectOpNode(Runtime &runtime,
                                          const Tensor &cond,
                                          const Tensor &x,
-                                         const Tensor &y)
-    : OpNode(TernarySelect, runtime) {
+                                         const Tensor &y,
+                                         std::optional<uint32_t> spec)
+    : OpNode(TernarySelect, runtime, spec) {
   const auto &condBuf = runtime.getTensor(cond);
   const auto &xBuf = runtime.getTensor(x);
   const auto &yBuf = runtime.getTensor(y);

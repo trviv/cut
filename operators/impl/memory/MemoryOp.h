@@ -6,7 +6,9 @@ namespace cut {
 
 class TransposeOpNode : public OpNode {
 public:
-  TransposeOpNode(Runtime &runtime, const Tensor &a);
+  TransposeOpNode(Runtime &runtime,
+                  const Tensor &a,
+                  std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   DataType outputDtype() const override;
@@ -24,7 +26,8 @@ class CopyOpNode : public OpNode {
 public:
   CopyOpNode(Runtime &runtime,
              const Tensor &src,
-             std::vector<uint32_t> &&dstShape);
+             std::vector<uint32_t> &&dstShape,
+             std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -44,7 +47,8 @@ class EmbeddingOpNode : public OpNode {
 public:
   EmbeddingOpNode(Runtime &runtime,
                   const Tensor &indices,
-                  const Tensor &weight);
+                  const Tensor &weight,
+                  std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -65,7 +69,8 @@ public:
   PadOpNode(Runtime &runtime,
             const Tensor &input,
             std::vector<uint32_t> &&padWidths,
-            float value);
+            float value,
+            std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

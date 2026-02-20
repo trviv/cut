@@ -6,7 +6,10 @@ namespace cut {
 
 class BitonicSortOpNode : public OpNode {
 public:
-  BitonicSortOpNode(Runtime &runtime, const Tensor &keys, const Tensor &vals);
+  BitonicSortOpNode(Runtime &runtime,
+                    const Tensor &keys,
+                    const Tensor &vals,
+                    std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -22,7 +25,10 @@ private:
 
 class RadixSortOpNode : public OpNode {
 public:
-  RadixSortOpNode(Runtime &runtime, const Tensor &keys, const Tensor &vals);
+  RadixSortOpNode(Runtime &runtime,
+                  const Tensor &keys,
+                  const Tensor &vals,
+                  std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

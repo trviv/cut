@@ -26,8 +26,9 @@ inline bool isMultiReduceCapable(OperatorEnum op) {
 
 GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
                                        Runtime &runtime,
-                                       const Tensor &a)
-    : OpNode(op, runtime) {
+                                       const Tensor &a,
+                                       std::optional<uint32_t> spec)
+    : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
   shape_ = buf.getShape();
   dtype_ = buf.getDtype();
@@ -73,8 +74,9 @@ std::vector<uint8_t> GlobalReduceOpNode::pushConstants() const {
 DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
                                  Runtime &runtime,
                                  const Tensor &a,
-                                 int dim)
-    : OpNode(op, runtime) {
+                                 int dim,
+                                 std::optional<uint32_t> spec)
+    : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
   shape_ = buf.getShape();
   dtype_ = buf.getDtype();
@@ -153,8 +155,10 @@ std::vector<uint8_t> DimReduceOpNode::pushConstants() const {
 
 // --- NormOpNode ---
 
-NormOpNode::NormOpNode(Runtime &runtime, const Tensor &a)
-    : OpNode(Norm, runtime) {
+NormOpNode::NormOpNode(Runtime &runtime,
+                       const Tensor &a,
+                       std::optional<uint32_t> spec)
+    : OpNode(Norm, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
   shape_ = buf.getShape();
   dtype_ = buf.getDtype();
@@ -187,8 +191,11 @@ size_t NormOpNode::executionSize() const {
 
 // --- DotOpNode ---
 
-DotOpNode::DotOpNode(Runtime &runtime, const Tensor &a, const Tensor &b)
-    : OpNode(Dot, runtime) {
+DotOpNode::DotOpNode(Runtime &runtime,
+                     const Tensor &a,
+                     const Tensor &b,
+                     std::optional<uint32_t> spec)
+    : OpNode(Dot, runtime, spec) {
   const auto &bufA = runtime.getTensor(a);
   const auto &bufB = runtime.getTensor(b);
   shapeA_ = bufA.getShape();
@@ -239,8 +246,9 @@ std::vector<ComputeBinding> DotOpNode::handleBindings() const {
 CumOpNode::CumOpNode(OperatorEnum op,
                      Runtime &runtime,
                      const Tensor &a,
-                     int dim)
-    : OpNode(op, runtime) {
+                     int dim,
+                     std::optional<uint32_t> spec)
+    : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
   shape_ = buf.getShape();
   dtype_ = buf.getDtype();

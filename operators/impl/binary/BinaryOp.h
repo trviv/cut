@@ -9,7 +9,8 @@ public:
   BinaryVecVecOpNode(OperatorEnum op,
                      Runtime &runtime,
                      const Tensor &a,
-                     const Tensor &b);
+                     const Tensor &b,
+                     std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
@@ -28,7 +29,8 @@ public:
   BinaryVecScalarOpNode(OperatorEnum op,
                         Runtime &runtime,
                         const Tensor &a,
-                        uint32_t scalarBits);
+                        uint32_t scalarBits,
+                        std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;

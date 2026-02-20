@@ -6,8 +6,8 @@ namespace cut {
 MatMulOpNode::MatMulOpNode(Runtime &runtime,
                            const Tensor &a,
                            const Tensor &b,
-                           int variantIdx)
-    : OpNode(MatMul, runtime) {
+                           std::optional<uint32_t> spec)
+    : OpNode(MatMul, runtime, spec) {
   const auto &bufA = runtime.getTensor(a);
   const auto &bufB = runtime.getTensor(b);
   shapeA_ = bufA.getShape();
@@ -25,7 +25,7 @@ MatMulOpNode::MatMulOpNode(Runtime &runtime,
   M_ = shapeA_[0];
   K_ = shapeA_[1];
   N_ = shapeB_[1];
-  resolvedVariant_ = variantIdx >= 0 ? variantIdx : kMatMulDefaultVariant;
+  resolvedVariant_ = spec.value_or(kMatMulDefaultVariant);
   inputs_ = {a, b};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
   hasOutput_ = true;
@@ -37,7 +37,7 @@ DataType MatMulOpNode::shaderDtype() const {
 DataType MatMulOpNode::outputDtype() const {
   return DataType::Float32;
 }
-int MatMulOpNode::variantIndex() const {
+std::optional<uint32_t> MatMulOpNode::spec() const {
   return resolvedVariant_;
 }
 
