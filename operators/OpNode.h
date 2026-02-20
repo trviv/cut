@@ -18,26 +18,10 @@ namespace cut {
 // ============================================================================
 
 /// Computes aligned element count (rounds innermost dim to multiple of 4).
-inline size_t alignedElementCount(const std::vector<uint32_t> &shape) {
-  if (shape.empty())
-    return 0;
-  size_t count = 1;
-  for (size_t i = 0; i < shape.size() - 1; ++i)
-    count *= shape[i];
-  size_t alignedInner = (shape.back() + 3) & ~static_cast<uint32_t>(3);
-  count *= alignedInner;
-  return count;
-}
+size_t alignedElementCount(const std::vector<uint32_t> &shape);
 
 /// Computes actual (unpadded) element count from a shape vector.
-inline size_t actualElementCount(const std::vector<uint32_t> &shape) {
-  if (shape.empty())
-    return 0;
-  size_t count = 1;
-  for (uint32_t dim : shape)
-    count *= dim;
-  return count;
-}
+size_t actualElementCount(const std::vector<uint32_t> &shape);
 
 /// Converts a POD struct/value to a byte vector for push constants.
 template <typename T>
@@ -104,37 +88,17 @@ public:
   virtual OperatorEnum baseReduceOp() const { return op(); }
 
   /// Returns the execution size (for multi-WG reduce threshold, etc.).
-  virtual size_t executionSize() const {
-    auto ds = dispatchSize();
-    return static_cast<size_t>(ds.x) * ds.y * ds.z;
-  }
+  virtual size_t executionSize() const;
 
   /// Sets buffer handles for input and output bindings.
   /// Called by Operations after creating the output tensor.
-  void setHandles(std::vector<Tensor> inputs, Tensor output) {
-    inputs_ = std::move(inputs);
-    output_ = output;
-    hasOutput_ = true;
-  }
+  void setHandles(std::vector<Tensor> inputs, Tensor output);
 
   /// Overload for in-place ops (sort) with no separate output.
-  void setHandles(std::vector<Tensor> inputs) {
-    inputs_ = std::move(inputs);
-    hasOutput_ = false;
-  }
+  void setHandles(std::vector<Tensor> inputs);
 
   /// Returns the ComputeBinding vector for dispatch encoding.
-  virtual std::vector<ComputeBinding> handleBindings() const {
-    std::vector<ComputeBinding> bindings;
-    uint32_t idx = 0;
-    for (const auto &h : inputs_) {
-      bindings.emplace_back(idx++, h);
-    }
-    if (hasOutput_) {
-      bindings.emplace_back(idx++, output_);
-    }
-    return bindings;
-  }
+  virtual std::vector<ComputeBinding> handleBindings() const;
 
 protected:
   std::vector<Tensor> inputs_;

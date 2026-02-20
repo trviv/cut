@@ -127,6 +127,7 @@ set(LIB_SOURCES
     core/backends/vulkan/VulkanContainers.cpp
     core/backends/vulkan/VulkanCompute.cpp
     core/backends/vulkan/VulkanCommandBuffer.cpp
+    operators/OpNode.cpp
     operators/impl/binary/BinaryOp.cpp
     operators/impl/conv/ConvOp.cpp
     operators/impl/creation/CreationOp.cpp
