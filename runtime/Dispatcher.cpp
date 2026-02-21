@@ -400,11 +400,11 @@ Tensor Dispatcher::getOrCreateInternalShader(OperatorEnum op, DataType dtype) {
 
 Tensor Dispatcher::getOrCreateShader(OperatorEnum op,
                                      DataType dtype,
-                                     std::optional<uint32_t> variant) {
+                                     std::optional<uint32_t> spec) {
   // Use (3 << 48) prefix to distinguish from internal/dim-reduce shaders
   size_t key = static_cast<size_t>(op) | (static_cast<size_t>(dtype) << 16) |
                (size_t(3) << 48) |
-               (static_cast<size_t>(variant.value_or(0)) << 32);
+               (static_cast<size_t>(spec.value_or(0)) << 32);
 
   auto it = internalShaderCache_.find(key);
   if (it != internalShaderCache_.end()) {
@@ -412,34 +412,33 @@ Tensor Dispatcher::getOrCreateShader(OperatorEnum op,
   }
 
   Tensor shader;
-  if (variant.has_value()) {
-    uint32_t v = variant.value();
+  if (spec.has_value()) {
+    uint32_t s = spec.value();
     std::optional<std::vector<uint32_t>> spirv;
     switch (op) {
     case MatMul:
-      spirv = getCompiledMatMul(v, dtype);
+      spirv = getCompiledMatMul(s, dtype);
       break;
     case Transpose:
-      spirv = getCompiledTranspose(v, dtype);
+      spirv = getCompiledTranspose(s, dtype);
       break;
     case Conv1D:
-      spirv = getCompiledConv1D(v, dtype);
+      spirv = getCompiledConv1D(s, dtype);
       break;
     case Conv2D:
-      spirv = getCompiledConv2D(v, dtype);
+      spirv = getCompiledConv2D(s, dtype);
       break;
     case MaxPool2D:
-      spirv = getCompiledMaxPool2D(v, dtype);
+      spirv = getCompiledMaxPool2D(s, dtype);
       break;
     case AvgPool2D:
-      spirv = getCompiledAvgPool2D(v, dtype);
+      spirv = getCompiledAvgPool2D(s, dtype);
       break;
     default:
-      throw std::runtime_error("No variant support for op " +
-                               std::to_string(op));
+      throw std::runtime_error("No spec support for op " + std::to_string(op));
     }
     if (!spirv.has_value()) {
-      throw std::runtime_error("Failed to get variant " + std::to_string(v) +
+      throw std::runtime_error("Failed to get spec " + std::to_string(s) +
                                " for op " + std::to_string(op));
     }
     shader = iface_->createShaderModule(spirv.value());
@@ -454,19 +453,19 @@ Tensor Dispatcher::getOrCreateShader(OperatorEnum op,
 
 Tensor Dispatcher::getOrCreateDimReduceShader(OperatorEnum reduceOp,
                                               DataType dtype,
-                                              std::optional<uint32_t> variant) {
+                                              std::optional<uint32_t> spec) {
   // Use bit 49 to distinguish dim-reduce shaders from global-reduce shaders
-  // Include variant in the cache key (bits 32-47)
+  // Include spec in the cache key (bits 32-47)
   size_t key = static_cast<size_t>(reduceOp) |
                (static_cast<size_t>(dtype) << 16) | (size_t(2) << 48) |
-               (static_cast<size_t>(variant.value_or(0)) << 32);
+               (static_cast<size_t>(spec.value_or(0)) << 32);
 
   auto it = internalShaderCache_.find(key);
   if (it != internalShaderCache_.end()) {
     return it->second;
   }
 
-  auto spirv = getDimReduceShader(reduceOp, dtype, variant);
+  auto spirv = getDimReduceShader(reduceOp, dtype, spec);
   Tensor handle = iface_->createShaderModule(spirv);
   internalShaderCache_[key] = handle;
   return handle;

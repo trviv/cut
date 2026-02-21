@@ -86,11 +86,11 @@ private:
 
   /**
    * Gets or creates a cached shader for a standard operator.
-   * If variant is provided, looks up/creates a variant-specific shader.
+   * If spec is provided, looks up/creates a spec-specific shader.
    */
   Tensor getOrCreateShader(OperatorEnum op,
                            DataType dtype,
-                           std::optional<uint32_t> variant);
+                           std::optional<uint32_t> spec);
 
   /**
    * Gets or creates a dim-wise reduction shader for a base reduce op.
@@ -98,7 +98,7 @@ private:
    */
   Tensor getOrCreateDimReduceShader(OperatorEnum reduceOp,
                                     DataType dtype = DataType::Float32,
-                                    std::optional<uint32_t> variant = {});
+                                    std::optional<uint32_t> spec = {});
 
   /**
    * Dispatches an internal shader with the given bindings and push constants.
