@@ -6,10 +6,7 @@
 #include <ComputeOps.h>
 #include <ComputeStructs.h>
 
-#include <map>
 #include <memory>
-#include <optional>
-#include <unordered_map>
 #include <vector>
 
 namespace cut {
@@ -172,9 +169,6 @@ private:
   bool vulkanChecked_ = false;
   bool pendingCommands_ = false;
 
-  // Shader cache: maps makeCacheKey(op, dtype, variant) -> Tensor
-  std::unordered_map<uint64_t, Tensor> shaderCache_;
-
   // Dispatcher for encoding operators
   std::unique_ptr<Dispatcher> dispatcher_;
 
@@ -186,14 +180,6 @@ private:
    * @throws std::runtime_error if not initialized.
    */
   ComputeInterface *getInterface();
-
-  /**
-   * Gets or creates a cached shader for the given operator and data type.
-   * If variant is provided, looks up/creates a variant-specific shader.
-   */
-  Tensor getOrCreateShader(OperatorEnum op,
-                           DataType dtype,
-                           std::optional<uint32_t> variant = std::nullopt);
 
   /**
    * Encodes a compute operator using an OpNode.

@@ -34,12 +34,13 @@ public:
 
   /**
    * Encodes an operator dispatch using an OpNode.
-   * The OpNode provides dispatch sizing, push constants, and bindings.
+   * Handles shader resolution, sort early-out, multi-pass, and dim-reduce
+   * internally.
    *
    * @param node The operator node with all dispatch information.
-   * @param shader Pre-created shader handle (empty for multi-pass/dim-reduce).
+   * @return true if commands were encoded, false if skipped (e.g. sort no-op).
    */
-  void encode(std::unique_ptr<OpNode> node, const Tensor &shader);
+  bool encode(std::unique_ptr<OpNode> node);
 
   /**
    * Releases all temporary buffers back to the pool.
@@ -82,6 +83,14 @@ private:
    */
   Tensor getOrCreateInternalShader(OperatorEnum op,
                                    DataType dtype = DataType::Float32);
+
+  /**
+   * Gets or creates a cached shader for a standard operator.
+   * If variant is provided, looks up/creates a variant-specific shader.
+   */
+  Tensor getOrCreateShader(OperatorEnum op,
+                           DataType dtype,
+                           std::optional<uint32_t> variant);
 
   /**
    * Gets or creates a dim-wise reduction shader for a base reduce op.

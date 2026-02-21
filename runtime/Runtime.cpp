@@ -3,7 +3,6 @@
 #include "Dispatcher.h"
 #include "OpNode.h"
 #include "Operations.h"
-#include "Shaders.h"
 #include "VulkanCompute.h"
 
 #include <stdexcept>
@@ -52,8 +51,6 @@ void Runtime::shutdown() {
   flushPendingCommands();
   // Destroy operations before dispatcher (it holds a raw pointer to runtime)
   operations_.reset();
-  // Clear shader cache before destroying interface
-  shaderCache_.clear();
   // Destroy dispatcher before interface (it holds a raw pointer)
   dispatcher_.reset();
   // First destroy the interface (which holds backend resources)
@@ -138,82 +135,14 @@ void Runtime::copyFromTensor(Tensor handle,
 // Operator Execution
 // =========================================================================
 
-static uint64_t
-makeCacheKey(OperatorEnum op, DataType dtype, std::optional<uint32_t> variant) {
-  return (static_cast<uint64_t>(op) << 32) |
-         (static_cast<uint64_t>(variant.value_or(0)) << 16) |
-         static_cast<uint64_t>(dtype);
-}
-
-Tensor Runtime::getOrCreateShader(OperatorEnum op,
-                                  DataType dtype,
-                                  std::optional<uint32_t> variant) {
-  uint64_t key = makeCacheKey(op, dtype, variant);
-
-  auto it = shaderCache_.find(key);
-  if (it != shaderCache_.end()) {
-    return it->second;
-  }
-
-  Tensor shader;
-  if (variant.has_value()) {
-    uint32_t v = variant.value();
-    std::optional<std::vector<uint32_t>> spirv;
-    switch (op) {
-    case MatMul:
-      spirv = getCompiledMatMul(v, dtype);
-      break;
-    case Transpose:
-      spirv = getCompiledTranspose(v, dtype);
-      break;
-    case Conv1D:
-      spirv = getCompiledConv1D(v, dtype);
-      break;
-    case Conv2D:
-      spirv = getCompiledConv2D(v, dtype);
-      break;
-    case MaxPool2D:
-      spirv = getCompiledMaxPool2D(v, dtype);
-      break;
-    case AvgPool2D:
-      spirv = getCompiledAvgPool2D(v, dtype);
-      break;
-    default:
-      throw std::runtime_error("No variant support for op " +
-                               std::to_string(op));
-    }
-    if (!spirv.has_value()) {
-      throw std::runtime_error("Failed to get variant " + std::to_string(v) +
-                               " for op " + std::to_string(op));
-    }
-    shader = getInterface()->createShaderModule(spirv.value());
-  } else {
-    std::vector<uint32_t> spirv = getShader(op, dtype);
-    shader = getInterface()->createShaderModule(spirv);
-  }
-
-  shaderCache_[key] = shader;
-  return shader;
-}
-
 void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
   if (!dispatcher_) {
     throw std::runtime_error("Dispatcher not initialized. Call init() first.");
   }
 
-  // Sort with 0 or 1 elements is a no-op (nothing to reorder)
-  OperatorEnum op = node->op();
-  if ((op == SortBitonic || op == SortRadix) && node->executionSize() <= 1) {
+  if (!dispatcher_->encode(std::move(node))) {
     return;
   }
-
-  Tensor shader;
-  // Multi-pass and dim-reduce ops use internally-generated shaders
-  if (!node->isMultiPass() && !node->isDimReduce()) {
-    shader = getOrCreateShader(node->op(), node->shaderDtype(), node->spec());
-  }
-
-  dispatcher_->encode(std::move(node), shader);
 
   if (isGpuBackend()) {
     pendingCommands_ = true;

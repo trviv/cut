@@ -28,14 +28,19 @@ uint32_t nextPowerOf2(uint32_t n) {
 
 Dispatcher::Dispatcher(ComputeInterface *iface) : iface_(iface) {}
 
-void Dispatcher::encode(std::unique_ptr<OpNode> node, const Tensor &shader) {
+bool Dispatcher::encode(std::unique_ptr<OpNode> node) {
   if (!iface_) {
     throw std::runtime_error("Dispatcher::encode: ComputeInterface is null");
   }
 
+  // Sort with 0 or 1 elements is a no-op (nothing to reorder)
+  OperatorEnum op = node->op();
+  if ((op == SortBitonic || op == SortRadix) && node->executionSize() <= 1) {
+    return false;
+  }
+
   // Multi-pass ops delegate to specialized methods
   if (node->isMultiPass()) {
-    OperatorEnum op = node->op();
     auto bindings = node->handleBindings();
     size_t execSize = node->executionSize();
 
@@ -49,7 +54,7 @@ void Dispatcher::encode(std::unique_ptr<OpNode> node, const Tensor &shader) {
       // Multi-workgroup reduce
       encodeMultiWorkgroupReduce(op, bindings, execSize);
     }
-    return;
+    return true;
   }
 
   // Dim-reduce ops need internal shader lookup with spec constant patching
@@ -62,16 +67,19 @@ void Dispatcher::encode(std::unique_ptr<OpNode> node, const Tensor &shader) {
     dispatch.bindData(DataReference(pushData.data(), pushData.size()),
                       static_cast<uint32_t>(bindings.size()));
     iface_->encode(std::move(dispatch));
-    return;
+    return true;
   }
 
-  // Standard single-dispatch ops
+  // Standard single-dispatch ops: resolve shader here
+  Tensor shader =
+      getOrCreateShader(node->op(), node->shaderDtype(), node->spec());
   auto bindings = node->handleBindings();
   auto pushData = node->pushConstants();
   ComputeDispatch dispatch(shader, node->dispatchSize(), bindings);
   dispatch.bindData(DataReference(pushData.data(), pushData.size()),
                     static_cast<uint32_t>(bindings.size()));
   iface_->encode(std::move(dispatch));
+  return true;
 }
 
 void Dispatcher::encodePrefixScan(OperatorEnum op,
@@ -388,6 +396,60 @@ Tensor Dispatcher::getOrCreateInternalShader(OperatorEnum op, DataType dtype) {
   Tensor handle = iface_->createShaderModule(spirv);
   internalShaderCache_[key] = handle;
   return handle;
+}
+
+Tensor Dispatcher::getOrCreateShader(OperatorEnum op,
+                                     DataType dtype,
+                                     std::optional<uint32_t> variant) {
+  // Use (3 << 48) prefix to distinguish from internal/dim-reduce shaders
+  size_t key = static_cast<size_t>(op) | (static_cast<size_t>(dtype) << 16) |
+               (size_t(3) << 48) |
+               (static_cast<size_t>(variant.value_or(0)) << 32);
+
+  auto it = internalShaderCache_.find(key);
+  if (it != internalShaderCache_.end()) {
+    return it->second;
+  }
+
+  Tensor shader;
+  if (variant.has_value()) {
+    uint32_t v = variant.value();
+    std::optional<std::vector<uint32_t>> spirv;
+    switch (op) {
+    case MatMul:
+      spirv = getCompiledMatMul(v, dtype);
+      break;
+    case Transpose:
+      spirv = getCompiledTranspose(v, dtype);
+      break;
+    case Conv1D:
+      spirv = getCompiledConv1D(v, dtype);
+      break;
+    case Conv2D:
+      spirv = getCompiledConv2D(v, dtype);
+      break;
+    case MaxPool2D:
+      spirv = getCompiledMaxPool2D(v, dtype);
+      break;
+    case AvgPool2D:
+      spirv = getCompiledAvgPool2D(v, dtype);
+      break;
+    default:
+      throw std::runtime_error("No variant support for op " +
+                               std::to_string(op));
+    }
+    if (!spirv.has_value()) {
+      throw std::runtime_error("Failed to get variant " + std::to_string(v) +
+                               " for op " + std::to_string(op));
+    }
+    shader = iface_->createShaderModule(spirv.value());
+  } else {
+    std::vector<uint32_t> spirv = getShader(op, dtype);
+    shader = iface_->createShaderModule(spirv);
+  }
+
+  internalShaderCache_[key] = shader;
+  return shader;
 }
 
 Tensor Dispatcher::getOrCreateDimReduceShader(OperatorEnum reduceOp,
