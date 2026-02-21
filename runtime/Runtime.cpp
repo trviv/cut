@@ -138,17 +138,17 @@ void Runtime::copyFromTensor(Tensor handle,
 // Operator Execution
 // =========================================================================
 
+static uint64_t
+makeCacheKey(OperatorEnum op, DataType dtype, std::optional<uint32_t> variant) {
+  return (static_cast<uint64_t>(op) << 32) |
+         (static_cast<uint64_t>(variant.value_or(0)) << 16) |
+         static_cast<uint64_t>(dtype);
+}
+
 Tensor Runtime::getOrCreateShader(OperatorEnum op,
                                   DataType dtype,
                                   std::optional<uint32_t> variant) {
-  uint64_t key;
-  if (variant.has_value()) {
-    key = (static_cast<uint64_t>(op) << 32) |
-          (static_cast<uint64_t>(variant.value()) << 16) |
-          static_cast<uint64_t>(dtype);
-  } else {
-    key = makeCacheKey(op, dtype);
-  }
+  uint64_t key = makeCacheKey(op, dtype, variant);
 
   auto it = shaderCache_.find(key);
   if (it != shaderCache_.end()) {

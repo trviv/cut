@@ -205,7 +205,4 @@ struct ShaderReflection {
  */
 ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode);
 
-/// Creates a cache key from operator enum and datatype
-uint64_t makeCacheKey(OperatorEnum op, DataType datatype);
-
 } // namespace cut

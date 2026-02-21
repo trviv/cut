@@ -563,8 +563,4 @@ ShaderReflection reflectSpirvBindings(const std::vector<uint32_t> &spirvCode) {
   return reflection;
 }
 
-uint64_t makeCacheKey(OperatorEnum op, DataType datatype) {
-  return (static_cast<uint64_t>(op) << 32) | static_cast<uint64_t>(datatype);
-}
-
 } // namespace cut

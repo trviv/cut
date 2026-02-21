@@ -172,7 +172,7 @@ private:
   bool vulkanChecked_ = false;
   bool pendingCommands_ = false;
 
-  // Shader cache: maps makeCacheKey(OperatorEnum, DataType) -> Tensor
+  // Shader cache: maps makeCacheKey(op, dtype, variant) -> Tensor
   std::unordered_map<uint64_t, Tensor> shaderCache_;
 
   // Dispatcher for encoding operators
