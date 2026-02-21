@@ -51,7 +51,9 @@ public:
 
   Tensor
   matmul(const Tensor &a, const Tensor &b, std::optional<uint32_t> spec = {});
+
   Tensor transpose(const Tensor &a, std::optional<uint32_t> spec = {});
+
   Tensor
   dot(const Tensor &a, const Tensor &b, std::optional<uint32_t> spec = {});
 
@@ -80,6 +82,7 @@ public:
   // ===== Softmax =====
 
   Tensor softmax(const Tensor &a, int dim);
+
   Tensor logSoftmax(const Tensor &a, int dim);
 
   // ===== Tensor creation =====
@@ -90,6 +93,7 @@ public:
                 DataType dtype);
   Tensor
   linspace(DataReference start, DataReference end, int steps, DataType dtype);
+
   Tensor full(const std::vector<uint32_t> &shape,
               DataReference fillValue,
               DataType dtype);
@@ -97,10 +101,14 @@ public:
   // ===== Shape ops (copy data to new buffer with new shape) =====
 
   Tensor reshape(const Tensor &a, const std::vector<int32_t> &newShape);
+
   Tensor squeeze(const Tensor &a, std::optional<int> dim);
+
   Tensor unsqueeze(const Tensor &a, int dim);
+
   Tensor
   unflatten(const Tensor &a, int dim, const std::vector<uint32_t> &sizes);
+
   Tensor flatten(const Tensor &a, int startDim, int endDim);
 
   // ===== Norm =====
@@ -189,6 +197,7 @@ public:
   void sortBitonic(const Tensor &keys,
                    const Tensor &vals,
                    std::optional<uint32_t> spec = {});
+
   void sortRadix(const Tensor &keys,
                  const Tensor &vals,
                  std::optional<uint32_t> spec = {});
