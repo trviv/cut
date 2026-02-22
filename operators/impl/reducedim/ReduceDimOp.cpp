@@ -64,11 +64,8 @@ std::optional<uint32_t> DimReduceOpNode::spec() const {
   return resolvedVariant_;
 }
 
-const std::optional<std::vector<uint32_t>> &DimReduceOpNode::shader() const {
-  if (!shader_.has_value()) {
-    shader_ = getDimReduceShader(op_, dtype_, resolvedVariant_);
-  }
-  return shader_;
+std::optional<std::vector<uint32_t>> DimReduceOpNode::shader() const {
+  return getDimReduceShader(op_, dtype_, resolvedVariant_);
 }
 
 size_t DimReduceOpNode::shaderKey() const {

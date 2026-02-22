@@ -34,7 +34,6 @@ public:
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
-  std::vector<ComputeBinding> handleBindings() const override;
 
 private:
   DataType dtype_;

@@ -37,14 +37,6 @@ std::vector<uint8_t> FillOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
-std::vector<ComputeBinding> FillOpNode::handleBindings() const {
-  std::vector<ComputeBinding> bindings;
-  if (hasOutput_) {
-    bindings.emplace_back(0u, output_);
-  }
-  return bindings;
-}
-
 // --- ArangeOpNode ---
 
 ArangeOpNode::ArangeOpNode(OperatorEnum op,
@@ -76,14 +68,6 @@ std::vector<uint8_t> ArangeOpNode::pushConstants() const {
     float step;
   } pc{static_cast<uint32_t>(numElements_), start_, step_};
   return toBytes(pc);
-}
-
-std::vector<ComputeBinding> ArangeOpNode::handleBindings() const {
-  std::vector<ComputeBinding> bindings;
-  if (hasOutput_) {
-    bindings.emplace_back(0u, output_);
-  }
-  return bindings;
 }
 
 } // namespace cut

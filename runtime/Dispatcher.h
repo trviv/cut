@@ -80,19 +80,6 @@ private:
    * Uses node.shaderKey() for caching and node.shader() on cache miss.
    */
   Tensor getOrCreateShader(const OpNode &node);
-
-  /**
-   * Dispatches an internal shader with the given bindings and push constants.
-   *
-   * @param shader Pre-resolved shader handle.
-   * @param bindings Buffer bindings for the dispatch.
-   * @param threadSize Workgroup thread dimensions.
-   * @param pushData Push constant data bound after all buffer bindings.
-   */
-  void dispatchInternal(const Tensor &shader,
-                        const std::vector<ComputeBinding> &bindings,
-                        ThreadSize threadSize,
-                        const DataReference &pushData);
 };
 
 } // namespace cut

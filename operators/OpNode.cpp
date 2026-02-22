@@ -33,11 +33,8 @@ size_t actualElementCount(const std::vector<uint32_t> &shape) {
 // OpNode methods
 // ============================================================================
 
-const std::optional<std::vector<uint32_t>> &OpNode::shader() const {
-  if (!shader_.has_value()) {
-    shader_ = getShader(op_, shaderDtype());
-  }
-  return shader_;
+std::optional<std::vector<uint32_t>> OpNode::shader() const {
+  return getShader(op_, shaderDtype());
 }
 
 size_t OpNode::shaderKey() const {
@@ -50,16 +47,21 @@ size_t OpNode::executionSize() const {
   return static_cast<size_t>(ds.x) * ds.y * ds.z;
 }
 
-std::vector<ComputeBinding> OpNode::handleBindings() const {
-  std::vector<ComputeBinding> bindings;
+std::vector<ComputeBinding> OpNode::bindings() const {
+  std::vector<ComputeBinding> result;
   uint32_t idx = 0;
   for (const auto &h : inputs_) {
-    bindings.emplace_back(idx++, h);
+    result.emplace_back(idx++, h);
   }
   if (hasOutput_) {
-    bindings.emplace_back(idx++, output_);
+    result.emplace_back(idx++, output_);
   }
-  return bindings;
+  auto pc = pushConstants();
+  if (!pc.empty()) {
+    result.emplace_back(
+        idx, DataReference(pc.data(), static_cast<uint32_t>(pc.size())));
+  }
+  return result;
 }
 
 const std::vector<std::unique_ptr<OpNode>> &

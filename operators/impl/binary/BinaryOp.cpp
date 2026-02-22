@@ -81,17 +81,4 @@ std::vector<uint8_t> BinaryVecScalarOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
-std::vector<ComputeBinding> BinaryVecScalarOpNode::handleBindings() const {
-  // Vec-scalar: input at 0, output at 1 (scalar is in push constants)
-  std::vector<ComputeBinding> bindings;
-  uint32_t idx = 0;
-  for (const auto &h : inputs_) {
-    bindings.emplace_back(idx++, h);
-  }
-  if (hasOutput_) {
-    bindings.emplace_back(idx++, output_);
-  }
-  return bindings;
-}
-
 } // namespace cut

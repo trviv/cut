@@ -180,18 +180,6 @@ std::vector<uint8_t> DotOpNode::pushConstants() const {
   return toBytes(count_);
 }
 
-std::vector<ComputeBinding> DotOpNode::handleBindings() const {
-  // Dot: A at 0, B at 1, partials at 2
-  std::vector<ComputeBinding> bindings;
-  for (uint32_t i = 0; i < static_cast<uint32_t>(inputs_.size()); ++i) {
-    bindings.emplace_back(i, inputs_[i]);
-  }
-  if (hasOutput_) {
-    bindings.emplace_back(static_cast<uint32_t>(inputs_.size()), output_);
-  }
-  return bindings;
-}
-
 // --- CumOpNode ---
 
 CumOpNode::CumOpNode(OperatorEnum op,

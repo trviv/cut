@@ -71,10 +71,10 @@ public:
   /// Returns the optional specialization index.
   virtual std::optional<uint32_t> spec() const { return spec_; }
 
-  /// Returns SPIR-V bytecode for this node's shader (cached).
+  /// Returns SPIR-V bytecode for this node's shader.
   /// Default calls getShader(op_, shaderDtype()). Override for variant ops
   /// (MatMul, Transpose, etc.) and dim-reduce ops.
-  virtual const std::optional<std::vector<uint32_t>> &shader() const;
+  virtual std::optional<std::vector<uint32_t>> shader() const;
 
   /// Returns a cache key for the Dispatcher's shader cache.
   /// Default: op | (dtype << 16) | (spec << 32).
@@ -89,9 +89,6 @@ public:
   /// Returns the dispatch thread dimensions (total grid size).
   virtual ThreadSize dispatchSize() const = 0;
 
-  /// Returns push constant data as a byte vector.
-  virtual std::vector<uint8_t> pushConstants() const = 0;
-
   /// Returns true if this op requires multi-pass dispatch (scan, sort, etc.).
   virtual bool isMultiPass() const { return false; }
 
@@ -99,7 +96,8 @@ public:
   virtual size_t executionSize() const;
 
   /// Returns the ComputeBinding vector for dispatch encoding.
-  virtual std::vector<ComputeBinding> handleBindings() const;
+  /// Includes tensor bindings (inputs + output) followed by push constants.
+  virtual std::vector<ComputeBinding> bindings() const;
 
   /// Populates and returns the sub-operations for composite/multi-pass ops.
   /// On first call, invokes buildSubOperations() to populate subOps_.
@@ -117,6 +115,9 @@ protected:
   /// Minimal constructor for internal nodes that don't need Runtime access.
   explicit OpNode(OperatorEnum op) : op_(op), runtime_(nullptr) {}
 
+  /// Returns push constant data as a byte vector.
+  virtual std::vector<uint8_t> pushConstants() const = 0;
+
   /// Override in multi-pass subclasses to populate subOps_.
   virtual void buildSubOperations(Dispatcher &dispatcher) {}
 
@@ -127,7 +128,6 @@ protected:
   Tensor output_;
   bool hasOutput_ = false;
   std::vector<std::unique_ptr<OpNode>> subOps_;
-  mutable std::optional<std::vector<uint32_t>> shader_;
 };
 
 // ============================================================================

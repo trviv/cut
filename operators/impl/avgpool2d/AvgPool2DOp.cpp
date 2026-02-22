@@ -44,11 +44,8 @@ std::optional<uint32_t> AvgPool2DOpNode::spec() const {
   return resolvedVariant_;
 }
 
-const std::optional<std::vector<uint32_t>> &AvgPool2DOpNode::shader() const {
-  if (!shader_.has_value()) {
-    shader_ = getCompiledAvgPool2D(resolvedVariant_, dtype_);
-  }
-  return shader_;
+std::optional<std::vector<uint32_t>> AvgPool2DOpNode::shader() const {
+  return getCompiledAvgPool2D(resolvedVariant_, dtype_);
 }
 
 std::vector<uint32_t> AvgPool2DOpNode::outputShape() const {

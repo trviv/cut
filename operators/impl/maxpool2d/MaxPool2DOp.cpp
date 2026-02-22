@@ -44,11 +44,8 @@ std::optional<uint32_t> MaxPool2DOpNode::spec() const {
   return resolvedVariant_;
 }
 
-const std::optional<std::vector<uint32_t>> &MaxPool2DOpNode::shader() const {
-  if (!shader_.has_value()) {
-    shader_ = getCompiledMaxPool2D(resolvedVariant_, dtype_);
-  }
-  return shader_;
+std::optional<std::vector<uint32_t>> MaxPool2DOpNode::shader() const {
+  return getCompiledMaxPool2D(resolvedVariant_, dtype_);
 }
 
 std::vector<uint32_t> MaxPool2DOpNode::outputShape() const {

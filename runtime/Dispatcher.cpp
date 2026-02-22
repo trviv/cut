@@ -3,7 +3,6 @@
 #include "OpNode.h"
 #include <ComputeInterface.h>
 
-#include <cstring>
 #include <stdexcept>
 
 namespace cut {
@@ -26,10 +25,9 @@ bool Dispatcher::encode(std::unique_ptr<OpNode> node) {
     const auto &subOps = node->subOperations(*this);
     for (const auto &subOp : subOps) {
       Tensor shader = getOrCreateShader(*subOp);
-      auto bindings = subOp->handleBindings();
-      auto pushData = subOp->pushConstants();
-      dispatchInternal(shader, bindings, subOp->dispatchSize(),
-                       DataReference(pushData.data(), pushData.size()));
+      auto bindings = subOp->bindings();
+      ComputeDispatch dispatch(shader, subOp->dispatchSize(), bindings);
+      iface_->encode(std::move(dispatch));
       if (subOp->needsBarrierAfter()) {
         encodeBarrier();
       }
@@ -40,11 +38,8 @@ bool Dispatcher::encode(std::unique_ptr<OpNode> node) {
 
   // Single-dispatch ops: node resolves its own shader via shader()
   Tensor shader = getOrCreateShader(*node);
-  auto bindings = node->handleBindings();
-  auto pushData = node->pushConstants();
+  auto bindings = node->bindings();
   ComputeDispatch dispatch(shader, node->dispatchSize(), bindings);
-  dispatch.bindData(DataReference(pushData.data(), pushData.size()),
-                    static_cast<uint32_t>(bindings.size()));
   iface_->encode(std::move(dispatch));
   return true;
 }
@@ -83,15 +78,6 @@ void Dispatcher::encodeBarrier() {
   iface_->encode(ComputeDispatch::createBarrier());
 }
 
-void Dispatcher::dispatchInternal(const Tensor &shader,
-                                  const std::vector<ComputeBinding> &bindings,
-                                  ThreadSize threadSize,
-                                  const DataReference &pushData) {
-  ComputeDispatch dispatch(shader, threadSize, bindings);
-  dispatch.bindData(pushData, static_cast<uint32_t>(bindings.size()));
-  iface_->encode(std::move(dispatch));
-}
-
 Tensor Dispatcher::getOrCreateShader(const OpNode &node) {
   size_t key = node.shaderKey();
   auto it = shaderCache_.find(key);
@@ -99,7 +85,7 @@ Tensor Dispatcher::getOrCreateShader(const OpNode &node) {
     return it->second;
   }
 
-  const auto &spirv = node.shader();
+  auto spirv = node.shader();
   if (!spirv.has_value())
     throw std::runtime_error("Dispatcher: node returned no shader");
   Tensor handle = iface_->createShaderModule(spirv.value());

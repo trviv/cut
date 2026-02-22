@@ -16,7 +16,7 @@ public:
 
   DataType shaderDtype() const override;
   std::optional<uint32_t> spec() const override;
-  const std::optional<std::vector<uint32_t>> &shader() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;

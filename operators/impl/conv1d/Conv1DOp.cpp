@@ -43,11 +43,8 @@ std::optional<uint32_t> Conv1DOpNode::spec() const {
   return resolvedVariant_;
 }
 
-const std::optional<std::vector<uint32_t>> &Conv1DOpNode::shader() const {
-  if (!shader_.has_value()) {
-    shader_ = getCompiledConv1D(resolvedVariant_, dtype_);
-  }
-  return shader_;
+std::optional<std::vector<uint32_t>> Conv1DOpNode::shader() const {
+  return getCompiledConv1D(resolvedVariant_, dtype_);
 }
 
 std::vector<uint32_t> Conv1DOpNode::outputShape() const {
