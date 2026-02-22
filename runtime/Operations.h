@@ -203,7 +203,6 @@ public:
                  std::optional<uint32_t> spec = {});
 
 private:
-  friend class Runtime;
   Runtime *runtime_;
 
   /// Returns the unpadded shape for a tensor handle.

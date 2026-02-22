@@ -48,6 +48,25 @@ public:
    */
   void releaseTempBuffers();
 
+  /**
+   * Acquires a temporary GPU buffer from the pool or creates a new one.
+   * Used by multi-pass OpNodes to allocate intermediate buffers.
+   * @param numElements Number of elements.
+   * @param dtype Data type of elements.
+   * @return Handle to the temporary buffer.
+   */
+  Tensor acquireTempBuffer(size_t numElements, DataType dtype);
+
+  /**
+   * Gets or creates an internal shader by OperatorEnum.
+   * Uses the shader generation system (getShader) to compile, then caches.
+   * @param op The operator enum (e.g., InternalScanPerWg).
+   * @param dtype Data type for dtype-parameterized shaders.
+   * @return Handle to the shader module.
+   */
+  Tensor getOrCreateInternalShader(OperatorEnum op,
+                                   DataType dtype = DataType::Float32);
+
 private:
   ComputeInterface *iface_;
 
@@ -61,28 +80,10 @@ private:
   std::unordered_map<size_t, Tensor> internalShaderCache_;
 
   /**
-   * Acquires a temporary GPU buffer from the pool or creates a new one.
-   * @param numElements Number of elements.
-   * @param dtype Data type of elements.
-   * @return Handle to the temporary buffer.
-   */
-  Tensor acquireTempBuffer(size_t numElements, DataType dtype);
-
-  /**
    * Encodes a compute-to-compute barrier.
    * Ensures prior shader writes are visible to subsequent shader reads.
    */
   void encodeBarrier();
-
-  /**
-   * Gets or creates an internal shader by OperatorEnum.
-   * Uses the shader generation system (getShader) to compile, then caches.
-   * @param op The operator enum (e.g., InternalScanPerWg).
-   * @param dtype Data type for dtype-parameterized shaders.
-   * @return Handle to the shader module.
-   */
-  Tensor getOrCreateInternalShader(OperatorEnum op,
-                                   DataType dtype = DataType::Float32);
 
   /**
    * Gets or creates a cached shader for a standard operator.
@@ -114,43 +115,6 @@ private:
                         const std::vector<ComputeBinding> &bindings,
                         ThreadSize threadSize,
                         const DataReference &pushData);
-
-  /**
-   * Dispatches an internal shader by OperatorEnum.
-   * Resolves the shader via getOrCreateInternalShader, then dispatches.
-   */
-  void dispatchInternal(OperatorEnum op,
-                        const std::vector<ComputeBinding> &bindings,
-                        ThreadSize threadSize,
-                        const DataReference &pushData);
-
-  /**
-   * Encodes a multi-workgroup reduction operation.
-   * Two-phase: partial reduce across workgroups, barrier, final reduce.
-   */
-  void encodeMultiWorkgroupReduce(OperatorEnum op,
-                                  const std::vector<ComputeBinding> &bindings,
-                                  size_t executionSize);
-
-  /**
-   * Encodes a prefix scan operation (exclusive or inclusive sum).
-   * Two-phase for large inputs: per-workgroup scan, then propagate prefixes.
-   */
-  void encodePrefixScan(OperatorEnum op,
-                        const std::vector<ComputeBinding> &bindings,
-                        size_t executionSize);
-
-  /**
-   * Encodes a bitonic sort operation (multi-pass compare-and-swap).
-   */
-  void encodeBitonicSort(const std::vector<ComputeBinding> &bindings,
-                         size_t executionSize);
-
-  /**
-   * Encodes a radix sort operation (multi-pass histogram + scatter).
-   */
-  void encodeRadixSort(const std::vector<ComputeBinding> &bindings,
-                       size_t executionSize);
 };
 
 } // namespace cut

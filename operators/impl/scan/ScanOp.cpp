@@ -1,4 +1,5 @@
 #include "ScanOp.h"
+#include "Dispatcher.h"
 #include "Runtime.h"
 
 namespace cut {
@@ -36,6 +37,52 @@ ThreadSize PrefixScanOpNode::dispatchSize() const {
 }
 std::vector<uint8_t> PrefixScanOpNode::pushConstants() const {
   return {};
+}
+
+void PrefixScanOpNode::buildSubOperations(Dispatcher &dispatcher) {
+  uint32_t numElements = static_cast<uint32_t>(numElements_);
+  uint32_t isExclusive = (op_ == PrefixScanExclusiveSum) ? 1u : 0u;
+  uint32_t groupCount = (numElements + 255) / 256;
+
+  Tensor inputHandle = inputs_[0];
+  Tensor outputHandle = output_;
+
+  struct ScanPC {
+    uint32_t numElements;
+    uint32_t isExclusive;
+  } scanPC{numElements, isExclusive};
+
+  if (groupCount <= 1) {
+    // Single workgroup: simple scan
+    Tensor partialSums = dispatcher.acquireTempBuffer(1, DataType::Float32);
+    subOps_.push_back(std::make_unique<InternalOpNode>(
+        InternalScanPerWg, DataType::Float32,
+        std::vector<Tensor>{inputHandle, outputHandle, partialSums},
+        ThreadSize{256, 1, 1}, toBytes(scanPC)));
+    return;
+  }
+
+  // Multi-workgroup: three-pass approach
+  Tensor partialSums =
+      dispatcher.acquireTempBuffer(groupCount, DataType::Float32);
+
+  // Pass 1: Per-workgroup scan
+  subOps_.push_back(std::make_unique<InternalOpNode>(
+      InternalScanPerWg, DataType::Float32,
+      std::vector<Tensor>{inputHandle, outputHandle, partialSums},
+      ThreadSize{256 * groupCount, 1, 1}, toBytes(scanPC), true));
+
+  // Pass 2: Exclusive scan on partial sums (single thread)
+  subOps_.push_back(std::make_unique<InternalOpNode>(
+      InternalScanPartialSums, DataType::Float32,
+      std::vector<Tensor>{partialSums}, ThreadSize{1, 1, 1},
+      toBytes(groupCount), true));
+
+  // Pass 3: Add group prefix to each element
+  subOps_.push_back(std::make_unique<InternalOpNode>(
+      InternalScanPropagate, DataType::Float32,
+      std::vector<Tensor>{partialSums, outputHandle},
+      ThreadSize{256 * groupCount, 1, 1}, toBytes(numElements)));
 }
 
 } // namespace cut

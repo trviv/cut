@@ -47,4 +47,47 @@ std::vector<ComputeBinding> OpNode::handleBindings() const {
   return bindings;
 }
 
+const std::vector<std::unique_ptr<OpNode>> &
+OpNode::subOperations(Dispatcher &dispatcher) {
+  if (subOps_.empty()) {
+    buildSubOperations(dispatcher);
+  }
+  return subOps_;
+}
+
+// ============================================================================
+// InternalOpNode
+// ============================================================================
+
+InternalOpNode::InternalOpNode(OperatorEnum op,
+                               DataType dtype,
+                               std::vector<Tensor> inputs,
+                               ThreadSize threadSize,
+                               std::vector<uint8_t> pushConstants,
+                               bool barrierAfter)
+    : OpNode(op), dtype_(dtype), threadSize_(threadSize),
+      pushConstants_(std::move(pushConstants)), barrierAfter_(barrierAfter) {
+  inputs_ = std::move(inputs);
+}
+
+DataType InternalOpNode::shaderDtype() const {
+  return dtype_;
+}
+
+std::vector<uint32_t> InternalOpNode::outputShape() const {
+  return {};
+}
+
+ThreadSize InternalOpNode::dispatchSize() const {
+  return threadSize_;
+}
+
+std::vector<uint8_t> InternalOpNode::pushConstants() const {
+  return pushConstants_;
+}
+
+bool InternalOpNode::needsBarrierAfter() const {
+  return barrierAfter_;
+}
+
 } // namespace cut

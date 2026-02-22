@@ -1,4 +1,5 @@
 #include "ReduceOp.h"
+#include "Dispatcher.h"
 #include "Runtime.h"
 
 namespace cut {
@@ -66,6 +67,42 @@ std::vector<uint8_t> GlobalReduceOpNode::pushConstants() const {
     uint32_t alignedInner;
   } pc{static_cast<uint32_t>(numElements_), actualInner_, alignedInner_};
   return toBytes(pc);
+}
+
+void GlobalReduceOpNode::buildSubOperations(Dispatcher &dispatcher) {
+  uint32_t numElements = static_cast<uint32_t>(numElements_);
+
+  // Each WG of 256 threads processes ~1024 elements, cap at 256 workgroups
+  uint32_t groupCount = (numElements + 1023) / 1024;
+  groupCount = std::min(groupCount, 256u);
+  groupCount = std::max(groupCount, 2u);
+
+  Tensor inputHandle = inputs_[0];
+  Tensor outputHandle = output_;
+
+  Tensor partialSums = dispatcher.acquireTempBuffer(groupCount, dtype_);
+
+  // Phase 1: Partial reduce — each workgroup reduces its batch
+  struct PartialPC {
+    uint32_t numElements;
+    uint32_t groupCount;
+    uint32_t reduceOp;
+  } partialPC{numElements, groupCount, static_cast<uint32_t>(op_)};
+  subOps_.push_back(std::make_unique<InternalOpNode>(
+      InternalPartialReduce, dtype_,
+      std::vector<Tensor>{inputHandle, partialSums},
+      ThreadSize{256 * groupCount, 1, 1}, toBytes(partialPC), true));
+
+  // Phase 2: Final reduce — single workgroup reduces partial sums
+  struct FinalPC {
+    uint32_t numElements;
+    uint32_t originalNumElements;
+    uint32_t reduceOp;
+  } finalPC{groupCount, numElements, static_cast<uint32_t>(op_)};
+  subOps_.push_back(std::make_unique<InternalOpNode>(
+      InternalFinalReduce, dtype_,
+      std::vector<Tensor>{partialSums, outputHandle}, ThreadSize{256, 1, 1},
+      toBytes(finalPC)));
 }
 
 // --- NormOpNode ---

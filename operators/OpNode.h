@@ -14,6 +14,7 @@
 
 namespace cut {
 
+class Dispatcher;
 class Runtime;
 
 // ============================================================================
@@ -99,9 +100,24 @@ public:
   /// Returns the ComputeBinding vector for dispatch encoding.
   virtual std::vector<ComputeBinding> handleBindings() const;
 
+  /// Populates and returns the sub-operations for composite/multi-pass ops.
+  /// On first call, invokes buildSubOperations() to populate subOps_.
+  /// Subsequent calls return the cached result.
+  const std::vector<std::unique_ptr<OpNode>> &
+  subOperations(Dispatcher &dispatcher);
+
+  /// Whether a barrier should be encoded after dispatching this node.
+  virtual bool needsBarrierAfter() const { return false; }
+
 protected:
   OpNode(OperatorEnum op, Runtime &runtime, std::optional<uint32_t> spec = {})
       : op_(op), runtime_(&runtime), spec_(spec) {}
+
+  /// Minimal constructor for internal nodes that don't need Runtime access.
+  explicit OpNode(OperatorEnum op) : op_(op), runtime_(nullptr) {}
+
+  /// Override in multi-pass subclasses to populate subOps_.
+  virtual void buildSubOperations(Dispatcher &dispatcher) {}
 
   OperatorEnum op_;
   Runtime *runtime_;
@@ -109,6 +125,38 @@ protected:
   std::vector<Tensor> inputs_;
   Tensor output_;
   bool hasOutput_ = false;
+  std::vector<std::unique_ptr<OpNode>> subOps_;
+};
+
+// ============================================================================
+// InternalOpNode — concrete OpNode for intermediate dispatches
+// ============================================================================
+
+/**
+ * Represents a single internal GPU dispatch within a multi-pass operation.
+ * Does not create output tensors or access Runtime — simply describes
+ * the shader, bindings, thread size, push constants, and barrier requirement.
+ */
+class InternalOpNode : public OpNode {
+public:
+  InternalOpNode(OperatorEnum op,
+                 DataType dtype,
+                 std::vector<Tensor> inputs,
+                 ThreadSize threadSize,
+                 std::vector<uint8_t> pushConstants,
+                 bool barrierAfter = false);
+
+  DataType shaderDtype() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+  bool needsBarrierAfter() const override;
+
+private:
+  DataType dtype_;
+  ThreadSize threadSize_;
+  std::vector<uint8_t> pushConstants_;
+  bool barrierAfter_;
 };
 
 } // namespace cut
