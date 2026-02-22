@@ -41,6 +41,13 @@ std::optional<uint32_t> MatMulOpNode::spec() const {
   return resolvedVariant_;
 }
 
+const std::optional<std::vector<uint32_t>> &MatMulOpNode::shader() const {
+  if (!shader_.has_value()) {
+    shader_ = getCompiledMatMul(resolvedVariant_, dtype_);
+  }
+  return shader_;
+}
+
 std::vector<uint32_t> MatMulOpNode::outputShape() const {
   return {M_, N_};
 }

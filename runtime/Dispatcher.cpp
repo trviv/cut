@@ -1,7 +1,6 @@
 #include "Dispatcher.h"
 
 #include "OpNode.h"
-#include "Shaders.h"
 #include <ComputeInterface.h>
 
 #include <cstring>
@@ -26,8 +25,7 @@ bool Dispatcher::encode(std::unique_ptr<OpNode> node) {
   if (node->isMultiPass()) {
     const auto &subOps = node->subOperations(*this);
     for (const auto &subOp : subOps) {
-      Tensor shader =
-          getOrCreateInternalShader(subOp->op(), subOp->shaderDtype());
+      Tensor shader = getOrCreateShader(*subOp);
       auto bindings = subOp->handleBindings();
       auto pushData = subOp->pushConstants();
       dispatchInternal(shader, bindings, subOp->dispatchSize(),
@@ -40,22 +38,8 @@ bool Dispatcher::encode(std::unique_ptr<OpNode> node) {
     return true;
   }
 
-  // Dim-reduce ops need internal shader lookup with spec constant patching
-  if (node->isDimReduce()) {
-    Tensor dimShader = getOrCreateDimReduceShader(
-        node->baseReduceOp(), node->shaderDtype(), node->spec());
-    auto bindings = node->handleBindings();
-    auto pushData = node->pushConstants();
-    ComputeDispatch dispatch(dimShader, node->dispatchSize(), bindings);
-    dispatch.bindData(DataReference(pushData.data(), pushData.size()),
-                      static_cast<uint32_t>(bindings.size()));
-    iface_->encode(std::move(dispatch));
-    return true;
-  }
-
-  // Standard single-dispatch ops: resolve shader here
-  Tensor shader =
-      getOrCreateShader(node->op(), node->shaderDtype(), node->spec());
+  // Single-dispatch ops: node resolves its own shader via shader()
+  Tensor shader = getOrCreateShader(*node);
   auto bindings = node->handleBindings();
   auto pushData = node->pushConstants();
   ComputeDispatch dispatch(shader, node->dispatchSize(), bindings);
@@ -108,92 +92,18 @@ void Dispatcher::dispatchInternal(const Tensor &shader,
   iface_->encode(std::move(dispatch));
 }
 
-Tensor Dispatcher::getOrCreateInternalShader(OperatorEnum op, DataType dtype) {
-  size_t key = static_cast<size_t>(op) | (static_cast<size_t>(dtype) << 16) |
-               (size_t(1) << 48);
-
-  auto it = internalShaderCache_.find(key);
-  if (it != internalShaderCache_.end()) {
+Tensor Dispatcher::getOrCreateShader(const OpNode &node) {
+  size_t key = node.shaderKey();
+  auto it = shaderCache_.find(key);
+  if (it != shaderCache_.end()) {
     return it->second;
   }
 
-  // Compile via the shader generation system
-  auto spirv = getShader(op, dtype);
-  Tensor handle = iface_->createShaderModule(spirv);
-  internalShaderCache_[key] = handle;
-  return handle;
-}
-
-Tensor Dispatcher::getOrCreateShader(OperatorEnum op,
-                                     DataType dtype,
-                                     std::optional<uint32_t> spec) {
-  // Use (3 << 48) prefix to distinguish from internal/dim-reduce shaders
-  size_t key = static_cast<size_t>(op) | (static_cast<size_t>(dtype) << 16) |
-               (size_t(3) << 48) |
-               (static_cast<size_t>(spec.value_or(0)) << 32);
-
-  auto it = internalShaderCache_.find(key);
-  if (it != internalShaderCache_.end()) {
-    return it->second;
-  }
-
-  Tensor shader;
-  if (spec.has_value()) {
-    uint32_t s = spec.value();
-    std::optional<std::vector<uint32_t>> spirv;
-    switch (op) {
-    case MatMul:
-      spirv = getCompiledMatMul(s, dtype);
-      break;
-    case Transpose:
-      spirv = getCompiledTranspose(s, dtype);
-      break;
-    case Conv1D:
-      spirv = getCompiledConv1D(s, dtype);
-      break;
-    case Conv2D:
-      spirv = getCompiledConv2D(s, dtype);
-      break;
-    case MaxPool2D:
-      spirv = getCompiledMaxPool2D(s, dtype);
-      break;
-    case AvgPool2D:
-      spirv = getCompiledAvgPool2D(s, dtype);
-      break;
-    default:
-      throw std::runtime_error("No spec support for op " + std::to_string(op));
-    }
-    if (!spirv.has_value()) {
-      throw std::runtime_error("Failed to get spec " + std::to_string(s) +
-                               " for op " + std::to_string(op));
-    }
-    shader = iface_->createShaderModule(spirv.value());
-  } else {
-    std::vector<uint32_t> spirv = getShader(op, dtype);
-    shader = iface_->createShaderModule(spirv);
-  }
-
-  internalShaderCache_[key] = shader;
-  return shader;
-}
-
-Tensor Dispatcher::getOrCreateDimReduceShader(OperatorEnum reduceOp,
-                                              DataType dtype,
-                                              std::optional<uint32_t> spec) {
-  // Use bit 49 to distinguish dim-reduce shaders from global-reduce shaders
-  // Include spec in the cache key (bits 32-47)
-  size_t key = static_cast<size_t>(reduceOp) |
-               (static_cast<size_t>(dtype) << 16) | (size_t(2) << 48) |
-               (static_cast<size_t>(spec.value_or(0)) << 32);
-
-  auto it = internalShaderCache_.find(key);
-  if (it != internalShaderCache_.end()) {
-    return it->second;
-  }
-
-  auto spirv = getDimReduceShader(reduceOp, dtype, spec);
-  Tensor handle = iface_->createShaderModule(spirv);
-  internalShaderCache_[key] = handle;
+  const auto &spirv = node.shader();
+  if (!spirv.has_value())
+    throw std::runtime_error("Dispatcher: node returned no shader");
+  Tensor handle = iface_->createShaderModule(spirv.value());
+  shaderCache_[key] = handle;
   return handle;
 }
 

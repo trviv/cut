@@ -1,4 +1,7 @@
 #include "OpNode.h"
+#include "Shaders.h"
+
+#include <optional>
 
 namespace cut {
 
@@ -29,6 +32,18 @@ size_t actualElementCount(const std::vector<uint32_t> &shape) {
 // ============================================================================
 // OpNode methods
 // ============================================================================
+
+const std::optional<std::vector<uint32_t>> &OpNode::shader() const {
+  if (!shader_.has_value()) {
+    shader_ = getShader(op_, shaderDtype());
+  }
+  return shader_;
+}
+
+size_t OpNode::shaderKey() const {
+  return static_cast<size_t>(op_) | (static_cast<size_t>(shaderDtype()) << 16) |
+         (static_cast<size_t>(spec().value_or(0)) << 32);
+}
 
 size_t OpNode::executionSize() const {
   auto ds = dispatchSize();

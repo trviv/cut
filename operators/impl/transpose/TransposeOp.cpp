@@ -33,6 +33,13 @@ std::optional<uint32_t> TransposeOpNode::spec() const {
   return resolvedVariant_;
 }
 
+const std::optional<std::vector<uint32_t>> &TransposeOpNode::shader() const {
+  if (!shader_.has_value()) {
+    shader_ = getCompiledTranspose(resolvedVariant_, dtype_);
+  }
+  return shader_;
+}
+
 std::vector<uint32_t> TransposeOpNode::outputShape() const {
   return {N_, M_};
 }

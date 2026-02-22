@@ -21,8 +21,8 @@ class OpNode;
  * Generates compute dispatches based on operator enums, inferring dtype
  * and workgroup size from buffer bindings.
  *
- * Also manages temporary GPU buffers and internal shaders for multi-pass
- * operations (multi-workgroup reduce, prefix scan, sort).
+ * Also manages temporary GPU buffers for multi-pass operations
+ * (multi-workgroup reduce, prefix scan, sort).
  */
 class Dispatcher {
 public:
@@ -34,8 +34,8 @@ public:
 
   /**
    * Encodes an operator dispatch using an OpNode.
-   * Handles shader resolution, sort early-out, multi-pass, and dim-reduce
-   * internally.
+   * The node provides its own shader SPIR-V via shader() and cache key
+   * via shaderKey(), so the Dispatcher doesn't need to branch on node type.
    *
    * @param node The operator node with all dispatch information.
    * @return true if commands were encoded, false if skipped (e.g. sort no-op).
@@ -57,16 +57,6 @@ public:
    */
   Tensor acquireTempBuffer(size_t numElements, DataType dtype);
 
-  /**
-   * Gets or creates an internal shader by OperatorEnum.
-   * Uses the shader generation system (getShader) to compile, then caches.
-   * @param op The operator enum (e.g., InternalScanPerWg).
-   * @param dtype Data type for dtype-parameterized shaders.
-   * @return Handle to the shader module.
-   */
-  Tensor getOrCreateInternalShader(OperatorEnum op,
-                                   DataType dtype = DataType::Float32);
-
 private:
   ComputeInterface *iface_;
 
@@ -76,8 +66,8 @@ private:
   /// Temporary buffers currently in use by the current multi-pass operation.
   std::vector<Tensor> activeTempBuffers_;
 
-  /// Internal shader cache keyed by (op, dtype) composite key.
-  std::unordered_map<size_t, Tensor> internalShaderCache_;
+  /// Shader cache keyed by OpNode::shaderKey().
+  std::unordered_map<size_t, Tensor> shaderCache_;
 
   /**
    * Encodes a compute-to-compute barrier.
@@ -86,25 +76,13 @@ private:
   void encodeBarrier();
 
   /**
-   * Gets or creates a cached shader for a standard operator.
-   * If spec is provided, looks up/creates a spec-specific shader.
+   * Gets or creates a cached shader module for an OpNode.
+   * Uses node.shaderKey() for caching and node.shader() on cache miss.
    */
-  Tensor getOrCreateShader(OperatorEnum op,
-                           DataType dtype,
-                           std::optional<uint32_t> spec);
-
-  /**
-   * Gets or creates a dim-wise reduction shader for a base reduce op.
-   * Uses getDimReduceShader() to compile the ReduceDim/ReduceDimArg template.
-   */
-  Tensor getOrCreateDimReduceShader(OperatorEnum reduceOp,
-                                    DataType dtype = DataType::Float32,
-                                    std::optional<uint32_t> spec = {});
+  Tensor getOrCreateShader(const OpNode &node);
 
   /**
    * Dispatches an internal shader with the given bindings and push constants.
-   * Handles shader lookup, dispatch creation, push constant binding, and
-   * encoding in a single call to reduce boilerplate in multi-pass operations.
    *
    * @param shader Pre-resolved shader handle.
    * @param bindings Buffer bindings for the dispatch.

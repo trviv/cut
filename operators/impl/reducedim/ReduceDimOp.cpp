@@ -1,5 +1,6 @@
 #include "ReduceDimOp.h"
 #include "Runtime.h"
+#include "Shaders.h"
 
 namespace cut {
 
@@ -58,15 +59,21 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
 DataType DimReduceOpNode::shaderDtype() const {
   return dtype_;
 }
-bool DimReduceOpNode::isDimReduce() const {
-  return true;
-}
-OperatorEnum DimReduceOpNode::baseReduceOp() const {
-  return op_;
-}
 
 std::optional<uint32_t> DimReduceOpNode::spec() const {
   return resolvedVariant_;
+}
+
+const std::optional<std::vector<uint32_t>> &DimReduceOpNode::shader() const {
+  if (!shader_.has_value()) {
+    shader_ = getDimReduceShader(op_, dtype_, resolvedVariant_);
+  }
+  return shader_;
+}
+
+size_t DimReduceOpNode::shaderKey() const {
+  return static_cast<size_t>(op_) | (static_cast<size_t>(dtype_) << 16) |
+         (size_t(1) << 48) | (static_cast<size_t>(resolvedVariant_) << 32);
 }
 
 std::vector<uint32_t> DimReduceOpNode::outputShape() const {

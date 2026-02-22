@@ -14,9 +14,9 @@ public:
                   std::optional<uint32_t> spec = {});
 
   DataType shaderDtype() const override;
-  bool isDimReduce() const override;
-  OperatorEnum baseReduceOp() const override;
   std::optional<uint32_t> spec() const override;
+  const std::optional<std::vector<uint32_t>> &shader() const override;
+  size_t shaderKey() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;

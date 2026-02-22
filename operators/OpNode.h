@@ -71,6 +71,15 @@ public:
   /// Returns the optional specialization index.
   virtual std::optional<uint32_t> spec() const { return spec_; }
 
+  /// Returns SPIR-V bytecode for this node's shader (cached).
+  /// Default calls getShader(op_, shaderDtype()). Override for variant ops
+  /// (MatMul, Transpose, etc.) and dim-reduce ops.
+  virtual const std::optional<std::vector<uint32_t>> &shader() const;
+
+  /// Returns a cache key for the Dispatcher's shader cache.
+  /// Default: op | (dtype << 16) | (spec << 32).
+  virtual size_t shaderKey() const;
+
   /// Returns the computed output shape.
   virtual std::vector<uint32_t> outputShape() const = 0;
 
@@ -85,14 +94,6 @@ public:
 
   /// Returns true if this op requires multi-pass dispatch (scan, sort, etc.).
   virtual bool isMultiPass() const { return false; }
-
-  /// Returns true if this op needs a dim-reduce shader (looked up internally
-  /// by Dispatcher).
-  virtual bool isDimReduce() const { return false; }
-
-  /// Returns the base reduce op for dim-reduce ops (used by Dispatcher to
-  /// look up the right dim-reduce shader variant).
-  virtual OperatorEnum baseReduceOp() const { return op(); }
 
   /// Returns the execution size (for multi-WG reduce threshold, etc.).
   virtual size_t executionSize() const;
@@ -126,6 +127,7 @@ protected:
   Tensor output_;
   bool hasOutput_ = false;
   std::vector<std::unique_ptr<OpNode>> subOps_;
+  mutable std::optional<std::vector<uint32_t>> shader_;
 };
 
 // ============================================================================
