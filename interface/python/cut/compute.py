@@ -671,13 +671,14 @@ _register_operations()
 # Special Operations - using C++ Operations layer
 # =============================================================================
 
-def sum(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
+def sum(a: Tensor, dim: Optional[int] = None, keepdim: bool = False) -> Union[float, 'Tensor']:
     """
     Compute the sum of elements in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
         dim: Dimension along which to reduce. If None, reduces all elements.
+        keepdim: Whether to keep the reduced dimension as size 1.
 
     Returns:
         If dim is None: scalar sum of all elements.
@@ -693,16 +694,21 @@ def sum(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     _ensure_initialized()
     result = _cut_compute.ops_reduce(OperatorEnum.ReduceSum, a._to_view(), dim)
     t = Tensor._from_view(result, a._dtype)
-    return t if dim is not None else t.item()
+    if dim is not None:
+        if keepdim:
+            t = unsqueeze(t, dim)
+        return t
+    return t.item()
 
 
-def mean(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
+def mean(a: Tensor, dim: Optional[int] = None, keepdim: bool = False) -> Union[float, 'Tensor']:
     """
     Compute the mean of elements in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
         dim: Dimension along which to reduce. If None, reduces all elements.
+        keepdim: Whether to keep the reduced dimension as size 1.
 
     Returns:
         If dim is None: scalar mean of all elements.
@@ -717,16 +723,21 @@ def mean(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     _ensure_initialized()
     result = _cut_compute.ops_reduce(OperatorEnum.ReduceMean, a._to_view(), dim)
     t = Tensor._from_view(result, a._dtype)
-    return t if dim is not None else t.item()
+    if dim is not None:
+        if keepdim:
+            t = unsqueeze(t, dim)
+        return t
+    return t.item()
 
 
-def min(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
+def min(a: Tensor, dim: Optional[int] = None, keepdim: bool = False) -> Union[float, 'Tensor']:
     """
     Find the minimum element in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
         dim: Dimension along which to reduce. If None, reduces all elements.
+        keepdim: Whether to keep the reduced dimension as size 1.
 
     Returns:
         If dim is None: scalar minimum.
@@ -741,16 +752,21 @@ def min(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     _ensure_initialized()
     result = _cut_compute.ops_reduce(OperatorEnum.ReduceMin, a._to_view(), dim)
     t = Tensor._from_view(result, a._dtype)
-    return t if dim is not None else t.item()
+    if dim is not None:
+        if keepdim:
+            t = unsqueeze(t, dim)
+        return t
+    return t.item()
 
 
-def max(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
+def max(a: Tensor, dim: Optional[int] = None, keepdim: bool = False) -> Union[float, 'Tensor']:
     """
     Find the maximum element in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
         dim: Dimension along which to reduce. If None, reduces all elements.
+        keepdim: Whether to keep the reduced dimension as size 1.
 
     Returns:
         If dim is None: scalar maximum.
@@ -765,16 +781,21 @@ def max(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     _ensure_initialized()
     result = _cut_compute.ops_reduce(OperatorEnum.ReduceMax, a._to_view(), dim)
     t = Tensor._from_view(result, a._dtype)
-    return t if dim is not None else t.item()
+    if dim is not None:
+        if keepdim:
+            t = unsqueeze(t, dim)
+        return t
+    return t.item()
 
 
-def prod(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
+def prod(a: Tensor, dim: Optional[int] = None, keepdim: bool = False) -> Union[float, 'Tensor']:
     """
     Compute the product of elements in the tensor, optionally along a dimension.
 
     Args:
         a: Input tensor
         dim: Dimension along which to reduce. If None, reduces all elements.
+        keepdim: Whether to keep the reduced dimension as size 1.
 
     Returns:
         If dim is None: scalar product of all elements.
@@ -789,16 +810,21 @@ def prod(a: Tensor, dim: Optional[int] = None) -> Union[float, 'Tensor']:
     _ensure_initialized()
     result = _cut_compute.ops_reduce(OperatorEnum.ReduceProd, a._to_view(), dim)
     t = Tensor._from_view(result, a._dtype)
-    return t if dim is not None else t.item()
+    if dim is not None:
+        if keepdim:
+            t = unsqueeze(t, dim)
+        return t
+    return t.item()
 
 
-def any(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
+def any(a: Tensor, dim: Optional[int] = None, keepdim: bool = False) -> Union[bool, 'Tensor']:
     """
     Check if any element in the tensor is non-zero, optionally along a dimension.
 
     Args:
         a: Input tensor
         dim: Dimension along which to reduce. If None, reduces all elements.
+        keepdim: Whether to keep the reduced dimension as size 1.
 
     Returns:
         If dim is None: True if any element is non-zero.
@@ -813,16 +839,21 @@ def any(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
     _ensure_initialized()
     result = _cut_compute.ops_reduce(OperatorEnum.ReduceAny, a._to_view(), dim)
     t = Tensor._from_view(result, a._dtype)
-    return t if dim is not None else t.item() != 0
+    if dim is not None:
+        if keepdim:
+            t = unsqueeze(t, dim)
+        return t
+    return t.item() != 0
 
 
-def all(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
+def all(a: Tensor, dim: Optional[int] = None, keepdim: bool = False) -> Union[bool, 'Tensor']:
     """
     Check if all elements in the tensor are non-zero, optionally along a dimension.
 
     Args:
         a: Input tensor
         dim: Dimension along which to reduce. If None, reduces all elements.
+        keepdim: Whether to keep the reduced dimension as size 1.
 
     Returns:
         If dim is None: True if all elements are non-zero.
@@ -837,7 +868,11 @@ def all(a: Tensor, dim: Optional[int] = None) -> Union[bool, 'Tensor']:
     _ensure_initialized()
     result = _cut_compute.ops_reduce(OperatorEnum.ReduceAll, a._to_view(), dim)
     t = Tensor._from_view(result, a._dtype)
-    return t if dim is not None else t.item() != 0
+    if dim is not None:
+        if keepdim:
+            t = unsqueeze(t, dim)
+        return t
+    return t.item() != 0
 
 
 def matmul(a: Tensor, b: Tensor, out: Optional[Tensor] = None) -> Tensor:
@@ -1348,7 +1383,11 @@ def norm(input: Tensor, p: Union[float, str] = 2, dim: Optional[int] = None,
     if p == 2 or p == 'fro':
         result = _cut_compute.ops_norm(input._to_view(), dim)
         t = Tensor._from_view(result, input._dtype)
-        return t if dim is not None else t
+        if dim is not None:
+            if keepdim:
+                t = unsqueeze(t, dim)
+            return t
+        return t
     elif dim is not None:
         raise NotImplementedError("Per-dimension norm only supports p=2 (L2 norm)")
 
@@ -1610,7 +1649,7 @@ def full_like(input: Tensor, fill_value: Union[int, float], dtype: Optional[DTyp
     return Tensor._from_view(result, d)
 
 
-def var(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[float, 'Tensor']:
+def var(a: Tensor, dim: Optional[int] = None, correction: int = 1, keepdim: bool = False) -> Union[float, 'Tensor']:
     """
     Compute the variance of elements, optionally along a dimension.
 
@@ -1620,6 +1659,7 @@ def var(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[floa
         a: Input tensor
         dim: Dimension along which to compute. If None, computes over all elements.
         correction: Degrees of freedom correction (default: 1 for unbiased)
+        keepdim: Whether to keep the reduced dimension as size 1.
 
     Returns:
         Variance value or tensor
@@ -1631,10 +1671,14 @@ def var(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[floa
     _ensure_initialized()
     result = _cut_compute.ops_variance(a._to_view(), correction, dim)
     t = Tensor._from_view(result, a._dtype)
-    return t if dim is not None else t.item()
+    if dim is not None:
+        if keepdim:
+            t = unsqueeze(t, dim)
+        return t
+    return t.item()
 
 
-def std(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[float, 'Tensor']:
+def std(a: Tensor, dim: Optional[int] = None, correction: int = 1, keepdim: bool = False) -> Union[float, 'Tensor']:
     """
     Compute the standard deviation of elements, optionally along a dimension.
 
@@ -1644,6 +1688,7 @@ def std(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[floa
         a: Input tensor
         dim: Dimension along which to compute. If None, computes over all elements.
         correction: Degrees of freedom correction (default: 1 for unbiased)
+        keepdim: Whether to keep the reduced dimension as size 1.
 
     Returns:
         Standard deviation value or tensor
@@ -1653,7 +1698,7 @@ def std(a: Tensor, dim: Optional[int] = None, correction: int = 1) -> Union[floa
         >>> std(a)  # 1.2910
     """
     _ensure_initialized()
-    v = var(a, dim=dim, correction=correction)
+    v = var(a, dim=dim, correction=correction, keepdim=keepdim)
     if dim is not None:
         return globals()['sqrt'](v)
     import math

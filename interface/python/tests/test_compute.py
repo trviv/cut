@@ -638,6 +638,96 @@ class TestDimReduce:
 
 
 # =============================================================================
+# Keepdim Tests
+# =============================================================================
+
+class TestKeepdim:
+    """Test keepdim argument for reduction operations."""
+
+    def test_sum_keepdim_dim0(self, backend):
+        """Test sum with keepdim=True along dim 0."""
+        data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.sum(t, dim=0, keepdim=True)
+        assert result.shape == (1, 3)
+        expected = data.sum(axis=0, keepdims=True)
+        np.testing.assert_allclose(to_numpy(result).reshape(expected.shape), expected, rtol=1e-5)
+
+    def test_sum_keepdim_dim1(self, backend):
+        """Test sum with keepdim=True along dim 1."""
+        data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.sum(t, dim=1, keepdim=True)
+        assert result.shape == (2, 1)
+        expected = data.sum(axis=1, keepdims=True)
+        np.testing.assert_allclose(to_numpy(result).reshape(expected.shape), expected, rtol=1e-5)
+
+    def test_mean_keepdim(self, backend):
+        """Test mean with keepdim=True."""
+        data = np.array([[2, 4], [6, 8], [10, 12]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.mean(t, dim=0, keepdim=True)
+        assert result.shape == (1, 2)
+        expected = data.mean(axis=0, keepdims=True)
+        np.testing.assert_allclose(to_numpy(result).reshape(expected.shape), expected, rtol=1e-5)
+
+    def test_max_keepdim(self, backend):
+        """Test max with keepdim=True."""
+        data = np.array([[3, 1, 4], [1, 5, 9]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.max(t, dim=1, keepdim=True)
+        assert result.shape == (2, 1)
+        expected = data.max(axis=1, keepdims=True)
+        np.testing.assert_allclose(to_numpy(result).reshape(expected.shape), expected, rtol=1e-5)
+
+    def test_min_keepdim(self, backend):
+        """Test min with keepdim=True."""
+        data = np.array([[3, 1, 4], [1, 5, 9]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.min(t, dim=0, keepdim=True)
+        assert result.shape == (1, 3)
+        expected = data.min(axis=0, keepdims=True)
+        np.testing.assert_allclose(to_numpy(result).reshape(expected.shape), expected, rtol=1e-5)
+
+    def test_prod_keepdim(self, backend):
+        """Test prod with keepdim=True."""
+        data = np.array([[1, 2], [3, 4]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.prod(t, dim=0, keepdim=True)
+        assert result.shape == (1, 2)
+        expected = data.prod(axis=0, keepdims=True)
+        np.testing.assert_allclose(to_numpy(result).reshape(expected.shape), expected, rtol=1e-5)
+
+    def test_keepdim_3d(self, backend):
+        """Test keepdim on a 3D tensor reduces middle dim."""
+        data = np.ones((3, 4, 5), dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.sum(t, dim=1, keepdim=True)
+        assert result.shape == (3, 1, 5)
+
+    def test_keepdim_false_unchanged(self, backend):
+        """Test that keepdim=False (default) matches original behavior."""
+        data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+        t = cc.Tensor(data.tolist())
+        result = cc.sum(t, dim=0, keepdim=False)
+        assert result.shape == (3,)
+        expected = data.sum(axis=0)
+        np.testing.assert_allclose(to_numpy(result), expected, rtol=1e-5)
+
+    def test_keepdim_values_match(self, backend):
+        """Test that keepdim=True produces same values as keepdim=False."""
+        data = np.random.randn(4, 5).astype(np.float32)
+        t = cc.Tensor(data.tolist())
+        result_no_keep = cc.sum(t, dim=1)
+        result_keep = cc.sum(t, dim=1, keepdim=True)
+        np.testing.assert_allclose(
+            to_numpy(result_keep).flatten(),
+            to_numpy(result_no_keep),
+            rtol=1e-5
+        )
+
+
+# =============================================================================
 # Dimension-wise Norm Tests
 # =============================================================================
 
