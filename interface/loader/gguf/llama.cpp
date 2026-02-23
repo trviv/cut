@@ -1,6 +1,7 @@
 #include "llama.h"
 #include "Operations.h"
 #include "Runtime.h"
+#include "model_report.h"
 
 #include <cmath>
 #include <cstring>
@@ -209,6 +210,17 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
   runtime_->flush();
   std::cout << "Model loaded successfully. Buffers: " << runtime_->bufferCount()
             << "\n";
+
+  // Generate HTML architecture report next to the model file.
+  {
+    std::string reportPath = gguf_path;
+    auto dot = reportPath.rfind('.');
+    if (dot != std::string::npos) {
+      reportPath = reportPath.substr(0, dot);
+    }
+    reportPath += "_report.html";
+    generateModelReport(reader, config_, reportPath);
+  }
 }
 
 // ============================================================================

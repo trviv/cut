@@ -4,12 +4,14 @@
 set(GGUF_LOADER_SOURCES
     gguf_reader.cpp
     llama.cpp
+    model_report.cpp
 )
 
 set(GGUF_LOADER_HEADERS
     gguf_types.hpp
     gguf_reader.hpp
     llama.h
+    model_report.h
 )
 
 # Create the GGUF loader library
