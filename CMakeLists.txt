@@ -114,6 +114,11 @@ set(LIB_HEADERS
     runtime/Runtime.h
     runtime/Dispatcher.h
     runtime/Operations.h
+    runtime/graph/GraphNode.h
+    runtime/graph/Graph.h
+    runtime/graph/GraphBuilder.h
+    runtime/graph/GraphOptimizer.h
+    runtime/graph/GraphExecutor.h
 )
 
 # Source files
@@ -150,6 +155,10 @@ set(LIB_SOURCES
     runtime/Runtime.cpp
     runtime/Dispatcher.cpp
     runtime/Operations.cpp
+    runtime/graph/Graph.cpp
+    runtime/graph/GraphBuilder.cpp
+    runtime/graph/GraphOptimizer.cpp
+    runtime/graph/GraphExecutor.cpp
 )
 
 if (OPENL_CL_WITH_VULKAN)

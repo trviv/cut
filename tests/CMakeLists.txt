@@ -52,6 +52,11 @@ set(RUNTIME_TEST_SOURCES
     runtime/RuntimeTests.cpp
 )
 
+# Graph test sources
+set(GRAPH_TEST_SOURCES
+    graph/GraphTests.cpp
+)
+
 # Create single test executable with all tests
 add_executable(tests
     Utils.h
@@ -59,6 +64,7 @@ add_executable(tests
     ${VULKAN_TEST_SOURCES}
     ${COMBINED_TEST_SOURCES}
     ${RUNTIME_TEST_SOURCES}
+    ${GRAPH_TEST_SOURCES}
 )
 
 # Include directories

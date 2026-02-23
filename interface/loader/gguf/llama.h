@@ -4,8 +4,13 @@
 
 #include <ComputeCommon.h>
 #include <ComputeHandle.h>
+#include <graph/Graph.h>
+#include <graph/GraphBuilder.h>
+#include <graph/GraphExecutor.h>
+#include <graph/GraphOptimizer.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -58,6 +63,20 @@ struct KVCache {
   std::vector<float> k_cache;
   std::vector<float> v_cache;
   uint32_t seq_len = 0; // Number of cached positions
+};
+
+/// A pre-built, optimized computation graph with handles to rebindable inputs.
+struct GraphTemplate {
+  cut::graph::Graph graph;
+  cut::graph::Graph preOptGraph; // snapshot before optimization passes
+  std::vector<cut::graph::VirtualTensor> dynamicInputs;
+};
+
+/// Pre-built graph templates for one transformer layer.
+struct LayerGraphs {
+  GraphTemplate qkvProjection;
+  GraphTemplate attnOutputResidual;
+  GraphTemplate ffnResidual;
 };
 
 /// LLaMA model that loads from GGUF and runs inference using CUT operators.
@@ -140,11 +159,22 @@ private:
                                int layer,
                                int pos);
 
-  // SwiGLU FFN
-  cut::ComputeHandle ffn(const cut::ComputeHandle &x, int layer);
-
   // Precompute RoPE tables
   void precomputeRoPE();
+
+  // Graph-based execution
+  std::vector<LayerGraphs> layerGraphs_;
+  GraphTemplate logitsGraph_;
+  std::unique_ptr<cut::graph::GraphExecutor> executor_;
+
+  void buildGraphTemplates();
+  GraphTemplate buildQKVProjectionGraph(const LlamaLayer &layer);
+  GraphTemplate buildAttnOutputResidualGraph(const LlamaLayer &layer);
+  GraphTemplate buildFFNResidualGraph(const LlamaLayer &layer);
+  GraphTemplate buildLogitsGraph();
+  std::vector<cut::Tensor>
+  executeGraph(GraphTemplate &tpl,
+               const std::vector<cut::ComputeHandle> &dynamicHandles);
 };
 
 } // namespace gguf

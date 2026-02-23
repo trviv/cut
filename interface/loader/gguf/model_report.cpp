@@ -63,17 +63,17 @@ static std::string htmlEscape(const std::string &s) {
 
 // Describes which CUT operators a GGUF tensor feeds into.
 struct OpMapping {
-  std::string role;       // human-readable role in the model
-  std::string cutOps;     // CUT operator chain
-  std::string graphNode;  // which architecture-graph node it maps to
-  std::string operands;   // operand flow: inputs, shapes, outputs
+  std::string role;      // human-readable role in the model
+  std::string cutOps;    // CUT operator chain
+  std::string graphNode; // which architecture-graph node it maps to
+  std::string operands;  // operand flow: inputs, shapes, outputs
 };
 
 // Determine the CUT operator mapping for a tensor based on its name.
 // Config dimensions are substituted at report-generation time, so we use
 // placeholders here that get replaced later.
-static OpMapping
-mapTensorToOps(const std::string &name, const LlamaConfig &cfg) {
+static OpMapping mapTensorToOps(const std::string &name,
+                                const LlamaConfig &cfg) {
   std::string D = std::to_string(cfg.dim);
   std::string KV = std::to_string(cfg.kv_dim);
   std::string FF = std::to_string(cfg.ffn_dim);
@@ -109,8 +109,7 @@ mapTensorToOps(const std::string &name, const LlamaConfig &cfg) {
 
   // output.weight — LM head projection
   if (name == "output.weight")
-    return {"LM Head", "transpose &rarr; matmul &rarr; ReduceArgmax",
-            "LM Head",
+    return {"LM Head", "transpose &rarr; matmul &rarr; ReduceArgmax", "LM Head",
             "operand: W [" + V + "," + D +
                 "] (GGUF)<br>"
                 "1. transpose(W) &rarr; W&#7488; [" +
@@ -124,7 +123,7 @@ mapTensorToOps(const std::string &name, const LlamaConfig &cfg) {
   // Per-layer tensors  (blk.N.suffix)
   auto dot1 = name.find('.');
   auto dot2 = (dot1 != std::string::npos) ? name.find('.', dot1 + 1)
-                                           : std::string::npos;
+                                          : std::string::npos;
   if (dot2 == std::string::npos)
     return {"", "", "", ""};
   std::string suffix = name.substr(dot2 + 1);
@@ -252,9 +251,283 @@ mapTensorToOps(const std::string &name, const LlamaConfig &cfg) {
   return {"", "", "", ""};
 }
 
+// =========================================================================
+// Optimized-graph SVG rendering helpers
+// =========================================================================
+
+static std::string graphNodeTypeName(cut::graph::GraphNodeType type) {
+  using GNT = cut::graph::GraphNodeType;
+  switch (type) {
+  case GNT::Input:
+    return "Input";
+  case GNT::BinaryOp:
+    return "BinaryOp";
+  case GNT::UnaryOp:
+    return "UnaryOp";
+  case GNT::VecScalarOp:
+    return "VecScalarOp";
+  case GNT::Reduce:
+    return "Reduce";
+  case GNT::MatMul:
+    return "MatMul";
+  case GNT::Transpose:
+    return "Transpose";
+  case GNT::Dot:
+    return "Dot";
+  case GNT::Clamp:
+    return "Clamp";
+  case GNT::Where:
+    return "Where";
+  case GNT::CumOp:
+    return "CumOp";
+  case GNT::Variance:
+    return "Variance";
+  case GNT::Softmax:
+    return "Softmax";
+  case GNT::LogSoftmax:
+    return "LogSoftmax";
+  case GNT::Reshape:
+    return "Reshape";
+  case GNT::Squeeze:
+    return "Squeeze";
+  case GNT::Unsqueeze:
+    return "Unsqueeze";
+  case GNT::Unflatten:
+    return "Unflatten";
+  case GNT::Flatten:
+    return "Flatten";
+  case GNT::Norm:
+    return "Norm";
+  case GNT::PrefixScan:
+    return "PrefixScan";
+  case GNT::Conv1d:
+    return "Conv1d";
+  case GNT::Conv2d:
+    return "Conv2d";
+  case GNT::MaxPool2d:
+    return "MaxPool2d";
+  case GNT::AvgPool2d:
+    return "AvgPool2d";
+  case GNT::AdaptiveAvgPool2d:
+    return "AdaptiveAvgPool2d";
+  case GNT::LayerNorm:
+    return "LayerNorm";
+  case GNT::BatchNorm:
+    return "BatchNorm";
+  case GNT::Embedding:
+    return "Embedding";
+  case GNT::Pad:
+    return "Pad";
+  }
+  return "Unknown";
+}
+
+static std::string nodeDetailStr(const cut::graph::GraphNode &node) {
+  using GNT = cut::graph::GraphNodeType;
+  switch (node.type) {
+  case GNT::BinaryOp:
+    return cut::operatorName(std::get<cut::graph::BinaryOpData>(node.data).op);
+  case GNT::UnaryOp:
+    return cut::operatorName(std::get<cut::graph::UnaryOpData>(node.data).op);
+  case GNT::VecScalarOp:
+    return cut::operatorName(
+        std::get<cut::graph::VecScalarOpData>(node.data).op);
+  case GNT::Reduce:
+    return cut::operatorName(std::get<cut::graph::ReduceData>(node.data).op);
+  case GNT::Input:
+    return std::get<cut::graph::InputData>(node.data).isConstant ? "constant"
+                                                                 : "dynamic";
+  default:
+    return "";
+  }
+}
+
+static std::string formatShape(const std::vector<uint32_t> &shape) {
+  std::string s = "[";
+  for (size_t i = 0; i < shape.size(); ++i) {
+    if (i > 0)
+      s += ", ";
+    s += std::to_string(shape[i]);
+  }
+  s += "]";
+  return s;
+}
+
+static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
+                                           const std::string &graphId) {
+  auto order = graph.topologicalOrder();
+  if (order.empty())
+    return "";
+
+  const auto &nodes = graph.nodes();
+
+  // Compute level (depth) for each node.
+  std::vector<int> level(nodes.size(), 0);
+  for (uint32_t idx : order) {
+    const auto &n = nodes[idx];
+    int maxInputLevel = -1;
+    for (const auto &inp : n.inputs) {
+      if (inp.isValid() && inp.id < nodes.size() && !nodes[inp.id].isRemoved) {
+        maxInputLevel = std::max(maxInputLevel, level[inp.id]);
+      }
+    }
+    level[idx] = maxInputLevel + 1;
+  }
+
+  // Group nodes by level.
+  int maxLevel = 0;
+  for (uint32_t idx : order)
+    maxLevel = std::max(maxLevel, level[idx]);
+
+  std::vector<std::vector<uint32_t>> levelNodes(maxLevel + 1);
+  for (uint32_t idx : order)
+    levelNodes[level[idx]].push_back(idx);
+
+  // Layout constants.
+  constexpr int nodeW = 150;
+  constexpr int nodeH = 52;
+  constexpr int hGap = 40;
+  constexpr int vGap = 60;
+  constexpr int padX = 60;
+  constexpr int padY = 30;
+
+  int maxNodesInLevel = 0;
+  for (auto &lv : levelNodes)
+    maxNodesInLevel = std::max(maxNodesInLevel, static_cast<int>(lv.size()));
+
+  int svgW = padX * 2 + maxNodesInLevel * nodeW + (maxNodesInLevel - 1) * hGap;
+  if (svgW < 500)
+    svgW = 500;
+  int svgH = padY * 2 + (maxLevel + 1) * nodeH + maxLevel * vGap;
+
+  // Compute node positions.
+  struct NodePos {
+    int x = 0, y = 0;
+  };
+  std::vector<NodePos> pos(nodes.size());
+
+  for (int lv = 0; lv <= maxLevel; ++lv) {
+    auto &ln = levelNodes[lv];
+    int totalW = static_cast<int>(ln.size()) * nodeW +
+                 (static_cast<int>(ln.size()) - 1) * hGap;
+    int startX = (svgW - totalW) / 2;
+    int ny = padY + lv * (nodeH + vGap);
+    for (size_t i = 0; i < ln.size(); ++i) {
+      pos[ln[i]] = {startX + static_cast<int>(i) * (nodeW + hGap), ny};
+    }
+  }
+
+  // Build SVG.
+  std::ostringstream svg;
+  std::string markerId = "opt-arrow-" + graphId;
+
+  svg << "<svg class=\"arch-svg\" width=\"" << svgW << "\" height=\"" << svgH
+      << "\" xmlns=\"http://www.w3.org/2000/svg\">\n";
+  svg << "<defs><marker id=\"" << markerId
+      << "\" markerWidth=\"8\" markerHeight=\"6\" "
+         "refX=\"8\" refY=\"3\" orient=\"auto\">"
+         "<polygon points=\"0 0, 8 3, 0 6\" fill=\"#d0d7de\"/>"
+         "</marker></defs>\n";
+
+  // Draw edges (behind nodes).
+  for (uint32_t idx : order) {
+    const auto &n = nodes[idx];
+    for (const auto &inp : n.inputs) {
+      if (inp.isValid() && inp.id < nodes.size() && !nodes[inp.id].isRemoved) {
+        int x1 = pos[inp.id].x + nodeW / 2;
+        int y1 = pos[inp.id].y + nodeH;
+        int x2 = pos[idx].x + nodeW / 2;
+        int y2 = pos[idx].y;
+        svg << "<line x1=\"" << x1 << "\" y1=\"" << y1 << "\" x2=\"" << x2
+            << "\" y2=\"" << y2
+            << "\" stroke=\"#b0b8c1\" stroke-width=\"1.5\" "
+               "marker-end=\"url(#"
+            << markerId << ")\"/>\n";
+      }
+    }
+  }
+
+  // Draw nodes.
+  for (uint32_t idx : order) {
+    const auto &n = nodes[idx];
+    int x = pos[idx].x, ny = pos[idx].y;
+
+    // Choose fill colour based on node type.
+    std::string fill;
+    using GNT = cut::graph::GraphNodeType;
+    switch (n.type) {
+    case GNT::Input:
+      fill = "#e0e7ff";
+      break;
+    case GNT::MatMul:
+      fill = "#dbeafe";
+      break;
+    case GNT::BinaryOp:
+    case GNT::UnaryOp:
+    case GNT::VecScalarOp:
+      fill = "#dcfce7";
+      break;
+    case GNT::Reshape:
+    case GNT::Squeeze:
+    case GNT::Unsqueeze:
+    case GNT::Flatten:
+    case GNT::Unflatten:
+      fill = "#f3f4f6";
+      break;
+    case GNT::Reduce:
+      fill = "#fef3c7";
+      break;
+    default:
+      fill = "#f0f4ff";
+      break;
+    }
+
+    std::string stroke = n.isOutput ? "#0969da" : "#d0d7de";
+    int strokeW = n.isOutput ? 2 : 1;
+
+    svg << "<g class=\"node\"><rect x=\"" << x << "\" y=\"" << ny
+        << "\" width=\"" << nodeW << "\" height=\"" << nodeH << "\" fill=\""
+        << fill << "\" stroke=\"" << stroke << "\" stroke-width=\"" << strokeW
+        << "\" rx=\"6\" ry=\"6\"/>";
+
+    std::string label = graphNodeTypeName(n.type);
+    std::string detail = nodeDetailStr(n);
+
+    int labelY = detail.empty() ? (ny + nodeH / 2 + 4) : (ny + nodeH / 2 - 4);
+    svg << "<text x=\"" << (x + nodeW / 2) << "\" y=\"" << labelY
+        << "\" text-anchor=\"middle\" font-size=\"11\" fill=\"#1f2328\" "
+           "font-weight=\"600\" "
+           "font-family=\"-apple-system, sans-serif\">"
+        << htmlEscape(label) << "</text>";
+
+    if (!detail.empty()) {
+      svg << "<text x=\"" << (x + nodeW / 2) << "\" y=\""
+          << (ny + nodeH / 2 + 9)
+          << "\" text-anchor=\"middle\" font-size=\"8\" fill=\"#bf8700\" "
+             "font-family=\"-apple-system, sans-serif\">"
+          << htmlEscape(detail) << "</text>";
+    }
+
+    // Shape annotation to the right of the node.
+    if (!n.outputShape.empty()) {
+      svg << "<text x=\"" << (x + nodeW + 5) << "\" y=\""
+          << (ny + nodeH / 2 + 4)
+          << "\" font-size=\"8\" fill=\"#0e7c86\" "
+             "font-family=\"'SF Mono', 'Fira Code', monospace\">"
+          << htmlEscape(formatShape(n.outputShape)) << "</text>";
+    }
+
+    svg << "</g>\n";
+  }
+
+  svg << "</svg>\n";
+  return svg.str();
+}
+
 void generateModelReport(const GGUFReader &reader,
                          const LlamaConfig &config,
-                         const std::string &output_path) {
+                         const std::string &output_path,
+                         const std::vector<NamedGraph> &optimizedGraphs) {
   const auto &meta = reader.metadata();
   const auto &tensors = reader.tensors();
 
@@ -287,10 +560,10 @@ void generateModelReport(const GGUFReader &reader,
       << htmlEscape(modelName) << R"( - Model Architecture Report</title>
 <style>
   :root {
-    --bg: #0d1117; --surface: #161b22; --border: #30363d;
-    --text: #e6edf3; --dim: #8b949e; --accent: #58a6ff;
-    --green: #3fb950; --orange: #d29922; --purple: #bc8cff;
-    --red: #f85149; --cyan: #39d2c0;
+    --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de;
+    --text: #1f2328; --dim: #656d76; --accent: #0969da;
+    --green: #1a7f37; --orange: #bf8700; --purple: #8250df;
+    --red: #cf222e; --cyan: #0e7c86;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
@@ -338,6 +611,12 @@ void generateModelReport(const GGUFReader &reader,
   .mapping-table .tensor-name { color: var(--purple); }
   .mapping-table .arrow-col { color: var(--dim); text-align: center; width: 30px; }
   .mapping-table .graph-node { color: var(--green); font-size: 0.8rem; }
+  .graph-compare { display: flex; gap: 24px; align-items: flex-start; }
+  .graph-compare > div { flex: 1; min-width: 0; }
+  .graph-compare .graph-label { font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--dim); margin-bottom: 4px; padding: 4px 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px; display: inline-block; }
+  .graph-compare .graph-label.optimized { color: var(--green); }
 </style>
 </head>
 <body>
@@ -399,7 +678,7 @@ void generateModelReport(const GGUFReader &reader,
                       const std::string &cutOp = "") {
     s << "<g class=\"node\"><rect x=\"" << x << "\" y=\"" << ny << "\" width=\""
       << w << "\" height=\"" << h << "\" fill=\"" << fill
-      << "\" stroke=\"#30363d\"/>";
+      << "\" stroke=\"#d0d7de\"/>";
     // Main label (shifted up if there's a cutOp subtitle)
     int labelY = cutOp.empty() ? (ny + h / 2 + 4) : (ny + h / 2 - 2);
     s << "<text x=\"" << (x + w / 2) << "\" y=\"" << labelY
@@ -408,13 +687,13 @@ void generateModelReport(const GGUFReader &reader,
     // CUT operator subtitle
     if (!cutOp.empty()) {
       s << "<text x=\"" << (x + w / 2) << "\" y=\"" << (ny + h / 2 + 12)
-        << "\" text-anchor=\"middle\" font-size=\"8\" fill=\"#d29922\">"
+        << "\" text-anchor=\"middle\" font-size=\"8\" fill=\"#bf8700\">"
         << htmlEscape(cutOp) << "</text>";
     }
     // Dimension annotation to the right
     if (!dimLabel.empty()) {
       s << "<text x=\"" << (x + w + 6) << "\" y=\"" << (ny + h / 2 + 4)
-        << "\" font-size=\"9\" fill=\"#39d2c0\">" << htmlEscape(dimLabel)
+        << "\" font-size=\"9\" fill=\"#0e7c86\">" << htmlEscape(dimLabel)
         << "</text>";
     }
     s << "</g>\n";
@@ -426,10 +705,8 @@ void generateModelReport(const GGUFReader &reader,
   //   UnarySquare.in[0]")
   // labelSide: 1 = right of midpoint (default), -1 = left.
   auto emitArrow = [&](std::ostream &s, int x1, int y1h, int x2, int y2t,
-                       bool dashed = false,
-                       const std::string &edgeLabel = "",
-                       const std::string &flowLabel = "",
-                       int labelSide = 1) {
+                       bool dashed = false, const std::string &edgeLabel = "",
+                       const std::string &flowLabel = "", int labelSide = 1) {
     s << "<line x1=\"" << x1 << "\" y1=\"" << y1h << "\" x2=\"" << x2
       << "\" y2=\"" << y2t << "\" class=\"" << (dashed ? "edge-data" : "edge")
       << "\"/>\n";
@@ -440,12 +717,12 @@ void generateModelReport(const GGUFReader &reader,
       std::string anchor = labelSide >= 0 ? "start" : "end";
       if (!edgeLabel.empty()) {
         s << "<text x=\"" << (mx + offsetX) << "\" y=\"" << (my - 1)
-          << "\" font-size=\"8\" fill=\"#8b949e\" text-anchor=\"" << anchor
+          << "\" font-size=\"8\" fill=\"#656d76\" text-anchor=\"" << anchor
           << "\">" << htmlEscape(edgeLabel) << "</text>\n";
       }
       if (!flowLabel.empty()) {
         s << "<text x=\"" << (mx + offsetX) << "\" y=\"" << (my + 9)
-          << "\" font-size=\"7\" fill=\"#d29922\" text-anchor=\"" << anchor
+          << "\" font-size=\"7\" fill=\"#bf8700\" text-anchor=\"" << anchor
           << "\">" << htmlEscape(flowLabel) << "</text>\n";
       }
     }
@@ -460,18 +737,18 @@ void generateModelReport(const GGUFReader &reader,
   svg << "<defs>\n";
   svg << "  <marker id=\"arrowhead\" markerWidth=\"8\" markerHeight=\"6\" "
          "refX=\"8\" refY=\"3\" orient=\"auto\">\n";
-  svg << "    <polygon points=\"0 0, 8 3, 0 6\" fill=\"#30363d\"/>\n";
+  svg << "    <polygon points=\"0 0, 8 3, 0 6\" fill=\"#d0d7de\"/>\n";
   svg << "  </marker>\n";
   svg << "  <marker id=\"arrowhead-blue\" markerWidth=\"8\" markerHeight=\"6\" "
          "refX=\"8\" refY=\"3\" orient=\"auto\">\n";
-  svg << "    <polygon points=\"0 0, 8 3, 0 6\" fill=\"#58a6ff\"/>\n";
+  svg << "    <polygon points=\"0 0, 8 3, 0 6\" fill=\"#0969da\"/>\n";
   svg << "  </marker>\n";
   svg << "</defs>\n";
 
-  std::string cFill = "#1c2333";   // compute node
-  std::string wFill = "#1a2332";   // weight node
-  std::string opFill = "#1e2a1e";  // operation node
-  std::string resFill = "#2a1e1e"; // residual node
+  std::string cFill = "#dbeafe";   // compute node (light blue)
+  std::string wFill = "#e0e7ff";   // weight node (light indigo)
+  std::string opFill = "#dcfce7";  // operation node (light green)
+  std::string resFill = "#fef2f2"; // residual node (light red)
 
   int nx = cx - nodeW / 2;
   // Dimension strings
@@ -481,13 +758,12 @@ void generateModelReport(const GGUFReader &reader,
   std::string vocabStr = std::to_string(config.vocab_size);
 
   // ---- Input ----
-  emitNode(svg, nx, y, nodeW, nodeH, "Token Input", "#1a1e2e", "[1] token_id",
+  emitNode(svg, nx, y, nodeW, nodeH, "Token Input", "#f0f4ff", "[1] token_id",
            "");
   int prevY = y + nodeH;
   y += gapY;
 
-  emitArrow(svg, cx, prevY, cx, y, false, "token_id (int)",
-           "-> lookup.in[0]");
+  emitArrow(svg, cx, prevY, cx, y, false, "token_id (int)", "-> lookup.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "Embedding", wFill,
            "[" + vocabStr + ", " + dimStr + "]", "CPU lookup");
   prevY = y + nodeH;
@@ -496,7 +772,7 @@ void generateModelReport(const GGUFReader &reader,
   // ---- Layer box ----
   int layerBoxY = y - 8;
   emitArrow(svg, cx, prevY, cx, y, false, "hidden [" + dimStr + "]",
-           "lookup.out -> UnarySquare.in[0]");
+            "lookup.out -> UnarySquare.in[0]");
   int residX = cx + colSpacing + 30; // residual bypass column
 
   // -- Attention block --
@@ -504,8 +780,7 @@ void generateModelReport(const GGUFReader &reader,
   int residStartY = y + nodeH / 2;
 
   emitNode(svg, nx, y, nodeW, nodeH, "RMS Norm", opFill,
-           "attn_norm [" + dimStr + "]",
-           "Square > Sum > Scale > Mul");
+           "attn_norm [" + dimStr + "]", "Square > Sum > Scale > Mul");
   prevY = y + nodeH;
   y += gapY;
 
@@ -514,15 +789,12 @@ void generateModelReport(const GGUFReader &reader,
   int kx = cx - nodeW / 2;
   int vx = cx + colSpacing - nodeW / 2;
 
-  emitArrow(svg, cx, prevY, qx + nodeW / 2, y, false,
-           "normed [" + dimStr + "]",
-           "VecVecMul.out -> transpose.in[0]", -1);
-  emitArrow(svg, cx, prevY, kx + nodeW / 2, y, false,
-           "normed [" + dimStr + "]",
-           "VecVecMul.out -> transpose.in[0]");
-  emitArrow(svg, cx, prevY, vx + nodeW / 2, y, false,
-           "normed [" + dimStr + "]",
-           "VecVecMul.out -> transpose.in[0]");
+  emitArrow(svg, cx, prevY, qx + nodeW / 2, y, false, "normed [" + dimStr + "]",
+            "VecVecMul.out -> transpose.in[0]", -1);
+  emitArrow(svg, cx, prevY, kx + nodeW / 2, y, false, "normed [" + dimStr + "]",
+            "VecVecMul.out -> transpose.in[0]");
+  emitArrow(svg, cx, prevY, vx + nodeW / 2, y, false, "normed [" + dimStr + "]",
+            "VecVecMul.out -> transpose.in[0]");
 
   emitNode(svg, qx, y, nodeW, nodeH, "Q Projection", wFill,
            "[" + dimStr + ", " + dimStr + "]", "transpose > matmul");
@@ -535,11 +807,9 @@ void generateModelReport(const GGUFReader &reader,
 
   // RoPE on Q and K
   emitArrow(svg, qx + nodeW / 2, qkvY, qx + nodeW / 2, y, false,
-           "q [" + dimStr + "]",
-           "matmul.out -> rotation.in[0]");
+            "q [" + dimStr + "]", "matmul.out -> rotation.in[0]");
   emitArrow(svg, kx + nodeW / 2, qkvY, kx + nodeW / 2, y, false,
-           "k [" + kvDimStr + "]",
-           "matmul.out -> rotation.in[0]");
+            "k [" + kvDimStr + "]", "matmul.out -> rotation.in[0]");
 
   emitNode(svg, qx, y, nodeW, nodeH, "RoPE (Q)", opFill, "", "CPU rotation");
   emitNode(svg, kx, y, nodeW, nodeH, "RoPE (K)", opFill, "", "CPU rotation");
@@ -548,15 +818,12 @@ void generateModelReport(const GGUFReader &reader,
   y += gapY;
 
   // Attention
-  emitArrow(svg, qx + nodeW / 2, ropeY, cx, y, false,
-           "q_rot [" + dimStr + "]",
-           "rotation.out -> dot.in[0] (query)", -1);
+  emitArrow(svg, qx + nodeW / 2, ropeY, cx, y, false, "q_rot [" + dimStr + "]",
+            "rotation.out -> dot.in[0] (query)", -1);
   emitArrow(svg, kx + nodeW / 2, ropeY, cx, y, false,
-           "k_rot [" + kvDimStr + "]",
-           "rotation.out -> dot.in[1] (key)", -1);
-  emitArrow(svg, vx + nodeW / 2, qkvY, cx, y, false,
-           "v [" + kvDimStr + "]",
-           "matmul.out -> sum.in[1] (value)");
+            "k_rot [" + kvDimStr + "]", "rotation.out -> dot.in[1] (key)", -1);
+  emitArrow(svg, vx + nodeW / 2, qkvY, cx, y, false, "v [" + kvDimStr + "]",
+            "matmul.out -> sum.in[1] (value)");
 
   emitNode(svg, nx, y, nodeW, nodeH, "Attention", opFill, "scaled dot-product",
            "dot > softmax (CPU)");
@@ -565,7 +832,7 @@ void generateModelReport(const GGUFReader &reader,
 
   // Output projection
   emitArrow(svg, cx, prevY, cx, y, false, "attn_out [" + dimStr + "]",
-           "concat.out -> transpose.in[0]");
+            "concat.out -> transpose.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "O Projection", wFill,
            "wo [" + dimStr + ", " + dimStr + "]", "transpose > matmul");
   prevY = y + nodeH;
@@ -573,7 +840,7 @@ void generateModelReport(const GGUFReader &reader,
 
   // Residual add
   emitArrow(svg, cx, prevY, cx, y, false, "proj [" + dimStr + "]",
-           "matmul.out -> VecVecAdd.in[1]");
+            "matmul.out -> VecVecAdd.in[1]");
   // Draw residual bypass line
   svg << "<polyline points=\"" << (cx + nodeW / 2 + 4) << "," << residStartY
       << " " << residX << "," << residStartY << " " << residX << ","
@@ -582,11 +849,11 @@ void generateModelReport(const GGUFReader &reader,
   // Residual bypass label (two lines: tensor + flow)
   svg << "<text x=\"" << (residX + 6) << "\" y=\""
       << ((residStartY + y + nodeH / 2) / 2 - 1)
-      << "\" font-size=\"8\" fill=\"#58a6ff\">hidden [" << dimStr
+      << "\" font-size=\"8\" fill=\"#0969da\">hidden [" << dimStr
       << "] (residual)</text>\n";
   svg << "<text x=\"" << (residX + 6) << "\" y=\""
       << ((residStartY + y + nodeH / 2) / 2 + 9)
-      << "\" font-size=\"7\" fill=\"#d29922\">-> VecVecAdd.in[0]</text>\n";
+      << "\" font-size=\"7\" fill=\"#bf8700\">-> VecVecAdd.in[0]</text>\n";
 
   emitNode(svg, nx, y, nodeW, nodeH, "Add (residual)", resFill,
            "[" + dimStr + "]", "VecVecAdd");
@@ -597,10 +864,9 @@ void generateModelReport(const GGUFReader &reader,
   int ffnResidStartY = y + nodeH / 2;
 
   emitArrow(svg, cx, prevY, cx, y, false, "hidden [" + dimStr + "]",
-           "VecVecAdd.out -> UnarySquare.in[0]");
+            "VecVecAdd.out -> UnarySquare.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "RMS Norm", opFill,
-           "ffn_norm [" + dimStr + "]",
-           "Square > Sum > Scale > Mul");
+           "ffn_norm [" + dimStr + "]", "Square > Sum > Scale > Mul");
   prevY = y + nodeH;
   y += gapY;
 
@@ -609,11 +875,9 @@ void generateModelReport(const GGUFReader &reader,
   int upX = cx + colSpacing / 2 - nodeW / 2;
 
   emitArrow(svg, cx, prevY, gateX + nodeW / 2, y, false,
-           "normed [" + dimStr + "]",
-           "VecVecMul.out -> transpose.in[0]", -1);
+            "normed [" + dimStr + "]", "VecVecMul.out -> transpose.in[0]", -1);
   emitArrow(svg, cx, prevY, upX + nodeW / 2, y, false,
-           "normed [" + dimStr + "]",
-           "VecVecMul.out -> transpose.in[0]");
+            "normed [" + dimStr + "]", "VecVecMul.out -> transpose.in[0]");
 
   emitNode(svg, gateX, y, nodeW, nodeH, "Gate Proj", wFill,
            "[" + dimStr + ", " + ffnDimStr + "]", "transpose > matmul");
@@ -624,8 +888,7 @@ void generateModelReport(const GGUFReader &reader,
 
   // SiLU on gate
   emitArrow(svg, gateX + nodeW / 2, gateUpY, gateX + nodeW / 2, y, false,
-           "gate [" + ffnDimStr + "]",
-           "matmul.out -> UnarySilu.in[0]");
+            "gate [" + ffnDimStr + "]", "matmul.out -> UnarySilu.in[0]");
   emitNode(svg, gateX, y, nodeW, nodeH, "SiLU", opFill, "[" + ffnDimStr + "]",
            "UnarySilu");
   int siluY = y + nodeH;
@@ -633,11 +896,10 @@ void generateModelReport(const GGUFReader &reader,
 
   // Multiply gate * up
   emitArrow(svg, gateX + nodeW / 2, siluY, cx, y, false,
-           "silu(gate) [" + ffnDimStr + "]",
-           "UnarySilu.out -> VecVecMul.in[0]", -1);
+            "silu(gate) [" + ffnDimStr + "]",
+            "UnarySilu.out -> VecVecMul.in[0]", -1);
   emitArrow(svg, upX + nodeW / 2, gateUpY, cx, y, false,
-           "up [" + ffnDimStr + "]",
-           "matmul.out -> VecVecMul.in[1]");
+            "up [" + ffnDimStr + "]", "matmul.out -> VecVecMul.in[1]");
   emitNode(svg, nx, y, nodeW, nodeH, "Multiply", opFill, "[" + ffnDimStr + "]",
            "VecVecMul");
   prevY = y + nodeH;
@@ -645,16 +907,15 @@ void generateModelReport(const GGUFReader &reader,
 
   // Down projection
   emitArrow(svg, cx, prevY, cx, y, false, "gate_up [" + ffnDimStr + "]",
-           "VecVecMul.out -> transpose.in[0]");
+            "VecVecMul.out -> transpose.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "Down Proj", wFill,
-           "w_down [" + ffnDimStr + ", " + dimStr + "]",
-           "transpose > matmul");
+           "w_down [" + ffnDimStr + ", " + dimStr + "]", "transpose > matmul");
   prevY = y + nodeH;
   y += gapY;
 
   // Residual add
   emitArrow(svg, cx, prevY, cx, y, false, "down [" + dimStr + "]",
-           "matmul.out -> VecVecAdd.in[1]");
+            "matmul.out -> VecVecAdd.in[1]");
   svg << "<polyline points=\"" << (cx + nodeW / 2 + 4) << "," << ffnResidStartY
       << " " << residX << "," << ffnResidStartY << " " << residX << ","
       << (y + nodeH / 2) << " " << (cx + nodeW / 2) << "," << (y + nodeH / 2)
@@ -662,11 +923,11 @@ void generateModelReport(const GGUFReader &reader,
   // Residual bypass label (two lines: tensor + flow)
   svg << "<text x=\"" << (residX + 6) << "\" y=\""
       << ((ffnResidStartY + y + nodeH / 2) / 2 - 1)
-      << "\" font-size=\"8\" fill=\"#58a6ff\">hidden [" << dimStr
+      << "\" font-size=\"8\" fill=\"#0969da\">hidden [" << dimStr
       << "] (residual)</text>\n";
   svg << "<text x=\"" << (residX + 6) << "\" y=\""
       << ((ffnResidStartY + y + nodeH / 2) / 2 + 9)
-      << "\" font-size=\"7\" fill=\"#d29922\">-> VecVecAdd.in[0]</text>\n";
+      << "\" font-size=\"7\" fill=\"#bf8700\">-> VecVecAdd.in[0]</text>\n";
 
   emitNode(svg, nx, y, nodeW, nodeH, "Add (residual)", resFill,
            "[" + dimStr + "]", "VecVecAdd");
@@ -685,24 +946,22 @@ void generateModelReport(const GGUFReader &reader,
 
   // ---- Output ----
   emitArrow(svg, cx, prevY, cx, y, false, "hidden [" + dimStr + "]",
-           "VecVecAdd.out -> UnarySquare.in[0]");
+            "VecVecAdd.out -> UnarySquare.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "RMS Norm", opFill,
-           "output_norm [" + dimStr + "]",
-           "Square > Sum > Scale > Mul");
+           "output_norm [" + dimStr + "]", "Square > Sum > Scale > Mul");
   prevY = y + nodeH;
   y += gapY;
 
   emitArrow(svg, cx, prevY, cx, y, false, "normed [" + dimStr + "]",
-           "VecVecMul.out -> transpose.in[0]");
+            "VecVecMul.out -> transpose.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "LM Head", wFill,
-           "output [" + dimStr + ", " + vocabStr + "]",
-           "transpose > matmul");
+           "output [" + dimStr + ", " + vocabStr + "]", "transpose > matmul");
   prevY = y + nodeH;
   y += gapY;
 
   emitArrow(svg, cx, prevY, cx, y, false, "logits [" + vocabStr + "]",
-           "matmul.out -> ReduceArgmax.in[0]");
-  emitNode(svg, nx, y, nodeW, nodeH, "Logits", "#1a1e2e",
+            "matmul.out -> ReduceArgmax.in[0]");
+  emitNode(svg, nx, y, nodeW, nodeH, "Logits", "#f0f4ff",
            "[1, " + vocabStr + "]", "ReduceArgmax");
 
   svg << "</svg>\n";
@@ -747,35 +1006,35 @@ void generateModelReport(const GGUFReader &reader,
     op << "<defs>\n";
     op << "  <marker id=\"op-arrow\" markerWidth=\"8\" markerHeight=\"6\" "
           "refX=\"8\" refY=\"3\" orient=\"auto\">\n";
-    op << "    <polygon points=\"0 0, 8 3, 0 6\" fill=\"#30363d\"/>\n";
+    op << "    <polygon points=\"0 0, 8 3, 0 6\" fill=\"#d0d7de\"/>\n";
     op << "  </marker>\n";
     op << "</defs>\n";
 
-    std::string gpuFill = "#1e2a1e";
-    std::string cpuFill = "#2a1e2e";
+    std::string gpuFill = "#dcfce7"; // light green for GPU ops
+    std::string cpuFill = "#fdf4ff"; // light purple for CPU ops
 
     auto opNode = [&](int x, int ny, int w, int h, const std::string &label,
                       const std::string &fill) {
       op << "<g class=\"node\"><rect x=\"" << x << "\" y=\"" << ny
          << "\" width=\"" << w << "\" height=\"" << h << "\" fill=\"" << fill
-         << "\" stroke=\"#30363d\" rx=\"6\" ry=\"6\"/>"
+         << "\" stroke=\"#d0d7de\" rx=\"6\" ry=\"6\"/>"
          << "<text x=\"" << (x + w / 2) << "\" y=\"" << (ny + h / 2 + 4)
-         << "\" text-anchor=\"middle\" font-size=\"10\" fill=\"#e6edf3\">"
+         << "\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1f2328\">"
          << htmlEscape(label) << "</text></g>\n";
     };
 
-    auto opEdge = [&](int x1, int y1, int x2, int y2,
-                      const std::string &label, int side = 1) {
+    auto opEdge = [&](int x1, int y1, int x2, int y2, const std::string &label,
+                      int side = 1) {
       op << "<line x1=\"" << x1 << "\" y1=\"" << y1 << "\" x2=\"" << x2
          << "\" y2=\"" << y2
-         << "\" stroke=\"#30363d\" stroke-width=\"1.5\" "
+         << "\" stroke=\"#d0d7de\" stroke-width=\"1.5\" "
             "marker-end=\"url(#op-arrow)\"/>\n";
       if (!label.empty()) {
         int mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
         int off = side >= 0 ? 6 : -6;
         std::string anch = side >= 0 ? "start" : "end";
         op << "<text x=\"" << (mx + off) << "\" y=\"" << (my + 3)
-           << "\" font-size=\"7\" fill=\"#8b949e\" text-anchor=\"" << anch
+           << "\" font-size=\"7\" fill=\"#656d76\" text-anchor=\"" << anch
            << "\">" << htmlEscape(label) << "</text>\n";
       }
     };
@@ -783,10 +1042,10 @@ void generateModelReport(const GGUFReader &reader,
     auto ggufBox = [&](int x, int by, int w, int h, const std::string &label) {
       op << "<rect x=\"" << x << "\" y=\"" << by << "\" width=\"" << w
          << "\" height=\"" << h
-         << "\" fill=\"none\" stroke=\"#30363d\" stroke-width=\"1\" "
+         << "\" fill=\"none\" stroke=\"#d0d7de\" stroke-width=\"1\" "
             "stroke-dasharray=\"6 3\" rx=\"10\" ry=\"10\"/>\n"
          << "<text x=\"" << (x + 6) << "\" y=\"" << (by + 12)
-         << "\" font-size=\"9\" fill=\"#8b949e\">" << htmlEscape(label)
+         << "\" font-size=\"9\" fill=\"#656d76\">" << htmlEscape(label)
          << "</text>\n";
     };
 
@@ -879,8 +1138,7 @@ void generateModelReport(const GGUFReader &reader,
     opNode(onx, oY, oW, oH, "concat heads", cpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    ggufBox(onx - 10, boxY, oW + 20 + oCol, (oY - boxY) - 6,
-            "Attention (CPU)");
+    ggufBox(onx - 10, boxY, oW + 20 + oCol, (oY - boxY) - 6, "Attention (CPU)");
 
     // == O Projection ==
     boxY = oY - 8;
@@ -1005,8 +1263,7 @@ void generateModelReport(const GGUFReader &reader,
     opNode(onx, oY, oW, oH, "transpose (W_out)", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY,
-           "W_out^T [" + dimStr + "," + vocabStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "W_out^T [" + dimStr + "," + vocabStr + "]");
     opNode(onx, oY, oW, oH, "matmul (head)", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1131,6 +1388,41 @@ void generateModelReport(const GGUFReader &reader,
 
 )";
 
+  // -----------------------------------------------------------------------
+  // Optimized Computation Graphs section
+  // -----------------------------------------------------------------------
+  if (!optimizedGraphs.empty()) {
+    out << R"(<h2>Computation Graphs &mdash; Before &amp; After Optimization</h2>
+<p class="tensor-count">Graph templates (layer 0 representative) shown before and after optimization passes: IdentityReshape, ReshapeChain, TransposeCancel, DeadCode.</p>
+)";
+    for (size_t gi = 0; gi < optimizedGraphs.size(); ++gi) {
+      const auto &ng = optimizedGraphs[gi];
+      out << "<h3 style=\"color: var(--accent); margin: 24px 0 8px; "
+             "font-size: 1.1rem;\">"
+          << htmlEscape(ng.name) << "</h3>\n";
+      out << "<div class=\"graph-compare\">\n";
+
+      // Pre-optimization graph (left)
+      out << "<div>\n";
+      out << "<span class=\"graph-label\">Before Optimization</span>\n";
+      out << "<div class=\"arch-container\">\n";
+      out << renderOptimizedGraphSVG(*ng.preOptGraph,
+                                     "pre" + std::to_string(gi));
+      out << "</div></div>\n";
+
+      // Post-optimization graph (right)
+      out << "<div>\n";
+      out << "<span class=\"graph-label optimized\">After "
+             "Optimization</span>\n";
+      out << "<div class=\"arch-container\">\n";
+      out << renderOptimizedGraphSVG(*ng.postOptGraph,
+                                     "post" + std::to_string(gi));
+      out << "</div></div>\n";
+
+      out << "</div>\n"; // .graph-compare
+    }
+  }
+
   out << R"xx(
 <h2>Tensor Inventory</h2>
 <div class="search-box">
@@ -1167,8 +1459,7 @@ void generateModelReport(const GGUFReader &reader,
         << formatDims(info.dimensions) << "</td><td>" << info.n_elements()
         << "</td><td class=\"size-text\">" << formatBytes(info.nbytes())
         << "</td><td class=\"op-chain\">"
-        << (m.cutOps.empty() ? "&mdash;" : m.cutOps)
-        << "</td></tr>\n";
+        << (m.cutOps.empty() ? "&mdash;" : m.cutOps) << "</td></tr>\n";
   }
 
   out << R"xx(</tbody></table>

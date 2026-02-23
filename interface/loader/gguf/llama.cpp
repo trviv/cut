@@ -207,6 +207,9 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
   // Precompute RoPE tables
   precomputeRoPE();
 
+  // Build and optimize graph templates for forward pass
+  buildGraphTemplates();
+
   runtime_->flush();
   std::cout << "Model loaded successfully. Buffers: " << runtime_->bufferCount()
             << "\n";
@@ -219,7 +222,23 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       reportPath = reportPath.substr(0, dot);
     }
     reportPath += "_report.html";
-    generateModelReport(reader, config_, reportPath);
+
+    // Collect optimized graph templates for the report (layer 0 as
+    // representative).
+    std::vector<NamedGraph> graphs;
+    if (!layerGraphs_.empty()) {
+      auto &lg = layerGraphs_[0];
+      graphs.push_back({"QKV Projection", &lg.qkvProjection.preOptGraph,
+                        &lg.qkvProjection.graph});
+      graphs.push_back({"Attention Output + Residual",
+                        &lg.attnOutputResidual.preOptGraph,
+                        &lg.attnOutputResidual.graph});
+      graphs.push_back({"FFN + Residual", &lg.ffnResidual.preOptGraph,
+                        &lg.ffnResidual.graph});
+    }
+    graphs.push_back(
+        {"Logits", &logitsGraph_.preOptGraph, &logitsGraph_.graph});
+    generateModelReport(reader, config_, reportPath, graphs);
   }
 }
 
@@ -385,32 +404,195 @@ cut::ComputeHandle LlamaModel::attention(const cut::ComputeHandle &q,
 }
 
 // ============================================================================
-// SwiGLU FFN
+// Graph template builders
 // ============================================================================
 
-cut::ComputeHandle LlamaModel::ffn(const cut::ComputeHandle &x, int layer) {
-  auto &l = layers_[layer];
+GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
+  cut::graph::GraphBuilder builder(*runtime_);
+  int32_t dim = static_cast<int32_t>(config_.dim);
 
-  // x is 1D [dim], reshape to [1, dim] for matmul
-  auto x_2d = ops_->reshape(x, {1, static_cast<int32_t>(config_.dim)});
+  // Dynamic input: normed [dim] — use attn_norm as shape placeholder
+  auto vNormed = builder.input(layer.attn_norm, /*isConstant=*/false);
 
-  // gate = x @ w_gate  [1, dim] x [dim, ffn_dim] = [1, ffn_dim]
-  auto gate = ops_->matmul(x_2d, l.w_gate);
+  // Constant inputs: weight matrices
+  auto vWq = builder.input(layer.wq, /*isConstant=*/true);
+  auto vWk = builder.input(layer.wk, /*isConstant=*/true);
+  auto vWv = builder.input(layer.wv, /*isConstant=*/true);
 
-  // up = x @ w_up  [1, dim] x [dim, ffn_dim] = [1, ffn_dim]
-  auto up = ops_->matmul(x_2d, l.w_up);
+  auto normed_2d = builder.reshape(vNormed, {1, dim});
 
-  // gate = silu(gate)
-  gate = ops_->unaryOp(cut::UnarySilu, gate);
+  auto q = builder.matmul(normed_2d, vWq);
+  // Identity reshape (optimizer: IdentityReshapePass eliminates)
+  auto q_id = builder.reshape(q, {1, dim});
+  // Reshape chain with above (optimizer: ReshapeChainPass collapses)
+  auto q_flat = builder.reshape(
+      q_id, {static_cast<int32_t>(config_.n_heads * config_.head_dim)});
 
-  // gate_up = gate * up (element-wise)
-  auto gate_up = ops_->binaryOp(cut::BinaryVecVecMul, gate, up);
+  auto k = builder.matmul(normed_2d, vWk);
+  auto k_id = builder.reshape(k, {1, static_cast<int32_t>(config_.kv_dim)});
+  auto k_flat = builder.reshape(k_id, {static_cast<int32_t>(config_.kv_dim)});
 
-  // output = gate_up @ w_down  [1, ffn_dim] x [ffn_dim, dim] = [1, dim]
-  auto out = ops_->matmul(gate_up, l.w_down);
+  auto v = builder.matmul(normed_2d, vWv);
+  auto v_id = builder.reshape(v, {1, static_cast<int32_t>(config_.kv_dim)});
+  auto v_flat = builder.reshape(v_id, {static_cast<int32_t>(config_.kv_dim)});
 
-  // Reshape back to 1D [dim]
-  return ops_->reshape(out, {static_cast<int32_t>(config_.dim)});
+  // Dead code: result never used (optimizer: DeadCodePass removes)
+  builder.transpose(q);
+
+  builder.markOutput(q_flat);
+  builder.markOutput(k_flat);
+  builder.markOutput(v_flat);
+
+  auto graph = builder.build();
+  auto preOpt = graph; // snapshot before optimization
+  auto optimizer = cut::graph::GraphOptimizer::createDefault();
+  optimizer.optimize(graph);
+
+  GraphTemplate tpl;
+  tpl.graph = std::move(graph);
+  tpl.preOptGraph = std::move(preOpt);
+  tpl.dynamicInputs = {vNormed};
+  return tpl;
+}
+
+GraphTemplate
+LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
+  cut::graph::GraphBuilder builder(*runtime_);
+  int32_t dim = static_cast<int32_t>(config_.dim);
+
+  // Dynamic inputs — use attn_norm as shape placeholder for {dim} tensors
+  auto vAttnOut = builder.input(layer.attn_norm, /*isConstant=*/false);
+  auto vWo = builder.input(layer.wo, /*isConstant=*/true);
+  auto vHidden = builder.input(layer.attn_norm, /*isConstant=*/false);
+
+  auto attn_2d = builder.reshape(vAttnOut, {1, dim});
+  auto proj = builder.matmul(attn_2d, vWo);
+  // Identity reshape (optimizer: IdentityReshapePass eliminates)
+  auto proj_id = builder.reshape(proj, {1, dim});
+  // Reshape chain (optimizer: ReshapeChainPass collapses)
+  auto proj_1d = builder.reshape(proj_id, {dim});
+  auto result = builder.binaryOp(cut::BinaryVecVecAdd, vHidden, proj_1d);
+
+  // Dead code: unused transpose (optimizer: DeadCodePass removes)
+  builder.transpose(proj);
+
+  builder.markOutput(result);
+
+  auto graph = builder.build();
+  auto preOpt = graph; // snapshot before optimization
+  auto optimizer = cut::graph::GraphOptimizer::createDefault();
+  optimizer.optimize(graph);
+
+  GraphTemplate tpl;
+  tpl.graph = std::move(graph);
+  tpl.preOptGraph = std::move(preOpt);
+  tpl.dynamicInputs = {vAttnOut, vHidden};
+  return tpl;
+}
+
+GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
+  cut::graph::GraphBuilder builder(*runtime_);
+  int32_t dim = static_cast<int32_t>(config_.dim);
+
+  // Dynamic inputs
+  auto vNormed = builder.input(layer.ffn_norm, /*isConstant=*/false);
+  auto vWGate = builder.input(layer.w_gate, /*isConstant=*/true);
+  auto vWUp = builder.input(layer.w_up, /*isConstant=*/true);
+  auto vWDown = builder.input(layer.w_down, /*isConstant=*/true);
+  auto vHidden = builder.input(layer.ffn_norm, /*isConstant=*/false);
+
+  auto x_2d = builder.reshape(vNormed, {1, dim});
+
+  int32_t ffn = static_cast<int32_t>(config_.ffn_dim);
+
+  auto gate = builder.matmul(x_2d, vWGate);
+  // Identity reshape (optimizer: IdentityReshapePass eliminates)
+  auto gate_id = builder.reshape(gate, {1, ffn});
+  auto up = builder.matmul(x_2d, vWUp);
+  // Identity reshape (optimizer: IdentityReshapePass eliminates)
+  auto up_id = builder.reshape(up, {1, ffn});
+
+  auto gate_silu = builder.unaryOp(cut::UnarySilu, gate_id);
+  auto gate_up = builder.binaryOp(cut::BinaryVecVecMul, gate_silu, up_id);
+
+  auto out = builder.matmul(gate_up, vWDown);
+  // Identity reshape + reshape chain (optimizer eliminates both)
+  auto out_id = builder.reshape(out, {1, dim});
+  auto out_1d = builder.reshape(out_id, {dim});
+
+  // Dead code: unused transpose (optimizer: DeadCodePass removes)
+  builder.transpose(gate);
+
+  auto result = builder.binaryOp(cut::BinaryVecVecAdd, vHidden, out_1d);
+
+  builder.markOutput(result);
+
+  auto graph = builder.build();
+  auto preOpt = graph; // snapshot before optimization
+  auto optimizer = cut::graph::GraphOptimizer::createDefault();
+  optimizer.optimize(graph);
+
+  GraphTemplate tpl;
+  tpl.graph = std::move(graph);
+  tpl.preOptGraph = std::move(preOpt);
+  tpl.dynamicInputs = {vNormed, vHidden};
+  return tpl;
+}
+
+GraphTemplate LlamaModel::buildLogitsGraph() {
+  cut::graph::GraphBuilder builder(*runtime_);
+  int32_t dim = static_cast<int32_t>(config_.dim);
+
+  // Dynamic input — use output_norm_ as shape placeholder for {dim}
+  auto vHidden = builder.input(output_norm_, /*isConstant=*/false);
+  auto vOutWeight = builder.input(output_weight_, /*isConstant=*/true);
+
+  auto hidden_2d = builder.reshape(vHidden, {1, dim});
+  auto logits_raw = builder.matmul(hidden_2d, vOutWeight);
+
+  // Dead code: identity reshape (optimizer: IdentityReshapePass + DeadCodePass)
+  builder.reshape(logits_raw, {1, static_cast<int32_t>(config_.vocab_size)});
+
+  // Dead code: unused transpose (optimizer: DeadCodePass removes)
+  builder.transpose(logits_raw);
+
+  builder.markOutput(logits_raw);
+
+  auto graph = builder.build();
+  auto preOpt = graph; // snapshot before optimization
+  auto optimizer = cut::graph::GraphOptimizer::createDefault();
+  optimizer.optimize(graph);
+
+  GraphTemplate tpl;
+  tpl.graph = std::move(graph);
+  tpl.preOptGraph = std::move(preOpt);
+  tpl.dynamicInputs = {vHidden};
+  return tpl;
+}
+
+void LlamaModel::buildGraphTemplates() {
+  executor_ = std::make_unique<cut::graph::GraphExecutor>(*ops_, *runtime_);
+
+  layerGraphs_.resize(config_.n_layers);
+  for (uint32_t i = 0; i < config_.n_layers; ++i) {
+    layerGraphs_[i].qkvProjection = buildQKVProjectionGraph(layers_[i]);
+    layerGraphs_[i].attnOutputResidual =
+        buildAttnOutputResidualGraph(layers_[i]);
+    layerGraphs_[i].ffnResidual = buildFFNResidualGraph(layers_[i]);
+  }
+  logitsGraph_ = buildLogitsGraph();
+
+  std::cout << "Built and optimized " << (config_.n_layers * 3 + 1)
+            << " graph templates.\n";
+}
+
+std::vector<cut::Tensor> LlamaModel::executeGraph(
+    GraphTemplate &tpl, const std::vector<cut::ComputeHandle> &dynamicHandles) {
+  for (size_t i = 0; i < tpl.dynamicInputs.size(); ++i) {
+    auto &node = tpl.graph.node(tpl.dynamicInputs[i]);
+    std::get<cut::graph::InputData>(node.data).gpuHandle = dynamicHandles[i];
+  }
+  return executor_->execute(tpl.graph);
 }
 
 // ============================================================================
@@ -428,58 +610,44 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   // 2. Transformer layers
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
     auto &l = layers_[i];
+    auto &lg = layerGraphs_[i];
 
     // --- Attention block ---
-    // RMS norm
+    // RMS norm (CPU sync point — stays as direct ops)
     auto normed = rmsNorm(hidden, l.attn_norm);
 
-    // Linear projections: reshape to [1, dim] for matmul
-    auto normed_2d = ops_->reshape(normed, {1, static_cast<int32_t>(dim)});
+    // QKV projection (graph template)
+    auto qkv = executeGraph(lg.qkvProjection, {normed});
+    auto q = qkv[0]; // [n_heads * head_dim]
+    auto k = qkv[1]; // [kv_dim]
+    auto v = qkv[2]; // [kv_dim]
 
-    // Q = normed @ wq  [1, dim] x [dim, dim] = [1, dim]
-    auto q = ops_->matmul(normed_2d, l.wq);
-    q = ops_->reshape(
-        q, {static_cast<int32_t>(config_.n_heads * config_.head_dim)});
-
-    // K = normed @ wk  [1, dim] x [dim, kv_dim] = [1, kv_dim]
-    auto k = ops_->matmul(normed_2d, l.wk);
-    k = ops_->reshape(k, {static_cast<int32_t>(config_.kv_dim)});
-
-    // V = normed @ wv  [1, dim] x [dim, kv_dim] = [1, kv_dim]
-    auto v = ops_->matmul(normed_2d, l.wv);
-    v = ops_->reshape(v, {static_cast<int32_t>(config_.kv_dim)});
-
-    // Apply RoPE to Q and K
+    // Apply RoPE (CPU sync point — stays as direct ops)
     q = applyRoPE(q, pos, config_.n_heads);
     k = applyRoPE(k, pos, config_.n_kv_heads);
 
-    // Attention with KV cache
+    // Attention with KV cache (CPU sync point — stays as direct ops)
     auto attn_out = attention(q, k, v, i, pos);
 
-    // Output projection: [1, dim] x [dim, dim] = [1, dim]
-    auto attn_out_2d = ops_->reshape(attn_out, {1, static_cast<int32_t>(dim)});
-    auto proj = ops_->matmul(attn_out_2d, l.wo);
-    proj = ops_->reshape(proj, {static_cast<int32_t>(dim)});
-
-    // Residual connection
-    hidden = ops_->binaryOp(cut::BinaryVecVecAdd, hidden, proj);
+    // Output projection + residual (graph template)
+    auto attn_result = executeGraph(lg.attnOutputResidual, {attn_out, hidden});
+    hidden = attn_result[0];
 
     // --- FFN block ---
+    // RMS norm (CPU sync point — stays as direct ops)
     auto normed_ffn = rmsNorm(hidden, l.ffn_norm);
-    auto ffn_out = ffn(normed_ffn, i);
 
-    // Residual connection
-    hidden = ops_->binaryOp(cut::BinaryVecVecAdd, hidden, ffn_out);
+    // FFN + residual (graph template)
+    auto ffn_result = executeGraph(lg.ffnResidual, {normed_ffn, hidden});
+    hidden = ffn_result[0];
   }
 
-  // 3. Final RMS norm
+  // 3. Final RMS norm (CPU sync point — stays as direct ops)
   hidden = rmsNorm(hidden, output_norm_);
 
-  // 4. LM head: [1, dim] x [dim, vocab] = [1, vocab]
-  auto hidden_2d = ops_->reshape(hidden, {1, static_cast<int32_t>(dim)});
-  auto logits = ops_->matmul(hidden_2d, output_weight_);
-
-  return logits;
+  // 4. LM head logits (graph template)
+  auto logit_result = executeGraph(logitsGraph_, {hidden});
+  return logit_result[0];
 }
 
 // ============================================================================
