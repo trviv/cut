@@ -72,7 +72,9 @@ int main(int argc, char *argv[]) {
       std::cout << "\nDecoded text:\n" << text << "\n";
     }
 
-    runtime.shutdown();
+    // Note: do NOT call runtime.shutdown() here — model still holds tensor
+    // handles. Natural destruction order (model before runtime) handles
+    // cleanup correctly.
 
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << "\n";

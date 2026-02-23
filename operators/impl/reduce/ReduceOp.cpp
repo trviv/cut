@@ -61,6 +61,10 @@ ThreadSize GlobalReduceOpNode::dispatchSize() const {
 }
 
 std::vector<uint8_t> GlobalReduceOpNode::pushConstants() const {
+  if (op_ == ReduceArgmax || op_ == ReduceArgmin || op_ == Norm) {
+    uint32_t n = static_cast<uint32_t>(numElements_);
+    return toBytes(n);
+  }
   struct PushConstants {
     uint32_t numElements;
     uint32_t actualInner;

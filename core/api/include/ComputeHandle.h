@@ -43,6 +43,14 @@ public:
   operator bool() const;
 
   /**
+   * Equality comparison operator.
+   * Two handles are equal if they reference the same object in the same
+   * container.
+   */
+  bool operator==(const ComputeHandle &other) const;
+  bool operator!=(const ComputeHandle &other) const;
+
+  /**
    * Copy assignment operator. Releases current reference and acquires new one.
    * @param ref The handle to copy from.
    */

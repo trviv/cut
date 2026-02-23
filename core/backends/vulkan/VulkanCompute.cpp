@@ -119,14 +119,16 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
 }
 
 void VulkanCompute::cleanup() {
-  containers_.reset();
-
   if (device_ != VK_NULL_HANDLE) {
     vkDeviceWaitIdle(device_);
   }
 
-  // Delete / reset the container before destroying device
+  // Destroy command buffer container first — it holds ComputeHandle references
+  // into the containers (pipelines, descriptors, etc.)
   setCommandBufferContainer({});
+
+  // Now safe to destroy the containers
+  containers_.reset();
 
   if (device_ != VK_NULL_HANDLE) {
     vkDestroyDevice(device_, nullptr);

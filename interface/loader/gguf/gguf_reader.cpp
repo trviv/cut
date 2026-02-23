@@ -377,6 +377,33 @@ std::vector<std::string> GGUFReader::get_tensor_names() const {
 
 // Dequantization implementations
 
+/// Converts a float16 value (as uint16_t) to float32, including subnormals.
+static float f16_to_f32(uint16_t h) {
+  uint32_t sign = (h & 0x8000) << 16;
+  uint32_t exponent = (h & 0x7C00) >> 10;
+  uint32_t mantissa = (h & 0x03FF) << 13;
+
+  if (exponent == 0) {
+    if (mantissa == 0) {
+      // Zero (positive or negative)
+      float result;
+      std::memcpy(&result, &sign, sizeof(result));
+      return result;
+    }
+    // Subnormal float16: value = (-1)^sign × mantissa_raw × 2^(-24)
+    float result =
+        static_cast<float>(h & 0x03FF) * 5.960464477539063e-08f; // 2^(-24)
+    return (h & 0x8000) ? -result : result;
+  }
+  if (exponent == 31) {
+    return mantissa ? NAN : ((h & 0x8000) ? -INFINITY : INFINITY);
+  }
+  uint32_t f32_bits = sign | ((exponent + 112) << 23) | mantissa;
+  float result;
+  std::memcpy(&result, &f32_bits, sizeof(result));
+  return result;
+}
+
 void GGUFReader::dequantize_q4_0(const uint8_t *data,
                                  float *output,
                                  size_t n_elements) {
@@ -392,20 +419,7 @@ void GGUFReader::dequantize_q4_0(const uint8_t *data,
     std::memcpy(&scale_bits, data + offset, sizeof(scale_bits));
     offset += 2;
 
-    // Convert f16 to f32
-    uint32_t sign = (scale_bits & 0x8000) << 16;
-    uint32_t exponent = (scale_bits & 0x7C00) >> 10;
-    uint32_t mantissa = (scale_bits & 0x03FF) << 13;
-
-    float scale;
-    if (exponent == 0) {
-      scale = 0.0f;
-    } else if (exponent == 31) {
-      scale = mantissa ? NAN : (sign ? -INFINITY : INFINITY);
-    } else {
-      uint32_t f32_bits = sign | ((exponent + 112) << 23) | mantissa;
-      std::memcpy(&scale, &f32_bits, sizeof(scale));
-    }
+    float scale = f16_to_f32(scale_bits);
 
     // Read and dequantize 32 values (16 bytes, 4 bits each)
     for (size_t j = 0; j < 16 && out_idx < n_elements; ++j) {
@@ -442,20 +456,7 @@ void GGUFReader::dequantize_q8_0(const uint8_t *data,
     std::memcpy(&scale_bits, data + offset, sizeof(scale_bits));
     offset += 2;
 
-    // Convert f16 to f32
-    uint32_t sign = (scale_bits & 0x8000) << 16;
-    uint32_t exponent = (scale_bits & 0x7C00) >> 10;
-    uint32_t mantissa = (scale_bits & 0x03FF) << 13;
-
-    float scale;
-    if (exponent == 0) {
-      scale = 0.0f;
-    } else if (exponent == 31) {
-      scale = mantissa ? NAN : (sign ? -INFINITY : INFINITY);
-    } else {
-      uint32_t f32_bits = sign | ((exponent + 112) << 23) | mantissa;
-      std::memcpy(&scale, &f32_bits, sizeof(scale));
-    }
+    float scale = f16_to_f32(scale_bits);
 
     // Read and dequantize 32 int8 values
     for (size_t j = 0; j < 32 && out_idx < n_elements; ++j) {
@@ -470,19 +471,7 @@ void GGUFReader::convert_f16_to_f32(const uint16_t *data,
                                     float *output,
                                     size_t n_elements) {
   for (size_t i = 0; i < n_elements; ++i) {
-    uint16_t h = data[i];
-    uint32_t sign = (h & 0x8000) << 16;
-    uint32_t exponent = (h & 0x7C00) >> 10;
-    uint32_t mantissa = (h & 0x03FF) << 13;
-
-    if (exponent == 0) {
-      output[i] = 0.0f;
-    } else if (exponent == 31) {
-      output[i] = mantissa ? NAN : (sign ? -INFINITY : INFINITY);
-    } else {
-      uint32_t f32_bits = sign | ((exponent + 112) << 23) | mantissa;
-      std::memcpy(&output[i], &f32_bits, sizeof(float));
-    }
+    output[i] = f16_to_f32(data[i]);
   }
 }
 

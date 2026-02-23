@@ -34,6 +34,14 @@ ComputeHandle::operator bool() const {
   return container_ != nullptr;
 }
 
+bool ComputeHandle::operator==(const ComputeHandle &other) const {
+  return container_ == other.container_ && id_ == other.id_;
+}
+
+bool ComputeHandle::operator!=(const ComputeHandle &other) const {
+  return !(*this == other);
+}
+
 void ComputeHandle::operator=(const ComputeHandle &ref) {
   if (ref) {
     ref.container_->addRef(ref);
