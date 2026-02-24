@@ -188,29 +188,7 @@ Tensor Operations::transpose(const Tensor &a, std::optional<uint32_t> spec) {
 Tensor Operations::dot(const Tensor &a,
                        const Tensor &b,
                        std::optional<uint32_t> spec) {
-  if (graph_) {
-    // In graph mode, decompose dot into multiply + reduce
-    Tensor mul = binaryOp(BinaryVecVecMul, a, b);
-    Tensor sum = reduce(ReduceSum, mul);
-    return sum;
-  }
-  auto node = std::make_unique<DotOpNode>(*runtime_, a, b, spec);
-  Tensor partials = node->output();
-  uint32_t numWorkgroups = node->outputShape()[0];
-  runtime_->encodeOperator(std::move(node));
-
-  // Read back per-workgroup partial sums and accumulate on CPU
-  std::vector<float> partialData(numWorkgroups);
-  runtime_->copyFromTensor(partials, partialData.data(),
-                           numWorkgroups * sizeof(float));
-  float result = 0.0f;
-  for (uint32_t i = 0; i < numWorkgroups; ++i) {
-    result += partialData[i];
-  }
-
-  Tensor out = runtime_->createTensorEmpty({1}, DataType::Float32);
-  runtime_->copyToTensor(out, &result, sizeof(float));
-  return out;
+  return reduce(ReduceSum, binaryOp(BinaryVecVecMul, a, b));
 }
 
 // =========================================================================

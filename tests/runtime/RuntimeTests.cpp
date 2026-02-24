@@ -4992,6 +4992,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Dot) {
 
   {
     auto result = runtime_->ops().dot(a, b);
+    runtime_->flush();
     // dot now returns a {1} tensor; partials tensor should be freed
     EXPECT_EQ(runtime_->bufferCount(), before + 1);
   }
