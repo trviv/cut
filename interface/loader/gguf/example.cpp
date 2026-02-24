@@ -8,7 +8,7 @@
  *   mkdir build && cd build && cmake .. && make -j8
  *
  * Run:
- *   ./gguf_example [path/to/model.gguf] [max_tokens] [prompt]
+ *   ./gguf_example [model.gguf] [max_tokens] [prompt] [repeat_penalty]
  */
 
 #include "Runtime.h"
@@ -74,8 +74,14 @@ int main(int argc, char *argv[]) {
     }
     std::cout << "]\n";
 
-    std::cout << "Generating " << max_new_tokens << " tokens...\n";
-    auto tokens = model.generate(prompt, max_new_tokens);
+    float repeat_penalty = 1.05f;
+    if (argc >= 5) {
+      repeat_penalty = static_cast<float>(std::atof(argv[4]));
+    }
+
+    std::cout << "Generating " << max_new_tokens
+              << " tokens (repeat_penalty=" << repeat_penalty << ")...\n";
+    auto tokens = model.generate(prompt, max_new_tokens, repeat_penalty);
 
     std::cout << "\nGenerated token IDs: [";
     for (size_t i = 0; i < tokens.size(); ++i) {

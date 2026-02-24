@@ -684,49 +684,52 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
 // ============================================================================
 
 std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
-                                      int max_new_tokens) {
+                                      int max_new_tokens,
+                                      float repeat_penalty,
+                                      int repeat_last_n) {
   resetCache();
 
   std::vector<int> tokens = prompt_tokens;
   int next_token = 0;
+  uint32_t vocabSize = config_.vocab_size;
 
-  // Debug: track forward pass count for diagnostics
-  int fwdCount = 0;
+  // Sample with repetition penalty applied on CPU.
+  // Algorithm (matching llama.cpp):
+  //   For each token in the last repeat_last_n tokens:
+  //     if logit > 0: logit /= repeat_penalty
+  //     if logit < 0: logit *= repeat_penalty
+  auto sample = [&](const cut::ComputeHandle &logits) -> int {
+    std::vector<float> allLogits(vocabSize);
+    runtime_->copyFromTensor(logits, allLogits.data(),
+                             vocabSize * sizeof(float));
 
-  auto sampleArgmax = [&](const cut::ComputeHandle &logits) -> int {
-    // GPU argmax
-    auto argTensor = ops_->reduce(cut::ReduceArgmax, logits);
-    float argF = 0.0f;
-    runtime_->copyFromTensor(argTensor, &argF, sizeof(float));
-    int gpuArgmax = static_cast<int>(argF);
-
-    // For first 3 forward passes, verify with CPU argmax
-    if (fwdCount < 3) {
-      uint32_t vocabSize = config_.vocab_size;
-      std::vector<float> allLogits(vocabSize);
-      runtime_->copyFromTensor(logits, allLogits.data(),
-                               vocabSize * sizeof(float));
-
-      // CPU argmax + top 5
-      std::vector<std::pair<float, int>> vals(vocabSize);
-      for (uint32_t j = 0; j < vocabSize; ++j)
-        vals[j] = {allLogits[j], static_cast<int>(j)};
-      std::partial_sort(vals.begin(), vals.begin() + 5, vals.end(),
-                        [](auto &a, auto &b) { return a.first > b.first; });
-      int cpuArgmax = vals[0].second;
-
-      std::cerr << "  [fwd " << fwdCount << "] GPU argmax=" << gpuArgmax
-                << " CPU argmax=" << cpuArgmax << "  top5:";
-      for (int t = 0; t < 5; ++t)
-        std::cerr << " " << vals[t].second << "(" << vals[t].first << ")";
-      std::cerr << "\n";
-
-      if (gpuArgmax != cpuArgmax) {
-        std::cerr << "  *** MISMATCH: GPU argmax != CPU argmax ***\n";
+    // Apply repetition penalty
+    if (repeat_penalty != 1.0f) {
+      size_t start = 0;
+      if (repeat_last_n > 0 &&
+          tokens.size() > static_cast<size_t>(repeat_last_n)) {
+        start = tokens.size() - static_cast<size_t>(repeat_last_n);
+      }
+      for (size_t i = start; i < tokens.size(); ++i) {
+        int tid = tokens[i];
+        if (tid >= 0 && static_cast<uint32_t>(tid) < vocabSize) {
+          if (allLogits[tid] > 0.0f) {
+            allLogits[tid] /= repeat_penalty;
+          } else {
+            allLogits[tid] *= repeat_penalty;
+          }
+        }
       }
     }
-    ++fwdCount;
-    return gpuArgmax;
+
+    // Argmax
+    int best = 0;
+    for (uint32_t j = 1; j < vocabSize; ++j) {
+      if (allLogits[j] > allLogits[best]) {
+        best = static_cast<int>(j);
+      }
+    }
+    return best;
   };
 
   // Process prompt tokens (prefill)
@@ -735,19 +738,24 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
 
     // Only sample from last prompt token
     if (i == prompt_tokens.size() - 1) {
-      next_token = sampleArgmax(logits);
+      next_token = sample(logits);
     }
   }
 
   tokens.push_back(next_token);
   std::cout << "Generated token: " << next_token << "\n";
 
+  // Stop on EOS from first sampled token
+  if (next_token == 2) {
+    return tokens;
+  }
+
   // Autoregressive generation
   for (int step = 0; step < max_new_tokens - 1; ++step) {
     int pos = static_cast<int>(prompt_tokens.size()) + step;
     auto logits = forward(next_token, pos);
 
-    next_token = sampleArgmax(logits);
+    next_token = sample(logits);
     tokens.push_back(next_token);
 
     std::cout << "Generated token: " << next_token << "\n";

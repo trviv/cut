@@ -103,9 +103,13 @@ public:
   /// Autoregressive generation from prompt tokens.
   /// @param prompt_tokens Input token IDs.
   /// @param max_new_tokens Maximum tokens to generate.
+  /// @param repeat_penalty Repetition penalty (1.0 = disabled, >1.0 penalizes).
+  /// @param repeat_last_n Lookback window for repetition penalty (0 = all).
   /// @return All tokens (prompt + generated).
   std::vector<int> generate(const std::vector<int> &prompt_tokens,
-                            int max_new_tokens);
+                            int max_new_tokens,
+                            float repeat_penalty = 1.05f,
+                            int repeat_last_n = 64);
 
   /// Reset KV cache for a new generation.
   void resetCache();
