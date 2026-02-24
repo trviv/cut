@@ -33,6 +33,9 @@ public:
    */
   ComputeData(const DataReference &dataRef);
 
+  template <typename T>
+  ComputeData(const T &dataRef) : ComputeData(DataReference(dataRef)) {}
+
   /// Checks if this holds a ComputeHandle.
   bool isHandle() const { return type == Type::Handle; }
 

@@ -21,6 +21,16 @@
         "Int32",
         "UInt32"
       ]
+    },
+    {
+      "name": "VecScalarBuf",
+      "description": "Binary vec-scalar operations",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     }
   ]
 }

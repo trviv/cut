@@ -39,7 +39,7 @@ public:
 
   Tensor vecScalarOp(OperatorEnum op,
                      const Tensor &a,
-                     DataReference scalar,
+                     const ComputeData &b,
                      std::optional<uint32_t> spec = {});
 
   // ===== Reduction ops =====

@@ -9,5 +9,6 @@ namespace cut {
 
 std::optional<std::vector<uint32_t>> compiledBinaryVecVec(DataType datatype = DataType::Float32);
 std::optional<std::vector<uint32_t>> compiledBinaryVecScalar(DataType datatype = DataType::Float32);
+std::optional<std::vector<uint32_t>> compiledBinaryVecScalarBuf(DataType datatype = DataType::Float32);
 
 } // namespace cut

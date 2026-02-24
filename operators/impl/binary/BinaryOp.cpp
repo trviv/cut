@@ -1,5 +1,7 @@
 #include "BinaryOp.h"
+#include "BinaryShaders.generated.h"
 #include "Runtime.h"
+#include "Shaders.h"
 
 namespace cut {
 
@@ -49,14 +51,23 @@ std::vector<uint8_t> BinaryVecVecOpNode::pushConstants() const {
 BinaryVecScalarOpNode::BinaryVecScalarOpNode(OperatorEnum op,
                                              Runtime &runtime,
                                              const Tensor &a,
-                                             uint32_t scalarBits,
+                                             const ComputeData &b,
                                              std::optional<uint32_t> spec)
     : OpNode(op, runtime, spec) {
   const auto &buf = runtime.getTensor(a);
   dtype_ = buf.getDtype();
-  scalarBits_ = scalarBits;
+  if (b.isScalar()) {
+    scalarBits_ = b.getScalar<uint32_t>();
+    inputs_ = {a};
+    usesHandleScalar_ = false;
+  } else if (b.isHandle()) {
+    inputs_ = {a, b.getHandle()};
+    usesHandleScalar_ = true;
+  } else {
+    logErr("Second binary operator between vector and a scalar can only be a "
+           "scalar or a compute handle.");
+  }
   numElements_ = alignedElementCount(buf.getShape());
-  inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
   hasOutput_ = true;
 }
@@ -74,11 +85,39 @@ ThreadSize BinaryVecScalarOpNode::dispatchSize() const {
 }
 
 std::vector<uint8_t> BinaryVecScalarOpNode::pushConstants() const {
-  struct PushConstants {
-    uint32_t numElements;
-    uint32_t scalarBits;
-  } pc{static_cast<uint32_t>(numElements_), scalarBits_};
-  return toBytes(pc);
+  if (usesHandleScalar_) {
+    // VecScalarBuf shader only needs numElements
+    struct PushConstants {
+      uint32_t numElements;
+    } pc{static_cast<uint32_t>(numElements_)};
+    return toBytes(pc);
+  } else {
+    // VecScalar shader needs both numElements and scalarBits
+    struct PushConstants {
+      uint32_t numElements;
+      uint32_t scalarBits;
+    } pc{static_cast<uint32_t>(numElements_), scalarBits_};
+    return toBytes(pc);
+  }
+}
+
+std::optional<std::vector<uint32_t>> BinaryVecScalarOpNode::shader() const {
+  std::optional<std::vector<uint32_t>> compiled;
+  if (usesHandleScalar_) {
+    compiled = compiledBinaryVecScalarBuf(dtype_);
+  } else {
+    compiled = compiledBinaryVecScalar(dtype_);
+  }
+
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    // Patch op_enum specialization constant (constant_id = 1) with the
+    // actual operator value so the compiled shader executes the right op.
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+
+  return std::nullopt;
 }
 
 } // namespace cut

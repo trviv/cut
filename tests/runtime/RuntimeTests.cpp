@@ -6337,5 +6337,375 @@ TEST_F(VulkanBackendTest, ReduceDimVariants_Max) {
   }
 }
 
+// ============================================================================
+// BinaryVecScalar with Handle Tests
+// ============================================================================
+
+class BinaryVecScalarHandleTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+// Test binary vec-scalar operations where second operand is a handle of size 1
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarAdd_Handle_1D) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarAdd;
+
+  std::vector<uint32_t> shape = {16};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  auto dataA = generateTestData<float>(elements, 42);
+  float scalarValue = 2.5f;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+  // Use vecScalarOp with compute handle of size 1
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = dataA[i] + scalarValue;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMul_Handle_2D) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarMul;
+
+  std::vector<uint32_t> shape = {4, 8};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  auto dataA = generateTestData<float>(elements, 42);
+  float scalarValue = 3.0f;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = dataA[i] * scalarValue;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarSub_Handle_3D) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarSub;
+
+  std::vector<uint32_t> shape = {2, 3, 4};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  auto dataA = generateTestData<float>(elements, 42);
+  float scalarValue = 1.5f;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = dataA[i] - scalarValue;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarDiv_Handle_4D) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarDiv;
+
+  std::vector<uint32_t> shape = {2, 2, 3, 4};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  auto dataA = generateTestData<float>(elements, 42);
+  float scalarValue = 2.0f;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = dataA[i] / scalarValue;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+// Test with non-aligned innermost dimensions
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMax_Handle_NonAligned) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarMax;
+
+  // Test innermost dimensions that are not multiples of 4
+  for (uint32_t innerDim : {1u, 3u, 5u, 7u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {3, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    float scalarValue = 5.0f;
+
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+    auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = std::max(dataA[i], scalarValue);
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMin_Handle_NonAligned) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarMin;
+
+  // Test innermost dimensions that are not multiples of 4
+  for (uint32_t innerDim : {1u, 3u, 5u, 7u, 11u, 13u}) {
+    std::vector<uint32_t> shape = {4, innerDim};
+    const uint32_t elements = totalElements(shape);
+    const size_t bufferSize = elements * sizeof(float);
+
+    SCOPED_TRACE("Shape: " + shapeToString(shape));
+
+    auto dataA = generateTestData<float>(elements, 42);
+    float scalarValue = 5.0f;
+
+    auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+    auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+    auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+    std::vector<float> output(elements);
+    runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+    for (uint32_t i = 0; i < elements; ++i) {
+      float expected = std::min(dataA[i], scalarValue);
+      EXPECT_NEAR(output[i], expected, 1e-5f)
+          << "Mismatch at index " << i << " for shape " << shapeToString(shape);
+    }
+  }
+}
+
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarPow_Handle) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarPow;
+
+  std::vector<uint32_t> shape = {2, 8};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  auto dataA = generateTestData<float>(elements, 42);
+  // Use positive values for pow operation
+  for (auto &val : dataA) {
+    val = std::abs(val);
+  }
+  float scalarValue = 2.0f;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = std::pow(dataA[i], scalarValue);
+    EXPECT_NEAR(output[i], expected, std::abs(expected) * 1e-4f + 1e-5f)
+        << "Mismatch at index " << i;
+  }
+}
+
+// Test multiple operations in a sequence
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalar_Handle_MultipleOps) {
+  const DataType dtype = DataType::Float32;
+
+  std::vector<uint32_t> shape = {3, 12};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  auto dataA = generateTestData<float>(elements, 42);
+  float scalar1 = 2.0f;
+  float scalar2 = 3.0f;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto scalarBuffer1 = runtime_->createTensor({1}, dtype, &scalar1);
+  auto scalarBuffer2 = runtime_->createTensor({1}, dtype, &scalar2);
+
+  // Perform: (A * 2.0) + 3.0
+  auto bufferTemp =
+      runtime_->ops().vecScalarOp(BinaryVecScalarMul, bufferA, scalarBuffer1);
+  auto bufferOut = runtime_->ops().vecScalarOp(BinaryVecScalarAdd, bufferTemp,
+                                               scalarBuffer2);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = (dataA[i] * scalar1) + scalar2;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+// Test comparison operations with handle
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarLess_Handle) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarLess;
+
+  std::vector<uint32_t> shape = {4, 8};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  auto dataA = generateTestData<float>(elements, 42);
+  float scalarValue = 5.0f;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = (dataA[i] < scalarValue) ? 1.0f : 0.0f;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarGreater_Handle) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarGreater;
+
+  std::vector<uint32_t> shape = {2, 3, 8};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  auto dataA = generateTestData<float>(elements, 42);
+  float scalarValue = 5.0f;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = (dataA[i] > scalarValue) ? 1.0f : 0.0f;
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+// Test with activation operations
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarLeakyRelu_Handle) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarLeakyRelu;
+
+  std::vector<uint32_t> shape = {4, 12};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  auto dataA = generateTestData<float>(elements, 42);
+  float alpha = 0.2f; // LeakyReLU alpha parameter
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto alphaBuffer = runtime_->createTensor({1}, dtype, &alpha);
+
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, alphaBuffer);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = dataA[i] > 0.0f ? dataA[i] : alpha * dataA[i];
+    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+// Test with integer types
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarAdd_Handle_Int32) {
+  const DataType dtype = DataType::Int32;
+  const OperatorEnum op = BinaryVecScalarAdd;
+
+  std::vector<uint32_t> shape = {4, 8};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(int32_t);
+
+  std::vector<int32_t> dataA(elements);
+  std::mt19937 gen(42);
+  std::uniform_int_distribution<int32_t> dist(-100, 100);
+  for (auto &val : dataA) {
+    val = dist(gen);
+  }
+  int32_t scalarValue = 10;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
+  auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+  std::vector<int32_t> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    int32_t expected = dataA[i] + scalarValue;
+    EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+  }
+}
+
+// Test edge case: very small tensor
+TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMul_Handle_SingleElement) {
+  const DataType dtype = DataType::Float32;
+  const OperatorEnum op = BinaryVecScalarMul;
+
+  std::vector<uint32_t> shape = {1};
+  const uint32_t elements = totalElements(shape);
+  const size_t bufferSize = elements * sizeof(float);
+
+  float dataA = 4.0f;
+  float scalarValue = 3.0f;
+
+  auto bufferA = runtime_->createTensor(shape, dtype, &dataA);
+  auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
+
+  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+
+  float output;
+  runtime_->copyFromTensor(bufferOut, &output, bufferSize);
+
+  float expected = dataA * scalarValue;
+  EXPECT_NEAR(output, expected, 1e-5f);
+}
+
 } // namespace
 } // namespace cut

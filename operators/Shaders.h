@@ -51,4 +51,13 @@ getDimReduceShader(const OperatorEnum reduceOp,
                    const DataType datatype = DataType::Float32,
                    std::optional<uint32_t> variant = {});
 
+/**
+ * Patch the default value of a specialization constant in SPIR-V bytecode.
+ * Finds the OpSpecConstant decorated with the given SpecId and overwrites
+ * its literal value.
+ */
+void patchSpecConstant(std::vector<uint32_t> &spirv,
+                       uint32_t specId,
+                       uint32_t newValue);
+
 } // namespace cut

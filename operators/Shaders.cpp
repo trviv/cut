@@ -3,12 +3,9 @@
 
 namespace cut {
 
-// Patch the default value of a specialization constant in SPIR-V bytecode.
-// Finds the OpSpecConstant decorated with the given SpecId and overwrites
-// its literal value.
-static void patchSpecConstant(std::vector<uint32_t> &spirv,
-                              uint32_t specId,
-                              uint32_t newValue) {
+void patchSpecConstant(std::vector<uint32_t> &spirv,
+                       uint32_t specId,
+                       uint32_t newValue) {
   constexpr uint32_t kOpDecorate = 71;
   constexpr uint32_t kOpSpecConstant = 50;
   constexpr uint32_t kDecorationSpecId = 1;

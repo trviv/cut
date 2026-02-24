@@ -139,13 +139,17 @@ Tensor Operations::unaryOp(OperatorEnum op,
 
 Tensor Operations::vecScalarOp(OperatorEnum op,
                                const Tensor &a,
-                               DataReference scalar,
+                               const ComputeData &b,
                                std::optional<uint32_t> spec) {
-  uint32_t scalarBits = 0;
-  std::memcpy(&scalarBits, scalar.ptr, sizeof(uint32_t));
-  auto node = std::make_unique<BinaryVecScalarOpNode>(op, *runtime_, a,
-                                                      scalarBits, spec);
-  return recordOrEncode(std::move(node), {a});
+  std::vector<Tensor> inputs;
+  if (b.isHandle()) {
+    inputs = {a, b.getHandle()};
+  } else {
+    inputs = {a};
+  }
+  auto node =
+      std::make_unique<BinaryVecScalarOpNode>(op, *runtime_, a, b, spec);
+  return recordOrEncode(std::move(node), inputs);
 }
 
 // =========================================================================
