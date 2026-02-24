@@ -187,6 +187,12 @@ public:
                    const Tensor &weight,
                    std::optional<uint32_t> spec = {});
 
+  // ===== Expand (broadcast) =====
+
+  Tensor expand(const Tensor &a,
+                const std::vector<uint32_t> &targetShape,
+                std::optional<uint32_t> spec = {});
+
   // ===== Padding ops =====
 
   Tensor pad(const Tensor &input,

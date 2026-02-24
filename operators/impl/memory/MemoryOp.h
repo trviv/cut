@@ -76,4 +76,30 @@ private:
   PadParams params_;
 };
 
+class ExpandOpNode : public OpNode {
+public:
+  ExpandOpNode(Runtime &runtime,
+               const Tensor &src,
+               const std::vector<uint32_t> &targetShape,
+               std::optional<uint32_t> spec = {});
+
+  DataType shaderDtype() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+
+private:
+  struct ExpandParams {
+    uint32_t ndim;
+    uint32_t inShape[4];
+    uint32_t outShape[4];
+    uint32_t totalElements;
+  };
+
+  DataType dtype_;
+  std::vector<uint32_t> outShape_;
+  uint32_t totalOutputElements_;
+  ExpandParams params_;
+};
+
 } // namespace cut

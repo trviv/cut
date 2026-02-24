@@ -167,4 +167,69 @@ std::vector<uint8_t> PadOpNode::pushConstants() const {
   return toBytes(params_);
 }
 
+// --- ExpandOpNode ---
+
+ExpandOpNode::ExpandOpNode(Runtime &runtime,
+                           const Tensor &src,
+                           const std::vector<uint32_t> &targetShape,
+                           std::optional<uint32_t> spec)
+    : OpNode(Expand, runtime, spec) {
+  const auto &buf = runtime.getTensor(src);
+  const auto srcShape = buf.getShape();
+  dtype_ = buf.getDtype();
+  int ndim = static_cast<int>(targetShape.size());
+
+  if (ndim < 1 || ndim > 4) {
+    throw std::runtime_error("expand: only 1-4 dimensions supported");
+  }
+  if (static_cast<int>(srcShape.size()) != ndim) {
+    throw std::runtime_error(
+        "expand: input ndim (" + std::to_string(srcShape.size()) +
+        ") must match target ndim (" + std::to_string(ndim) + ")");
+  }
+
+  outShape_ = targetShape;
+  for (int i = 0; i < ndim; ++i) {
+    if (srcShape[i] != 1 && srcShape[i] != targetShape[i]) {
+      throw std::runtime_error("expand: input dim " + std::to_string(i) +
+                               " is " + std::to_string(srcShape[i]) +
+                               ", must be 1 or match target " +
+                               std::to_string(targetShape[i]));
+    }
+  }
+
+  totalOutputElements_ = 1;
+  for (auto d : outShape_)
+    totalOutputElements_ *= d;
+
+  std::memset(&params_, 0, sizeof(params_));
+  params_.ndim = static_cast<uint32_t>(ndim);
+  params_.totalElements = totalOutputElements_;
+  for (int i = 0; i < ndim; ++i) {
+    params_.inShape[i] = srcShape[i];
+    params_.outShape[i] = outShape_[i];
+  }
+
+  inputs_ = {src};
+  output_ = runtime.createTensorEmpty(outShape_, dtype_);
+  hasOutput_ = true;
+}
+
+DataType ExpandOpNode::shaderDtype() const {
+  return dtype_;
+}
+
+std::vector<uint32_t> ExpandOpNode::outputShape() const {
+  return outShape_;
+}
+
+ThreadSize ExpandOpNode::dispatchSize() const {
+  uint32_t gridX = ((totalOutputElements_ + 255) / 256) * 256;
+  return {gridX, 1, 1};
+}
+
+std::vector<uint8_t> ExpandOpNode::pushConstants() const {
+  return toBytes(params_);
+}
+
 } // namespace cut

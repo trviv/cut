@@ -87,6 +87,8 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledEmbedding(datatype);
   } else if (shader == Pad) {
     compiled = compiledPad(datatype);
+  } else if (shader == Expand) {
+    compiled = compiledExpand(datatype);
   } else if (shader == InternalPartialReduce) {
     compiled = compiledPartialReduce(datatype);
   } else if (shader == InternalFinalReduce) {

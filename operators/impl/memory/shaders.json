@@ -31,6 +31,16 @@
         "Int32",
         "UInt32"
       ]
+    },
+    {
+      "name": "Expand",
+      "description": "Broadcast-expand tensor along size-1 dimensions",
+      "dtypes": [
+        "Float32",
+        "Float16",
+        "Int32",
+        "UInt32"
+      ]
     }
   ]
 }

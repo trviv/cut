@@ -404,6 +404,10 @@ const char *operatorName(OperatorEnum op) {
   case Pad:
     return "Pad";
 
+  // Expand operations
+  case Expand:
+    return "Expand";
+
   default:
     return "Unknown";
   }

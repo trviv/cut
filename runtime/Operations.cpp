@@ -333,142 +333,41 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
 // =========================================================================
 
 Tensor Operations::softmax(const Tensor &a, int dim) {
-  if (graph_) {
-    uint32_t inputNodeId = toNodeId(a);
-    auto shape = getShape(a);
-    auto dtype = getDtype(a);
-    int capturedDim = dim;
-    auto node = std::make_unique<DeferredOpNode>(
-        shape, dtype, "Softmax",
-        [capturedDim](Operations &ops, const std::vector<Tensor> &in) {
-          return ops.softmax(in[0], capturedDim);
-        });
-    node->setGraphInputIds({inputNodeId});
-    Tensor output = runtime_->createTensorEmpty(shape, dtype);
-    uint32_t nodeId = graph_->addNode(std::move(node), output);
-    tensorToNodeId_.emplace_back(output, nodeId);
-    return output;
-  }
   auto shape = getShape(a);
-  auto dtype = getDtype(a);
   int ndim = static_cast<int>(shape.size());
   if (dim < 0)
     dim = ndim + dim;
 
-  auto params = computeDimParams(shape, dim);
-
-  // Compute dim-wise max for numerical stability (on GPU)
-  Tensor maxHandle = reduce(OperatorEnum::ReduceMax, a, dim);
-
-  // Read data from GPU
-  size_t totalElements = shapeProduct(shape);
-  size_t maxElements = params.outerSize * params.innerSize;
-
-  std::vector<float> flatData(totalElements);
-  std::vector<float> maxData(maxElements);
-
-  runtime_->copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
-  runtime_->copyFromTensor(maxHandle, maxData.data(),
-                           maxElements * sizeof(float));
-
-  // Compute softmax on CPU
-  std::vector<float> result(totalElements);
-  for (uint32_t o = 0; o < params.outerSize; ++o) {
-    for (uint32_t iInner = 0; iInner < params.innerSize; ++iInner) {
-      float maxVal = maxData[o * params.innerSize + iInner];
-
-      // Compute exp(x - max) and sum
-      float expSum = 0.0f;
-      for (uint32_t r = 0; r < params.reduceSize; ++r) {
-        size_t idx =
-            static_cast<size_t>(o) * params.reduceSize * params.innerSize +
-            r * params.innerSize + iInner;
-        float e = std::exp(flatData[idx] - maxVal);
-        result[idx] = e;
-        expSum += e;
-      }
-
-      // Normalize
-      for (uint32_t r = 0; r < params.reduceSize; ++r) {
-        size_t idx =
-            static_cast<size_t>(o) * params.reduceSize * params.innerSize +
-            r * params.innerSize + iInner;
-        result[idx] /= expSum;
-      }
-    }
-  }
-
-  Tensor out = runtime_->createTensorEmpty(shape, dtype);
-  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
-  return out;
+  // softmax(x, dim) = exp(x - max(x, dim)) / sum(exp(x - max(x, dim)), dim)
+  // All ops stay on GPU via reduce + unsqueeze + expand + elementwise ops.
+  Tensor maxVal = reduce(OperatorEnum::ReduceMax, a, dim);
+  Tensor maxUnsq = unsqueeze(maxVal, dim);
+  Tensor maxExp = expand(maxUnsq, shape);
+  Tensor shifted = binaryOp(OperatorEnum::BinaryVecVecSub, a, maxExp);
+  Tensor exps = unaryOp(OperatorEnum::UnaryExp, shifted);
+  Tensor sumVal = reduce(OperatorEnum::ReduceSum, exps, dim);
+  Tensor sumUnsq = unsqueeze(sumVal, dim);
+  Tensor sumExp = expand(sumUnsq, shape);
+  return binaryOp(OperatorEnum::BinaryVecVecDiv, exps, sumExp);
 }
 
 Tensor Operations::logSoftmax(const Tensor &a, int dim) {
-  if (graph_) {
-    uint32_t inputNodeId = toNodeId(a);
-    auto shape = getShape(a);
-    auto dtype = getDtype(a);
-    int capturedDim = dim;
-    auto node = std::make_unique<DeferredOpNode>(
-        shape, dtype, "LogSoftmax",
-        [capturedDim](Operations &ops, const std::vector<Tensor> &in) {
-          return ops.logSoftmax(in[0], capturedDim);
-        });
-    node->setGraphInputIds({inputNodeId});
-    Tensor output = runtime_->createTensorEmpty(shape, dtype);
-    uint32_t nodeId = graph_->addNode(std::move(node), output);
-    tensorToNodeId_.emplace_back(output, nodeId);
-    return output;
-  }
   auto shape = getShape(a);
-  auto dtype = getDtype(a);
   int ndim = static_cast<int>(shape.size());
   if (dim < 0)
     dim = ndim + dim;
 
-  auto params = computeDimParams(shape, dim);
-
-  // Compute dim-wise max for numerical stability (on GPU)
-  Tensor maxHandle = reduce(OperatorEnum::ReduceMax, a, dim);
-
-  // Read data from GPU
-  size_t totalElements = shapeProduct(shape);
-  size_t maxElements = params.outerSize * params.innerSize;
-
-  std::vector<float> flatData(totalElements);
-  std::vector<float> maxData(maxElements);
-
-  runtime_->copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
-  runtime_->copyFromTensor(maxHandle, maxData.data(),
-                           maxElements * sizeof(float));
-
-  // Compute log softmax on CPU
-  std::vector<float> result(totalElements);
-  for (uint32_t o = 0; o < params.outerSize; ++o) {
-    for (uint32_t iInner = 0; iInner < params.innerSize; ++iInner) {
-      float maxVal = maxData[o * params.innerSize + iInner];
-
-      float expSum = 0.0f;
-      for (uint32_t r = 0; r < params.reduceSize; ++r) {
-        size_t idx =
-            static_cast<size_t>(o) * params.reduceSize * params.innerSize +
-            r * params.innerSize + iInner;
-        expSum += std::exp(flatData[idx] - maxVal);
-      }
-      float logSum = std::log(expSum) + maxVal;
-
-      for (uint32_t r = 0; r < params.reduceSize; ++r) {
-        size_t idx =
-            static_cast<size_t>(o) * params.reduceSize * params.innerSize +
-            r * params.innerSize + iInner;
-        result[idx] = flatData[idx] - logSum;
-      }
-    }
-  }
-
-  Tensor out = runtime_->createTensorEmpty(shape, dtype);
-  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
-  return out;
+  // logSoftmax(x, dim) = (x - max) - log(sum(exp(x - max), dim))
+  Tensor maxVal = reduce(OperatorEnum::ReduceMax, a, dim);
+  Tensor maxUnsq = unsqueeze(maxVal, dim);
+  Tensor maxExp = expand(maxUnsq, shape);
+  Tensor shifted = binaryOp(OperatorEnum::BinaryVecVecSub, a, maxExp);
+  Tensor exps = unaryOp(OperatorEnum::UnaryExp, shifted);
+  Tensor sumVal = reduce(OperatorEnum::ReduceSum, exps, dim);
+  Tensor logSum = unaryOp(OperatorEnum::UnaryLog, sumVal);
+  Tensor logSumUnsq = unsqueeze(logSum, dim);
+  Tensor logSumExp = expand(logSumUnsq, shape);
+  return binaryOp(OperatorEnum::BinaryVecVecSub, shifted, logSumExp);
 }
 
 // =========================================================================
@@ -1065,6 +964,17 @@ Tensor Operations::pad(const Tensor &input,
   auto node = std::make_unique<PadOpNode>(
       *runtime_, input, std::vector<uint32_t>(padWidths), value, spec);
   return recordOrEncode(std::move(node), {input});
+}
+
+// =========================================================================
+// Expand
+// =========================================================================
+
+Tensor Operations::expand(const Tensor &a,
+                          const std::vector<uint32_t> &targetShape,
+                          std::optional<uint32_t> spec) {
+  auto node = std::make_unique<ExpandOpNode>(*runtime_, a, targetShape, spec);
+  return recordOrEncode(std::move(node), {a});
 }
 
 // =========================================================================

@@ -5042,6 +5042,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Softmax) {
 
   {
     auto result = runtime_->ops().softmax(a, 1);
+    runtime_->flush();
     // Only the returned output should exist (maxHandle intermediate freed)
     EXPECT_EQ(runtime_->bufferCount(), before + 1);
   }
@@ -5058,6 +5059,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_LogSoftmax) {
 
   {
     auto result = runtime_->ops().logSoftmax(a, 1);
+    runtime_->flush();
     // Only the returned output should exist (maxHandle intermediate freed)
     EXPECT_EQ(runtime_->bufferCount(), before + 1);
   }
