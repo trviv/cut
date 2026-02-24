@@ -74,6 +74,9 @@ public:
   /// Returns the output tensor handle.
   const Tensor &output() const { return output_; }
 
+  /// Returns the input tensor handles.
+  const std::vector<Tensor> &inputs() const { return inputs_; }
+
   /// Returns the DataType for shader dtype selection.
   virtual DataType shaderDtype() const = 0;
 

@@ -445,4 +445,7 @@ private:
   std::vector<ComputeDispatch> dispatches_; ///< List of compute dispatches.
 };
 
+using Tensor = ComputeHandle;
+using TensorLike = ComputeData;
+
 } // namespace cut

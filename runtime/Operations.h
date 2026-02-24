@@ -39,7 +39,7 @@ public:
 
   Tensor vecScalarOp(OperatorEnum op,
                      const Tensor &a,
-                     const ComputeData &b,
+                     const TensorLike &b,
                      std::optional<uint32_t> spec = {});
 
   // ===== Reduction ops =====
@@ -238,8 +238,7 @@ private:
 
   uint32_t toNodeId(const Tensor &t);
 
-  Tensor recordOrEncode(std::unique_ptr<OpNode> node,
-                        const std::vector<Tensor> &inputs);
+  Tensor recordOrEncode(std::unique_ptr<OpNode> node);
 };
 
 } // namespace cut
