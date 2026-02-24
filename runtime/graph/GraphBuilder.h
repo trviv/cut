@@ -20,9 +20,8 @@ namespace graph {
 
 /// Builds a computation graph by routing Operations calls through graph mode.
 /// Instead of dispatching to the GPU, each method creates an OpNode via
-/// Operations and maps the resulting Tensor to a VirtualTensor. After
-/// construction, call build() to obtain the Graph for optimization and
-/// execution.
+/// Operations and returns the resulting Tensor. After construction, call
+/// build() to obtain the Graph for optimization and execution.
 class GraphBuilder {
 public:
   explicit GraphBuilder(Runtime &runtime);
@@ -36,134 +35,121 @@ public:
 
   /// Register a pre-existing GPU tensor as a graph input.
   /// Set isConstant=true for model weights (enables optimizer reasoning).
-  VirtualTensor input(const Tensor &gpuHandle, bool isConstant = false);
+  Tensor input(const Tensor &gpuHandle, bool isConstant = false);
 
   // === Element-wise ops ===
 
-  VirtualTensor binaryOp(OperatorEnum op, VirtualTensor a, VirtualTensor b);
-  VirtualTensor unaryOp(OperatorEnum op, VirtualTensor a);
-  VirtualTensor vecScalarOp(OperatorEnum op, VirtualTensor a, float scalar);
+  Tensor binaryOp(OperatorEnum op, const Tensor &a, const Tensor &b);
+  Tensor unaryOp(OperatorEnum op, const Tensor &a);
+  Tensor vecScalarOp(OperatorEnum op, const Tensor &a, float scalar);
 
   // === Reduction ===
 
-  VirtualTensor
-  reduce(OperatorEnum op, VirtualTensor a, std::optional<int> dim = {});
+  Tensor reduce(OperatorEnum op, const Tensor &a, std::optional<int> dim = {});
 
   // === Matrix ops ===
 
-  VirtualTensor matmul(VirtualTensor a, VirtualTensor b);
-  VirtualTensor transpose(VirtualTensor a);
-  VirtualTensor dot(VirtualTensor a, VirtualTensor b);
+  Tensor matmul(const Tensor &a, const Tensor &b);
+  Tensor transpose(const Tensor &a);
+  Tensor dot(const Tensor &a, const Tensor &b);
 
   // === Special ops ===
 
-  VirtualTensor clamp(VirtualTensor a, float minVal, float maxVal);
-  VirtualTensor where(VirtualTensor cond, VirtualTensor x, VirtualTensor y);
+  Tensor clamp(const Tensor &a, float minVal, float maxVal);
+  Tensor where(const Tensor &cond, const Tensor &x, const Tensor &y);
 
   // === Cumulative ops ===
 
-  VirtualTensor
-  cumOp(VirtualTensor a, OperatorEnum op, std::optional<int> dim = {});
+  Tensor cumOp(const Tensor &a, OperatorEnum op, std::optional<int> dim = {});
 
   // === Statistical ops ===
 
-  VirtualTensor
-  variance(VirtualTensor a, int correction, std::optional<int> dim = {});
+  Tensor variance(const Tensor &a, int correction, std::optional<int> dim = {});
 
   // === Softmax ===
 
-  VirtualTensor softmax(VirtualTensor a, int dim);
-  VirtualTensor logSoftmax(VirtualTensor a, int dim);
+  Tensor softmax(const Tensor &a, int dim);
+  Tensor logSoftmax(const Tensor &a, int dim);
 
   // === Shape ops ===
 
-  VirtualTensor reshape(VirtualTensor a, const std::vector<int32_t> &newShape);
-  VirtualTensor squeeze(VirtualTensor a, std::optional<int> dim = {});
-  VirtualTensor unsqueeze(VirtualTensor a, int dim);
-  VirtualTensor
-  unflatten(VirtualTensor a, int dim, const std::vector<uint32_t> &sizes);
-  VirtualTensor flatten(VirtualTensor a, int startDim, int endDim);
+  Tensor reshape(const Tensor &a, const std::vector<int32_t> &newShape);
+  Tensor squeeze(const Tensor &a, std::optional<int> dim = {});
+  Tensor unsqueeze(const Tensor &a, int dim);
+  Tensor
+  unflatten(const Tensor &a, int dim, const std::vector<uint32_t> &sizes);
+  Tensor flatten(const Tensor &a, int startDim, int endDim);
 
   // === Norm ===
 
-  VirtualTensor norm(VirtualTensor a, std::optional<int> dim = {});
+  Tensor norm(const Tensor &a, std::optional<int> dim = {});
 
   // === Prefix scan ===
 
-  VirtualTensor prefixScan(VirtualTensor a, OperatorEnum op);
+  Tensor prefixScan(const Tensor &a, OperatorEnum op);
 
   // === Convolution ===
 
-  VirtualTensor conv1d(VirtualTensor input,
-                       VirtualTensor weight,
-                       uint32_t stride = 1,
-                       uint32_t padding = 0);
-  VirtualTensor conv2d(VirtualTensor input,
-                       VirtualTensor weight,
-                       uint32_t strideH = 1,
-                       uint32_t strideW = 1,
-                       uint32_t padH = 0,
-                       uint32_t padW = 0);
+  Tensor conv1d(const Tensor &input,
+                const Tensor &weight,
+                uint32_t stride = 1,
+                uint32_t padding = 0);
+  Tensor conv2d(const Tensor &input,
+                const Tensor &weight,
+                uint32_t strideH = 1,
+                uint32_t strideW = 1,
+                uint32_t padH = 0,
+                uint32_t padW = 0);
 
   // === Pooling ===
 
-  VirtualTensor maxPool2d(VirtualTensor input,
-                          uint32_t kernelH,
-                          uint32_t kernelW,
-                          uint32_t strideH = 1,
-                          uint32_t strideW = 1,
-                          uint32_t padH = 0,
-                          uint32_t padW = 0);
-  VirtualTensor avgPool2d(VirtualTensor input,
-                          uint32_t kernelH,
-                          uint32_t kernelW,
-                          uint32_t strideH = 1,
-                          uint32_t strideW = 1,
-                          uint32_t padH = 0,
-                          uint32_t padW = 0);
-  VirtualTensor
-  adaptiveAvgPool2d(VirtualTensor input, uint32_t outH, uint32_t outW);
+  Tensor maxPool2d(const Tensor &input,
+                   uint32_t kernelH,
+                   uint32_t kernelW,
+                   uint32_t strideH = 1,
+                   uint32_t strideW = 1,
+                   uint32_t padH = 0,
+                   uint32_t padW = 0);
+  Tensor avgPool2d(const Tensor &input,
+                   uint32_t kernelH,
+                   uint32_t kernelW,
+                   uint32_t strideH = 1,
+                   uint32_t strideW = 1,
+                   uint32_t padH = 0,
+                   uint32_t padW = 0);
+  Tensor adaptiveAvgPool2d(const Tensor &input, uint32_t outH, uint32_t outW);
 
   // === Normalization ===
 
-  VirtualTensor layerNorm(VirtualTensor input,
-                          const std::vector<uint32_t> &normalizedShape,
-                          VirtualTensor *weight = nullptr,
-                          VirtualTensor *bias = nullptr,
-                          float eps = 1e-5f);
-  VirtualTensor batchNorm(VirtualTensor input,
-                          VirtualTensor runningMean,
-                          VirtualTensor runningVar,
-                          VirtualTensor *weight = nullptr,
-                          VirtualTensor *bias = nullptr,
-                          float eps = 1e-5f);
+  Tensor layerNorm(const Tensor &input,
+                   const std::vector<uint32_t> &normalizedShape,
+                   const Tensor *weight = nullptr,
+                   const Tensor *bias = nullptr,
+                   float eps = 1e-5f);
+  Tensor batchNorm(const Tensor &input,
+                   const Tensor &runningMean,
+                   const Tensor &runningVar,
+                   const Tensor *weight = nullptr,
+                   const Tensor *bias = nullptr,
+                   float eps = 1e-5f);
 
   // === Embedding ===
 
-  VirtualTensor embedding(VirtualTensor indices, VirtualTensor weight);
+  Tensor embedding(const Tensor &indices, const Tensor &weight);
 
   // === Padding ===
 
-  VirtualTensor pad(VirtualTensor input,
-                    const std::vector<uint32_t> &padWidths,
-                    float value = 0.0f);
+  Tensor pad(const Tensor &input,
+             const std::vector<uint32_t> &padWidths,
+             float value = 0.0f);
 
   // === Output marking ===
 
-  void markOutput(VirtualTensor vt);
+  void markOutput(const Tensor &t);
 
 private:
   Operations *ops_;
   Graph graph_;
-
-  /// Maps VirtualTensor id → placeholder Tensor for Operations calls.
-  std::vector<Tensor> vtToTensor_;
-
-  /// Resolve a VirtualTensor to its placeholder Tensor.
-  const Tensor &resolve(VirtualTensor vt) const;
-
-  /// Map an Operations result Tensor back to a VirtualTensor.
-  VirtualTensor mapResult(const Tensor &t);
 };
 
 } // namespace graph

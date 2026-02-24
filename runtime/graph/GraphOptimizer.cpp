@@ -53,10 +53,10 @@ bool IdentityReshapePass::run(Graph &graph) {
       continue;
 
     uint32_t inputId = n->graphInputIds()[0];
-    const auto &inputNode = graph.node(VirtualTensor{inputId});
+    const auto &inputNode = graph.node(inputId);
     if (n->outputShape() == inputNode.outputShape()) {
       // This reshape is a no-op — rewire consumers to use the input directly
-      graph.replaceAllUses(VirtualTensor{i}, VirtualTensor{inputId});
+      graph.replaceAllUses(i, inputId);
       changed = true;
     }
   }
@@ -127,7 +127,7 @@ bool TransposeCancelPass::run(Graph &graph) {
 
     // transpose(transpose(x)) → x
     uint32_t origInputId = inputNode->graphInputIds()[0];
-    graph.replaceAllUses(VirtualTensor{i}, VirtualTensor{origInputId});
+    graph.replaceAllUses(i, origInputId);
     changed = true;
   }
 

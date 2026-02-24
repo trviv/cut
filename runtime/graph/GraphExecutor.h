@@ -30,7 +30,7 @@ private:
   Operations *ops_;
   Runtime *runtime_;
 
-  /// Maps VirtualTensor id → real GPU Tensor during execution.
+  /// Maps node index → real GPU Tensor during execution.
   std::vector<Tensor> tensorMap_;
 
   /// Execute a single graph node, populating tensorMap_[nodeIndex].

@@ -23,9 +23,9 @@ std::vector<Tensor> GraphExecutor::execute(Graph &graph) {
 
   // Collect outputs
   std::vector<Tensor> results;
-  for (const auto &out : graph.outputs()) {
-    if (out.isValid()) {
-      results.push_back(tensorMap_[out.id]);
+  for (uint32_t out : graph.outputs()) {
+    if (out != UINT32_MAX) {
+      results.push_back(tensorMap_[out]);
     }
   }
   return results;

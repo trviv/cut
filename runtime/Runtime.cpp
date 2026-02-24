@@ -194,10 +194,10 @@ void Runtime::executeGraph() {
   // Copy mappings before clearGraph() invalidates the reference
   auto mappings = operations_->graphMappings();
 
-  // Mark all non-input VirtualTensors as graph outputs
+  // Mark all non-input nodes as graph outputs
   for (const auto &p : mappings) {
-    const auto &node = activeGraph_->node(p.second);
-    if (!node.isInputNode()) {
+    const auto &n = activeGraph_->node(p.second);
+    if (!n.isInputNode()) {
       activeGraph_->markOutput(p.second);
     }
   }
@@ -217,9 +217,9 @@ void Runtime::executeGraph() {
   const auto &graphOutputs = activeGraph_->outputs();
   resolvedTensors_.clear();
   for (size_t ri = 0; ri < results.size(); ++ri) {
-    graph::VirtualTensor outVt = graphOutputs[ri];
+    uint32_t outNodeId = graphOutputs[ri];
     for (const auto &p : mappings) {
-      if (p.second == outVt) {
+      if (p.second == outNodeId) {
         resolvedTensors_.emplace_back(p.first, results[ri]);
         break;
       }

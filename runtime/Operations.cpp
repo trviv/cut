@@ -25,7 +25,7 @@
 
 namespace cut {
 
-using namespace graph;
+using graph::Graph;
 
 // =========================================================================
 // Operations
@@ -47,51 +47,51 @@ DataType Operations::getDtype(const Tensor &h) const {
 
 void Operations::setGraph(Graph *g) {
   graph_ = g;
-  tensorToVirtual_.clear();
+  tensorToNodeId_.clear();
 }
 
 void Operations::clearGraph() {
   graph_ = nullptr;
-  tensorToVirtual_.clear();
+  tensorToNodeId_.clear();
 }
 
 bool Operations::isGraphMode() const {
   return graph_ != nullptr;
 }
 
-const std::vector<std::pair<Tensor, VirtualTensor>> &
+const std::vector<std::pair<Tensor, uint32_t>> &
 Operations::graphMappings() const {
-  return tensorToVirtual_;
+  return tensorToNodeId_;
 }
 
-VirtualTensor Operations::toVirtual(const Tensor &t) {
+uint32_t Operations::toNodeId(const Tensor &t) {
   // Check if already mapped
-  for (const auto &p : tensorToVirtual_) {
+  for (const auto &p : tensorToNodeId_) {
     if (p.first == t)
       return p.second;
   }
   // Register as a new graph input
-  return registerInput(t, false);
+  registerInput(t, false);
+  return tensorToNodeId_.back().second;
 }
 
-VirtualTensor Operations::registerInput(const Tensor &gpuHandle,
-                                        bool isConstant) {
+Tensor Operations::registerInput(const Tensor &gpuHandle, bool isConstant) {
   // Deduplicate only constant inputs (weights). Dynamic inputs may reuse the
   // same placeholder handle for distinct graph inputs that receive different
   // tensors at execution time, so each call must create a separate node.
   if (isConstant) {
-    for (const auto &p : tensorToVirtual_) {
+    for (const auto &p : tensorToNodeId_) {
       if (p.first == gpuHandle)
-        return p.second;
+        return gpuHandle;
     }
   }
   auto shape = getShape(gpuHandle);
   auto dtype = getDtype(gpuHandle);
   auto node =
       std::make_unique<InputOpNode>(gpuHandle, shape, dtype, isConstant);
-  VirtualTensor vt = graph_->addNode(std::move(node));
-  tensorToVirtual_.emplace_back(gpuHandle, vt);
-  return vt;
+  uint32_t nodeId = graph_->addNode(std::move(node), gpuHandle);
+  tensorToNodeId_.emplace_back(gpuHandle, nodeId);
+  return gpuHandle;
 }
 
 Tensor Operations::recordOrEncode(std::unique_ptr<OpNode> node,
@@ -100,10 +100,10 @@ Tensor Operations::recordOrEncode(std::unique_ptr<OpNode> node,
   if (graph_) {
     std::vector<uint32_t> inputIds;
     for (const auto &inp : inputs)
-      inputIds.push_back(toVirtual(inp).id);
+      inputIds.push_back(toNodeId(inp));
     node->setGraphInputIds(std::move(inputIds));
-    auto vout = graph_->addNode(std::move(node));
-    tensorToVirtual_.emplace_back(output, vout);
+    uint32_t nodeId = graph_->addNode(std::move(node), output);
+    tensorToNodeId_.emplace_back(output, nodeId);
     return output;
   }
   runtime_->encodeOperator(std::move(node));
@@ -255,7 +255,7 @@ Tensor Operations::cumOp(const Tensor &a,
 Tensor
 Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
   if (graph_) {
-    auto vi = toVirtual(a);
+    uint32_t inputNodeId = toNodeId(a);
     auto shape = getShape(a);
     auto dtype = getDtype(a);
     std::vector<uint32_t> outShape;
@@ -273,10 +273,10 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
                                           const std::vector<Tensor> &in) {
           return ops.variance(in[0], capturedCorrection, capturedDim);
         });
-    node->setGraphInputIds({vi.id});
-    auto vout = graph_->addNode(std::move(node));
+    node->setGraphInputIds({inputNodeId});
     Tensor output = runtime_->createTensorEmpty(outShape, dtype);
-    tensorToVirtual_.emplace_back(output, vout);
+    uint32_t nodeId = graph_->addNode(std::move(node), output);
+    tensorToNodeId_.emplace_back(output, nodeId);
     return output;
   }
   auto shape = getShape(a);
@@ -352,7 +352,7 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
 
 Tensor Operations::softmax(const Tensor &a, int dim) {
   if (graph_) {
-    auto vi = toVirtual(a);
+    uint32_t inputNodeId = toNodeId(a);
     auto shape = getShape(a);
     auto dtype = getDtype(a);
     int capturedDim = dim;
@@ -361,10 +361,10 @@ Tensor Operations::softmax(const Tensor &a, int dim) {
         [capturedDim](Operations &ops, const std::vector<Tensor> &in) {
           return ops.softmax(in[0], capturedDim);
         });
-    node->setGraphInputIds({vi.id});
-    auto vout = graph_->addNode(std::move(node));
+    node->setGraphInputIds({inputNodeId});
     Tensor output = runtime_->createTensorEmpty(shape, dtype);
-    tensorToVirtual_.emplace_back(output, vout);
+    uint32_t nodeId = graph_->addNode(std::move(node), output);
+    tensorToNodeId_.emplace_back(output, nodeId);
     return output;
   }
   auto shape = getShape(a);
@@ -423,7 +423,7 @@ Tensor Operations::softmax(const Tensor &a, int dim) {
 
 Tensor Operations::logSoftmax(const Tensor &a, int dim) {
   if (graph_) {
-    auto vi = toVirtual(a);
+    uint32_t inputNodeId = toNodeId(a);
     auto shape = getShape(a);
     auto dtype = getDtype(a);
     int capturedDim = dim;
@@ -432,10 +432,10 @@ Tensor Operations::logSoftmax(const Tensor &a, int dim) {
         [capturedDim](Operations &ops, const std::vector<Tensor> &in) {
           return ops.logSoftmax(in[0], capturedDim);
         });
-    node->setGraphInputIds({vi.id});
-    auto vout = graph_->addNode(std::move(node));
+    node->setGraphInputIds({inputNodeId});
     Tensor output = runtime_->createTensorEmpty(shape, dtype);
-    tensorToVirtual_.emplace_back(output, vout);
+    uint32_t nodeId = graph_->addNode(std::move(node), output);
+    tensorToNodeId_.emplace_back(output, nodeId);
     return output;
   }
   auto shape = getShape(a);
@@ -851,14 +851,14 @@ Tensor Operations::layerNorm(const Tensor &input,
                              const Tensor *bias,
                              float eps) {
   if (graph_) {
-    auto vi = toVirtual(input);
+    uint32_t inputNodeId = toNodeId(input);
     auto shape = getShape(input);
     auto dtype = getDtype(input);
-    std::vector<uint32_t> inputIds = {vi.id};
+    std::vector<uint32_t> inputIds = {inputNodeId};
     if (weight)
-      inputIds.push_back(toVirtual(*weight).id);
+      inputIds.push_back(toNodeId(*weight));
     if (bias)
-      inputIds.push_back(toVirtual(*bias).id);
+      inputIds.push_back(toNodeId(*bias));
 
     auto capturedNormShape = normalizedShape;
     float capturedEps = eps;
@@ -879,9 +879,9 @@ Tensor Operations::layerNorm(const Tensor &input,
                                capturedEps);
         });
     node->setGraphInputIds(std::move(inputIds));
-    auto vout = graph_->addNode(std::move(node));
     Tensor output = runtime_->createTensorEmpty(shape, dtype);
-    tensorToVirtual_.emplace_back(output, vout);
+    uint32_t nodeId = graph_->addNode(std::move(node), output);
+    tensorToNodeId_.emplace_back(output, nodeId);
     return output;
   }
   auto shape = getShape(input);
@@ -972,16 +972,16 @@ Tensor Operations::batchNorm(const Tensor &input,
                              const Tensor *bias,
                              float eps) {
   if (graph_) {
-    auto vi = toVirtual(input);
-    auto vm = toVirtual(runningMean);
-    auto vv = toVirtual(runningVar);
+    uint32_t inputNodeId = toNodeId(input);
+    uint32_t meanNodeId = toNodeId(runningMean);
+    uint32_t varNodeId = toNodeId(runningVar);
     auto shape = getShape(input);
     auto dtype = getDtype(input);
-    std::vector<uint32_t> inputIds = {vi.id, vm.id, vv.id};
+    std::vector<uint32_t> inputIds = {inputNodeId, meanNodeId, varNodeId};
     if (weight)
-      inputIds.push_back(toVirtual(*weight).id);
+      inputIds.push_back(toNodeId(*weight));
     if (bias)
-      inputIds.push_back(toVirtual(*bias).id);
+      inputIds.push_back(toNodeId(*bias));
 
     float capturedEps = eps;
     bool hasWeight = weight != nullptr;
@@ -1000,9 +1000,9 @@ Tensor Operations::batchNorm(const Tensor &input,
           return ops.batchNorm(in[0], in[1], in[2], wPtr, bPtr, capturedEps);
         });
     node->setGraphInputIds(std::move(inputIds));
-    auto vout = graph_->addNode(std::move(node));
     Tensor output = runtime_->createTensorEmpty(shape, dtype);
-    tensorToVirtual_.emplace_back(output, vout);
+    uint32_t nodeId = graph_->addNode(std::move(node), output);
+    tensorToNodeId_.emplace_back(output, nodeId);
     return output;
   }
   auto shape = getShape(input);

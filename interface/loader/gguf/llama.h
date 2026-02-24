@@ -69,7 +69,7 @@ struct KVCache {
 struct GraphTemplate {
   cut::graph::Graph graph;
   cut::graph::Graph preOptGraph; // snapshot before optimization passes
-  std::vector<cut::graph::VirtualTensor> dynamicInputs;
+  std::vector<uint32_t> dynamicInputIds;
 };
 
 /// Pre-built graph templates for one transformer layer.

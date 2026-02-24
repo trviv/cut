@@ -8,7 +8,8 @@
 namespace cut {
 namespace graph {
 
-VirtualTensor Graph::addNode(std::unique_ptr<OpNode> node) {
+uint32_t Graph::addNode(std::unique_ptr<OpNode> node,
+                        const Tensor &outputTensor) {
   uint32_t idx = static_cast<uint32_t>(nodes_.size());
 
   // Increment graphRefCount on all input nodes
@@ -19,21 +20,52 @@ VirtualTensor Graph::addNode(std::unique_ptr<OpNode> node) {
   }
 
   nodes_.push_back(std::move(node));
-  return VirtualTensor{idx};
+  tensorToNodeId_.emplace_back(outputTensor, idx);
+  return idx;
 }
 
-OpNode &Graph::node(VirtualTensor vt) {
-  if (!vt.isValid() || vt.id >= nodes_.size() || !nodes_[vt.id]) {
-    throw std::out_of_range("Invalid VirtualTensor id");
+uint32_t Graph::addNode(std::unique_ptr<OpNode> node) {
+  uint32_t idx = static_cast<uint32_t>(nodes_.size());
+
+  // Increment graphRefCount on all input nodes
+  for (uint32_t inputId : node->graphInputIds()) {
+    if (inputId < nodes_.size() && nodes_[inputId]) {
+      nodes_[inputId]->setGraphRefCount(nodes_[inputId]->graphRefCount() + 1);
+    }
   }
-  return *nodes_[vt.id];
+
+  nodes_.push_back(std::move(node));
+  return idx;
 }
 
-const OpNode &Graph::node(VirtualTensor vt) const {
-  if (!vt.isValid() || vt.id >= nodes_.size() || !nodes_[vt.id]) {
-    throw std::out_of_range("Invalid VirtualTensor id");
+OpNode &Graph::node(uint32_t id) {
+  if (id == UINT32_MAX || id >= nodes_.size() || !nodes_[id]) {
+    throw std::out_of_range("Invalid node id");
   }
-  return *nodes_[vt.id];
+  return *nodes_[id];
+}
+
+const OpNode &Graph::node(uint32_t id) const {
+  if (id == UINT32_MAX || id >= nodes_.size() || !nodes_[id]) {
+    throw std::out_of_range("Invalid node id");
+  }
+  return *nodes_[id];
+}
+
+OpNode &Graph::node(const Tensor &t) {
+  return node(nodeId(t));
+}
+
+const OpNode &Graph::node(const Tensor &t) const {
+  return node(nodeId(t));
+}
+
+uint32_t Graph::nodeId(const Tensor &t) const {
+  for (const auto &p : tensorToNodeId_) {
+    if (p.first == t)
+      return p.second;
+  }
+  throw std::out_of_range("No node found for tensor");
 }
 
 size_t Graph::size() const {
@@ -48,19 +80,23 @@ const std::vector<std::unique_ptr<OpNode>> &Graph::nodes() const {
   return nodes_;
 }
 
-void Graph::markOutput(VirtualTensor vt) {
-  if (vt.isValid() && vt.id < nodes_.size() && nodes_[vt.id]) {
-    nodes_[vt.id]->setGraphOutput(true);
-    outputs_.push_back(vt);
+void Graph::markOutput(uint32_t id) {
+  if (id != UINT32_MAX && id < nodes_.size() && nodes_[id]) {
+    nodes_[id]->setGraphOutput(true);
+    outputs_.push_back(id);
   }
 }
 
-const std::vector<VirtualTensor> &Graph::outputs() const {
+void Graph::markOutput(const Tensor &t) {
+  markOutput(nodeId(t));
+}
+
+const std::vector<uint32_t> &Graph::outputs() const {
   return outputs_;
 }
 
-void Graph::replaceAllUses(VirtualTensor oldVt, VirtualTensor newVt) {
-  if (oldVt == newVt)
+void Graph::replaceAllUses(uint32_t oldId, uint32_t newId) {
+  if (oldId == newId)
     return;
 
   // Replace in all node graphInputIds
@@ -70,8 +106,8 @@ void Graph::replaceAllUses(VirtualTensor oldVt, VirtualTensor newVt) {
     auto ids = n->graphInputIds();
     bool changed = false;
     for (auto &id : ids) {
-      if (id == oldVt.id) {
-        id = newVt.id;
+      if (id == oldId) {
+        id = newId;
         changed = true;
       }
     }
@@ -81,11 +117,11 @@ void Graph::replaceAllUses(VirtualTensor oldVt, VirtualTensor newVt) {
 
   // Replace in outputs list
   for (auto &out : outputs_) {
-    if (out == oldVt) {
-      out = newVt;
+    if (out == oldId) {
+      out = newId;
       // Transfer output marking
-      if (newVt.isValid() && newVt.id < nodes_.size() && nodes_[newVt.id]) {
-        nodes_[newVt.id]->setGraphOutput(true);
+      if (newId != UINT32_MAX && newId < nodes_.size() && nodes_[newId]) {
+        nodes_[newId]->setGraphOutput(true);
       }
     }
   }
@@ -114,8 +150,8 @@ void Graph::recomputeRefCounts() {
 
   // Count from output list
   for (const auto &out : outputs_) {
-    if (out.isValid() && out.id < nodes_.size() && nodes_[out.id]) {
-      nodes_[out.id]->setGraphRefCount(nodes_[out.id]->graphRefCount() + 1);
+    if (out != UINT32_MAX && out < nodes_.size() && nodes_[out]) {
+      nodes_[out]->setGraphRefCount(nodes_[out]->graphRefCount() + 1);
     }
   }
 }
@@ -205,14 +241,6 @@ Graph Graph::clone() const {
     // Preserve logical type and input status
     stub->setLogicalType(n->logicalType());
     stub->setIsInput(n->isInputNode());
-
-    if (n->isInputNode()) {
-      auto *inp = dynamic_cast<const InputOpNode *>(n.get());
-      if (inp && inp->isConstant()) {
-        // StubOpNode constructor already has isConstant param, but we used
-        // default. Use the setter approach via the detail string above.
-      }
-    }
 
     copy.nodes_.push_back(std::move(stub));
   }

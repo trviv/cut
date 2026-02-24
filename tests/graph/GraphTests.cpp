@@ -82,9 +82,11 @@ TEST_F(GraphTest, LinearChain) {
   auto order = graph.topologicalOrder();
   EXPECT_EQ(order.size(), 4u);
   // inputs come first, then sum, then result
-  EXPECT_TRUE(std::find(order.begin(), order.end(), sum.id) != order.end());
-  auto sumPos = std::find(order.begin(), order.end(), sum.id);
-  auto resultPos = std::find(order.begin(), order.end(), result.id);
+  uint32_t sumId = graph.nodeId(sum);
+  uint32_t resultId = graph.nodeId(result);
+  EXPECT_TRUE(std::find(order.begin(), order.end(), sumId) != order.end());
+  auto sumPos = std::find(order.begin(), order.end(), sumId);
+  auto resultPos = std::find(order.begin(), order.end(), resultId);
   EXPECT_TRUE(sumPos < resultPos);
 }
 
@@ -195,6 +197,8 @@ TEST_F(GraphTest, IdentityReshapeElimination) {
   builder.markOutput(r);
   auto graph = builder.build();
 
+  uint32_t vaId = graph.nodeId(va);
+
   EXPECT_EQ(graph.size(), 2u);
 
   IdentityReshapePass pass;
@@ -202,7 +206,7 @@ TEST_F(GraphTest, IdentityReshapeElimination) {
   EXPECT_TRUE(changed);
 
   // Output should now point to the input node
-  EXPECT_EQ(graph.outputs()[0].id, va.id);
+  EXPECT_EQ(graph.outputs()[0], vaId);
 }
 
 TEST_F(GraphTest, ReshapeChainElimination) {
@@ -216,13 +220,16 @@ TEST_F(GraphTest, ReshapeChainElimination) {
   builder.markOutput(r2);
   auto graph = builder.build();
 
+  uint32_t vaId = graph.nodeId(va);
+  uint32_t r2Id = graph.nodeId(r2);
+
   EXPECT_EQ(graph.size(), 3u);
 
   ReshapeChainPass chainPass;
   chainPass.run(graph);
 
   // r2 should now point directly to va's output (skip r1)
-  EXPECT_EQ(graph.node(r2).graphInputIds()[0], va.id);
+  EXPECT_EQ(graph.node(r2Id).graphInputIds()[0], vaId);
 }
 
 TEST_F(GraphTest, TransposeCancelElimination) {
@@ -235,12 +242,14 @@ TEST_F(GraphTest, TransposeCancelElimination) {
   builder.markOutput(t2);
   auto graph = builder.build();
 
+  uint32_t vaId = graph.nodeId(va);
+
   TransposeCancelPass pass;
   bool changed = pass.run(graph);
   EXPECT_TRUE(changed);
 
   // Output should now point to the original input
-  EXPECT_EQ(graph.outputs()[0].id, va.id);
+  EXPECT_EQ(graph.outputs()[0], vaId);
 }
 
 TEST_F(GraphTest, DeadCodeElimination) {

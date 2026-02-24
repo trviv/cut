@@ -2,7 +2,6 @@
 
 #include "ShapeUtils.h"
 #include "graph/Graph.h"
-#include "graph/GraphNode.h"
 
 #include <ComputeCommon.h>
 #include <ComputeHandle.h>
@@ -216,24 +215,22 @@ public:
   void clearGraph();
   bool isGraphMode() const;
 
-  const std::vector<std::pair<Tensor, graph::VirtualTensor>> &
-  graphMappings() const;
+  const std::vector<std::pair<Tensor, uint32_t>> &graphMappings() const;
 
   /// Register a pre-existing GPU tensor as a graph input (InputOpNode).
   /// Used by GraphBuilder.
-  graph::VirtualTensor registerInput(const Tensor &gpuHandle,
-                                     bool isConstant = false);
+  Tensor registerInput(const Tensor &gpuHandle, bool isConstant = false);
 
 private:
   Runtime *runtime_;
   graph::Graph *graph_ = nullptr;
 
-  std::vector<std::pair<Tensor, graph::VirtualTensor>> tensorToVirtual_;
+  std::vector<std::pair<Tensor, uint32_t>> tensorToNodeId_;
 
   std::vector<uint32_t> getShape(const Tensor &h) const;
   DataType getDtype(const Tensor &h) const;
 
-  graph::VirtualTensor toVirtual(const Tensor &t);
+  uint32_t toNodeId(const Tensor &t);
 
   Tensor recordOrEncode(std::unique_ptr<OpNode> node,
                         const std::vector<Tensor> &inputs);

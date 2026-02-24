@@ -448,14 +448,13 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   builder.markOutput(v_flat);
 
   auto graph = builder.build();
-  auto preOpt = graph.clone(); // snapshot before optimization
-  auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
 
   GraphTemplate tpl;
+  tpl.dynamicInputIds = {graph.nodeId(vNormed)};
+  tpl.preOptGraph = graph.clone();
+  auto optimizer = cut::graph::GraphOptimizer::createDefault();
+  optimizer.optimize(graph);
   tpl.graph = std::move(graph);
-  tpl.preOptGraph = std::move(preOpt);
-  tpl.dynamicInputs = {vNormed};
   return tpl;
 }
 
@@ -465,7 +464,7 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   int32_t dim = static_cast<int32_t>(config_.dim);
 
   // Dynamic inputs — each must use a DIFFERENT placeholder tensor so that
-  // Operations::toVirtual() can distinguish them during graph construction.
+  // Operations can distinguish them during graph construction.
   // Using the same handle for both would cause the residual add to read from
   // the wrong input (attn_out instead of hidden).
   auto vAttnOut = builder.input(layer.attn_norm, /*isConstant=*/false);
@@ -486,14 +485,13 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   builder.markOutput(result);
 
   auto graph = builder.build();
-  auto preOpt = graph.clone(); // snapshot before optimization
-  auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
 
   GraphTemplate tpl;
+  tpl.dynamicInputIds = {graph.nodeId(vAttnOut), graph.nodeId(vHidden)};
+  tpl.preOptGraph = graph.clone();
+  auto optimizer = cut::graph::GraphOptimizer::createDefault();
+  optimizer.optimize(graph);
   tpl.graph = std::move(graph);
-  tpl.preOptGraph = std::move(preOpt);
-  tpl.dynamicInputs = {vAttnOut, vHidden};
   return tpl;
 }
 
@@ -502,7 +500,7 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   int32_t dim = static_cast<int32_t>(config_.dim);
 
   // Dynamic inputs — each must use a DIFFERENT placeholder tensor so that
-  // Operations::toVirtual() can distinguish them during graph construction.
+  // Operations can distinguish them during graph construction.
   auto vNormed = builder.input(layer.ffn_norm, /*isConstant=*/false);
   auto vWGate = builder.input(layer.w_gate, /*isConstant=*/true);
   auto vWUp = builder.input(layer.w_up, /*isConstant=*/true);
@@ -536,14 +534,13 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   builder.markOutput(result);
 
   auto graph = builder.build();
-  auto preOpt = graph.clone(); // snapshot before optimization
-  auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
 
   GraphTemplate tpl;
+  tpl.dynamicInputIds = {graph.nodeId(vNormed), graph.nodeId(vHidden)};
+  tpl.preOptGraph = graph.clone();
+  auto optimizer = cut::graph::GraphOptimizer::createDefault();
+  optimizer.optimize(graph);
   tpl.graph = std::move(graph);
-  tpl.preOptGraph = std::move(preOpt);
-  tpl.dynamicInputs = {vNormed, vHidden};
   return tpl;
 }
 
@@ -567,14 +564,13 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
   builder.markOutput(logits_raw);
 
   auto graph = builder.build();
-  auto preOpt = graph.clone(); // snapshot before optimization
-  auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
 
   GraphTemplate tpl;
+  tpl.dynamicInputIds = {graph.nodeId(vHidden)};
+  tpl.preOptGraph = graph.clone();
+  auto optimizer = cut::graph::GraphOptimizer::createDefault();
+  optimizer.optimize(graph);
   tpl.graph = std::move(graph);
-  tpl.preOptGraph = std::move(preOpt);
-  tpl.dynamicInputs = {vHidden};
   return tpl;
 }
 
@@ -596,8 +592,8 @@ void LlamaModel::buildGraphTemplates() {
 
 std::vector<cut::Tensor> LlamaModel::executeGraph(
     GraphTemplate &tpl, const std::vector<cut::ComputeHandle> &dynamicHandles) {
-  for (size_t i = 0; i < tpl.dynamicInputs.size(); ++i) {
-    auto &node = tpl.graph.node(tpl.dynamicInputs[i]);
+  for (size_t i = 0; i < tpl.dynamicInputIds.size(); ++i) {
+    auto &node = tpl.graph.node(tpl.dynamicInputIds[i]);
     static_cast<cut::InputOpNode &>(node).setGpuHandle(dynamicHandles[i]);
   }
   return executor_->execute(tpl.graph);
