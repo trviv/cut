@@ -5009,6 +5009,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_VarianceScalar) {
 
   {
     auto var = runtime_->ops().variance(a, 0);
+    runtime_->flush();
     // variance now returns a {1} tensor
     EXPECT_EQ(runtime_->bufferCount(), before + 1);
   }
@@ -5017,8 +5018,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_VarianceScalar) {
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_VarianceDim) {
-  // variance with dim creates a meanHandle intermediate tensor via reduce.
-  // It calls copyFromTensor which flushes, so intermediates are released.
+  // variance with dim creates intermediate tensors via GPU ops.
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
   auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
   runtime_->flush();
@@ -5026,7 +5026,8 @@ TEST_F(VulkanBackendTest, TemporaryTensors_VarianceDim) {
 
   {
     auto result = runtime_->ops().variance(a, 0, 1);
-    // Only the returned output should exist (meanHandle intermediate freed)
+    runtime_->flush();
+    // Only the returned output should exist (intermediates freed)
     EXPECT_EQ(runtime_->bufferCount(), before + 1);
   }
   // After scope, the returned output is also freed
@@ -5471,6 +5472,7 @@ TEST_F(LayerNormTest, Basic_NoWeightBias) {
 
   auto bufIn = runtime_->createTensor({outer, inner}, dtype, input.data());
   auto bufOut = runtime_->ops().layerNorm(bufIn, {inner});
+  runtime_->flush();
 
   std::vector<float> output(outer * inner);
   runtime_->copyFromTensor(bufOut, output.data(),
@@ -5495,6 +5497,7 @@ TEST_F(LayerNormTest, WithWeightAndBias) {
   auto bufB = runtime_->createTensor({inner}, dtype, bias.data());
 
   auto bufOut = runtime_->ops().layerNorm(bufIn, {inner}, &bufW, &bufB);
+  runtime_->flush();
 
   std::vector<float> output(outer * inner);
   runtime_->copyFromTensor(bufOut, output.data(),
@@ -5515,6 +5518,7 @@ TEST_F(LayerNormTest, HigherDimensional) {
 
   auto bufIn = runtime_->createTensor({N, H, W}, dtype, input.data());
   auto bufOut = runtime_->ops().layerNorm(bufIn, {H, W});
+  runtime_->flush();
 
   std::vector<float> output(N * H * W);
   runtime_->copyFromTensor(bufOut, output.data(),
@@ -5577,6 +5581,7 @@ TEST_F(BatchNormTest, Basic_NoWeightBias) {
   auto bufVar = runtime_->createTensor({C}, dtype, runningVar.data());
 
   auto bufOut = runtime_->ops().batchNorm(bufIn, bufMean, bufVar);
+  runtime_->flush();
 
   std::vector<float> output(N * C * H * W);
   runtime_->copyFromTensor(bufOut, output.data(),
@@ -5607,6 +5612,7 @@ TEST_F(BatchNormTest, WithWeightAndBias) {
   auto bufB = runtime_->createTensor({C}, dtype, bias.data());
 
   auto bufOut = runtime_->ops().batchNorm(bufIn, bufMean, bufVar, &bufW, &bufB);
+  runtime_->flush();
 
   std::vector<float> output(N * C * H * W);
   runtime_->copyFromTensor(bufOut, output.data(),
@@ -5634,6 +5640,7 @@ TEST_F(BatchNormTest, SingleSpatial) {
   auto bufVar = runtime_->createTensor({C}, dtype, runningVar.data());
 
   auto bufOut = runtime_->ops().batchNorm(bufIn, bufMean, bufVar);
+  runtime_->flush();
 
   std::vector<float> output(N * C);
   runtime_->copyFromTensor(bufOut, output.data(),

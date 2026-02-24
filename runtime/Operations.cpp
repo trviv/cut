@@ -19,7 +19,6 @@
 #include "impl/unary/UnaryOp.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstring>
 #include <stdexcept>
 
@@ -265,67 +264,44 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
   auto dtype = getDtype(a);
 
   if (!dim.has_value()) {
-    // Global variance
-    Tensor sumTensor = reduce(OperatorEnum::ReduceSum, a);
-    float total = 0.0f;
-    runtime_->copyFromTensor(sumTensor, &total, sizeof(float));
+    // Global variance: var = sum((x - mean)^2) / (n - correction)
+    // All ops on GPU via reduce + expand + elementwise.
     size_t n = shapeProduct(shape);
-    float m = total / static_cast<float>(n);
-
-    std::vector<float> data(n);
-    runtime_->copyFromTensor(a, data.data(), n * sizeof(float));
-
-    double sum = 0.0;
-    for (size_t i = 0; i < n; ++i) {
-      double diff = static_cast<double>(data[i]) - static_cast<double>(m);
-      sum += diff * diff;
-    }
-
+    Tensor flat = reshape(a, {static_cast<int32_t>(n)});
+    Tensor meanVal = reduce(OperatorEnum::ReduceMean, flat);
+    Tensor meanExp = expand(meanVal, {static_cast<uint32_t>(n)});
+    Tensor diff = binaryOp(OperatorEnum::BinaryVecVecSub, flat, meanExp);
+    Tensor diffSq = unaryOp(OperatorEnum::UnarySquare, diff);
+    Tensor sumSq = reduce(OperatorEnum::ReduceSum, diffSq);
     int denom = static_cast<int>(n) - correction;
-    float result = denom > 0 ? static_cast<float>(sum / denom) : 0.0f;
-
-    Tensor out = runtime_->createTensorEmpty({1}, dtype);
-    runtime_->copyToTensor(out, &result, sizeof(float));
-    return out;
-  }
-
-  // Dimension-wise variance
-  auto params = computeDimParams(shape, dim.value());
-
-  Tensor meanHandle = reduce(OperatorEnum::ReduceMean, a, dim.value());
-
-  size_t totalElements = shapeProduct(shape);
-  size_t meanElements = params.outerSize * params.innerSize;
-
-  std::vector<float> flatData(totalElements);
-  std::vector<float> meanData(meanElements);
-
-  runtime_->copyFromTensor(a, flatData.data(), totalElements * sizeof(float));
-  runtime_->copyFromTensor(meanHandle, meanData.data(),
-                           meanElements * sizeof(float));
-
-  std::vector<float> result(meanElements);
-  for (uint32_t o = 0; o < params.outerSize; ++o) {
-    for (uint32_t iInner = 0; iInner < params.innerSize; ++iInner) {
-      float meanVal = meanData[o * params.innerSize + iInner];
-      double s = 0.0;
-      for (uint32_t r = 0; r < params.reduceSize; ++r) {
-        size_t idx =
-            static_cast<size_t>(o) * params.reduceSize * params.innerSize +
-            r * params.innerSize + iInner;
-        double diff =
-            static_cast<double>(flatData[idx]) - static_cast<double>(meanVal);
-        s += diff * diff;
-      }
-      int n = static_cast<int>(params.reduceSize) - correction;
-      result[o * params.innerSize + iInner] =
-          n > 0 ? static_cast<float>(s / n) : 0.0f;
+    if (denom > 0) {
+      return vecScalarOp(OperatorEnum::BinaryVecScalarDiv, sumSq,
+                         static_cast<float>(denom));
     }
+    return full({1}, 0.0f, dtype);
   }
 
-  Tensor out = runtime_->createTensorEmpty(params.outShape, dtype);
-  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
-  return out;
+  // Dimension-wise variance: var(x, dim) = mean((x - mean(x, dim))^2, dim)
+  // adjusted for Bessel's correction.
+  // All ops on GPU via reduce + unsqueeze + expand + elementwise.
+  int ndim = static_cast<int>(shape.size());
+  int d = dim.value();
+  if (d < 0)
+    d = ndim + d;
+  uint32_t reduceSize = shape[d];
+
+  Tensor meanVal = reduce(OperatorEnum::ReduceMean, a, d);
+  Tensor meanUnsq = unsqueeze(meanVal, d);
+  Tensor meanExp = expand(meanUnsq, shape);
+  Tensor diff = binaryOp(OperatorEnum::BinaryVecVecSub, a, meanExp);
+  Tensor diffSq = unaryOp(OperatorEnum::UnarySquare, diff);
+  Tensor sumSq = reduce(OperatorEnum::ReduceSum, diffSq, d);
+  int denom = static_cast<int>(reduceSize) - correction;
+  if (denom > 0) {
+    return vecScalarOp(OperatorEnum::BinaryVecScalarDiv, sumSq,
+                       static_cast<float>(denom));
+  }
+  return full(computeDimParams(shape, d).outShape, 0.0f, dtype);
 }
 
 // =========================================================================
@@ -793,57 +769,43 @@ Tensor Operations::layerNorm(const Tensor &input,
   for (int i = 0; i < normDims; ++i)
     normSize *= normalizedShape[i];
 
-  size_t totalElements = outerSize * normSize;
+  // All ops on GPU via reduce + unsqueeze + expand + elementwise.
+  // Flatten to [outer, norm] so we can reduce along dim=1.
+  Tensor flat = reshape(
+      input, {static_cast<int32_t>(outerSize), static_cast<int32_t>(normSize)});
+  std::vector<uint32_t> flatShape = {static_cast<uint32_t>(outerSize),
+                                     static_cast<uint32_t>(normSize)};
 
-  // Read input data
-  std::vector<float> data(totalElements);
-  runtime_->copyFromTensor(input, data.data(), totalElements * sizeof(float));
+  // mean and variance along the norm dimension (dim=1)
+  Tensor meanVal = reduce(OperatorEnum::ReduceMean, flat, 1);
+  Tensor meanUnsq = unsqueeze(meanVal, 1);
+  Tensor meanExp = expand(meanUnsq, flatShape);
+  Tensor diff = binaryOp(OperatorEnum::BinaryVecVecSub, flat, meanExp);
+  Tensor diffSq = unaryOp(OperatorEnum::UnarySquare, diff);
+  Tensor varVal = reduce(OperatorEnum::ReduceMean, diffSq, 1);
+  Tensor varEps = vecScalarOp(OperatorEnum::BinaryVecScalarAdd, varVal, eps);
+  Tensor invStd = unaryOp(OperatorEnum::UnaryRsqrt, varEps);
+  Tensor invStdUnsq = unsqueeze(invStd, 1);
+  Tensor invStdExp = expand(invStdUnsq, flatShape);
 
-  // Read weight/bias if provided
-  std::vector<float> wData, bData;
+  // normalized = (x - mean) * invStd
+  Tensor normalized = binaryOp(OperatorEnum::BinaryVecVecMul, diff, invStdExp);
+
+  // Apply weight and bias if provided
   if (weight) {
-    wData.resize(normSize);
-    runtime_->copyFromTensor(*weight, wData.data(), normSize * sizeof(float));
+    Tensor wFlat = reshape(*weight, {1, static_cast<int32_t>(normSize)});
+    Tensor wExp = expand(wFlat, flatShape);
+    normalized = binaryOp(OperatorEnum::BinaryVecVecMul, normalized, wExp);
   }
   if (bias) {
-    bData.resize(normSize);
-    runtime_->copyFromTensor(*bias, bData.data(), normSize * sizeof(float));
+    Tensor bFlat = reshape(*bias, {1, static_cast<int32_t>(normSize)});
+    Tensor bExp = expand(bFlat, flatShape);
+    normalized = binaryOp(OperatorEnum::BinaryVecVecAdd, normalized, bExp);
   }
 
-  // Compute layer norm on CPU
-  std::vector<float> result(totalElements);
-  for (size_t o = 0; o < outerSize; ++o) {
-    size_t base = o * normSize;
-
-    // Mean
-    double sum = 0.0;
-    for (size_t i = 0; i < normSize; ++i)
-      sum += data[base + i];
-    float mean = static_cast<float>(sum / normSize);
-
-    // Variance
-    double varSum = 0.0;
-    for (size_t i = 0; i < normSize; ++i) {
-      double diff = data[base + i] - mean;
-      varSum += diff * diff;
-    }
-    float invStd =
-        1.0f / std::sqrt(static_cast<float>(varSum / normSize) + eps);
-
-    // Normalize, scale, shift
-    for (size_t i = 0; i < normSize; ++i) {
-      float normalized = (data[base + i] - mean) * invStd;
-      if (weight)
-        normalized *= wData[i];
-      if (bias)
-        normalized += bData[i];
-      result[base + i] = normalized;
-    }
-  }
-
-  Tensor out = runtime_->createTensorEmpty(shape, dtype);
-  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
-  return out;
+  // Reshape back to original shape
+  std::vector<int32_t> origShape(shape.begin(), shape.end());
+  return reshape(normalized, origShape);
 }
 
 Tensor Operations::batchNorm(const Tensor &input,
@@ -896,49 +858,48 @@ Tensor Operations::batchNorm(const Tensor &input,
 
   uint32_t N = shape[0];
   uint32_t C = shape[1];
-  size_t spatialSize = 1;
+  uint32_t spatialSize = 1;
   for (size_t i = 2; i < shape.size(); ++i)
     spatialSize *= shape[i];
 
-  size_t totalElements = N * C * spatialSize;
+  // All ops on GPU via reshape + expand + elementwise.
+  // Flatten input to [N, C, spatial] so per-channel params broadcast easily.
+  std::vector<uint32_t> flatShape = {N, C, spatialSize};
+  Tensor flat =
+      reshape(input, {static_cast<int32_t>(N), static_cast<int32_t>(C),
+                      static_cast<int32_t>(spatialSize)});
 
-  // Read all data
-  std::vector<float> data(totalElements);
-  runtime_->copyFromTensor(input, data.data(), totalElements * sizeof(float));
+  // Reshape per-channel vectors [C] -> [1, C, 1] then expand to [N, C, spatial]
+  std::vector<int32_t> chanShape = {1, static_cast<int32_t>(C), 1};
 
-  std::vector<float> meanData(C), varData(C);
-  runtime_->copyFromTensor(runningMean, meanData.data(), C * sizeof(float));
-  runtime_->copyFromTensor(runningVar, varData.data(), C * sizeof(float));
+  // invStd = rsqrt(runningVar + eps)
+  Tensor varEps =
+      vecScalarOp(OperatorEnum::BinaryVecScalarAdd, runningVar, eps);
+  Tensor invStd = unaryOp(OperatorEnum::UnaryRsqrt, varEps);
 
-  std::vector<float> wData, bData;
-  if (weight) {
-    wData.resize(C);
-    runtime_->copyFromTensor(*weight, wData.data(), C * sizeof(float));
-  }
-  if (bias) {
-    bData.resize(C);
-    runtime_->copyFromTensor(*bias, bData.data(), C * sizeof(float));
-  }
+  // scale = weight * invStd  (or just invStd if no weight)
+  Tensor scale = weight
+                     ? binaryOp(OperatorEnum::BinaryVecVecMul, *weight, invStd)
+                     : invStd;
 
-  // Compute batch norm (inference mode)
-  std::vector<float> result(totalElements);
-  for (uint32_t n = 0; n < N; ++n) {
-    for (uint32_t c = 0; c < C; ++c) {
-      float invStd = 1.0f / std::sqrt(varData[c] + eps);
-      float scale = weight ? wData[c] * invStd : invStd;
-      float shift =
-          bias ? bData[c] - meanData[c] * scale : -meanData[c] * scale;
+  // shift = bias - runningMean * scale  (or -runningMean * scale)
+  Tensor meanScale =
+      binaryOp(OperatorEnum::BinaryVecVecMul, runningMean, scale);
+  Tensor shift = bias
+                     ? binaryOp(OperatorEnum::BinaryVecVecSub, *bias, meanScale)
+                     : unaryOp(OperatorEnum::UnaryNeg, meanScale);
 
-      size_t base = (n * C + c) * spatialSize;
-      for (size_t s = 0; s < spatialSize; ++s) {
-        result[base + s] = data[base + s] * scale + shift;
-      }
-    }
-  }
+  // Broadcast scale and shift to match [N, C, spatial]
+  Tensor scaleExp = expand(reshape(scale, chanShape), flatShape);
+  Tensor shiftExp = expand(reshape(shift, chanShape), flatShape);
 
-  Tensor out = runtime_->createTensorEmpty(shape, dtype);
-  runtime_->copyToTensor(out, result.data(), result.size() * sizeof(float));
-  return out;
+  // result = input * scale + shift
+  Tensor scaled = binaryOp(OperatorEnum::BinaryVecVecMul, flat, scaleExp);
+  Tensor result = binaryOp(OperatorEnum::BinaryVecVecAdd, scaled, shiftExp);
+
+  // Reshape back to original shape
+  std::vector<int32_t> origShape(shape.begin(), shape.end());
+  return reshape(result, origShape);
 }
 
 // =========================================================================
