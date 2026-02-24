@@ -21,6 +21,7 @@ add_library(gguf_loader STATIC ${GGUF_LOADER_SOURCES} ${GGUF_LOADER_HEADERS})
 target_include_directories(gguf_loader PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/core/api/include
+    ${CMAKE_SOURCE_DIR}/operators
     ${CMAKE_SOURCE_DIR}/runtime
 )
 

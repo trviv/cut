@@ -2,6 +2,7 @@
 
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
+#include <OpNode.h>
 #include <Operations.h>
 #include <Runtime.h>
 #include <graph/Graph.h>
@@ -58,9 +59,9 @@ TEST_F(GraphTest, SingleInputNode) {
 
   EXPECT_EQ(graph.size(), 1u);
   EXPECT_EQ(graph.outputs().size(), 1u);
-  EXPECT_EQ(graph.node(x).type, GraphNodeType::Input);
-  EXPECT_EQ(graph.node(x).outputShape, (std::vector<uint32_t>{4, 8}));
-  EXPECT_EQ(graph.node(x).outputDtype, DataType::Float32);
+  EXPECT_TRUE(graph.node(x).isInputNode());
+  EXPECT_EQ(graph.node(x).outputShape(), (std::vector<uint32_t>{4, 8}));
+  EXPECT_EQ(graph.node(x).outputDtype(), DataType::Float32);
 }
 
 TEST_F(GraphTest, LinearChain) {
@@ -76,7 +77,7 @@ TEST_F(GraphTest, LinearChain) {
   auto graph = builder.build();
 
   EXPECT_EQ(graph.size(), 4u);
-  EXPECT_EQ(graph.node(result).outputShape, (std::vector<uint32_t>{8}));
+  EXPECT_EQ(graph.node(result).outputShape(), (std::vector<uint32_t>{8}));
 
   auto order = graph.topologicalOrder();
   EXPECT_EQ(order.size(), 4u);
@@ -102,7 +103,7 @@ TEST_F(GraphTest, DiamondDAG) {
   EXPECT_EQ(graph.size(), 4u);
   // x has refCount 2 (used by both a and b)
   graph.recomputeRefCounts();
-  EXPECT_EQ(graph.node(x).refCount, 2u);
+  EXPECT_EQ(graph.node(x).graphRefCount(), 2u);
 }
 
 TEST_F(GraphTest, MatMulShapeInference) {
@@ -116,8 +117,8 @@ TEST_F(GraphTest, MatMulShapeInference) {
   builder.markOutput(c);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(c).outputShape, (std::vector<uint32_t>{3, 5}));
-  EXPECT_EQ(graph.node(c).outputDtype, DataType::Float32);
+  EXPECT_EQ(graph.node(c).outputShape(), (std::vector<uint32_t>{3, 5}));
+  EXPECT_EQ(graph.node(c).outputDtype(), DataType::Float32);
 }
 
 TEST_F(GraphTest, TransposeShapeInference) {
@@ -129,7 +130,7 @@ TEST_F(GraphTest, TransposeShapeInference) {
   builder.markOutput(t);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(t).outputShape, (std::vector<uint32_t>{7, 3}));
+  EXPECT_EQ(graph.node(t).outputShape(), (std::vector<uint32_t>{7, 3}));
 }
 
 TEST_F(GraphTest, ReshapeShapeInference) {
@@ -141,7 +142,7 @@ TEST_F(GraphTest, ReshapeShapeInference) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(r).outputShape, (std::vector<uint32_t>{3, 4}));
+  EXPECT_EQ(graph.node(r).outputShape(), (std::vector<uint32_t>{3, 4}));
 }
 
 TEST_F(GraphTest, ReshapeWithNegativeOne) {
@@ -153,7 +154,7 @@ TEST_F(GraphTest, ReshapeWithNegativeOne) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(r).outputShape, (std::vector<uint32_t>{3, 4}));
+  EXPECT_EQ(graph.node(r).outputShape(), (std::vector<uint32_t>{3, 4}));
 }
 
 TEST_F(GraphTest, ReduceGlobalShapeInference) {
@@ -165,7 +166,7 @@ TEST_F(GraphTest, ReduceGlobalShapeInference) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(r).outputShape, (std::vector<uint32_t>{1}));
+  EXPECT_EQ(graph.node(r).outputShape(), (std::vector<uint32_t>{1}));
 }
 
 TEST_F(GraphTest, ReduceDimShapeInference) {
@@ -177,7 +178,7 @@ TEST_F(GraphTest, ReduceDimShapeInference) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(r).outputShape, (std::vector<uint32_t>{8}));
+  EXPECT_EQ(graph.node(r).outputShape(), (std::vector<uint32_t>{8}));
 }
 
 // ============================================================================
@@ -221,7 +222,7 @@ TEST_F(GraphTest, ReshapeChainElimination) {
   chainPass.run(graph);
 
   // r2 should now point directly to va's output (skip r1)
-  EXPECT_EQ(graph.node(r2).inputs[0].id, va.id);
+  EXPECT_EQ(graph.node(r2).graphInputIds()[0], va.id);
 }
 
 TEST_F(GraphTest, TransposeCancelElimination) {
@@ -259,8 +260,8 @@ TEST_F(GraphTest, DeadCodeElimination) {
   EXPECT_TRUE(changed);
 
   // The dead node should be marked as removed
-  EXPECT_TRUE(graph.node(dead).isRemoved);
-  EXPECT_FALSE(graph.node(live).isRemoved);
+  EXPECT_TRUE(graph.node(dead).isGraphRemoved());
+  EXPECT_FALSE(graph.node(live).isGraphRemoved());
 }
 
 TEST_F(GraphTest, FullOptimizationPipeline) {
@@ -533,6 +534,168 @@ TEST_F(GraphTest, MultiOutputGraph) {
     EXPECT_NEAR(sinOut[i], std::sin(data[i]), 1e-5f);
     EXPECT_NEAR(cosOut[i], std::cos(data[i]), 1e-5f);
   }
+}
+
+// ============================================================================
+// Runtime Graph Mode Tests (beginGraph / executeGraph / copyFromTensor)
+// ============================================================================
+
+TEST_F(GraphTest, RuntimeGraphModeBinaryOp) {
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  // Eager execution for reference
+  auto eagerResult = runtime_.ops().binaryOp(BinaryVecVecAdd, a, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  // Graph mode execution
+  runtime_.beginGraph();
+  auto graphResult = runtime_.ops().binaryOp(BinaryVecVecAdd, a, b);
+  // copyFromTensor triggers executeGraph automatically
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(graphResult, graphOut.data(), 4 * sizeof(float));
+
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, RuntimeGraphModeUnaryOp) {
+  std::vector<float> data = {1.0f, 4.0f, 9.0f, 16.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, data.data());
+
+  runtime_.beginGraph();
+  auto result = runtime_.ops().unaryOp(UnarySqrt, a);
+  std::vector<float> output(4);
+  runtime_.copyFromTensor(result, output.data(), 4 * sizeof(float));
+
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(output[i], std::sqrt(data[i]), 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, RuntimeGraphModeMatMul) {
+  std::vector<float> aData = {1, 2, 3, 4};
+  std::vector<float> bData = {5, 6, 7, 8};
+  auto a = runtime_.createTensor({2, 2}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({2, 2}, DataType::Float32, bData.data());
+
+  runtime_.beginGraph();
+  auto result = runtime_.ops().matmul(a, b);
+  std::vector<float> output(4);
+  runtime_.copyFromTensor(result, output.data(), 4 * sizeof(float));
+
+  EXPECT_NEAR(output[0], 19.0f, 1e-4f);
+  EXPECT_NEAR(output[1], 22.0f, 1e-4f);
+  EXPECT_NEAR(output[2], 43.0f, 1e-4f);
+  EXPECT_NEAR(output[3], 50.0f, 1e-4f);
+}
+
+TEST_F(GraphTest, RuntimeGraphModeChain) {
+  // Test multi-op chain: (a + b) * 2.0
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  runtime_.beginGraph();
+  auto &ops = runtime_.ops();
+  auto sum = ops.binaryOp(BinaryVecVecAdd, a, b);
+  float two = 2.0f;
+  auto scaled = ops.vecScalarOp(BinaryVecScalarMul, sum,
+                                DataReference(&two, sizeof(float)));
+  std::vector<float> output(4);
+  runtime_.copyFromTensor(scaled, output.data(), 4 * sizeof(float));
+
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(output[i], (aData[i] + bData[i]) * 2.0f);
+  }
+}
+
+TEST_F(GraphTest, RuntimeGraphModeFFN) {
+  // FFN-like: reshape → matmul → SiLU → reshape
+  std::vector<float> xData(8);
+  std::vector<float> wData(8 * 4);
+  for (int i = 0; i < 8; ++i)
+    xData[i] = static_cast<float>(i + 1) * 0.1f;
+  for (int i = 0; i < 32; ++i)
+    wData[i] = static_cast<float>(i + 1) * 0.01f;
+
+  auto x = runtime_.createTensor({8}, DataType::Float32, xData.data());
+  auto w = runtime_.createTensor({8, 4}, DataType::Float32, wData.data());
+
+  // Eager reference
+  auto &ops = runtime_.ops();
+  auto eager_x2d = ops.reshape(x, {1, 8});
+  auto eager_mm = ops.matmul(eager_x2d, w);
+  auto eager_act = ops.unaryOp(UnarySilu, eager_mm);
+  auto eager_out = ops.reshape(eager_act, {4});
+  std::vector<float> eagerResult(4);
+  runtime_.copyFromTensor(eager_out, eagerResult.data(), 4 * sizeof(float));
+
+  // Graph mode
+  runtime_.beginGraph();
+  auto graph_x2d = ops.reshape(x, {1, 8});
+  auto graph_mm = ops.matmul(graph_x2d, w);
+  auto graph_act = ops.unaryOp(UnarySilu, graph_mm);
+  auto graph_out = ops.reshape(graph_act, {4});
+  std::vector<float> graphResult(4);
+  runtime_.copyFromTensor(graph_out, graphResult.data(), 4 * sizeof(float));
+
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(graphResult[i], eagerResult[i], 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, RuntimeGraphModeExplicitExecute) {
+  // Test explicit executeGraph() call (not triggered by copyFromTensor)
+  std::vector<float> data = {2.0f, 4.0f, 6.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, data.data());
+
+  runtime_.beginGraph();
+  auto result = runtime_.ops().unaryOp(UnarySqrt, a);
+  runtime_.executeGraph();
+  EXPECT_FALSE(runtime_.isGraphMode());
+
+  // Now read the resolved result
+  std::vector<float> output(4);
+  runtime_.copyFromTensor(result, output.data(), 4 * sizeof(float));
+
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(output[i], std::sqrt(data[i]), 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, RuntimeGraphModeReduce) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, data.data());
+
+  runtime_.beginGraph();
+  auto result = runtime_.ops().reduce(ReduceSum, a);
+  float output = 0.0f;
+  runtime_.copyFromTensor(result, &output, sizeof(float));
+
+  EXPECT_NEAR(output, 10.0f, 1e-5f);
+}
+
+TEST_F(GraphTest, RuntimeGraphModeTranspose) {
+  std::vector<float> data = {1, 2, 3, 4, 5, 6};
+  auto a = runtime_.createTensor({2, 3}, DataType::Float32, data.data());
+
+  runtime_.beginGraph();
+  auto result = runtime_.ops().transpose(a);
+  std::vector<float> output(6);
+  runtime_.copyFromTensor(result, output.data(), 6 * sizeof(float));
+
+  EXPECT_NEAR(output[0], 1.0f, 1e-5f);
+  EXPECT_NEAR(output[1], 4.0f, 1e-5f);
+  EXPECT_NEAR(output[2], 2.0f, 1e-5f);
+  EXPECT_NEAR(output[3], 5.0f, 1e-5f);
+  EXPECT_NEAR(output[4], 3.0f, 1e-5f);
+  EXPECT_NEAR(output[5], 6.0f, 1e-5f);
 }
 
 } // namespace

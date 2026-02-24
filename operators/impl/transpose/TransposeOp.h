@@ -11,6 +11,10 @@ public:
                   const Tensor &a,
                   std::optional<uint32_t> spec = {});
 
+  LogicalOpType logicalType() const override {
+    return LogicalOpType::Transpose;
+  }
+
   DataType shaderDtype() const override;
   DataType outputDtype() const override;
   std::optional<uint32_t> spec() const override;

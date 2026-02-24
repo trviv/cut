@@ -49,6 +49,9 @@ void Runtime::init(BackendType backend) {
 void Runtime::shutdown() {
   // Flush any pending commands before shutdown
   flushPendingCommands();
+  // Clear graph state before destroying operations (holds Tensor handles)
+  resolvedTensors_.clear();
+  activeGraph_.reset();
   // Destroy operations before dispatcher (it holds a raw pointer to runtime)
   operations_.reset();
   // Destroy dispatcher before interface (it holds a raw pointer)
@@ -72,6 +75,9 @@ size_t Runtime::bufferCount() const {
 }
 
 void Runtime::flush() {
+  if (activeGraph_) {
+    executeGraph();
+  }
   flushPendingCommands();
 }
 
@@ -125,6 +131,17 @@ void Runtime::copyFromTensor(Tensor handle,
                              size_t size,
                              size_t srcOffset,
                              size_t dstOffset) {
+  // If graph is still recording, execute it first
+  if (activeGraph_) {
+    executeGraph();
+  }
+  // If this handle was a placeholder, read from the resolved real tensor
+  for (const auto &p : resolvedTensors_) {
+    if (p.first == handle) {
+      handle = p.second;
+      break;
+    }
+  }
   // Ensure all pending GPU work is complete before reading data back
   flushPendingCommands();
   getInterface()->copyDataFromBuffer(handle, dstPtr, size, srcOffset, dstOffset,
@@ -136,11 +153,15 @@ void Runtime::copyFromTensor(Tensor handle,
 // =========================================================================
 
 void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
+  encodeOperator(*node);
+}
+
+void Runtime::encodeOperator(OpNode &node) {
   if (!dispatcher_) {
     throw std::runtime_error("Dispatcher not initialized. Call init() first.");
   }
 
-  if (!dispatcher_->encode(std::move(node))) {
+  if (!dispatcher_->encode(node)) {
     return;
   }
 
@@ -150,6 +171,66 @@ void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
     Tensor cmd = getInterface()->submit();
     getInterface()->wait(cmd);
   }
+}
+
+// =========================================================================
+// Graph Mode
+// =========================================================================
+
+void Runtime::beginGraph() {
+  if (activeGraph_) {
+    throw std::runtime_error(
+        "Already in graph mode. Call executeGraph() first.");
+  }
+  activeGraph_ = std::make_unique<graph::Graph>();
+  operations_->setGraph(activeGraph_.get());
+  resolvedTensors_.clear();
+}
+
+void Runtime::executeGraph() {
+  if (!activeGraph_)
+    return;
+
+  // Copy mappings before clearGraph() invalidates the reference
+  auto mappings = operations_->graphMappings();
+
+  // Mark all non-input VirtualTensors as graph outputs
+  for (const auto &p : mappings) {
+    const auto &node = activeGraph_->node(p.second);
+    if (!node.isInputNode()) {
+      activeGraph_->markOutput(p.second);
+    }
+  }
+
+  // Exit graph mode before executing (executor calls go through immediate mode)
+  operations_->clearGraph();
+
+  // Optimize
+  graph::GraphOptimizer optimizer = graph::GraphOptimizer::createDefault();
+  optimizer.optimize(*activeGraph_);
+
+  // Execute
+  graph::GraphExecutor executor(ops(), *this);
+  std::vector<Tensor> results = executor.execute(*activeGraph_);
+
+  // Map placeholder tensors → real result tensors
+  const auto &graphOutputs = activeGraph_->outputs();
+  resolvedTensors_.clear();
+  for (size_t ri = 0; ri < results.size(); ++ri) {
+    graph::VirtualTensor outVt = graphOutputs[ri];
+    for (const auto &p : mappings) {
+      if (p.second == outVt) {
+        resolvedTensors_.emplace_back(p.first, results[ri]);
+        break;
+      }
+    }
+  }
+
+  activeGraph_.reset();
+}
+
+bool Runtime::isGraphMode() const {
+  return activeGraph_ != nullptr;
 }
 
 void Runtime::flushPendingCommands() {

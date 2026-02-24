@@ -1,4 +1,5 @@
 #include "model_report.h"
+#include "OpNode.h"
 
 #include <algorithm>
 #include <cmath>
@@ -255,91 +256,11 @@ static OpMapping mapTensorToOps(const std::string &name,
 // Optimized-graph SVG rendering helpers
 // =========================================================================
 
-static std::string graphNodeTypeName(cut::graph::GraphNodeType type) {
-  using GNT = cut::graph::GraphNodeType;
-  switch (type) {
-  case GNT::Input:
-    return "Input";
-  case GNT::BinaryOp:
-    return "BinaryOp";
-  case GNT::UnaryOp:
-    return "UnaryOp";
-  case GNT::VecScalarOp:
-    return "VecScalarOp";
-  case GNT::Reduce:
-    return "Reduce";
-  case GNT::MatMul:
-    return "MatMul";
-  case GNT::Transpose:
-    return "Transpose";
-  case GNT::Dot:
-    return "Dot";
-  case GNT::Clamp:
-    return "Clamp";
-  case GNT::Where:
-    return "Where";
-  case GNT::CumOp:
-    return "CumOp";
-  case GNT::Variance:
-    return "Variance";
-  case GNT::Softmax:
-    return "Softmax";
-  case GNT::LogSoftmax:
-    return "LogSoftmax";
-  case GNT::Reshape:
-    return "Reshape";
-  case GNT::Squeeze:
-    return "Squeeze";
-  case GNT::Unsqueeze:
-    return "Unsqueeze";
-  case GNT::Unflatten:
-    return "Unflatten";
-  case GNT::Flatten:
-    return "Flatten";
-  case GNT::Norm:
-    return "Norm";
-  case GNT::PrefixScan:
-    return "PrefixScan";
-  case GNT::Conv1d:
-    return "Conv1d";
-  case GNT::Conv2d:
-    return "Conv2d";
-  case GNT::MaxPool2d:
-    return "MaxPool2d";
-  case GNT::AvgPool2d:
-    return "AvgPool2d";
-  case GNT::AdaptiveAvgPool2d:
-    return "AdaptiveAvgPool2d";
-  case GNT::LayerNorm:
-    return "LayerNorm";
-  case GNT::BatchNorm:
-    return "BatchNorm";
-  case GNT::Embedding:
-    return "Embedding";
-  case GNT::Pad:
-    return "Pad";
-  }
-  return "Unknown";
-}
-
-static std::string nodeDetailStr(const cut::graph::GraphNode &node) {
-  using GNT = cut::graph::GraphNodeType;
-  switch (node.type) {
-  case GNT::BinaryOp:
-    return cut::operatorName(std::get<cut::graph::BinaryOpData>(node.data).op);
-  case GNT::UnaryOp:
-    return cut::operatorName(std::get<cut::graph::UnaryOpData>(node.data).op);
-  case GNT::VecScalarOp:
-    return cut::operatorName(
-        std::get<cut::graph::VecScalarOpData>(node.data).op);
-  case GNT::Reduce:
-    return cut::operatorName(std::get<cut::graph::ReduceData>(node.data).op);
-  case GNT::Input:
-    return std::get<cut::graph::InputData>(node.data).isConstant ? "constant"
-                                                                 : "dynamic";
-  default:
-    return "";
-  }
+static std::string nodeDetailStr(const cut::OpNode &node) {
+  auto *stub = dynamic_cast<const cut::StubOpNode *>(&node);
+  if (stub)
+    return stub->detail();
+  return "";
 }
 
 static std::string formatShape(const std::vector<uint32_t> &shape) {
@@ -353,6 +274,28 @@ static std::string formatShape(const std::vector<uint32_t> &shape) {
   return s;
 }
 
+static std::string chooseFillColor(const cut::OpNode &n) {
+  using LT = cut::LogicalOpType;
+  if (n.isInputNode())
+    return "#e0e7ff";
+  if (n.logicalType() == LT::Reshape)
+    return "#f3f4f6";
+  if (n.logicalType() == LT::Transpose)
+    return "#f0f4ff";
+
+  // Use display name for finer-grained colouring
+  std::string name = n.displayName();
+  if (name == "MatMul")
+    return "#dbeafe";
+  if (name.find("Reduce") != std::string::npos)
+    return "#fef3c7";
+  if (name.find("Binary") != std::string::npos ||
+      name.find("Unary") != std::string::npos ||
+      name.find("VecScalar") != std::string::npos)
+    return "#dcfce7";
+  return "#f0f4ff";
+}
+
 static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
                                            const std::string &graphId) {
   auto order = graph.topologicalOrder();
@@ -364,11 +307,12 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
   // Compute level (depth) for each node.
   std::vector<int> level(nodes.size(), 0);
   for (uint32_t idx : order) {
-    const auto &n = nodes[idx];
+    const auto &n = *nodes[idx];
     int maxInputLevel = -1;
-    for (const auto &inp : n.inputs) {
-      if (inp.isValid() && inp.id < nodes.size() && !nodes[inp.id].isRemoved) {
-        maxInputLevel = std::max(maxInputLevel, level[inp.id]);
+    for (uint32_t inpId : n.graphInputIds()) {
+      if (inpId < nodes.size() && nodes[inpId] &&
+          !nodes[inpId]->isGraphRemoved()) {
+        maxInputLevel = std::max(maxInputLevel, level[inpId]);
       }
     }
     level[idx] = maxInputLevel + 1;
@@ -431,11 +375,12 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
 
   // Draw edges (behind nodes).
   for (uint32_t idx : order) {
-    const auto &n = nodes[idx];
-    for (const auto &inp : n.inputs) {
-      if (inp.isValid() && inp.id < nodes.size() && !nodes[inp.id].isRemoved) {
-        int x1 = pos[inp.id].x + nodeW / 2;
-        int y1 = pos[inp.id].y + nodeH;
+    const auto &n = *nodes[idx];
+    for (uint32_t inpId : n.graphInputIds()) {
+      if (inpId < nodes.size() && nodes[inpId] &&
+          !nodes[inpId]->isGraphRemoved()) {
+        int x1 = pos[inpId].x + nodeW / 2;
+        int y1 = pos[inpId].y + nodeH;
         int x2 = pos[idx].x + nodeW / 2;
         int y2 = pos[idx].y;
         svg << "<line x1=\"" << x1 << "\" y1=\"" << y1 << "\" x2=\"" << x2
@@ -449,48 +394,19 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
 
   // Draw nodes.
   for (uint32_t idx : order) {
-    const auto &n = nodes[idx];
+    const auto &n = *nodes[idx];
     int x = pos[idx].x, ny = pos[idx].y;
 
-    // Choose fill colour based on node type.
-    std::string fill;
-    using GNT = cut::graph::GraphNodeType;
-    switch (n.type) {
-    case GNT::Input:
-      fill = "#e0e7ff";
-      break;
-    case GNT::MatMul:
-      fill = "#dbeafe";
-      break;
-    case GNT::BinaryOp:
-    case GNT::UnaryOp:
-    case GNT::VecScalarOp:
-      fill = "#dcfce7";
-      break;
-    case GNT::Reshape:
-    case GNT::Squeeze:
-    case GNT::Unsqueeze:
-    case GNT::Flatten:
-    case GNT::Unflatten:
-      fill = "#f3f4f6";
-      break;
-    case GNT::Reduce:
-      fill = "#fef3c7";
-      break;
-    default:
-      fill = "#f0f4ff";
-      break;
-    }
-
-    std::string stroke = n.isOutput ? "#0969da" : "#d0d7de";
-    int strokeW = n.isOutput ? 2 : 1;
+    std::string fill = chooseFillColor(n);
+    std::string stroke = n.isGraphOutput() ? "#0969da" : "#d0d7de";
+    int strokeW = n.isGraphOutput() ? 2 : 1;
 
     svg << "<g class=\"node\"><rect x=\"" << x << "\" y=\"" << ny
         << "\" width=\"" << nodeW << "\" height=\"" << nodeH << "\" fill=\""
         << fill << "\" stroke=\"" << stroke << "\" stroke-width=\"" << strokeW
         << "\" rx=\"6\" ry=\"6\"/>";
 
-    std::string label = graphNodeTypeName(n.type);
+    std::string label = n.displayName();
     std::string detail = nodeDetailStr(n);
 
     int labelY = detail.empty() ? (ny + nodeH / 2 + 4) : (ny + nodeH / 2 - 4);
@@ -509,12 +425,13 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
     }
 
     // Shape annotation to the right of the node.
-    if (!n.outputShape.empty()) {
+    auto shape = n.outputShape();
+    if (!shape.empty()) {
       svg << "<text x=\"" << (x + nodeW + 5) << "\" y=\""
           << (ny + nodeH / 2 + 4)
           << "\" font-size=\"8\" fill=\"#0e7c86\" "
              "font-family=\"'SF Mono', 'Fira Code', monospace\">"
-          << htmlEscape(formatShape(n.outputShape)) << "</text>";
+          << htmlEscape(formatShape(shape)) << "</text>";
     }
 
     svg << "</g>\n";

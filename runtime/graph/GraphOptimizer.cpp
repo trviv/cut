@@ -1,4 +1,5 @@
 #include "GraphOptimizer.h"
+#include "OpNode.h"
 
 #include <algorithm>
 
@@ -39,26 +40,23 @@ GraphOptimizer GraphOptimizer::createDefault() {
 // IdentityReshapePass
 // ============================================================================
 
-static bool isReshapeLike(GraphNodeType type) {
-  return type == GraphNodeType::Reshape || type == GraphNodeType::Squeeze ||
-         type == GraphNodeType::Unsqueeze || type == GraphNodeType::Flatten ||
-         type == GraphNodeType::Unflatten;
-}
-
 bool IdentityReshapePass::run(Graph &graph) {
   bool changed = false;
 
   for (uint32_t i = 0; i < graph.size(); ++i) {
     auto &n = graph.nodes()[i];
-    if (n.isRemoved || !isReshapeLike(n.type))
+    if (!n || n->isGraphRemoved())
       continue;
-    if (n.inputs.empty())
+    if (n->logicalType() != LogicalOpType::Reshape)
+      continue;
+    if (n->graphInputIds().empty())
       continue;
 
-    const auto &inputNode = graph.node(n.inputs[0]);
-    if (n.outputShape == inputNode.outputShape) {
+    uint32_t inputId = n->graphInputIds()[0];
+    const auto &inputNode = graph.node(VirtualTensor{inputId});
+    if (n->outputShape() == inputNode.outputShape()) {
       // This reshape is a no-op — rewire consumers to use the input directly
-      graph.replaceAllUses(VirtualTensor{i}, n.inputs[0]);
+      graph.replaceAllUses(VirtualTensor{i}, VirtualTensor{inputId});
       changed = true;
     }
   }
@@ -75,17 +73,26 @@ bool ReshapeChainPass::run(Graph &graph) {
 
   for (uint32_t i = 0; i < graph.size(); ++i) {
     auto &n = graph.nodes()[i];
-    if (n.isRemoved || n.type != GraphNodeType::Reshape)
+    if (!n || n->isGraphRemoved())
       continue;
-    if (n.inputs.empty())
+    if (n->logicalType() != LogicalOpType::Reshape)
+      continue;
+    if (n->graphInputIds().empty())
       continue;
 
-    auto &inputNode = graph.node(n.inputs[0]);
-    if (inputNode.isRemoved || inputNode.type != GraphNodeType::Reshape)
+    uint32_t inputId = n->graphInputIds()[0];
+    auto &inputNode = graph.nodes()[inputId];
+    if (!inputNode || inputNode->isGraphRemoved())
+      continue;
+    if (inputNode->logicalType() != LogicalOpType::Reshape)
+      continue;
+    if (inputNode->graphInputIds().empty())
       continue;
 
     // Skip the intermediate reshape: point this node at the inner input
-    n.inputs[0] = inputNode.inputs[0];
+    auto ids = n->graphInputIds();
+    ids[0] = inputNode->graphInputIds()[0];
+    n->setGraphInputIds(std::move(ids));
     graph.recomputeRefCounts();
     changed = true;
   }
@@ -102,17 +109,25 @@ bool TransposeCancelPass::run(Graph &graph) {
 
   for (uint32_t i = 0; i < graph.size(); ++i) {
     auto &n = graph.nodes()[i];
-    if (n.isRemoved || n.type != GraphNodeType::Transpose)
+    if (!n || n->isGraphRemoved())
       continue;
-    if (n.inputs.empty())
+    if (n->logicalType() != LogicalOpType::Transpose)
+      continue;
+    if (n->graphInputIds().empty())
       continue;
 
-    const auto &inputNode = graph.node(n.inputs[0]);
-    if (inputNode.isRemoved || inputNode.type != GraphNodeType::Transpose)
+    uint32_t inputId = n->graphInputIds()[0];
+    const auto &inputNode = graph.nodes()[inputId];
+    if (!inputNode || inputNode->isGraphRemoved())
+      continue;
+    if (inputNode->logicalType() != LogicalOpType::Transpose)
+      continue;
+    if (inputNode->graphInputIds().empty())
       continue;
 
     // transpose(transpose(x)) → x
-    graph.replaceAllUses(VirtualTensor{i}, inputNode.inputs[0]);
+    uint32_t origInputId = inputNode->graphInputIds()[0];
+    graph.replaceAllUses(VirtualTensor{i}, VirtualTensor{origInputId});
     changed = true;
   }
 
@@ -134,25 +149,25 @@ bool DeadCodePass::run(Graph &graph) {
   for (auto it = order.rbegin(); it != order.rend(); ++it) {
     uint32_t idx = *it;
     auto &n = graph.nodes()[idx];
-    if (n.isRemoved)
+    if (!n || n->isGraphRemoved())
       continue;
 
     // Don't remove outputs or inputs
-    if (n.isOutput)
+    if (n->isGraphOutput())
       continue;
-    if (n.type == GraphNodeType::Input)
+    if (n->isInputNode())
       continue;
 
-    if (n.refCount == 0) {
+    if (n->graphRefCount() == 0) {
       // Decrement refCount on this node's inputs
-      for (const auto &input : n.inputs) {
-        if (input.isValid() && input.id < graph.size()) {
-          auto &inputNode = graph.nodes()[input.id];
-          if (inputNode.refCount > 0)
-            inputNode.refCount--;
+      for (uint32_t inputId : n->graphInputIds()) {
+        if (inputId < graph.size()) {
+          auto &inputNode = graph.nodes()[inputId];
+          if (inputNode && inputNode->graphRefCount() > 0)
+            inputNode->setGraphRefCount(inputNode->graphRefCount() - 1);
         }
       }
-      n.isRemoved = true;
+      n->setGraphRemoved(true);
       changed = true;
     }
   }

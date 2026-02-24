@@ -11,6 +11,8 @@ public:
              std::vector<uint32_t> &&dstShape,
              std::optional<uint32_t> spec = {});
 
+  LogicalOpType logicalType() const override { return LogicalOpType::Reshape; }
+
   DataType shaderDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;

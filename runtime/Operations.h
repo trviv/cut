@@ -1,15 +1,22 @@
 #pragma once
 
+#include "ShapeUtils.h"
+#include "graph/Graph.h"
+#include "graph/GraphNode.h"
+
 #include <ComputeCommon.h>
 #include <ComputeHandle.h>
 #include <ComputeOps.h>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace cut {
 
+class OpNode;
 class Runtime;
 
 /**
@@ -38,10 +45,6 @@ public:
 
   // ===== Reduction ops =====
 
-  /// Reduction. Without dim: global reduction returning shape {1}.
-  /// With dim: dimension-wise reduction (dim is removed from output shape).
-  /// Always pass the global op enum (e.g. ReduceSum); the dim variant is
-  /// resolved automatically.
   Tensor reduce(OperatorEnum op,
                 const Tensor &a,
                 std::optional<int> dim = {},
@@ -202,28 +205,38 @@ public:
                  const Tensor &vals,
                  std::optional<uint32_t> spec = {});
 
+  // ===== Direct dispatch =====
+
+  void encodeOp(std::unique_ptr<OpNode> node);
+  void encodeOp(OpNode &node);
+
+  // ===== Graph mode =====
+
+  void setGraph(graph::Graph *g);
+  void clearGraph();
+  bool isGraphMode() const;
+
+  const std::vector<std::pair<Tensor, graph::VirtualTensor>> &
+  graphMappings() const;
+
+  /// Register a pre-existing GPU tensor as a graph input (InputOpNode).
+  /// Used by GraphBuilder.
+  graph::VirtualTensor registerInput(const Tensor &gpuHandle,
+                                     bool isConstant = false);
+
 private:
   Runtime *runtime_;
+  graph::Graph *graph_ = nullptr;
 
-  /// Returns the unpadded shape for a tensor handle.
+  std::vector<std::pair<Tensor, graph::VirtualTensor>> tensorToVirtual_;
+
   std::vector<uint32_t> getShape(const Tensor &h) const;
-
-  /// Returns the dtype for a tensor handle.
   DataType getDtype(const Tensor &h) const;
 
-  /// Creates a CopyOpNode, encodes it, and returns the output tensor.
-  Tensor encodeCopy(const Tensor &src, std::vector<uint32_t> dstShape);
+  graph::VirtualTensor toVirtual(const Tensor &t);
 
-  struct DimParams {
-    uint32_t outerSize;
-    uint32_t reduceSize;
-    uint32_t innerSize;
-    std::vector<uint32_t> outShape;
-  };
-
-  DimParams computeDimParams(const std::vector<uint32_t> &shape, int dim);
-
-  size_t shapeProduct(const std::vector<uint32_t> &shape) const;
+  Tensor recordOrEncode(std::unique_ptr<OpNode> node,
+                        const std::vector<Tensor> &inputs);
 };
 
 } // namespace cut

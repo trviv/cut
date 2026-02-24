@@ -1,5 +1,9 @@
 #pragma once
 
+#include "graph/Graph.h"
+#include "graph/GraphExecutor.h"
+#include "graph/GraphOptimizer.h"
+
 #include <ComputeCommon.h>
 #include <ComputeHandle.h>
 #include <ComputeInterface.h>
@@ -7,6 +11,7 @@
 #include <ComputeStructs.h>
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace cut {
@@ -161,6 +166,21 @@ public:
    */
   Operations &ops();
 
+  // =========================================================================
+  // Graph Mode
+  // =========================================================================
+
+  /// Enter graph mode: subsequent Operations calls record OpNodes instead
+  /// of dispatching immediately.
+  void beginGraph();
+
+  /// Execute the recorded graph: optimize, execute, and resolve placeholder
+  /// tensors to real computed results.
+  void executeGraph();
+
+  /// Returns true if in graph recording mode.
+  bool isGraphMode() const;
+
 private:
   BackendType backendType_ = BackendType::Vulkan;
   std::shared_ptr<VulkanInstance> vulkanInstance_;
@@ -175,6 +195,10 @@ private:
   // High-level operations
   std::unique_ptr<Operations> operations_;
 
+  // Graph mode state
+  std::unique_ptr<graph::Graph> activeGraph_;
+  std::vector<std::pair<Tensor, Tensor>> resolvedTensors_;
+
   /**
    * Returns the underlying compute interface.
    * @throws std::runtime_error if not initialized.
@@ -186,6 +210,7 @@ private:
    * The OpNode provides all operator-level information.
    */
   void encodeOperator(std::unique_ptr<OpNode> node);
+  void encodeOperator(OpNode &node);
 
   bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
 

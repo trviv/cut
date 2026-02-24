@@ -14,7 +14,8 @@ class Runtime;
 namespace graph {
 
 /// Executes an optimized computation graph by walking it in topological order
-/// and dispatching each node through the existing Operations API.
+/// and dispatching each node through the existing Operations API or directly
+/// encoding stored OpNodes.
 class GraphExecutor {
 public:
   GraphExecutor(Operations &ops, Runtime &runtime);
@@ -22,7 +23,8 @@ public:
   /// Execute the graph and return GPU Tensor handles for each marked output.
   /// The returned vector has one Tensor per graph output, in the same order
   /// as markOutput() calls during graph construction.
-  std::vector<Tensor> execute(const Graph &graph);
+  /// OpNodes stored in the graph are consumed (moved) during execution.
+  std::vector<Tensor> execute(Graph &graph);
 
 private:
   Operations *ops_;
@@ -32,7 +34,7 @@ private:
   std::vector<Tensor> tensorMap_;
 
   /// Execute a single graph node, populating tensorMap_[nodeIndex].
-  void executeNode(const Graph &graph, uint32_t nodeIndex);
+  void executeNode(Graph &graph, uint32_t nodeIndex);
 };
 
 } // namespace graph

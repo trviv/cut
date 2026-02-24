@@ -7,15 +7,24 @@
 
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace cut {
 
 class Dispatcher;
+class Operations;
 class Runtime;
+
+// ============================================================================
+// LogicalOpType — coarse classification for graph optimizer passes
+// ============================================================================
+
+enum class LogicalOpType { Input, Reshape, Transpose, Other };
 
 // ============================================================================
 // Utility functions shared across OpNode subclasses
@@ -108,6 +117,45 @@ public:
   /// Whether a barrier should be encoded after dispatching this node.
   virtual bool needsBarrierAfter() const { return false; }
 
+  /// Rebinds input tensor handles for graph execution.
+  void rebindInputs(const std::vector<Tensor> &newInputs) {
+    inputs_ = newInputs;
+  }
+
+  /// Rebinds the output tensor handle for graph execution.
+  void rebindOutput(const Tensor &newOutput) { output_ = newOutput; }
+
+  // ==========================================================================
+  // Graph metadata — used when this OpNode lives inside a Graph
+  // ==========================================================================
+
+  /// Coarse logical type for optimizer passes.
+  virtual LogicalOpType logicalType() const { return LogicalOpType::Other; }
+
+  /// Human-readable name for display/reporting.
+  virtual std::string displayName() const;
+
+  /// Whether this node is an InputOpNode (graph input, not dispatched to GPU).
+  virtual bool isInputNode() const { return false; }
+
+  /// Graph edge indices: IDs of nodes whose outputs feed into this node.
+  const std::vector<uint32_t> &graphInputIds() const { return graphInputIds_; }
+  void setGraphInputIds(std::vector<uint32_t> ids) {
+    graphInputIds_ = std::move(ids);
+  }
+
+  /// Reference count: how many other graph nodes consume this node's output.
+  uint32_t graphRefCount() const { return graphRefCount_; }
+  void setGraphRefCount(uint32_t c) { graphRefCount_ = c; }
+
+  /// Whether this node's output is a graph output.
+  bool isGraphOutput() const { return isGraphOutput_; }
+  void setGraphOutput(bool v) { isGraphOutput_ = v; }
+
+  /// Tombstone flag for removed/dead nodes.
+  bool isGraphRemoved() const { return isGraphRemoved_; }
+  void setGraphRemoved(bool v) { isGraphRemoved_ = v; }
+
 protected:
   OpNode(OperatorEnum op, Runtime &runtime, std::optional<uint32_t> spec = {})
       : op_(op), runtime_(&runtime), spec_(spec) {}
@@ -128,6 +176,12 @@ protected:
   Tensor output_;
   bool hasOutput_ = false;
   std::vector<std::unique_ptr<OpNode>> subOps_;
+
+  // Graph metadata
+  std::vector<uint32_t> graphInputIds_;
+  uint32_t graphRefCount_ = 0;
+  bool isGraphOutput_ = false;
+  bool isGraphRemoved_ = false;
 };
 
 // ============================================================================
@@ -159,6 +213,117 @@ private:
   ThreadSize threadSize_;
   std::vector<uint8_t> pushConstants_;
   bool barrierAfter_;
+};
+
+// ============================================================================
+// InputOpNode — represents a graph input (pre-existing GPU tensor)
+// ============================================================================
+
+class InputOpNode : public OpNode {
+public:
+  InputOpNode(const Tensor &gpuHandle,
+              const std::vector<uint32_t> &shape,
+              DataType dtype,
+              bool isConstant = false);
+
+  bool isInputNode() const override { return true; }
+  LogicalOpType logicalType() const override { return LogicalOpType::Input; }
+  std::string displayName() const override;
+
+  DataType shaderDtype() const override { return dtype_; }
+  std::vector<uint32_t> outputShape() const override { return shape_; }
+  DataType outputDtype() const override { return dtype_; }
+  ThreadSize dispatchSize() const override { return {0, 0, 0}; }
+
+  const Tensor &gpuHandle() const { return gpuHandle_; }
+  void setGpuHandle(const Tensor &h) { gpuHandle_ = h; }
+  bool isConstant() const { return isConstant_; }
+
+protected:
+  std::vector<uint8_t> pushConstants() const override { return {}; }
+
+private:
+  Tensor gpuHandle_;
+  std::vector<uint32_t> shape_;
+  DataType dtype_;
+  bool isConstant_;
+};
+
+// ============================================================================
+// DeferredOpNode — defers execution to Operations at graph execution time
+// ============================================================================
+
+/// For operations (variance, softmax, etc.) that compute on CPU and can't be
+/// represented as a single GPU dispatch. Stores a callable that re-dispatches
+/// through the Operations API at execution time.
+class DeferredOpNode : public OpNode {
+public:
+  using ExecuteFn =
+      std::function<Tensor(Operations &, const std::vector<Tensor> &)>;
+
+  DeferredOpNode(const std::vector<uint32_t> &shape,
+                 DataType dtype,
+                 std::string name,
+                 ExecuteFn fn);
+
+  std::string displayName() const override { return name_; }
+
+  DataType shaderDtype() const override { return dtype_; }
+  std::vector<uint32_t> outputShape() const override { return shape_; }
+  DataType outputDtype() const override { return dtype_; }
+  ThreadSize dispatchSize() const override { return {0, 0, 0}; }
+
+  Tensor execute(Operations &ops, const std::vector<Tensor> &inputs);
+
+protected:
+  std::vector<uint8_t> pushConstants() const override { return {}; }
+
+private:
+  std::vector<uint32_t> shape_;
+  DataType dtype_;
+  std::string name_;
+  ExecuteFn fn_;
+};
+
+// ============================================================================
+// StubOpNode — non-executable placeholder for cloned/reporting graphs
+// ============================================================================
+
+class StubOpNode : public OpNode {
+public:
+  StubOpNode(OperatorEnum opEnum,
+             const std::vector<uint32_t> &shape,
+             DataType dtype,
+             std::string name,
+             std::string detail,
+             bool isConstant = false);
+
+  bool isInputNode() const override { return isInput_; }
+  LogicalOpType logicalType() const override { return logicalType_; }
+  std::string displayName() const override { return name_; }
+
+  DataType shaderDtype() const override { return dtype_; }
+  std::vector<uint32_t> outputShape() const override { return shape_; }
+  DataType outputDtype() const override { return dtype_; }
+  ThreadSize dispatchSize() const override { return {0, 0, 0}; }
+
+  const std::string &detail() const { return detail_; }
+  bool isConstant() const { return isConstant_; }
+
+  void setIsInput(bool v) { isInput_ = v; }
+  void setLogicalType(LogicalOpType t) { logicalType_ = t; }
+
+protected:
+  std::vector<uint8_t> pushConstants() const override { return {}; }
+
+private:
+  std::vector<uint32_t> shape_;
+  DataType dtype_;
+  std::string name_;
+  std::string detail_;
+  bool isConstant_ = false;
+  bool isInput_ = false;
+  LogicalOpType logicalType_ = LogicalOpType::Other;
 };
 
 } // namespace cut

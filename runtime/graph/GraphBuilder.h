@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Graph.h"
+#include "ShapeUtils.h"
 
 #include <ComputeCommon.h>
 #include <ComputeHandle.h>
@@ -12,17 +13,20 @@
 
 namespace cut {
 
+class Operations;
 class Runtime;
 
 namespace graph {
 
-/// Builds a computation graph by mirroring the Operations API.
-/// Instead of dispatching to the GPU, each method creates a lightweight
-/// GraphNode and returns a VirtualTensor. After construction, call build()
-/// to obtain the Graph for optimization and execution.
+/// Builds a computation graph by routing Operations calls through graph mode.
+/// Instead of dispatching to the GPU, each method creates an OpNode via
+/// Operations and maps the resulting Tensor to a VirtualTensor. After
+/// construction, call build() to obtain the Graph for optimization and
+/// execution.
 class GraphBuilder {
 public:
   explicit GraphBuilder(Runtime &runtime);
+  ~GraphBuilder();
 
   /// Move-returns the constructed graph. The builder should not be used after
   /// this.
@@ -149,26 +153,17 @@ public:
   void markOutput(VirtualTensor vt);
 
 private:
-  Runtime *runtime_;
+  Operations *ops_;
   Graph graph_;
 
-  /// Returns the output shape of a node referenced by a VirtualTensor.
-  const std::vector<uint32_t> &getShape(VirtualTensor vt) const;
+  /// Maps VirtualTensor id → placeholder Tensor for Operations calls.
+  std::vector<Tensor> vtToTensor_;
 
-  /// Returns the output dtype of a node referenced by a VirtualTensor.
-  DataType getDtype(VirtualTensor vt) const;
+  /// Resolve a VirtualTensor to its placeholder Tensor.
+  const Tensor &resolve(VirtualTensor vt) const;
 
-  /// Compute the product of a shape vector.
-  static size_t shapeProduct(const std::vector<uint32_t> &shape);
-
-  /// Helper: resolve dim params for reduction along a dimension.
-  struct DimParams {
-    uint32_t outerSize;
-    uint32_t reduceSize;
-    uint32_t innerSize;
-    std::vector<uint32_t> outShape;
-  };
-  DimParams computeDimParams(const std::vector<uint32_t> &shape, int dim);
+  /// Map an Operations result Tensor back to a VirtualTensor.
+  VirtualTensor mapResult(const Tensor &t);
 };
 
 } // namespace graph

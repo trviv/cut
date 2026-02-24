@@ -42,6 +42,9 @@ public:
    */
   bool encode(std::unique_ptr<OpNode> node);
 
+  /// Non-owning overload for graph execution (graph retains node ownership).
+  bool encode(OpNode &node);
+
   /**
    * Releases all temporary buffers back to the pool.
    * Should be called after a multi-pass operation completes.

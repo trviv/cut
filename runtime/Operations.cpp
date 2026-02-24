@@ -1,5 +1,7 @@
 #include "Operations.h"
+#include "OpNode.h"
 #include "Runtime.h"
+#include "ShapeUtils.h"
 
 #include "impl/avgpool2d/AvgPool2DOp.h"
 #include "impl/binary/BinaryOp.h"
@@ -23,6 +25,8 @@
 
 namespace cut {
 
+using namespace graph;
+
 // =========================================================================
 // Operations
 // =========================================================================
@@ -37,49 +41,81 @@ DataType Operations::getDtype(const Tensor &h) const {
   return runtime_->getTensor(h).getDtype();
 }
 
-size_t Operations::shapeProduct(const std::vector<uint32_t> &shape) const {
-  size_t prod = 1;
-  for (uint32_t dim : shape)
-    prod *= dim;
-  return prod;
+// =========================================================================
+// Graph mode helpers
+// =========================================================================
+
+void Operations::setGraph(Graph *g) {
+  graph_ = g;
+  tensorToVirtual_.clear();
 }
 
-Operations::DimParams
-Operations::computeDimParams(const std::vector<uint32_t> &shape, int dim) {
-  int ndim = static_cast<int>(shape.size());
-  if (dim < 0)
-    dim = ndim + dim;
-  if (dim < 0 || dim >= ndim) {
-    throw std::invalid_argument("dim " + std::to_string(dim) +
-                                " out of range for tensor with " +
-                                std::to_string(ndim) + " dimensions");
-  }
-
-  DimParams params;
-  params.outerSize = 1;
-  for (int i = 0; i < dim; ++i)
-    params.outerSize *= shape[i];
-  params.reduceSize = shape[dim];
-  params.innerSize = 1;
-  for (int i = dim + 1; i < ndim; ++i)
-    params.innerSize *= shape[i];
-
-  for (int i = 0; i < ndim; ++i) {
-    if (i != dim)
-      params.outShape.push_back(shape[i]);
-  }
-  if (params.outShape.empty())
-    params.outShape.push_back(1);
-
-  return params;
+void Operations::clearGraph() {
+  graph_ = nullptr;
+  tensorToVirtual_.clear();
 }
 
-Tensor Operations::encodeCopy(const Tensor &src,
-                              std::vector<uint32_t> dstShape) {
-  auto node = std::make_unique<CopyOpNode>(*runtime_, src, std::move(dstShape));
+bool Operations::isGraphMode() const {
+  return graph_ != nullptr;
+}
+
+const std::vector<std::pair<Tensor, VirtualTensor>> &
+Operations::graphMappings() const {
+  return tensorToVirtual_;
+}
+
+VirtualTensor Operations::toVirtual(const Tensor &t) {
+  // Check if already mapped
+  for (const auto &p : tensorToVirtual_) {
+    if (p.first == t)
+      return p.second;
+  }
+  // Register as a new graph input
+  return registerInput(t, false);
+}
+
+VirtualTensor Operations::registerInput(const Tensor &gpuHandle,
+                                        bool isConstant) {
+  // Deduplicate only constant inputs (weights). Dynamic inputs may reuse the
+  // same placeholder handle for distinct graph inputs that receive different
+  // tensors at execution time, so each call must create a separate node.
+  if (isConstant) {
+    for (const auto &p : tensorToVirtual_) {
+      if (p.first == gpuHandle)
+        return p.second;
+    }
+  }
+  auto shape = getShape(gpuHandle);
+  auto dtype = getDtype(gpuHandle);
+  auto node =
+      std::make_unique<InputOpNode>(gpuHandle, shape, dtype, isConstant);
+  VirtualTensor vt = graph_->addNode(std::move(node));
+  tensorToVirtual_.emplace_back(gpuHandle, vt);
+  return vt;
+}
+
+Tensor Operations::recordOrEncode(std::unique_ptr<OpNode> node,
+                                  const std::vector<Tensor> &inputs) {
   Tensor output = node->output();
+  if (graph_) {
+    std::vector<uint32_t> inputIds;
+    for (const auto &inp : inputs)
+      inputIds.push_back(toVirtual(inp).id);
+    node->setGraphInputIds(std::move(inputIds));
+    auto vout = graph_->addNode(std::move(node));
+    tensorToVirtual_.emplace_back(output, vout);
+    return output;
+  }
   runtime_->encodeOperator(std::move(node));
   return output;
+}
+
+void Operations::encodeOp(std::unique_ptr<OpNode> node) {
+  runtime_->encodeOperator(std::move(node));
+}
+
+void Operations::encodeOp(OpNode &node) {
+  runtime_->encodeOperator(node);
 }
 
 // =========================================================================
@@ -91,18 +127,14 @@ Tensor Operations::binaryOp(OperatorEnum op,
                             const Tensor &b,
                             std::optional<uint32_t> spec) {
   auto node = std::make_unique<BinaryVecVecOpNode>(op, *runtime_, a, b, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {a, b});
 }
 
 Tensor Operations::unaryOp(OperatorEnum op,
                            const Tensor &a,
                            std::optional<uint32_t> spec) {
   auto node = std::make_unique<UnaryOpNode>(op, *runtime_, a, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {a});
 }
 
 Tensor Operations::vecScalarOp(OperatorEnum op,
@@ -111,12 +143,9 @@ Tensor Operations::vecScalarOp(OperatorEnum op,
                                std::optional<uint32_t> spec) {
   uint32_t scalarBits = 0;
   std::memcpy(&scalarBits, scalar.ptr, sizeof(uint32_t));
-
   auto node = std::make_unique<BinaryVecScalarOpNode>(op, *runtime_, a,
                                                       scalarBits, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {a});
 }
 
 // =========================================================================
@@ -129,16 +158,11 @@ Tensor Operations::reduce(OperatorEnum op,
                           std::optional<uint32_t> spec) {
   if (!dim.has_value()) {
     auto node = std::make_unique<GlobalReduceOpNode>(op, *runtime_, a, spec);
-    Tensor out = node->output();
-    runtime_->encodeOperator(std::move(node));
-    return out;
+    return recordOrEncode(std::move(node), {a});
   }
-
   auto node =
       std::make_unique<DimReduceOpNode>(op, *runtime_, a, dim.value(), spec);
-  Tensor out = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return out;
+  return recordOrEncode(std::move(node), {a});
 }
 
 // =========================================================================
@@ -149,21 +173,23 @@ Tensor Operations::matmul(const Tensor &a,
                           const Tensor &b,
                           std::optional<uint32_t> spec) {
   auto node = std::make_unique<MatMulOpNode>(*runtime_, a, b, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {a, b});
 }
 
 Tensor Operations::transpose(const Tensor &a, std::optional<uint32_t> spec) {
   auto node = std::make_unique<TransposeOpNode>(*runtime_, a, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {a});
 }
 
 Tensor Operations::dot(const Tensor &a,
                        const Tensor &b,
                        std::optional<uint32_t> spec) {
+  if (graph_) {
+    // In graph mode, decompose dot into multiply + reduce
+    Tensor mul = binaryOp(BinaryVecVecMul, a, b);
+    Tensor sum = reduce(ReduceSum, mul);
+    return sum;
+  }
   auto node = std::make_unique<DotOpNode>(*runtime_, a, b, spec);
   Tensor partials = node->output();
   uint32_t numWorkgroups = node->outputShape()[0];
@@ -195,12 +221,9 @@ Tensor Operations::clamp(const Tensor &a,
   std::memcpy(&maxBits,
               static_cast<const uint8_t *>(clampData.ptr) + sizeof(uint32_t),
               sizeof(uint32_t));
-
   auto node = std::make_unique<TernaryClampOpNode>(*runtime_, a, minBits,
                                                    maxBits, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {a});
 }
 
 Tensor Operations::where(const Tensor &cond,
@@ -209,9 +232,7 @@ Tensor Operations::where(const Tensor &cond,
                          std::optional<uint32_t> spec) {
   auto node =
       std::make_unique<TernarySelectOpNode>(*runtime_, cond, x, y, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {cond, x, y});
 }
 
 // =========================================================================
@@ -224,9 +245,7 @@ Tensor Operations::cumOp(const Tensor &a,
                          std::optional<uint32_t> spec) {
   int d = dim.value_or(0);
   auto node = std::make_unique<CumOpNode>(op, *runtime_, a, d, spec);
-  Tensor out = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return out;
+  return recordOrEncode(std::move(node), {a});
 }
 
 // =========================================================================
@@ -235,6 +254,31 @@ Tensor Operations::cumOp(const Tensor &a,
 
 Tensor
 Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
+  if (graph_) {
+    auto vi = toVirtual(a);
+    auto shape = getShape(a);
+    auto dtype = getDtype(a);
+    std::vector<uint32_t> outShape;
+    if (!dim.has_value()) {
+      outShape = {1};
+    } else {
+      auto params = computeDimParams(shape, dim.value());
+      outShape = params.outShape;
+    }
+    int capturedCorrection = correction;
+    auto capturedDim = dim;
+    auto node = std::make_unique<DeferredOpNode>(
+        outShape, dtype, "Variance",
+        [capturedCorrection, capturedDim](Operations &ops,
+                                          const std::vector<Tensor> &in) {
+          return ops.variance(in[0], capturedCorrection, capturedDim);
+        });
+    node->setGraphInputIds({vi.id});
+    auto vout = graph_->addNode(std::move(node));
+    Tensor output = runtime_->createTensorEmpty(outShape, dtype);
+    tensorToVirtual_.emplace_back(output, vout);
+    return output;
+  }
   auto shape = getShape(a);
   auto dtype = getDtype(a);
 
@@ -307,6 +351,22 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
 // =========================================================================
 
 Tensor Operations::softmax(const Tensor &a, int dim) {
+  if (graph_) {
+    auto vi = toVirtual(a);
+    auto shape = getShape(a);
+    auto dtype = getDtype(a);
+    int capturedDim = dim;
+    auto node = std::make_unique<DeferredOpNode>(
+        shape, dtype, "Softmax",
+        [capturedDim](Operations &ops, const std::vector<Tensor> &in) {
+          return ops.softmax(in[0], capturedDim);
+        });
+    node->setGraphInputIds({vi.id});
+    auto vout = graph_->addNode(std::move(node));
+    Tensor output = runtime_->createTensorEmpty(shape, dtype);
+    tensorToVirtual_.emplace_back(output, vout);
+    return output;
+  }
   auto shape = getShape(a);
   auto dtype = getDtype(a);
   int ndim = static_cast<int>(shape.size());
@@ -362,6 +422,22 @@ Tensor Operations::softmax(const Tensor &a, int dim) {
 }
 
 Tensor Operations::logSoftmax(const Tensor &a, int dim) {
+  if (graph_) {
+    auto vi = toVirtual(a);
+    auto shape = getShape(a);
+    auto dtype = getDtype(a);
+    int capturedDim = dim;
+    auto node = std::make_unique<DeferredOpNode>(
+        shape, dtype, "LogSoftmax",
+        [capturedDim](Operations &ops, const std::vector<Tensor> &in) {
+          return ops.logSoftmax(in[0], capturedDim);
+        });
+    node->setGraphInputIds({vi.id});
+    auto vout = graph_->addNode(std::move(node));
+    Tensor output = runtime_->createTensorEmpty(shape, dtype);
+    tensorToVirtual_.emplace_back(output, vout);
+    return output;
+  }
   auto shape = getShape(a);
   auto dtype = getDtype(a);
   int ndim = static_cast<int>(shape.size());
@@ -523,47 +599,9 @@ Tensor Operations::full(const std::vector<uint32_t> &shape,
 
 Tensor Operations::reshape(const Tensor &a,
                            const std::vector<int32_t> &newShape) {
-  auto oldShape = getShape(a);
-  size_t oldTotal = shapeProduct(oldShape);
-
-  std::vector<uint32_t> resolved;
-  int negIdx = -1;
-  size_t knownTotal = 1;
-
-  for (int i = 0; i < static_cast<int>(newShape.size()); ++i) {
-    if (newShape[i] == -1) {
-      if (negIdx != -1)
-        throw std::invalid_argument("Only one dimension can be -1");
-      negIdx = i;
-      resolved.push_back(0); // placeholder
-    } else if (newShape[i] < 0) {
-      throw std::invalid_argument("Invalid shape dimension: " +
-                                  std::to_string(newShape[i]));
-    } else {
-      resolved.push_back(static_cast<uint32_t>(newShape[i]));
-      knownTotal *= newShape[i];
-    }
-  }
-
-  if (negIdx != -1) {
-    if (knownTotal == 0)
-      throw std::invalid_argument(
-          "Cannot infer dimension with other zero-size dimensions");
-    size_t inferred = oldTotal / knownTotal;
-    if (inferred * knownTotal != oldTotal) {
-      throw std::invalid_argument("Shape is invalid for tensor of size " +
-                                  std::to_string(oldTotal));
-    }
-    resolved[negIdx] = static_cast<uint32_t>(inferred);
-  }
-
-  size_t newTotal = shapeProduct(resolved);
-  if (oldTotal != newTotal) {
-    throw std::invalid_argument("Cannot reshape tensor of size " +
-                                std::to_string(oldTotal) + " to new shape");
-  }
-
-  return encodeCopy(a, std::move(resolved));
+  auto resolved = resolveReshapeShape(getShape(a), newShape);
+  auto node = std::make_unique<CopyOpNode>(*runtime_, a, std::move(resolved));
+  return recordOrEncode(std::move(node), {a});
 }
 
 Tensor Operations::squeeze(const Tensor &a, std::optional<int> dim) {
@@ -596,7 +634,8 @@ Tensor Operations::squeeze(const Tensor &a, std::optional<int> dim) {
   if (newShape.empty())
     newShape.push_back(1);
 
-  return encodeCopy(a, std::move(newShape));
+  auto node = std::make_unique<CopyOpNode>(*runtime_, a, std::move(newShape));
+  return recordOrEncode(std::move(node), {a});
 }
 
 Tensor Operations::unsqueeze(const Tensor &a, int dim) {
@@ -616,7 +655,8 @@ Tensor Operations::unsqueeze(const Tensor &a, int dim) {
   newShape.push_back(1);
   newShape.insert(newShape.end(), oldShape.begin() + dim, oldShape.end());
 
-  return encodeCopy(a, std::move(newShape));
+  auto node = std::make_unique<CopyOpNode>(*runtime_, a, std::move(newShape));
+  return recordOrEncode(std::move(node), {a});
 }
 
 Tensor Operations::unflatten(const Tensor &a,
@@ -648,15 +688,17 @@ Tensor Operations::unflatten(const Tensor &a,
   newShape.insert(newShape.end(), sizes.begin(), sizes.end());
   newShape.insert(newShape.end(), oldShape.begin() + dim + 1, oldShape.end());
 
-  return encodeCopy(a, std::move(newShape));
+  auto node = std::make_unique<CopyOpNode>(*runtime_, a, std::move(newShape));
+  return recordOrEncode(std::move(node), {a});
 }
 
 Tensor Operations::flatten(const Tensor &a, int startDim, int endDim) {
   auto oldShape = getShape(a);
   int ndim = static_cast<int>(oldShape.size());
   if (ndim == 0) {
-    // Return a copy for empty shape
-    return encodeCopy(a, std::vector<uint32_t>(oldShape));
+    auto node = std::make_unique<CopyOpNode>(*runtime_, a,
+                                             std::vector<uint32_t>(oldShape));
+    return recordOrEncode(std::move(node), {a});
   }
 
   if (endDim < 0)
@@ -689,7 +731,8 @@ Tensor Operations::flatten(const Tensor &a, int startDim, int endDim) {
                     oldShape.end());
   }
 
-  return encodeCopy(a, std::move(newShape));
+  auto node = std::make_unique<CopyOpNode>(*runtime_, a, std::move(newShape));
+  return recordOrEncode(std::move(node), {a});
 }
 
 // =========================================================================
@@ -701,11 +744,11 @@ Tensor Operations::norm(const Tensor &a,
                         std::optional<uint32_t> spec) {
   if (!dim.has_value()) {
     auto node = std::make_unique<NormOpNode>(*runtime_, a, spec);
-    Tensor out = node->output();
-    runtime_->encodeOperator(std::move(node));
-    return out;
+    return recordOrEncode(std::move(node), {a});
   }
-  return reduce(OperatorEnum::NormDim, a, dim.value(), spec);
+  auto node = std::make_unique<DimReduceOpNode>(
+      OperatorEnum::NormDim, *runtime_, a, dim.value(), spec);
+  return recordOrEncode(std::move(node), {a});
 }
 
 // =========================================================================
@@ -716,9 +759,7 @@ Tensor Operations::prefixScan(const Tensor &a,
                               OperatorEnum op,
                               std::optional<uint32_t> spec) {
   auto node = std::make_unique<PrefixScanOpNode>(op, *runtime_, a, spec);
-  Tensor out = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return out;
+  return recordOrEncode(std::move(node), {a});
 }
 
 // =========================================================================
@@ -736,9 +777,7 @@ Tensor Operations::conv1d(const Tensor &input,
                           std::optional<uint32_t> spec) {
   auto node = std::make_unique<Conv1DOpNode>(*runtime_, input, weight, stride,
                                              padding, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {input, weight});
 }
 
 Tensor Operations::conv2d(const Tensor &input,
@@ -750,9 +789,7 @@ Tensor Operations::conv2d(const Tensor &input,
                           std::optional<uint32_t> spec) {
   auto node = std::make_unique<Conv2DOpNode>(*runtime_, input, weight, strideH,
                                              strideW, padH, padW, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {input, weight});
 }
 
 // =========================================================================
@@ -769,9 +806,7 @@ Tensor Operations::maxPool2d(const Tensor &input,
                              std::optional<uint32_t> spec) {
   auto node = std::make_unique<MaxPool2DOpNode>(
       *runtime_, input, kernelH, kernelW, strideH, strideW, padH, padW, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {input});
 }
 
 Tensor Operations::avgPool2d(const Tensor &input,
@@ -784,9 +819,7 @@ Tensor Operations::avgPool2d(const Tensor &input,
                              std::optional<uint32_t> spec) {
   auto node = std::make_unique<AvgPool2DOpNode>(
       *runtime_, input, kernelH, kernelW, strideH, strideW, padH, padW, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {input});
 }
 
 Tensor Operations::adaptiveAvgPool2d(const Tensor &input,
@@ -800,15 +833,12 @@ Tensor Operations::adaptiveAvgPool2d(const Tensor &input,
 
   uint32_t H_in = inShape[2], W_in = inShape[3];
 
-  // Compute kernel and stride to produce desired output size
-  // PyTorch formula: stride = floor(input_size / output_size)
-  //                  kernel = input_size - (output_size - 1) * stride
-  uint32_t strideH = H_in / outH;
-  uint32_t strideW = W_in / outW;
-  uint32_t kernelH = H_in - (outH - 1) * strideH;
-  uint32_t kernelW = W_in - (outW - 1) * strideW;
+  uint32_t sH = H_in / outH;
+  uint32_t sW = W_in / outW;
+  uint32_t kH = H_in - (outH - 1) * sH;
+  uint32_t kW = W_in - (outW - 1) * sW;
 
-  return avgPool2d(input, kernelH, kernelW, strideH, strideW, 0, 0, spec);
+  return avgPool2d(input, kH, kW, sH, sW, 0, 0, spec);
 }
 
 // =========================================================================
@@ -820,6 +850,40 @@ Tensor Operations::layerNorm(const Tensor &input,
                              const Tensor *weight,
                              const Tensor *bias,
                              float eps) {
+  if (graph_) {
+    auto vi = toVirtual(input);
+    auto shape = getShape(input);
+    auto dtype = getDtype(input);
+    std::vector<uint32_t> inputIds = {vi.id};
+    if (weight)
+      inputIds.push_back(toVirtual(*weight).id);
+    if (bias)
+      inputIds.push_back(toVirtual(*bias).id);
+
+    auto capturedNormShape = normalizedShape;
+    float capturedEps = eps;
+    bool hasWeight = weight != nullptr;
+    bool hasBias = bias != nullptr;
+    auto node = std::make_unique<DeferredOpNode>(
+        shape, dtype, "LayerNorm",
+        [capturedNormShape, capturedEps, hasWeight,
+         hasBias](Operations &ops, const std::vector<Tensor> &in) {
+          const Tensor *wPtr = nullptr;
+          const Tensor *bPtr = nullptr;
+          size_t nextInput = 1;
+          if (hasWeight)
+            wPtr = &in[nextInput++];
+          if (hasBias)
+            bPtr = &in[nextInput++];
+          return ops.layerNorm(in[0], capturedNormShape, wPtr, bPtr,
+                               capturedEps);
+        });
+    node->setGraphInputIds(std::move(inputIds));
+    auto vout = graph_->addNode(std::move(node));
+    Tensor output = runtime_->createTensorEmpty(shape, dtype);
+    tensorToVirtual_.emplace_back(output, vout);
+    return output;
+  }
   auto shape = getShape(input);
   auto dtype = getDtype(input);
 
@@ -907,6 +971,40 @@ Tensor Operations::batchNorm(const Tensor &input,
                              const Tensor *weight,
                              const Tensor *bias,
                              float eps) {
+  if (graph_) {
+    auto vi = toVirtual(input);
+    auto vm = toVirtual(runningMean);
+    auto vv = toVirtual(runningVar);
+    auto shape = getShape(input);
+    auto dtype = getDtype(input);
+    std::vector<uint32_t> inputIds = {vi.id, vm.id, vv.id};
+    if (weight)
+      inputIds.push_back(toVirtual(*weight).id);
+    if (bias)
+      inputIds.push_back(toVirtual(*bias).id);
+
+    float capturedEps = eps;
+    bool hasWeight = weight != nullptr;
+    bool hasBias = bias != nullptr;
+    auto node = std::make_unique<DeferredOpNode>(
+        shape, dtype, "BatchNorm",
+        [capturedEps, hasWeight, hasBias](Operations &ops,
+                                          const std::vector<Tensor> &in) {
+          const Tensor *wPtr = nullptr;
+          const Tensor *bPtr = nullptr;
+          size_t nextInput = 3;
+          if (hasWeight)
+            wPtr = &in[nextInput++];
+          if (hasBias)
+            bPtr = &in[nextInput++];
+          return ops.batchNorm(in[0], in[1], in[2], wPtr, bPtr, capturedEps);
+        });
+    node->setGraphInputIds(std::move(inputIds));
+    auto vout = graph_->addNode(std::move(node));
+    Tensor output = runtime_->createTensorEmpty(shape, dtype);
+    tensorToVirtual_.emplace_back(output, vout);
+    return output;
+  }
   auto shape = getShape(input);
   auto dtype = getDtype(input);
 
@@ -941,8 +1039,7 @@ Tensor Operations::batchNorm(const Tensor &input,
     runtime_->copyFromTensor(*bias, bData.data(), C * sizeof(float));
   }
 
-  // Compute batch norm (inference mode): y = (x - mean) / sqrt(var + eps) * w +
-  // b
+  // Compute batch norm (inference mode)
   std::vector<float> result(totalElements);
   for (uint32_t n = 0; n < N; ++n) {
     for (uint32_t c = 0; c < C; ++c) {
@@ -972,9 +1069,7 @@ Tensor Operations::embedding(const Tensor &indices,
                              std::optional<uint32_t> spec) {
   auto node =
       std::make_unique<EmbeddingOpNode>(*runtime_, indices, weight, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {indices, weight});
 }
 
 // =========================================================================
@@ -987,9 +1082,7 @@ Tensor Operations::pad(const Tensor &input,
                        std::optional<uint32_t> spec) {
   auto node = std::make_unique<PadOpNode>(
       *runtime_, input, std::vector<uint32_t>(padWidths), value, spec);
-  Tensor output = node->output();
-  runtime_->encodeOperator(std::move(node));
-  return output;
+  return recordOrEncode(std::move(node), {input});
 }
 
 // =========================================================================
@@ -999,6 +1092,10 @@ Tensor Operations::pad(const Tensor &input,
 void Operations::sortBitonic(const Tensor &keys,
                              const Tensor &vals,
                              std::optional<uint32_t> spec) {
+  if (graph_) {
+    throw std::runtime_error(
+        "sortBitonic: in-place sort not supported in graph mode");
+  }
   runtime_->encodeOperator(
       std::make_unique<BitonicSortOpNode>(*runtime_, keys, vals, spec));
 }
@@ -1006,6 +1103,10 @@ void Operations::sortBitonic(const Tensor &keys,
 void Operations::sortRadix(const Tensor &keys,
                            const Tensor &vals,
                            std::optional<uint32_t> spec) {
+  if (graph_) {
+    throw std::runtime_error(
+        "sortRadix: in-place sort not supported in graph mode");
+  }
   runtime_->encodeOperator(
       std::make_unique<RadixSortOpNode>(*runtime_, keys, vals, spec));
 }

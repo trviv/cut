@@ -107,4 +107,56 @@ bool InternalOpNode::needsBarrierAfter() const {
   return barrierAfter_;
 }
 
+// ============================================================================
+// OpNode::displayName
+// ============================================================================
+
+std::string OpNode::displayName() const {
+  return operatorName(op_);
+}
+
+// ============================================================================
+// InputOpNode
+// ============================================================================
+
+InputOpNode::InputOpNode(const Tensor &gpuHandle,
+                         const std::vector<uint32_t> &shape,
+                         DataType dtype,
+                         bool isConstant)
+    : OpNode(static_cast<OperatorEnum>(0)), gpuHandle_(gpuHandle),
+      shape_(shape), dtype_(dtype), isConstant_(isConstant) {}
+
+std::string InputOpNode::displayName() const {
+  return "Input";
+}
+
+// ============================================================================
+// DeferredOpNode
+// ============================================================================
+
+DeferredOpNode::DeferredOpNode(const std::vector<uint32_t> &shape,
+                               DataType dtype,
+                               std::string name,
+                               ExecuteFn fn)
+    : OpNode(static_cast<OperatorEnum>(0)), shape_(shape), dtype_(dtype),
+      name_(std::move(name)), fn_(std::move(fn)) {}
+
+Tensor DeferredOpNode::execute(Operations &ops,
+                               const std::vector<Tensor> &inputs) {
+  return fn_(ops, inputs);
+}
+
+// ============================================================================
+// StubOpNode
+// ============================================================================
+
+StubOpNode::StubOpNode(OperatorEnum opEnum,
+                       const std::vector<uint32_t> &shape,
+                       DataType dtype,
+                       std::string name,
+                       std::string detail,
+                       bool isConstant)
+    : OpNode(opEnum), shape_(shape), dtype_(dtype), name_(std::move(name)),
+      detail_(std::move(detail)), isConstant_(isConstant) {}
+
 } // namespace cut

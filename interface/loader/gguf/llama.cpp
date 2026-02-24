@@ -1,8 +1,10 @@
 #include "llama.h"
+#include "OpNode.h"
 #include "Operations.h"
 #include "Runtime.h"
 #include "model_report.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -270,6 +272,7 @@ void LlamaModel::precomputeRoPE() {
 cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
                                        const cut::ComputeHandle &weight) {
   // x is 1D [dim]
+
   // 1. Square elements
   auto x_sq = ops_->unaryOp(cut::UnarySquare, x);
 
@@ -277,6 +280,7 @@ cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
   auto sumTensor = ops_->reduce(cut::ReduceSum, x_sq);
   float sum = 0.0f;
   runtime_->copyFromTensor(sumTensor, &sum, sizeof(float));
+
   float scale = 1.0f / std::sqrt(sum / static_cast<float>(config_.dim) +
                                  config_.norm_eps);
 
@@ -444,7 +448,7 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   builder.markOutput(v_flat);
 
   auto graph = builder.build();
-  auto preOpt = graph; // snapshot before optimization
+  auto preOpt = graph.clone(); // snapshot before optimization
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
   optimizer.optimize(graph);
 
@@ -460,10 +464,13 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   cut::graph::GraphBuilder builder(*runtime_);
   int32_t dim = static_cast<int32_t>(config_.dim);
 
-  // Dynamic inputs — use attn_norm as shape placeholder for {dim} tensors
+  // Dynamic inputs — each must use a DIFFERENT placeholder tensor so that
+  // Operations::toVirtual() can distinguish them during graph construction.
+  // Using the same handle for both would cause the residual add to read from
+  // the wrong input (attn_out instead of hidden).
   auto vAttnOut = builder.input(layer.attn_norm, /*isConstant=*/false);
   auto vWo = builder.input(layer.wo, /*isConstant=*/true);
-  auto vHidden = builder.input(layer.attn_norm, /*isConstant=*/false);
+  auto vHidden = builder.input(layer.ffn_norm, /*isConstant=*/false);
 
   auto attn_2d = builder.reshape(vAttnOut, {1, dim});
   auto proj = builder.matmul(attn_2d, vWo);
@@ -479,7 +486,7 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   builder.markOutput(result);
 
   auto graph = builder.build();
-  auto preOpt = graph; // snapshot before optimization
+  auto preOpt = graph.clone(); // snapshot before optimization
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
   optimizer.optimize(graph);
 
@@ -494,12 +501,13 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   cut::graph::GraphBuilder builder(*runtime_);
   int32_t dim = static_cast<int32_t>(config_.dim);
 
-  // Dynamic inputs
+  // Dynamic inputs — each must use a DIFFERENT placeholder tensor so that
+  // Operations::toVirtual() can distinguish them during graph construction.
   auto vNormed = builder.input(layer.ffn_norm, /*isConstant=*/false);
   auto vWGate = builder.input(layer.w_gate, /*isConstant=*/true);
   auto vWUp = builder.input(layer.w_up, /*isConstant=*/true);
   auto vWDown = builder.input(layer.w_down, /*isConstant=*/true);
-  auto vHidden = builder.input(layer.ffn_norm, /*isConstant=*/false);
+  auto vHidden = builder.input(layer.attn_norm, /*isConstant=*/false);
 
   auto x_2d = builder.reshape(vNormed, {1, dim});
 
@@ -528,7 +536,7 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   builder.markOutput(result);
 
   auto graph = builder.build();
-  auto preOpt = graph; // snapshot before optimization
+  auto preOpt = graph.clone(); // snapshot before optimization
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
   optimizer.optimize(graph);
 
@@ -559,7 +567,7 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
   builder.markOutput(logits_raw);
 
   auto graph = builder.build();
-  auto preOpt = graph; // snapshot before optimization
+  auto preOpt = graph.clone(); // snapshot before optimization
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
   optimizer.optimize(graph);
 
@@ -590,7 +598,7 @@ std::vector<cut::Tensor> LlamaModel::executeGraph(
     GraphTemplate &tpl, const std::vector<cut::ComputeHandle> &dynamicHandles) {
   for (size_t i = 0; i < tpl.dynamicInputs.size(); ++i) {
     auto &node = tpl.graph.node(tpl.dynamicInputs[i]);
-    std::get<cut::graph::InputData>(node.data).gpuHandle = dynamicHandles[i];
+    static_cast<cut::InputOpNode &>(node).setGpuHandle(dynamicHandles[i]);
   }
   return executor_->execute(tpl.graph);
 }
@@ -606,6 +614,16 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   const float *embd_row = token_embd_data_.data() + token_id * dim;
   std::vector<float> embd_vec(embd_row, embd_row + dim);
   auto hidden = uploadVector(embd_vec);
+
+  // Debug: trace where hidden state converges
+  static int fwdDbgCount = 0;
+  if (fwdDbgCount < 3) {
+    float dbg[4];
+    runtime_->copyFromTensor(hidden, dbg, 4 * sizeof(float));
+    std::cerr << "  [fwd " << fwdDbgCount << "] tok=" << token_id
+              << " pos=" << pos << " emb=[" << dbg[0] << " " << dbg[1] << " "
+              << dbg[2] << " " << dbg[3] << "]\n";
+  }
 
   // 2. Transformer layers
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
@@ -642,6 +660,15 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
     hidden = ffn_result[0];
   }
 
+  // Debug: hidden state after all layers
+  if (fwdDbgCount < 3) {
+    float dbg[4];
+    runtime_->copyFromTensor(hidden, dbg, 4 * sizeof(float));
+    std::cerr << "  [fwd " << fwdDbgCount << "] after 30 layers=[" << dbg[0]
+              << " " << dbg[1] << " " << dbg[2] << " " << dbg[3] << "]\n";
+    ++fwdDbgCount;
+  }
+
   // 3. Final RMS norm (CPU sync point — stays as direct ops)
   hidden = rmsNorm(hidden, output_norm_);
 
@@ -661,17 +688,52 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
   std::vector<int> tokens = prompt_tokens;
   int next_token = 0;
 
+  // Debug: track forward pass count for diagnostics
+  int fwdCount = 0;
+
+  auto sampleArgmax = [&](const cut::ComputeHandle &logits) -> int {
+    // GPU argmax
+    auto argTensor = ops_->reduce(cut::ReduceArgmax, logits);
+    float argF = 0.0f;
+    runtime_->copyFromTensor(argTensor, &argF, sizeof(float));
+    int gpuArgmax = static_cast<int>(argF);
+
+    // For first 3 forward passes, verify with CPU argmax
+    if (fwdCount < 3) {
+      uint32_t vocabSize = config_.vocab_size;
+      std::vector<float> allLogits(vocabSize);
+      runtime_->copyFromTensor(logits, allLogits.data(),
+                               vocabSize * sizeof(float));
+
+      // CPU argmax + top 5
+      std::vector<std::pair<float, int>> vals(vocabSize);
+      for (uint32_t j = 0; j < vocabSize; ++j)
+        vals[j] = {allLogits[j], static_cast<int>(j)};
+      std::partial_sort(vals.begin(), vals.begin() + 5, vals.end(),
+                        [](auto &a, auto &b) { return a.first > b.first; });
+      int cpuArgmax = vals[0].second;
+
+      std::cerr << "  [fwd " << fwdCount << "] GPU argmax=" << gpuArgmax
+                << " CPU argmax=" << cpuArgmax << "  top5:";
+      for (int t = 0; t < 5; ++t)
+        std::cerr << " " << vals[t].second << "(" << vals[t].first << ")";
+      std::cerr << "\n";
+
+      if (gpuArgmax != cpuArgmax) {
+        std::cerr << "  *** MISMATCH: GPU argmax != CPU argmax ***\n";
+      }
+    }
+    ++fwdCount;
+    return gpuArgmax;
+  };
+
   // Process prompt tokens (prefill)
   for (size_t i = 0; i < prompt_tokens.size(); ++i) {
     auto logits = forward(prompt_tokens[i], static_cast<int>(i));
 
     // Only sample from last prompt token
     if (i == prompt_tokens.size() - 1) {
-      // Argmax sampling
-      auto argTensor = ops_->reduce(cut::ReduceArgmax, logits);
-      float argF = 0.0f;
-      runtime_->copyFromTensor(argTensor, &argF, sizeof(float));
-      next_token = static_cast<int>(argF);
+      next_token = sampleArgmax(logits);
     }
   }
 
@@ -683,10 +745,7 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
     int pos = static_cast<int>(prompt_tokens.size()) + step;
     auto logits = forward(next_token, pos);
 
-    auto argTensor = ops_->reduce(cut::ReduceArgmax, logits);
-    float argF = 0.0f;
-    runtime_->copyFromTensor(argTensor, &argF, sizeof(float));
-    next_token = static_cast<int>(argF);
+    next_token = sampleArgmax(logits);
     tokens.push_back(next_token);
 
     std::cout << "Generated token: " << next_token << "\n";
