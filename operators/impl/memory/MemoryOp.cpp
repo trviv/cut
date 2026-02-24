@@ -1,5 +1,7 @@
 #include "MemoryOp.h"
+#include "MemoryShaders.generated.h"
 #include "Runtime.h"
+#include "Shaders.h"
 
 namespace cut {
 
@@ -30,6 +32,16 @@ CopyOpNode::CopyOpNode(Runtime &runtime,
 
 DataType CopyOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> CopyOpNode::shader() const {
+  auto compiled = compiledCopy(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> CopyOpNode::outputShape() const {
@@ -81,6 +93,16 @@ EmbeddingOpNode::EmbeddingOpNode(Runtime &runtime,
 
 DataType EmbeddingOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> EmbeddingOpNode::shader() const {
+  auto compiled = compiledEmbedding(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> EmbeddingOpNode::outputShape() const {
@@ -154,6 +176,16 @@ DataType PadOpNode::shaderDtype() const {
   return dtype_;
 }
 
+std::optional<std::vector<uint32_t>> PadOpNode::shader() const {
+  auto compiled = compiledPad(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
+}
+
 std::vector<uint32_t> PadOpNode::outputShape() const {
   return outShape_;
 }
@@ -217,6 +249,16 @@ ExpandOpNode::ExpandOpNode(Runtime &runtime,
 
 DataType ExpandOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> ExpandOpNode::shader() const {
+  auto compiled = compiledExpand(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> ExpandOpNode::outputShape() const {

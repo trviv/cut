@@ -1,5 +1,7 @@
 #include "TernaryOp.h"
 #include "Runtime.h"
+#include "Shaders.h"
+#include "TernaryShaders.generated.h"
 
 namespace cut {
 
@@ -23,6 +25,16 @@ TernaryClampOpNode::TernaryClampOpNode(Runtime &runtime,
 
 DataType TernaryClampOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> TernaryClampOpNode::shader() const {
+  auto compiled = compiledTernaryClamp(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> TernaryClampOpNode::outputShape() const {
@@ -69,6 +81,16 @@ TernarySelectOpNode::TernarySelectOpNode(Runtime &runtime,
 
 DataType TernarySelectOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> TernarySelectOpNode::shader() const {
+  auto compiled = compiledTernarySelect(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> TernarySelectOpNode::outputShape() const {

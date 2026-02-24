@@ -1,6 +1,8 @@
 #include "ReduceOp.h"
 #include "Dispatcher.h"
+#include "ReduceShaders.generated.h"
 #include "Runtime.h"
+#include "Shaders.h"
 
 namespace cut {
 
@@ -42,6 +44,23 @@ GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
 
 DataType GlobalReduceOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> GlobalReduceOpNode::shader() const {
+  std::optional<std::vector<uint32_t>> compiled;
+  if (op_ == ReduceArgmax || op_ == ReduceArgmin) {
+    compiled = compiledReduceArg(dtype_);
+  } else if (op_ == Norm) {
+    compiled = compiledNorm(dtype_);
+  } else {
+    compiled = compiledReduce(dtype_);
+  }
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> GlobalReduceOpNode::outputShape() const {
@@ -127,6 +146,16 @@ DataType NormOpNode::shaderDtype() const {
   return dtype_;
 }
 
+std::optional<std::vector<uint32_t>> NormOpNode::shader() const {
+  auto compiled = compiledNorm(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
+}
+
 std::vector<uint32_t> NormOpNode::outputShape() const {
   return {1};
 }
@@ -170,6 +199,16 @@ DotOpNode::DotOpNode(Runtime &runtime,
 
 DataType DotOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> DotOpNode::shader() const {
+  auto compiled = compiledDot(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> DotOpNode::outputShape() const {
@@ -231,6 +270,16 @@ CumOpNode::CumOpNode(OperatorEnum op,
 
 DataType CumOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> CumOpNode::shader() const {
+  auto compiled = compiledCumOp(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> CumOpNode::outputShape() const {

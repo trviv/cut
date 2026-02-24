@@ -1,5 +1,7 @@
 #include "UnaryOp.h"
 #include "Runtime.h"
+#include "Shaders.h"
+#include "UnaryShaders.generated.h"
 
 namespace cut {
 
@@ -18,6 +20,16 @@ UnaryOpNode::UnaryOpNode(OperatorEnum op,
 
 DataType UnaryOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> UnaryOpNode::shader() const {
+  auto compiled = compiledUnary(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> UnaryOpNode::outputShape() const {

@@ -1,5 +1,7 @@
 #include "CreationOp.h"
+#include "CreationShaders.generated.h"
 #include "Runtime.h"
+#include "Shaders.h"
 
 namespace cut {
 
@@ -19,6 +21,16 @@ FillOpNode::FillOpNode(OperatorEnum op,
 
 DataType FillOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> FillOpNode::shader() const {
+  auto compiled = compiledFill(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> FillOpNode::outputShape() const {
@@ -51,6 +63,16 @@ ArangeOpNode::ArangeOpNode(OperatorEnum op,
 
 DataType ArangeOpNode::shaderDtype() const {
   return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> ArangeOpNode::shader() const {
+  auto compiled = compiledArange(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
 }
 
 std::vector<uint32_t> ArangeOpNode::outputShape() const {

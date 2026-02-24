@@ -33,6 +33,16 @@ DataType BinaryVecVecOpNode::shaderDtype() const {
   return dtype_;
 }
 
+std::optional<std::vector<uint32_t>> BinaryVecVecOpNode::shader() const {
+  auto compiled = compiledBinaryVecVec(dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
+}
+
 std::vector<uint32_t> BinaryVecVecOpNode::outputShape() const {
   return runtime_->getTensor(inputs_[0]).getShape();
 }
