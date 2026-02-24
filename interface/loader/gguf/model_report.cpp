@@ -743,7 +743,7 @@ void generateModelReport(const GGUFReader &reader,
             "matmul.out -> sum.in[1] (value)");
 
   emitNode(svg, nx, y, nodeW, nodeH, "Attention", opFill, "scaled dot-product",
-           "dot > softmax (CPU)");
+           "dot > softmax");
   prevY = y + nodeH;
   y += gapY;
 
@@ -1257,7 +1257,7 @@ void generateModelReport(const GGUFReader &reader,
            "(implicit)</td>"
         << "<td class=\"arrow-col\">&rarr;</td>"
         << "<td class=\"op-role\">Attention</td>"
-        << "<td class=\"op-chain\">dot &rarr; softmax (CPU) &rarr; weighted "
+        << "<td class=\"op-chain\">dot &rarr; softmax &rarr; weighted "
            "sum (CPU)</td>"
         << "<td class=\"op-chain\">"
         << "per head h: q_h [" << HD << "], K_cache [seq," << HD
