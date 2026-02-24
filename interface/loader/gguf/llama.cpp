@@ -92,9 +92,15 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
   }
   std::cout << config_.vocab_size << "\n";
 
-  // Load vocabulary from GGUF metadata
+  // Load vocabulary and tokenizer data from GGUF metadata
   if (meta.has("tokenizer.ggml.tokens")) {
     vocab_ = meta.get_as<std::vector<std::string>>("tokenizer.ggml.tokens");
+    for (size_t i = 0; i < vocab_.size(); ++i) {
+      token_to_id_[vocab_[i]] = static_cast<int>(i);
+    }
+  }
+  if (meta.has("tokenizer.ggml.scores")) {
+    scores_ = meta.get_as<std::vector<float>>("tokenizer.ggml.scores");
   }
 
   // Load layers
@@ -753,6 +759,101 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
   }
 
   return tokens;
+}
+
+// ============================================================================
+// Tokenization (SentencePiece BPE)
+// ============================================================================
+
+// Advance past one UTF-8 character, returning byte count (1-4).
+static int utf8_len(uint8_t lead) {
+  if ((lead & 0x80) == 0)
+    return 1;
+  if ((lead & 0xE0) == 0xC0)
+    return 2;
+  if ((lead & 0xF0) == 0xE0)
+    return 3;
+  return 4;
+}
+
+std::vector<int> LlamaModel::tokenize(const std::string &text) const {
+  if (vocab_.empty() || scores_.empty()) {
+    throw std::runtime_error("Tokenizer data not loaded from GGUF");
+  }
+
+  // SentencePiece convention: replace spaces with U+2581 (▁) and prepend one
+  // to mark word boundaries.
+  static const std::string SP_SPACE = "\xe2\x96\x81"; // ▁
+  std::string normalized;
+  normalized += SP_SPACE;
+  for (char c : text) {
+    if (c == ' ') {
+      normalized += SP_SPACE;
+    } else {
+      normalized += c;
+    }
+  }
+
+  // Split into individual UTF-8 characters, falling back to byte tokens
+  // (<0xNN>) for characters not in the vocabulary.
+  std::vector<std::string> symbols;
+  for (size_t i = 0; i < normalized.size();) {
+    int len = utf8_len(static_cast<uint8_t>(normalized[i]));
+    if (i + len > normalized.size())
+      len = 1; // truncated — treat as single byte
+    std::string ch = normalized.substr(i, len);
+    if (token_to_id_.count(ch)) {
+      symbols.push_back(ch);
+    } else {
+      // Byte fallback: emit <0xNN> tokens for each byte
+      for (int b = 0; b < len; ++b) {
+        char hex[8];
+        std::snprintf(hex, sizeof(hex), "<0x%02X>",
+                      static_cast<uint8_t>(normalized[i + b]));
+        symbols.push_back(std::string(hex));
+      }
+    }
+    i += len;
+  }
+
+  // BPE merge loop: repeatedly merge the adjacent pair whose merged result
+  // has the highest score in the vocabulary, until no more merges exist.
+  while (symbols.size() >= 2) {
+    float best_score = -1e30f;
+    size_t best_idx = SIZE_MAX;
+
+    for (size_t i = 0; i + 1 < symbols.size(); ++i) {
+      std::string merged = symbols[i] + symbols[i + 1];
+      auto it = token_to_id_.find(merged);
+      if (it != token_to_id_.end()) {
+        float score = scores_[it->second];
+        if (score > best_score) {
+          best_score = score;
+          best_idx = i;
+        }
+      }
+    }
+
+    if (best_idx == SIZE_MAX)
+      break; // no more merges possible
+
+    // Apply the merge
+    symbols[best_idx] = symbols[best_idx] + symbols[best_idx + 1];
+    symbols.erase(symbols.begin() + best_idx + 1);
+  }
+
+  // Convert symbols to token IDs, prepending BOS (token 1)
+  std::vector<int> ids;
+  ids.push_back(1); // BOS
+  for (const auto &sym : symbols) {
+    auto it = token_to_id_.find(sym);
+    if (it != token_to_id_.end()) {
+      ids.push_back(it->second);
+    }
+    // skip unknown symbols (shouldn't happen with byte fallback)
+  }
+
+  return ids;
 }
 
 std::string LlamaModel::detokenize(const std::vector<int> &tokens) const {

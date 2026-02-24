@@ -8,12 +8,13 @@
  *   mkdir build && cd build && cmake .. && make -j8
  *
  * Run:
- *   ./gguf_example [path/to/model.gguf]
+ *   ./gguf_example [path/to/model.gguf] [max_tokens] [prompt]
  */
 
 #include "Runtime.h"
 #include "llama.h"
 
+#include <exception>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -46,15 +47,32 @@ int main(int argc, char *argv[]) {
               << " heads=" << cfg.n_heads << " vocab=" << cfg.vocab_size
               << "\n\n";
 
-    // Prompt tokens (BOS token = 1 for LLaMA-style models)
-    // Without a tokenizer, we use raw token IDs.
-    // Token 1 is typically <s> (BOS) for LLaMA models.
-    std::vector<int> prompt = {1};
-
     int max_new_tokens = 32;
     if (argc >= 3) {
       max_new_tokens = std::atoi(argv[2]);
     }
+
+    // Tokenize prompt from CLI or use default
+    std::string prompt_text = "Hello, how are you?";
+    if (argc >= 4) {
+      prompt_text = argv[3];
+    }
+
+    std::cout << "Prompt: \"" << prompt_text << "\"\n";
+    std::vector<int> prompt;
+    try {
+      prompt = model.tokenize(prompt_text);
+    } catch (std::exception &) {
+      prompt = {1};
+    }
+
+    std::cout << "Prompt token IDs: [";
+    for (size_t i = 0; i < prompt.size(); ++i) {
+      if (i > 0)
+        std::cout << ", ";
+      std::cout << prompt[i];
+    }
+    std::cout << "]\n";
 
     std::cout << "Generating " << max_new_tokens << " tokens...\n";
     auto tokens = model.generate(prompt, max_new_tokens);

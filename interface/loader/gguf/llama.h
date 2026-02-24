@@ -110,6 +110,9 @@ public:
   /// Reset KV cache for a new generation.
   void resetCache();
 
+  /// Encode text to token IDs using BPE (SentencePiece).
+  std::vector<int> tokenize(const std::string &text) const;
+
   /// Decode token IDs to text using the GGUF vocabulary.
   std::string detokenize(const std::vector<int> &tokens) const;
 
@@ -136,6 +139,8 @@ private:
 
   // Vocabulary from GGUF metadata (token_id -> text)
   std::vector<std::string> vocab_;
+  std::vector<float> scores_;
+  std::unordered_map<std::string, int> token_to_id_;
 
   // Helper: upload 1D float vector to GPU
   cut::ComputeHandle uploadVector(const std::vector<float> &data);
