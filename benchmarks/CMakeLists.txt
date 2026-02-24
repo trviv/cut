@@ -12,7 +12,7 @@ set(BENCH_INCLUDE_DIRS
 )
 
 add_executable(benchmarks
-    matmul_benchmark.cpp
+    benchmark.cpp
 )
 target_include_directories(benchmarks PRIVATE ${BENCH_INCLUDE_DIRS})
 target_link_libraries(benchmarks PRIVATE CUTLib)
