@@ -1,6 +1,5 @@
 #pragma once
 
-#include "GraphNode.h"
 #include "OpNode.h"
 
 #include <ComputeHandle.h>

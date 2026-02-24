@@ -115,7 +115,6 @@ set(LIB_HEADERS
     runtime/Dispatcher.h
     runtime/Operations.h
     runtime/ShapeUtils.h
-    runtime/graph/GraphNode.h
     runtime/graph/Graph.h
     runtime/graph/GraphBuilder.h
     runtime/graph/GraphOptimizer.h
