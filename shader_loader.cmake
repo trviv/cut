@@ -12,7 +12,7 @@ set(COMPILED_SHADERS "")
 set(EMBEDDED_SHADERS "")
 
 # Include paths for shader headers
-set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/core/api/include)
+set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/operators)
 
 # Persistent cache directory for compiled SPIR-V (survives clean builds)
 set(SHADER_CACHE_DIR ${CMAKE_SOURCE_DIR}/.shader_cache)
