@@ -38,8 +38,17 @@ std::optional<std::vector<uint32_t>> OpNode::shader() const {
 }
 
 size_t OpNode::shaderKey() const {
-  return static_cast<size_t>(op_) | (static_cast<size_t>(shaderDtype()) << 16) |
-         (static_cast<size_t>(spec().value_or(0)) << 32);
+  size_t key = static_cast<size_t>(op_);
+  size_t dtype = static_cast<size_t>(shaderDtype()) & 0xF;
+  for (size_t i = 0; i < inputs_.size() && i < 8; ++i) {
+    key |= dtype << (16 + i * 4);
+  }
+  key |= static_cast<size_t>(spec().value_or(0)) << 48;
+  return key;
+}
+
+size_t OpNode::shaderKeyWith(size_t extra) const {
+  return OpNode::shaderKey() | (extra << 60);
 }
 
 size_t OpNode::executionSize() const {

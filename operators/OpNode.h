@@ -89,7 +89,8 @@ public:
   virtual std::optional<std::vector<uint32_t>> shader() const;
 
   /// Returns a cache key for the Dispatcher's shader cache.
-  /// Default: op | (dtype << 16) | (spec << 32).
+  /// Encodes op (bits 0-15), per-input dtypes (bits 16-47, 4 bits each,
+  /// up to 8 inputs), and spec (bits 48-63).
   virtual size_t shaderKey() const;
 
   /// Returns the computed output shape.
@@ -165,6 +166,10 @@ protected:
 
   /// Minimal constructor for internal nodes that don't need Runtime access.
   explicit OpNode(OperatorEnum op) : op_(op), runtime_(nullptr) {}
+
+  /// Combines the base shaderKey() with extra data OR'd at bit 60.
+  /// Subclasses should call this instead of doing manual bit math.
+  size_t shaderKeyWith(size_t extra) const;
 
   /// Returns push constant data as a byte vector.
   virtual std::vector<uint8_t> pushConstants() const = 0;

@@ -68,9 +68,7 @@ DataType BinaryOpNode::shaderDtype() const {
 }
 
 size_t BinaryOpNode::shaderKey() const {
-  // Include variant in the key so VecVec, VecScalar, and VecScalarBuf
-  // don't collide in the shader cache.
-  return OpNode::shaderKey() ^ (static_cast<size_t>(variant_) << 48);
+  return shaderKeyWith(static_cast<size_t>(variant_));
 }
 
 std::optional<std::vector<uint32_t>> BinaryOpNode::shader() const {

@@ -59,17 +59,8 @@ DataType DimReduceOpNode::shaderDtype() const {
   return dtype_;
 }
 
-std::optional<uint32_t> DimReduceOpNode::spec() const {
-  return resolvedVariant_;
-}
-
 std::optional<std::vector<uint32_t>> DimReduceOpNode::shader() const {
   return getDimReduceShader(op_, dtype_, resolvedVariant_);
-}
-
-size_t DimReduceOpNode::shaderKey() const {
-  return static_cast<size_t>(op_) | (static_cast<size_t>(dtype_) << 16) |
-         (size_t(1) << 48) | (static_cast<size_t>(resolvedVariant_) << 32);
 }
 
 std::vector<uint32_t> DimReduceOpNode::outputShape() const {
