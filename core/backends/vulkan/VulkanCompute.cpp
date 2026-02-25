@@ -23,13 +23,29 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   queueCreateInfo.pQueuePriorities = &queuePriority;
 
   VkPhysicalDeviceFeatures deviceFeatures = {};
+  deviceFeatures.shaderInt16 = VK_TRUE;
+
+  // Enable 16-bit storage and shader float16 for Float16 support
+  VkPhysicalDeviceShaderFloat16Int8Features featuresFloat16Int8 = {};
+  featuresFloat16Int8.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
+  featuresFloat16Int8.shaderFloat16 = VK_TRUE;
+
+  VkPhysicalDevice16BitStorageFeatures features16bit = {};
+  features16bit.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES;
+  features16bit.pNext = &featuresFloat16Int8;
+  features16bit.storageBuffer16BitAccess = VK_TRUE;
+  features16bit.uniformAndStorageBuffer16BitAccess = VK_TRUE;
 
   // Required extensions for MoltenVK
   const std::vector<const char *> deviceExtensions = {
-      "VK_KHR_portability_subset"};
+      "VK_KHR_portability_subset", "VK_KHR_16bit_storage",
+      "VK_KHR_shader_float16_int8"};
 
   VkDeviceCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  createInfo.pNext = &features16bit;
   createInfo.pQueueCreateInfos = &queueCreateInfo;
   createInfo.queueCreateInfoCount = 1;
   createInfo.pEnabledFeatures = &deviceFeatures;

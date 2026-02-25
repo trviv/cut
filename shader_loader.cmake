@@ -27,7 +27,7 @@ message(STATUS "DXC compiler: ${DXC_EXECUTABLE}")
 # (dtype substitution is now handled by generate_shader_variants.py)
 # =============================================================================
 function(compile_shader SHADER_SOURCE)
-    # Optional 2nd argument: extra DXC flags (e.g. "-Od")
+    # Optional extra arguments: DXC flags (e.g. "-Od -enable-16bit-types")
     set(EXTRA_DXC_FLAGS "${ARGN}")
     get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
     get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
@@ -50,7 +50,7 @@ if(EXISTS \${CACHE_FILE})
 else()
     message(STATUS \"Cache miss: ${SHADER_NAME_WE} — compiling\")
     execute_process(
-        COMMAND ${DXC_EXECUTABLE} -T cs_6_0 -E main -spirv -fspv-target-env=vulkan1.1 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${SHADER_SOURCE}\" -Fo \"${SHADER_BINARY}\"
+        COMMAND ${DXC_EXECUTABLE} -T cs_6_2 -E main -spirv -fspv-target-env=vulkan1.1 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${SHADER_SOURCE}\" -Fo \"${SHADER_BINARY}\"
         RESULT_VARIABLE result
     )
     if(NOT result EQUAL 0)
@@ -228,7 +228,7 @@ list(LENGTH GENERATED_SHADER_FILES NUM_GEN_SHADERS)
 message(STATUS "Found ${NUM_GEN_SHADERS} generated shader files")
 
 foreach(SHADER_FILE ${GENERATED_SHADER_FILES})
-    compile_shader(${SHADER_FILE})
+    compile_shader(${SHADER_FILE} "-enable-16bit-types" "-T" "cs_6_2")
 endforeach()
 
 # Generate CompiledShaders.cpp from compiled SPIR-V binaries

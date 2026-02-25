@@ -97,8 +97,9 @@ Tensor Operations::recordOrEncode(std::unique_ptr<OpNode> node) {
   Tensor output = node->output();
   if (graph_) {
     std::vector<uint32_t> inputIds;
-    for (const auto &inp : node->inputs())
+    for (const auto &inp : node->inputs()) {
       inputIds.push_back(toNodeId(inp));
+    }
     node->setGraphInputIds(std::move(inputIds));
     uint32_t nodeId = graph_->addNode(std::move(node), output);
     tensorToNodeId_.emplace_back(output, nodeId);

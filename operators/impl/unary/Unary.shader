@@ -53,7 +53,7 @@ struct PushConstants {
 #ifdef DTYPE_IS_UINT
             return min(a, (uint4)(1));
 #else
-            return sign(a);
+            return (%VEC_DTYPE%)(sign(a));
 #endif
 
         // =====================================================================
@@ -181,7 +181,7 @@ struct PushConstants {
 #endif
         case OP_UNARY_ROUND:
 #ifdef DTYPE_IS_FLOAT
-            return sign(a) * floor(abs(a) + 0.5);
+            return (%VEC_DTYPE%)(sign(a)) * floor(abs(a) + 0.5);
 #else
             return a;
 #endif
@@ -191,7 +191,7 @@ struct PushConstants {
         // =====================================================================
         case OP_UNARY_CBRT:
 #ifdef DTYPE_IS_FLOAT
-            return sign(a) * pow(abs(a), (%VEC_DTYPE%)(0.333333333333333));
+            return (%VEC_DTYPE%)(sign(a)) * pow(abs(a), (%VEC_DTYPE%)(0.333333333333333));
 #else
             return (%VEC_DTYPE%)(0);
 #endif
@@ -218,10 +218,12 @@ struct PushConstants {
             return (%VEC_DTYPE%)(a == (%VEC_DTYPE%)(0));
 #endif
         case OP_UNARY_BITWISE_NOT:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             return asfloat(~asint(a));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             return ~a;
+#else
+            return (%VEC_DTYPE%)(0);
 #endif
 
         // =====================================================================

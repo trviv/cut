@@ -152,6 +152,67 @@ inline const char *backendName(BackendType backend) {
   return backend == BackendType::Vulkan ? "Vulkan" : "Unknown";
 }
 
+// IEEE 754 half-precision (float16) conversion utilities
+inline uint16_t floatToHalf(float value) {
+  uint32_t bits;
+  std::memcpy(&bits, &value, sizeof(bits));
+  uint16_t sign = (bits >> 16) & 0x8000;
+  int32_t exponent = ((bits >> 23) & 0xFF) - 127;
+  uint32_t mantissa = bits & 0x7FFFFF;
+  if (exponent == 128) { // Inf or NaN
+    return sign | 0x7C00 | (mantissa ? (mantissa >> 13) | 1 : 0);
+  }
+  if (exponent < -14) { // Underflow to zero
+    return sign;
+  }
+  if (exponent > 15) { // Overflow to Inf
+    return sign | 0x7C00;
+  }
+  return sign | ((exponent + 15) << 10) | (mantissa >> 13);
+}
+
+inline float halfToFloat(uint16_t h) {
+  uint32_t sign = (h & 0x8000) << 16;
+  uint32_t exponent = (h >> 10) & 0x1F;
+  uint32_t mantissa = h & 0x03FF;
+  uint32_t bits;
+  if (exponent == 0) {
+    if (mantissa == 0) {
+      bits = sign; // Zero
+    } else {
+      // Denormalized
+      exponent = 1;
+      while (!(mantissa & 0x0400)) {
+        mantissa <<= 1;
+        exponent--;
+      }
+      mantissa &= 0x03FF;
+      bits = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
+    }
+  } else if (exponent == 31) {
+    bits = sign | 0x7F800000 | (mantissa << 13); // Inf or NaN
+  } else {
+    bits = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
+  }
+  float result;
+  std::memcpy(&result, &bits, sizeof(result));
+  return result;
+}
+
+inline std::vector<uint16_t> floatsToHalves(const std::vector<float> &v) {
+  std::vector<uint16_t> out(v.size());
+  for (size_t i = 0; i < v.size(); ++i)
+    out[i] = floatToHalf(v[i]);
+  return out;
+}
+
+inline std::vector<float> halvesToFloats(const std::vector<uint16_t> &v) {
+  std::vector<float> out(v.size());
+  for (size_t i = 0; i < v.size(); ++i)
+    out[i] = halfToFloat(v[i]);
+  return out;
+}
+
 // Helper to check if an operator has Vulkan shader support
 // (New operators not yet implemented in shaders)
 inline bool hasVulkanShaderSupport(OperatorEnum op) {
@@ -1275,10 +1336,10 @@ void testBinaryVecVec(Runtime *runtime, DataType dtype) {
             float tol = (op == BinaryPow)
                             ? std::max(1e-5f, std::abs(expected) * 1e-5f)
                             : 1e-5f;
-            EXPECT_NEAR(output[i], expected, tol)
+            ASSERT_NEAR(output[i], expected, tol)
                 << "Mismatch at index " << i << " for " << operatorName(op);
           } else {
-            EXPECT_EQ(output[i], expected)
+            ASSERT_EQ(output[i], expected)
                 << "Mismatch at index " << i << " for " << operatorName(op);
           }
         }
@@ -1295,6 +1356,108 @@ void testBinaryVecVec(Runtime *runtime, DataType dtype) {
   }
 }
 
+// Float16 variant: generate float data, convert to fp16 for GPU, compare in
+// float with relaxed tolerance
+void testBinaryVecVecFloat16(Runtime *runtime) {
+  const DataType dtype = DataType::Float16;
+
+  for (size_t numDims : kDimensionCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      const size_t bufferSize = elements * sizeof(uint16_t);
+
+      // Generate in float, then convert to fp16 for upload
+      auto dataAf = generateTestData<float>(elements, 42);
+      auto dataBf = generateTestData<float>(elements, 123);
+      auto dataA16 = floatsToHalves(dataAf);
+      auto dataB16 = floatsToHalves(dataBf);
+
+      // Round-trip so CPU reference uses the same precision as GPU
+      auto dataA = halvesToFloats(dataA16);
+      auto dataB = halvesToFloats(dataB16);
+
+      auto bufferA = runtime->createTensor(shape, dtype, dataA16.data());
+      auto bufferB = runtime->createTensor(shape, dtype, dataB16.data());
+
+      for (OperatorEnum op : kBinaryVecVecOps) {
+        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
+                     " Shape: " + shapeToString(shape));
+
+        auto bufferOut = runtime->ops().binaryOp(op, bufferA, bufferB);
+
+        std::vector<uint16_t> output16(elements);
+        runtime->copyFromTensor(bufferOut, output16.data(), bufferSize);
+        auto output = halvesToFloats(output16);
+
+        for (uint32_t i = 0; i < elements; ++i) {
+          float expected;
+          // Bitwise/shift ops must use 16-bit representation to match GPU
+          // (GPU uses asint16/asfloat16, not 32-bit reinterpret)
+          if (op == BinaryBitwiseAnd || op == BinaryBitwiseOr ||
+              op == BinaryBitwiseXor || op == BinaryLeftShift ||
+              op == BinaryRightShift) {
+            uint16_t ha = dataA16[i], hb = dataB16[i];
+            uint16_t hr;
+            switch (op) {
+            case BinaryBitwiseAnd:
+              hr = ha & hb;
+              break;
+            case BinaryBitwiseOr:
+              hr = ha | hb;
+              break;
+            case BinaryBitwiseXor:
+              hr = ha ^ hb;
+              break;
+            case BinaryLeftShift:
+              hr = ha << (hb & 0xF);
+              break;
+            case BinaryRightShift: {
+              int16_t ia;
+              std::memcpy(&ia, &ha, sizeof(int16_t));
+              hr = static_cast<uint16_t>(ia >> (hb & 0xF));
+              break;
+            }
+            default:
+              hr = 0;
+              break;
+            }
+            expected = halfToFloat(hr);
+          } else {
+            expected = binaryVecVecRef(op, dataA[i], dataB[i]);
+            // Round-trip through fp16 to match GPU overflow/underflow behavior
+            expected = halfToFloat(floatToHalf(expected));
+          }
+          if (std::isnan(expected) && std::isnan(output[i]))
+            continue;
+          if (std::isinf(expected) && std::isinf(output[i]) &&
+              std::signbit(expected) == std::signbit(output[i]))
+            continue;
+          // fp16 has ~3 decimal digits of precision
+          float tol = std::max(1e-2f, std::abs(expected) * 1e-2f);
+          if (op == BinaryMod || op == BinaryFmod) {
+            // fp16 intermediate precision in a/b can shift the quotient,
+            // causing the result to differ by a multiple of b
+            float b = dataB[i];
+            float diff = output[i] - expected;
+            float adj = diff - std::round(diff / b) * b;
+            ASSERT_NEAR(adj, 0.0f, tol)
+                << "Mismatch at index " << i << " for " << operatorName(op);
+          } else if (op == BinaryFloorDiv) {
+            // fp16 intermediate precision can shift floor result by ±1
+            float diff = std::abs(output[i] - expected);
+            ASSERT_TRUE(diff <= tol || std::abs(diff - 1.0f) <= tol)
+                << "Mismatch at index " << i << " for " << operatorName(op)
+                << " expected=" << expected << " got=" << output[i];
+          } else {
+            ASSERT_NEAR(output[i], expected, tol)
+                << "Mismatch at index " << i << " for " << operatorName(op);
+          }
+        }
+      }
+    }
+  }
+}
+
 // Test binary vec-vec operators across all data types
 TEST_F(VulkanBackendTest, BinaryVecVecOperators) {
   for (DataType dtype : kAllDataTypes) {
@@ -1305,8 +1468,8 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators) {
       testBinaryVecVec<float>(runtime_.get(), dtype);
       break;
     case DataType::Float16:
-      // Float16 requires fp16 conversion utilities; skip for now
-      continue;
+      testBinaryVecVecFloat16(runtime_.get());
+      break;
     case DataType::Int32:
       testBinaryVecVec<int32_t>(runtime_.get(), dtype);
       break;
@@ -1345,7 +1508,7 @@ TEST_F(VulkanBackendTest, UnaryOperators_Float32) {
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = unaryRef(op, dataIn[i]);
           if (std::isfinite(expected)) {
-            EXPECT_NEAR(output[i], expected, 1e-4f)
+            ASSERT_NEAR(output[i], expected, 1e-4f)
                 << "Mismatch at index " << i << " for " << operatorName(op);
           }
         }
@@ -1384,7 +1547,7 @@ TEST_F(VulkanBackendTest, UnaryOperators_Int32) {
 
         for (uint32_t i = 0; i < elements; ++i) {
           int32_t expected = unaryRef(op, dataIn[i]);
-          EXPECT_EQ(output[i], expected)
+          ASSERT_EQ(output[i], expected)
               << "Mismatch at index " << i << " for " << operatorName(op);
         }
       }
@@ -1425,7 +1588,7 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
           float tol = (op == BinaryPow)
                           ? std::max(1e-5f, std::abs(expected) * 1e-5f)
                           : 1e-5f;
-          EXPECT_NEAR(output[i], expected, tol)
+          ASSERT_NEAR(output[i], expected, tol)
               << "Mismatch at index " << i << " for " << operatorName(op);
         }
       }
@@ -1469,7 +1632,7 @@ TEST_F(DimensionSizeRangeTest, AllSizes_1D_Float32) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] + dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for size " << size;
     }
   }
@@ -1505,7 +1668,7 @@ TEST_F(DimensionSizeRangeTest, AllSizes_2D_Float32) {
 
       for (uint32_t i = 0; i < elements; ++i) {
         float expected = dataA[i] * dataB[i];
-        EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+        ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
       }
     }
   }
@@ -1542,7 +1705,7 @@ TEST_F(DimensionSizeRangeTest, AllSizes_3D_Float32) {
 
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = dataA[i] - dataB[i];
-          EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+          ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
         }
       }
     }
@@ -1586,7 +1749,7 @@ TEST_F(DimensionSizeRangeTest, AllSizes_4D_Float32) {
 
           for (uint32_t i = 0; i < elements; ++i) {
             float expected = dataA[i] / dataB[i];
-            EXPECT_NEAR(output[i], expected, 1e-4f)
+            ASSERT_NEAR(output[i], expected, 1e-4f)
                 << "Mismatch at index " << i;
           }
         }
@@ -1636,7 +1799,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim1) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] + dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1666,7 +1829,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim3) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1696,7 +1859,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim5) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] - dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1726,7 +1889,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim11) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] + dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1756,7 +1919,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim13) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1788,7 +1951,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] + dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1820,7 +1983,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_4D_NonAlignedInnermost) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1850,7 +2013,7 @@ TEST_F(NonAlignedInnermostTest, Unary_2D_NonAlignedInnermost) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = -dataIn[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1881,7 +2044,7 @@ TEST_F(NonAlignedInnermostTest, VecScalar_2D_NonAlignedInnermost) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * scalar;
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1922,7 +2085,7 @@ TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_2D_NonAlignedInnermost) {
 
       for (uint32_t i = 0; i < elements; ++i) {
         float expected = dataA[i] + dataB[i];
-        EXPECT_NEAR(output[i], expected, 1e-5f)
+        ASSERT_NEAR(output[i], expected, 1e-5f)
             << "Mismatch at index " << i << " for shape "
             << shapeToString(shape);
       }
@@ -1955,7 +2118,7 @@ TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] * dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -1986,7 +2149,7 @@ TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_4D_NonAlignedInnermost) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataA[i] - dataB[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -2015,7 +2178,7 @@ TEST_F(VulkanNonAlignedInnermostTest, Unary_NonAlignedInnermost) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = dataIn[i] * dataIn[i];
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -2048,10 +2211,10 @@ TEST_F(VulkanBackendTest, ReductionOperators_Float32) {
             std::signbit(expected) == std::signbit(output)) {
           // Both are same-sign infinity — pass
         } else if (op == ReduceMean || op == ReduceSum || op == ReduceProd) {
-          EXPECT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f)
+          ASSERT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f)
               << "Mismatch for " << operatorName(op);
         } else {
-          EXPECT_NEAR(output, expected, 1e-5f)
+          ASSERT_NEAR(output, expected, 1e-5f)
               << "Mismatch for " << operatorName(op);
         }
       }
@@ -2084,7 +2247,7 @@ TEST_F(VulkanBackendTest, TernaryClamp_Float32) {
       // Verify results
       for (uint32_t i = 0; i < elements; ++i) {
         float expected = ternaryClampRef(dataIn[i], clampVals[0], clampVals[1]);
-        EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+        ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
       }
     }
   }
@@ -2122,7 +2285,7 @@ TEST_F(VulkanBackendTest, TernarySelect_Float32) {
       // Verify results
       for (uint32_t i = 0; i < elements; ++i) {
         float expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
-        EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+        ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
       }
     }
   }
@@ -2255,7 +2418,7 @@ TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim0) {
       auto expected =
           dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
       for (uint32_t i = 0; i < innerSize; ++i) {
-        EXPECT_NEAR(output[i], expected[i],
+        ASSERT_NEAR(output[i], expected[i],
                     std::abs(expected[i]) * 1e-4f + 1e-5f)
             << "Mismatch at index " << i;
       }
@@ -2300,7 +2463,7 @@ TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim1) {
       auto expected =
           dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
       for (uint32_t i = 0; i < outerSize; ++i) {
-        EXPECT_NEAR(output[i], expected[i],
+        ASSERT_NEAR(output[i], expected[i],
                     std::abs(expected[i]) * 1e-4f + 1e-5f)
             << "Mismatch at index " << i;
       }
@@ -2335,7 +2498,7 @@ TEST_F(VulkanBackendTest, DimReductionOperators_3D_MiddleDim) {
 
     auto expected = dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
     for (uint32_t i = 0; i < numOutputs; ++i) {
-      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -2378,7 +2541,7 @@ TEST_F(VulkanBackendTest, NormDim_2D_Dim0) {
 
     auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
     for (uint32_t i = 0; i < innerSize; ++i) {
-      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -2417,7 +2580,7 @@ TEST_F(VulkanBackendTest, NormDim_2D_Dim1) {
 
     auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
     for (uint32_t i = 0; i < outerSize; ++i) {
-      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -2447,7 +2610,7 @@ TEST_F(VulkanBackendTest, NormDim_3D_MiddleDim) {
 
   auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
   for (uint32_t i = 0; i < numOutputs; ++i) {
-    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
         << "Mismatch at index " << i;
   }
 }
@@ -2470,8 +2633,8 @@ TEST_F(VulkanBackendTest, NormDim_KnownValues) {
   std::vector<float> output(2);
   runtime_->copyFromTensor(bufferOut, output.data(), 2 * sizeof(float));
 
-  EXPECT_NEAR(output[0], 5.0f, 1e-5f);
-  EXPECT_NEAR(output[1], 13.0f, 1e-5f);
+  ASSERT_NEAR(output[0], 5.0f, 1e-5f);
+  ASSERT_NEAR(output[1], 13.0f, 1e-5f);
 }
 
 // ============================================================================
@@ -2482,17 +2645,17 @@ class RuntimeLifecycleTest : public ::testing::Test {};
 
 TEST_F(RuntimeLifecycleTest, DefaultConstruction) {
   Runtime runtime;
-  EXPECT_EQ(runtime.currentBackend(), BackendType::Vulkan);
+  ASSERT_EQ(runtime.currentBackend(), BackendType::Vulkan);
 }
 
 TEST_F(RuntimeLifecycleTest, VulkanInitialization) {
   Runtime runtime;
   if (runtime.isVulkanAvailable()) {
-    EXPECT_NO_THROW(runtime.init(BackendType::Vulkan));
-    EXPECT_EQ(runtime.currentBackend(), BackendType::Vulkan);
+    ASSERT_NO_THROW(runtime.init(BackendType::Vulkan));
+    ASSERT_EQ(runtime.currentBackend(), BackendType::Vulkan);
     runtime.shutdown();
   } else {
-    EXPECT_THROW(runtime.init(BackendType::Vulkan), std::runtime_error);
+    ASSERT_THROW(runtime.init(BackendType::Vulkan), std::runtime_error);
   }
 }
 
@@ -2507,7 +2670,7 @@ TEST_F(RuntimeLifecycleTest, MultipleInitShutdown) {
   runtime.init(BackendType::Vulkan);
   {
     auto buf1 = runtime.createTensorEmpty({16}, DataType::Float32);
-    EXPECT_TRUE(buf1);
+    ASSERT_TRUE(buf1);
   } // buf1 goes out of scope here
   runtime.shutdown();
 
@@ -2515,7 +2678,7 @@ TEST_F(RuntimeLifecycleTest, MultipleInitShutdown) {
   runtime.init(BackendType::Vulkan);
   {
     auto buf2 = runtime.createTensorEmpty({16}, DataType::Float32);
-    EXPECT_TRUE(buf2);
+    ASSERT_TRUE(buf2);
   } // buf2 goes out of scope here
   runtime.shutdown();
 }
@@ -2543,7 +2706,7 @@ TEST_F(ArgmaxArgminTest, GlobalArgmax_Float32) {
   float output = 0.0f;
   runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
-  EXPECT_EQ(static_cast<int>(output), 3)
+  ASSERT_EQ(static_cast<int>(output), 3)
       << "Argmax should be index 3 (value 9.0)";
 }
 
@@ -2558,7 +2721,7 @@ TEST_F(ArgmaxArgminTest, GlobalArgmin_Float32) {
   float output = 0.0f;
   runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
-  EXPECT_EQ(static_cast<int>(output), 2)
+  ASSERT_EQ(static_cast<int>(output), 2)
       << "Argmin should be index 2 (value 1.0)";
 }
 
@@ -2585,7 +2748,7 @@ TEST_F(ArgmaxArgminTest, GlobalArgmax_LargeTensor) {
   float output = 0.0f;
   runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
-  EXPECT_EQ(static_cast<int>(output), expectedIdx);
+  ASSERT_EQ(static_cast<int>(output), expectedIdx);
 }
 
 TEST_F(ArgmaxArgminTest, DimArgmax_2D_Dim0) {
@@ -2607,10 +2770,10 @@ TEST_F(ArgmaxArgminTest, DimArgmax_2D_Dim0) {
 
   // Expected: col 0->row 1 (7), col 1->row 0 (9), col 2->row 1 (8), col 3->row
   // 2 (10)
-  EXPECT_EQ(static_cast<int>(output[0]), 1);
-  EXPECT_EQ(static_cast<int>(output[1]), 0);
-  EXPECT_EQ(static_cast<int>(output[2]), 1);
-  EXPECT_EQ(static_cast<int>(output[3]), 2);
+  ASSERT_EQ(static_cast<int>(output[0]), 1);
+  ASSERT_EQ(static_cast<int>(output[1]), 0);
+  ASSERT_EQ(static_cast<int>(output[2]), 1);
+  ASSERT_EQ(static_cast<int>(output[3]), 2);
 }
 
 TEST_F(ArgmaxArgminTest, DimArgmin_2D_Dim0) {
@@ -2629,10 +2792,10 @@ TEST_F(ArgmaxArgminTest, DimArgmin_2D_Dim0) {
 
   // Expected: col 0->row 0 (1), col 1->row 2 (2), col 2->row 2 (1), col 3->row
   // 0 (2)
-  EXPECT_EQ(static_cast<int>(output[0]), 0);
-  EXPECT_EQ(static_cast<int>(output[1]), 2);
-  EXPECT_EQ(static_cast<int>(output[2]), 2);
-  EXPECT_EQ(static_cast<int>(output[3]), 0);
+  ASSERT_EQ(static_cast<int>(output[0]), 0);
+  ASSERT_EQ(static_cast<int>(output[1]), 2);
+  ASSERT_EQ(static_cast<int>(output[2]), 2);
+  ASSERT_EQ(static_cast<int>(output[3]), 0);
 }
 
 // ============================================================================
@@ -2662,7 +2825,7 @@ TEST_F(CumsumCumprodTest, CumSum_1D) {
   std::vector<float> expected = {1.0f,  3.0f,  6.0f,  10.0f,
                                  15.0f, 21.0f, 28.0f, 36.0f};
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], 1e-5f)
         << "CumSum mismatch at index " << i;
   }
 }
@@ -2681,7 +2844,7 @@ TEST_F(CumsumCumprodTest, CumProd_1D) {
 
   std::vector<float> expected = {1.0f, 2.0f, 6.0f, 24.0f};
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], 1e-5f)
         << "CumProd mismatch at index " << i;
   }
 }
@@ -2711,7 +2874,7 @@ TEST_F(CumsumCumprodTest, CumSum_2D_Dim0) {
       15.0f, 18.0f, 21.0f, 24.0f  // row 0 + row 1 + row 2
   };
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], 1e-5f)
         << "CumSum 2D dim0 mismatch at index " << i;
   }
 }
@@ -2738,7 +2901,7 @@ TEST_F(CumsumCumprodTest, CumProd_2D_Dim0) {
       5.0f, 12.0f, 21.0f, 32.0f // row 0 * row 1
   };
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], 1e-5f)
         << "CumProd 2D dim0 mismatch at index " << i;
   }
 }
@@ -2773,7 +2936,7 @@ TEST_F(NewOpsShaderCompileTest, AllNewUnaryActivations_Compile) {
   for (OperatorEnum op : kNewUnaryActivations) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op));
 
-    EXPECT_NO_THROW({ bufferOut = runtime_->ops().unaryOp(op, bufferIn); });
+    ASSERT_NO_THROW({ bufferOut = runtime_->ops().unaryOp(op, bufferIn); });
 
     std::vector<float> output(elements);
     runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -2781,7 +2944,7 @@ TEST_F(NewOpsShaderCompileTest, AllNewUnaryActivations_Compile) {
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = unaryRef(op, dataIn[i]);
       if (std::isfinite(expected)) {
-        EXPECT_NEAR(output[i], expected, 1e-3f)
+        ASSERT_NEAR(output[i], expected, 1e-3f)
             << "Mismatch at index " << i << " for " << operatorName(op);
       }
     }
@@ -2806,7 +2969,7 @@ TEST_F(NewOpsShaderCompileTest, AllNewUnaryMath_Compile) {
   for (OperatorEnum op : kNewUnaryMath) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op));
 
-    EXPECT_NO_THROW({ bufferOut = runtime_->ops().unaryOp(op, bufferIn); });
+    ASSERT_NO_THROW({ bufferOut = runtime_->ops().unaryOp(op, bufferIn); });
 
     std::vector<float> output(elements);
     runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -2814,7 +2977,7 @@ TEST_F(NewOpsShaderCompileTest, AllNewUnaryMath_Compile) {
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = unaryRef(op, dataIn[i]);
       if (std::isfinite(expected)) {
-        EXPECT_NEAR(output[i], expected, 1e-4f)
+        ASSERT_NEAR(output[i], expected, 1e-4f)
             << "Mismatch at index " << i << " for " << operatorName(op);
       }
     }
@@ -2843,7 +3006,7 @@ TEST_F(NewOpsShaderCompileTest, NewBinaryVecVec_Logaddexp) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
-      EXPECT_NEAR(output[i], expected, 1e-4f)
+      ASSERT_NEAR(output[i], expected, 1e-4f)
           << "Mismatch at index " << i << " for " << operatorName(op);
     }
   }
@@ -2872,7 +3035,7 @@ TEST_F(NewOpsShaderCompileTest, NewBinaryVecScalar_ParameterizedActivations) {
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = binaryVecScalarRef(op, dataA[i], scalar);
       if (std::isfinite(expected)) {
-        EXPECT_NEAR(output[i], expected, 1e-4f)
+        ASSERT_NEAR(output[i], expected, 1e-4f)
             << "Mismatch at index " << i << " for " << operatorName(op);
       }
     }
@@ -2905,7 +3068,7 @@ TEST_F(MultiWorkgroupReduceTest, ReduceSum_LargeArray) {
     runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceSum, data);
-    EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-3f)
+    ASSERT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-3f)
         << "ReduceSum mismatch for " << elements << " elements";
   }
 }
@@ -2923,7 +3086,7 @@ TEST_F(MultiWorkgroupReduceTest, ReduceMean_LargeArray) {
     runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceMean, data);
-    EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-3f)
+    ASSERT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-3f)
         << "ReduceMean mismatch for " << elements << " elements";
   }
 }
@@ -2941,7 +3104,7 @@ TEST_F(MultiWorkgroupReduceTest, ReduceMinMax_LargeArray) {
     runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceMin, data);
-    EXPECT_NEAR(output, expected, 1e-5f) << "ReduceMin mismatch";
+    ASSERT_NEAR(output, expected, 1e-5f) << "ReduceMin mismatch";
   }
 
   // Test ReduceMax
@@ -2951,7 +3114,7 @@ TEST_F(MultiWorkgroupReduceTest, ReduceMinMax_LargeArray) {
     runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceMax, data);
-    EXPECT_NEAR(output, expected, 1e-5f) << "ReduceMax mismatch";
+    ASSERT_NEAR(output, expected, 1e-5f) << "ReduceMax mismatch";
   }
 }
 
@@ -2972,7 +3135,7 @@ TEST_F(MultiWorkgroupReduceTest, ReduceProd_LargeArray) {
   runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
   float expected = reduceRef<float>(ReduceProd, data);
-  EXPECT_NEAR(output, expected, std::abs(expected) * 1e-2f + 1e-5f)
+  ASSERT_NEAR(output, expected, std::abs(expected) * 1e-2f + 1e-5f)
       << "ReduceProd mismatch";
 }
 
@@ -2990,7 +3153,7 @@ TEST_F(MultiWorkgroupReduceTest, SmallArrayStillWorks) {
     runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
     float expected = reduceRef<float>(ReduceSum, data);
-    EXPECT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f);
+    ASSERT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f);
   }
 }
 
@@ -3023,7 +3186,7 @@ TEST_F(PrefixScanTest, ExclusiveSum_Small) {
     // Verify exclusive prefix sum: output[i] = sum(input[0..i-1])
     float runningSum = 0.0f;
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
       runningSum += data[i];
     }
@@ -3046,7 +3209,7 @@ TEST_F(PrefixScanTest, ExclusiveSum_Large) {
 
     float runningSum = 0.0f;
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-3f + 1e-4f)
+      ASSERT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-3f + 1e-4f)
           << "Mismatch at index " << i;
       runningSum += data[i];
     }
@@ -3070,7 +3233,7 @@ TEST_F(PrefixScanTest, InclusiveSum_Small) {
     float runningSum = 0.0f;
     for (uint32_t i = 0; i < elements; ++i) {
       runningSum += data[i];
-      EXPECT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -3092,7 +3255,7 @@ TEST_F(PrefixScanTest, InclusiveSum_Large) {
     float runningSum = 0.0f;
     for (uint32_t i = 0; i < elements; ++i) {
       runningSum += data[i];
-      EXPECT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-3f + 1e-4f)
+      ASSERT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-3f + 1e-4f)
           << "Mismatch at index " << i;
     }
   }
@@ -3137,7 +3300,7 @@ TEST_F(BitonicSortTest, Sort_SmallArrays) {
 
     // Verify ascending order
     for (uint32_t i = 1; i < elements; ++i) {
-      EXPECT_LE(sortedKeys[i - 1], sortedKeys[i])
+      ASSERT_LE(sortedKeys[i - 1], sortedKeys[i])
           << "Not sorted at index " << i;
     }
 
@@ -3145,12 +3308,12 @@ TEST_F(BitonicSortTest, Sort_SmallArrays) {
     std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
     std::sort(sortedIndices.begin(), sortedIndices.end());
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_EQ(sortedIndices[i], i) << "Invalid permutation at index " << i;
+      ASSERT_EQ(sortedIndices[i], i) << "Invalid permutation at index " << i;
     }
 
     // Verify key-index correspondence
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_EQ(sortedKeys[i], data[sortedVals[i]])
+      ASSERT_EQ(sortedKeys[i], data[sortedVals[i]])
           << "Key-index mismatch at position " << i;
     }
   }
@@ -3181,7 +3344,7 @@ TEST_F(BitonicSortTest, Sort_LargeArray) {
 
     // Verify ascending order
     for (uint32_t i = 1; i < elements; ++i) {
-      EXPECT_LE(sortedKeys[i - 1], sortedKeys[i])
+      ASSERT_LE(sortedKeys[i - 1], sortedKeys[i])
           << "Not sorted at index " << i;
     }
 
@@ -3189,7 +3352,7 @@ TEST_F(BitonicSortTest, Sort_LargeArray) {
     std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
     std::sort(sortedIndices.begin(), sortedIndices.end());
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_EQ(sortedIndices[i], i);
+      ASSERT_EQ(sortedIndices[i], i);
     }
   }
 }
@@ -3216,7 +3379,7 @@ TEST_F(BitonicSortTest, Sort_AlreadySorted) {
                            elements * sizeof(float));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(sortedKeys[i], static_cast<float>(i));
+    ASSERT_EQ(sortedKeys[i], static_cast<float>(i));
   }
 }
 
@@ -3242,7 +3405,7 @@ TEST_F(BitonicSortTest, Sort_ReverseSorted) {
                            elements * sizeof(float));
 
   for (uint32_t i = 1; i < elements; ++i) {
-    EXPECT_LE(sortedKeys[i - 1], sortedKeys[i]) << "Not sorted at index " << i;
+    ASSERT_LE(sortedKeys[i - 1], sortedKeys[i]) << "Not sorted at index " << i;
   }
 }
 
@@ -3265,7 +3428,7 @@ TEST_F(BitonicSortTest, Sort_AllSameValues) {
                            elements * sizeof(float));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(sortedKeys[i], 5.0f);
+    ASSERT_EQ(sortedKeys[i], 5.0f);
   }
 }
 
@@ -3306,7 +3469,7 @@ TEST_F(RadixSortTest, Sort_SmallArrays_UInt32) {
 
     // Verify ascending order
     for (uint32_t i = 1; i < elements; ++i) {
-      EXPECT_LE(sortedKeys[i - 1], sortedKeys[i])
+      ASSERT_LE(sortedKeys[i - 1], sortedKeys[i])
           << "Not sorted at index " << i;
     }
 
@@ -3314,12 +3477,12 @@ TEST_F(RadixSortTest, Sort_SmallArrays_UInt32) {
     std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
     std::sort(sortedIndices.begin(), sortedIndices.end());
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_EQ(sortedIndices[i], i) << "Invalid permutation at index " << i;
+      ASSERT_EQ(sortedIndices[i], i) << "Invalid permutation at index " << i;
     }
 
     // Verify key-index correspondence
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_EQ(sortedKeys[i], data[sortedVals[i]])
+      ASSERT_EQ(sortedKeys[i], data[sortedVals[i]])
           << "Key-index mismatch at position " << i;
     }
   }
@@ -3349,14 +3512,14 @@ TEST_F(RadixSortTest, Sort_LargeArray_UInt32) {
                              elements * sizeof(uint32_t));
 
     for (uint32_t i = 1; i < elements; ++i) {
-      EXPECT_LE(sortedKeys[i - 1], sortedKeys[i])
+      ASSERT_LE(sortedKeys[i - 1], sortedKeys[i])
           << "Not sorted at index " << i;
     }
 
     std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
     std::sort(sortedIndices.begin(), sortedIndices.end());
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_EQ(sortedIndices[i], i);
+      ASSERT_EQ(sortedIndices[i], i);
     }
   }
 }
@@ -3383,7 +3546,7 @@ TEST_F(RadixSortTest, Sort_AlreadySorted_UInt32) {
                            elements * sizeof(uint32_t));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(sortedKeys[i], i);
+    ASSERT_EQ(sortedKeys[i], i);
   }
 }
 
@@ -3409,7 +3572,7 @@ TEST_F(RadixSortTest, Sort_ReverseSorted_UInt32) {
                            elements * sizeof(uint32_t));
 
   for (uint32_t i = 1; i < elements; ++i) {
-    EXPECT_LE(sortedKeys[i - 1], sortedKeys[i]) << "Not sorted at index " << i;
+    ASSERT_LE(sortedKeys[i - 1], sortedKeys[i]) << "Not sorted at index " << i;
   }
 }
 
@@ -3432,7 +3595,7 @@ TEST_F(RadixSortTest, Sort_AllSameValues_UInt32) {
                            elements * sizeof(uint32_t));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(sortedKeys[i], 42u);
+    ASSERT_EQ(sortedKeys[i], 42u);
   }
 }
 
@@ -3477,7 +3640,7 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Int32) {
 
         for (uint32_t i = 0; i < elements; ++i) {
           int32_t expected = binaryVecScalarRef(op, dataA[i], scalar);
-          EXPECT_EQ(output[i], expected)
+          ASSERT_EQ(output[i], expected)
               << "Mismatch at index " << i << " for " << operatorName(op);
         }
       }
@@ -3522,7 +3685,7 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_UInt32) {
 
         for (uint32_t i = 0; i < elements; ++i) {
           uint32_t expected = binaryVecScalarRef(op, dataA[i], scalar);
-          EXPECT_EQ(output[i], expected)
+          ASSERT_EQ(output[i], expected)
               << "Mismatch at index " << i << " for " << operatorName(op);
         }
       }
@@ -3561,7 +3724,7 @@ TEST_F(VulkanBackendTest, UnaryOperators_UInt32) {
 
         for (uint32_t i = 0; i < elements; ++i) {
           uint32_t expected = unaryRef(op, dataIn[i]);
-          EXPECT_EQ(output[i], expected)
+          ASSERT_EQ(output[i], expected)
               << "Mismatch at index " << i << " for " << operatorName(op);
         }
       }
@@ -3597,7 +3760,7 @@ TEST_F(VulkanBackendTest, TernaryClamp_Int32) {
       for (uint32_t i = 0; i < elements; ++i) {
         int32_t expected =
             ternaryClampRef(dataIn[i], clampVals[0], clampVals[1]);
-        EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+        ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
       }
     }
   }
@@ -3627,7 +3790,7 @@ TEST_F(VulkanBackendTest, TernaryClamp_UInt32) {
       for (uint32_t i = 0; i < elements; ++i) {
         uint32_t expected =
             ternaryClampRef(dataIn[i], clampVals[0], clampVals[1]);
-        EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+        ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
       }
     }
   }
@@ -3662,7 +3825,7 @@ TEST_F(VulkanBackendTest, TernarySelect_Int32) {
 
       for (uint32_t i = 0; i < elements; ++i) {
         int32_t expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
-        EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+        ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
       }
     }
   }
@@ -3697,7 +3860,7 @@ TEST_F(VulkanBackendTest, TernarySelect_UInt32) {
 
       for (uint32_t i = 0; i < elements; ++i) {
         uint32_t expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
-        EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+        ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
       }
     }
   }
@@ -3736,7 +3899,7 @@ TEST_F(VulkanBackendTest, ReductionOperators_Int32) {
         runtime_->copyFromTensor(outTensor, &output, sizeof(int32_t));
 
         int32_t expected = reduceRef(op, dataIn);
-        EXPECT_EQ(output, expected) << "Mismatch for " << operatorName(op);
+        ASSERT_EQ(output, expected) << "Mismatch for " << operatorName(op);
       }
     }
   }
@@ -3769,7 +3932,7 @@ TEST_F(VulkanBackendTest, ReductionOperators_UInt32) {
         runtime_->copyFromTensor(outTensor, &output, sizeof(uint32_t));
 
         uint32_t expected = reduceRef(op, dataIn);
-        EXPECT_EQ(output, expected) << "Mismatch for " << operatorName(op);
+        ASSERT_EQ(output, expected) << "Mismatch for " << operatorName(op);
       }
     }
   }
@@ -3806,7 +3969,7 @@ TEST_F(MatrixOpsTest, MatMul_Square) {
   runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
 
   for (uint32_t i = 0; i < M * N; ++i) {
-    EXPECT_NEAR(output[i], A[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], A[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -3833,7 +3996,7 @@ TEST_F(MatrixOpsTest, MatMul_Rectangular) {
       for (uint32_t k = 0; k < K; ++k) {
         expected += dataA[i * K + k] * dataB[k * N + j];
       }
-      EXPECT_NEAR(output[i * N + j], expected,
+      ASSERT_NEAR(output[i * N + j], expected,
                   std::abs(expected) * 1e-4f + 1e-5f)
           << "Mismatch at [" << i << ", " << j << "]";
     }
@@ -3872,7 +4035,7 @@ TEST_F(MatrixOpsTest, MatMul_LargerMatrices) {
         for (uint32_t k = 0; k < tc.K; ++k) {
           expected += dataA[i * tc.K + k] * dataB[k * tc.N + j];
         }
-        EXPECT_NEAR(output[i * tc.N + j], expected,
+        ASSERT_NEAR(output[i * tc.N + j], expected,
                     std::abs(expected) * 1e-4f + 1e-5f)
             << "Mismatch at [" << i << ", " << j << "]";
       }
@@ -3913,7 +4076,7 @@ TEST_F(MatrixOpsTest, MatMulVariants_Square) {
 
     for (uint32_t i = 0; i < M; ++i) {
       for (uint32_t j = 0; j < N; ++j) {
-        EXPECT_NEAR(output[i * N + j], expected[i * N + j],
+        ASSERT_NEAR(output[i * N + j], expected[i * N + j],
                     std::abs(expected[i * N + j]) * 1e-4f + 1e-5f)
             << "Mismatch at [" << i << ", " << j << "]";
       }
@@ -3958,7 +4121,7 @@ TEST_F(MatrixOpsTest, MatMulVariants_Rectangular) {
 
       for (uint32_t i = 0; i < tc.M; ++i) {
         for (uint32_t j = 0; j < tc.N; ++j) {
-          EXPECT_NEAR(output[i * tc.N + j], expected[i * tc.N + j],
+          ASSERT_NEAR(output[i * tc.N + j], expected[i * tc.N + j],
                       std::abs(expected[i * tc.N + j]) * 1e-4f + 1e-5f)
               << "Mismatch at [" << i << ", " << j << "]";
         }
@@ -4004,7 +4167,7 @@ TEST_F(MatrixOpsTest, MatMulVariants_NonMultipleOfTileSize) {
 
       for (uint32_t i = 0; i < tc.M; ++i) {
         for (uint32_t j = 0; j < tc.N; ++j) {
-          EXPECT_NEAR(output[i * tc.N + j], expected[i * tc.N + j],
+          ASSERT_NEAR(output[i * tc.N + j], expected[i * tc.N + j],
                       std::abs(expected[i * tc.N + j]) * 1e-4f + 1e-5f)
               << "Mismatch at [" << i << ", " << j << "]";
         }
@@ -4052,7 +4215,7 @@ TEST_F(MatrixOpsTest, MatMulVariants_LargerMatrices) {
 
       for (uint32_t i = 0; i < tc.M; ++i) {
         for (uint32_t j = 0; j < tc.N; ++j) {
-          EXPECT_NEAR(output[i * tc.N + j], expected[i * tc.N + j], tolerance)
+          ASSERT_NEAR(output[i * tc.N + j], expected[i * tc.N + j], tolerance)
               << "Mismatch at [" << i << ", " << j << "]";
         }
       }
@@ -4082,7 +4245,7 @@ TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
     runtime_->copyFromTensor(bufC, output.data(), N * N * sizeof(float));
 
     for (uint32_t i = 0; i < N * N; ++i) {
-      EXPECT_NEAR(output[i], dataA[i], 1e-5f) << "Mismatch at index " << i;
+      ASSERT_NEAR(output[i], dataA[i], 1e-5f) << "Mismatch at index " << i;
     }
   }
 }
@@ -4103,7 +4266,7 @@ TEST_F(MatrixOpsTest, Transpose_Square) {
 
   for (uint32_t i = 0; i < M; ++i) {
     for (uint32_t j = 0; j < N; ++j) {
-      EXPECT_NEAR(output[j * M + i], data[i * N + j], 1e-5f)
+      ASSERT_NEAR(output[j * M + i], data[i * N + j], 1e-5f)
           << "Mismatch at [" << j << ", " << i << "]";
     }
   }
@@ -4133,7 +4296,7 @@ TEST_F(MatrixOpsTest, Transpose_Rectangular) {
 
     for (uint32_t i = 0; i < tc.M; ++i) {
       for (uint32_t j = 0; j < tc.N; ++j) {
-        EXPECT_NEAR(output[j * tc.M + i], dataIn[i * tc.N + j], 1e-5f)
+        ASSERT_NEAR(output[j * tc.M + i], dataIn[i * tc.N + j], 1e-5f)
             << "Mismatch at [" << j << ", " << i << "]";
       }
     }
@@ -4155,7 +4318,7 @@ TEST_F(MatrixOpsTest, Dot_Basic) {
   runtime_->copyFromTensor(dotOut, &output, sizeof(float));
 
   float expected = 1 * 5 + 2 * 6 + 3 * 7 + 4 * 8; // = 70
-  EXPECT_NEAR(output, expected, 1e-4f);
+  ASSERT_NEAR(output, expected, 1e-4f);
 }
 
 TEST_F(MatrixOpsTest, Dot_LargerVectors) {
@@ -4178,7 +4341,7 @@ TEST_F(MatrixOpsTest, Dot_LargerVectors) {
     for (uint32_t i = 0; i < elements; ++i) {
       expected += static_cast<double>(dataA[i]) * static_cast<double>(dataB[i]);
     }
-    EXPECT_NEAR(output, static_cast<float>(expected),
+    ASSERT_NEAR(output, static_cast<float>(expected),
                 std::abs(static_cast<float>(expected)) * 1e-3f + 1e-4f);
   }
 }
@@ -4208,7 +4371,7 @@ TEST_F(NormTest, Norm_KnownValues) {
   float output = 0.0f;
   runtime_->copyFromTensor(outTensor, &output, sizeof(float));
 
-  EXPECT_NEAR(output, 5.0f, 1e-4f);
+  ASSERT_NEAR(output, 5.0f, 1e-4f);
 }
 
 TEST_F(NormTest, Norm_VariousSizes) {
@@ -4232,7 +4395,7 @@ TEST_F(NormTest, Norm_VariousSizes) {
     }
     float expected = static_cast<float>(std::sqrt(sumSq));
 
-    EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-4f);
+    ASSERT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-4f);
   }
 }
 
@@ -4256,7 +4419,7 @@ TEST_F(NormTest, Norm_MultiDimensional) {
   }
   float expected = static_cast<float>(std::sqrt(sumSq));
 
-  EXPECT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-4f);
+  ASSERT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-4f);
 }
 
 // ============================================================================
@@ -4376,7 +4539,7 @@ TEST_F(ConvolutionTest, Conv1D_Basic) {
 
   auto expected = conv1dRef(input, weight, N, C_in, L_in, C_out, kL, 1, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -4401,7 +4564,7 @@ TEST_F(ConvolutionTest, Conv1D_WithPadding) {
   auto expected =
       conv1dRef(input, weight, N, C_in, L_in, C_out, kL, 1, padding);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -4425,7 +4588,7 @@ TEST_F(ConvolutionTest, Conv1D_WithStride) {
 
   auto expected = conv1dRef(input, weight, N, C_in, L_in, C_out, kL, stride, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
         << "Mismatch at index " << i;
   }
 }
@@ -4449,7 +4612,7 @@ TEST_F(ConvolutionTest, Conv1D_MultiChannel) {
 
   auto expected = conv1dRef(input, weight, N, C_in, L_in, C_out, kL, 1, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-3f + 1e-4f)
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-3f + 1e-4f)
         << "Mismatch at index " << i;
   }
 }
@@ -4490,7 +4653,7 @@ TEST_F(ConvolutionTest, Conv2D_Basic) {
   auto expected =
       conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW, 1, 1, 0, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -4519,7 +4682,7 @@ TEST_F(ConvolutionTest, Conv2D_WithPadding) {
   auto expected = conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW,
                             1, 1, padH, padW);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
         << "Mismatch at index " << i;
   }
 }
@@ -4549,7 +4712,7 @@ TEST_F(ConvolutionTest, Conv2D_WithStride) {
   auto expected = conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW,
                             strideH, strideW, 0, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
         << "Mismatch at index " << i;
   }
 }
@@ -4578,7 +4741,7 @@ TEST_F(ConvolutionTest, Conv2D_MultiChannel) {
   auto expected =
       conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW, 1, 1, 0, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-3f + 1e-4f)
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-3f + 1e-4f)
         << "Mismatch at index " << i;
   }
 }
@@ -4609,7 +4772,7 @@ TEST_F(ConvolutionTest, Conv2D_StridePadding) {
   auto expected = conv2dRef(input, weight, N, C_in, H_in, W_in, C_out, kH, kW,
                             strideH, strideW, padH, padW);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-3f + 1e-4f)
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-3f + 1e-4f)
         << "Mismatch at index " << i;
   }
 }
@@ -4639,7 +4802,7 @@ TEST_F(TensorCreationTest, Zeros_Float32) {
                              elements * sizeof(float));
 
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_EQ(output[i], 0.0f) << "Mismatch at index " << i;
+      ASSERT_EQ(output[i], 0.0f) << "Mismatch at index " << i;
     }
   }
 }
@@ -4657,7 +4820,7 @@ TEST_F(TensorCreationTest, Ones_Float32) {
                              elements * sizeof(float));
 
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_EQ(output[i], 1.0f) << "Mismatch at index " << i;
+      ASSERT_EQ(output[i], 1.0f) << "Mismatch at index " << i;
     }
   }
 }
@@ -4676,7 +4839,7 @@ TEST_F(TensorCreationTest, Full_Float32) {
                              elements * sizeof(float));
 
     for (uint32_t i = 0; i < elements; ++i) {
-      EXPECT_NEAR(output[i], fillValue, 1e-5f) << "Mismatch at index " << i;
+      ASSERT_NEAR(output[i], fillValue, 1e-5f) << "Mismatch at index " << i;
     }
   }
 }
@@ -4697,7 +4860,7 @@ TEST_F(TensorCreationTest, Arange_Float32) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = start + static_cast<float>(i) * step;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -4717,7 +4880,7 @@ TEST_F(TensorCreationTest, Arange_WithStep) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = start + static_cast<float>(i) * step;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -4738,7 +4901,7 @@ TEST_F(TensorCreationTest, Linspace_Float32) {
   const float step = (end - start) / static_cast<float>(elements - 1);
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = start + static_cast<float>(i) * step;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -4754,7 +4917,7 @@ TEST_F(TensorCreationTest, Zeros_MultiDimensional) {
   runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(output[i], 0.0f) << "Mismatch at index " << i;
+    ASSERT_EQ(output[i], 0.0f) << "Mismatch at index " << i;
   }
 }
 
@@ -4770,7 +4933,7 @@ TEST_F(TensorCreationTest, Ones_MultiDimensional) {
   runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(output[i], 1.0f) << "Mismatch at index " << i;
+    ASSERT_EQ(output[i], 1.0f) << "Mismatch at index " << i;
   }
 }
 
@@ -4787,7 +4950,7 @@ TEST_F(TensorCreationTest, Zeros_Int32) {
                            elements * sizeof(int32_t));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(output[i], 0) << "Mismatch at index " << i;
+    ASSERT_EQ(output[i], 0) << "Mismatch at index " << i;
   }
 }
 
@@ -4804,7 +4967,7 @@ TEST_F(TensorCreationTest, Ones_UInt32) {
                            elements * sizeof(uint32_t));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    EXPECT_EQ(output[i], 1u) << "Mismatch at index " << i;
+    ASSERT_EQ(output[i], 1u) << "Mismatch at index " << i;
   }
 }
 
@@ -4831,10 +4994,10 @@ TEST_F(VulkanBackendTest, TemporaryTensors_BinaryOp) {
   {
     auto result = runtime_->ops().binaryOp(BinaryAdd, a, b);
     runtime_->flush();
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
   // After scope, the result handle is destroyed and buffer should be freed
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_UnaryOp) {
@@ -4846,9 +5009,9 @@ TEST_F(VulkanBackendTest, TemporaryTensors_UnaryOp) {
   {
     auto result = runtime_->ops().unaryOp(UnaryNeg, a);
     runtime_->flush();
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_Reduce) {
@@ -4863,10 +5026,10 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Reduce) {
     auto result = runtime_->ops().reduce(ReduceSum, a);
     float sum = 0.0f;
     runtime_->copyFromTensor(result, &sum, sizeof(float));
-    EXPECT_FLOAT_EQ(sum, 10.0f);
+    ASSERT_FLOAT_EQ(sum, 10.0f);
   }
   // The output buffer should have been freed after result goes out of scope
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_Dot) {
@@ -4881,10 +5044,10 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Dot) {
     auto result = runtime_->ops().dot(a, b);
     runtime_->flush();
     // dot now returns a {1} tensor; partials tensor should be freed
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
   // After scope, the returned output is also freed
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_VarianceScalar) {
@@ -4898,10 +5061,10 @@ TEST_F(VulkanBackendTest, TemporaryTensors_VarianceScalar) {
     auto var = runtime_->ops().variance(a, 0);
     runtime_->flush();
     // variance now returns a {1} tensor
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
   // After scope, the returned output is also freed
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_VarianceDim) {
@@ -4915,10 +5078,10 @@ TEST_F(VulkanBackendTest, TemporaryTensors_VarianceDim) {
     auto result = runtime_->ops().variance(a, 0, 1);
     runtime_->flush();
     // Only the returned output should exist (intermediates freed)
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
   // After scope, the returned output is also freed
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_Softmax) {
@@ -4932,10 +5095,10 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Softmax) {
     auto result = runtime_->ops().softmax(a, 1);
     runtime_->flush();
     // Only the returned output should exist (maxHandle intermediate freed)
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
   // After scope, all buffers freed
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_LogSoftmax) {
@@ -4949,9 +5112,9 @@ TEST_F(VulkanBackendTest, TemporaryTensors_LogSoftmax) {
     auto result = runtime_->ops().logSoftmax(a, 1);
     runtime_->flush();
     // Only the returned output should exist (maxHandle intermediate freed)
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_ReduceWithDim) {
@@ -4963,9 +5126,9 @@ TEST_F(VulkanBackendTest, TemporaryTensors_ReduceWithDim) {
   {
     auto result = runtime_->ops().reduce(ReduceSum, a, 1);
     runtime_->flush();
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_Reshape) {
@@ -4978,9 +5141,9 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Reshape) {
   {
     auto result = runtime_->ops().reshape(a, {3, 2});
     runtime_->flush();
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_ChainedOps) {
@@ -4994,10 +5157,10 @@ TEST_F(VulkanBackendTest, TemporaryTensors_ChainedOps) {
     auto neg = runtime_->ops().unaryOp(UnaryNeg, a);
     auto added = runtime_->ops().binaryOp(BinaryAdd, neg, 10.0f);
     runtime_->flush();
-    EXPECT_EQ(runtime_->bufferCount(), before + 2);
+    ASSERT_EQ(runtime_->bufferCount(), before + 2);
   }
   // Both intermediate buffers should be freed
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_Matmul) {
@@ -5010,9 +5173,9 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Matmul) {
   {
     auto result = runtime_->ops().matmul(a, b);
     runtime_->flush();
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 TEST_F(VulkanBackendTest, TemporaryTensors_Transpose) {
@@ -5024,9 +5187,9 @@ TEST_F(VulkanBackendTest, TemporaryTensors_Transpose) {
   {
     auto result = runtime_->ops().transpose(a);
     runtime_->flush();
-    EXPECT_EQ(runtime_->bufferCount(), before + 1);
+    ASSERT_EQ(runtime_->bufferCount(), before + 1);
   }
-  EXPECT_EQ(runtime_->bufferCount(), before);
+  ASSERT_EQ(runtime_->bufferCount(), before);
 }
 
 // ============================================================================
@@ -5144,7 +5307,7 @@ TEST_F(PoolingTest, MaxPool2D_Basic) {
 
   auto expected = maxPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -5165,7 +5328,7 @@ TEST_F(PoolingTest, MaxPool2D_WithPadding) {
 
   auto expected = maxPool2dRef(input, N, C, H, W, 3, 3, 1, 1, 1, 1);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -5185,7 +5348,7 @@ TEST_F(PoolingTest, MaxPool2D_MultiChannel) {
 
   auto expected = maxPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -5205,7 +5368,7 @@ TEST_F(PoolingTest, AvgPool2D_Basic) {
 
   auto expected = avgPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -5225,7 +5388,7 @@ TEST_F(PoolingTest, AvgPool2D_WithPadding) {
 
   auto expected = avgPool2dRef(input, N, C, H, W, 3, 3, 1, 1, 1, 1);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
   }
 }
 
@@ -5245,7 +5408,7 @@ TEST_F(PoolingTest, AvgPool2D_MultiChannel) {
 
   auto expected = avgPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
   }
 }
 
@@ -5267,7 +5430,7 @@ TEST_F(PoolingTest, AdaptiveAvgPool2D_Basic) {
 
   auto expected = avgPool2dRef(input, N, C, H, W, 4, 4, 4, 4, 0, 0);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
   }
 }
 
@@ -5295,7 +5458,7 @@ TEST_F(PoolingTest, AdaptiveAvgPool2D_GlobalPool) {
         }
       }
       float expected = sum / (H * W);
-      EXPECT_NEAR(output[n * C + c], expected,
+      ASSERT_NEAR(output[n * C + c], expected,
                   std::abs(expected) * 1e-4f + 1e-5f)
           << "Mismatch at [" << n << ", " << c << "]";
     }
@@ -5367,7 +5530,7 @@ TEST_F(LayerNormTest, Basic_NoWeightBias) {
 
   auto expected = layerNormRef(input, outer, inner, nullptr, nullptr, 1e-5f);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
   }
 }
 
@@ -5392,7 +5555,7 @@ TEST_F(LayerNormTest, WithWeightAndBias) {
 
   auto expected = layerNormRef(input, outer, inner, &weight, &bias, 1e-5f);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
   }
 }
 
@@ -5413,7 +5576,7 @@ TEST_F(LayerNormTest, HigherDimensional) {
 
   auto expected = layerNormRef(input, N, H * W, nullptr, nullptr, 1e-5f);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
   }
 }
 
@@ -5477,7 +5640,7 @@ TEST_F(BatchNormTest, Basic_NoWeightBias) {
   auto expected = batchNormRef(input, runningMean, runningVar, nullptr, nullptr,
                                N, C, H * W, 1e-5f);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
         << "Mismatch at index " << i;
   }
 }
@@ -5508,7 +5671,7 @@ TEST_F(BatchNormTest, WithWeightAndBias) {
   auto expected = batchNormRef(input, runningMean, runningVar, &weight, &bias,
                                N, C, H * W, 1e-5f);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
         << "Mismatch at index " << i;
   }
 }
@@ -5537,7 +5700,7 @@ TEST_F(BatchNormTest, SingleSpatial) {
   auto expected = batchNormRef(input, runningMean, runningVar, nullptr, nullptr,
                                N, C, 1, 1e-5f);
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
   }
 }
 
@@ -5582,7 +5745,7 @@ TEST_F(EmbeddingTest, Basic) {
   for (uint32_t i = 0; i < numIdx; ++i) {
     for (uint32_t d = 0; d < embDim; ++d) {
       float expected = weight[indices[i] * embDim + d];
-      EXPECT_NEAR(output[i * embDim + d], expected, 1e-5f)
+      ASSERT_NEAR(output[i * embDim + d], expected, 1e-5f)
           << "Mismatch at [" << i << ", " << d << "]";
     }
   }
@@ -5610,7 +5773,7 @@ TEST_F(EmbeddingTest, LargerTable) {
   for (uint32_t i = 0; i < numIdx; ++i) {
     for (uint32_t d = 0; d < embDim; ++d) {
       float expected = weight[indices[i] * embDim + d];
-      EXPECT_NEAR(output[i * embDim + d], expected, 1e-5f)
+      ASSERT_NEAR(output[i * embDim + d], expected, 1e-5f)
           << "Mismatch at [" << i << ", " << d << "]";
     }
   }
@@ -5639,7 +5802,7 @@ TEST_F(EmbeddingTest, RepeatedIndices) {
 
   for (uint32_t i = 0; i < numIdx; ++i) {
     for (uint32_t d = 0; d < embDim; ++d) {
-      EXPECT_NEAR(output[i * embDim + d], weight[2 * embDim + d], 1e-5f)
+      ASSERT_NEAR(output[i * embDim + d], weight[2 * embDim + d], 1e-5f)
           << "Mismatch at [" << i << ", " << d << "]";
     }
   }
@@ -5672,7 +5835,7 @@ TEST_F(PadTest, Pad1D_Basic) {
 
   std::vector<float> expected = {0, 1, 2, 3, 4, 0, 0};
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -5694,7 +5857,7 @@ TEST_F(PadTest, Pad2D_Basic) {
   // Expected: each row padded with 0 on left and right
   std::vector<float> expected = {0, 1, 2, 3, 4, 0, 0, 5, 6, 7, 8, 0};
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -5717,7 +5880,7 @@ TEST_F(PadTest, Pad2D_MultipleDims) {
                                  2,  3,  4,  -1, -1, 5,  6,  7,
                                  8,  -1, -1, -1, -1, -1, -1, -1};
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -5741,7 +5904,7 @@ TEST_F(PadTest, Pad4D_Image) {
   std::vector<float> expected = {0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0,
                                  0, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0};
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -5760,7 +5923,7 @@ TEST_F(PadTest, PadWithFillValue) {
 
   std::vector<float> expected = {99, 99, 1, 2, 3, 4, 99, 99};
   for (uint32_t i = 0; i < output.size(); ++i) {
-    EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -5797,7 +5960,7 @@ TEST_F(MatrixOpsTest, TransposeVariants_Square) {
 
       for (uint32_t i = 0; i < tc.N; ++i) {
         for (uint32_t j = 0; j < tc.M; ++j) {
-          EXPECT_NEAR(output[i * tc.M + j], expected[i * tc.M + j], 1e-5f)
+          ASSERT_NEAR(output[i * tc.M + j], expected[i * tc.M + j], 1e-5f)
               << "Mismatch at [" << i << ", " << j << "]";
         }
       }
@@ -5833,7 +5996,7 @@ TEST_F(MatrixOpsTest, TransposeVariants_Rectangular) {
 
       for (uint32_t i = 0; i < tc.N; ++i) {
         for (uint32_t j = 0; j < tc.M; ++j) {
-          EXPECT_NEAR(output[i * tc.M + j], expected[i * tc.M + j], 1e-5f)
+          ASSERT_NEAR(output[i * tc.M + j], expected[i * tc.M + j], 1e-5f)
               << "Mismatch at [" << i << ", " << j << "]";
         }
       }
@@ -5877,7 +6040,7 @@ TEST_F(ConvolutionTest, Conv1DVariants_Basic) {
                              output.size() * sizeof(float));
 
     for (size_t i = 0; i < expected.size(); ++i) {
-      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -5919,7 +6082,7 @@ TEST_F(ConvolutionTest, Conv1DVariants_WithPadding) {
                              output.size() * sizeof(float));
 
     for (size_t i = 0; i < expected.size(); ++i) {
-      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -5967,7 +6130,7 @@ TEST_F(ConvolutionTest, Conv2DVariants_Basic) {
                              output.size() * sizeof(float));
 
     for (size_t i = 0; i < expected.size(); ++i) {
-      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -6020,7 +6183,7 @@ TEST_F(ConvolutionTest, Conv2DVariants_WithPadding) {
                              output.size() * sizeof(float));
 
     for (size_t i = 0; i < expected.size(); ++i) {
-      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -6068,7 +6231,7 @@ TEST_F(PoolingTest, MaxPool2DVariants_Basic) {
                              output.size() * sizeof(float));
 
     for (size_t i = 0; i < expected.size(); ++i) {
-      EXPECT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+      ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
     }
   }
 }
@@ -6114,7 +6277,7 @@ TEST_F(PoolingTest, AvgPool2DVariants_Basic) {
                              output.size() * sizeof(float));
 
     for (size_t i = 0; i < expected.size(); ++i) {
-      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-5f + 1e-5f)
+      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-5f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -6145,7 +6308,7 @@ TEST_F(VulkanBackendTest, ReduceDimVariants_Dim0) {
     runtime_->copyFromTensor(bufOut, output.data(), N * sizeof(float));
 
     for (uint32_t j = 0; j < N; ++j) {
-      EXPECT_NEAR(output[j], expected[j], std::abs(expected[j]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[j], expected[j], std::abs(expected[j]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << j;
     }
   }
@@ -6172,7 +6335,7 @@ TEST_F(VulkanBackendTest, ReduceDimVariants_Dim1) {
     runtime_->copyFromTensor(bufOut, output.data(), M * sizeof(float));
 
     for (uint32_t i = 0; i < M; ++i) {
-      EXPECT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << i;
     }
   }
@@ -6201,7 +6364,7 @@ TEST_F(VulkanBackendTest, ReduceDimVariants_Mean) {
     runtime_->copyFromTensor(bufOut, output.data(), N * sizeof(float));
 
     for (uint32_t j = 0; j < N; ++j) {
-      EXPECT_NEAR(output[j], expected[j], std::abs(expected[j]) * 1e-4f + 1e-5f)
+      ASSERT_NEAR(output[j], expected[j], std::abs(expected[j]) * 1e-4f + 1e-5f)
           << "Mismatch at index " << j;
     }
   }
@@ -6228,7 +6391,7 @@ TEST_F(VulkanBackendTest, ReduceDimVariants_Max) {
     runtime_->copyFromTensor(bufOut, output.data(), N * sizeof(float));
 
     for (uint32_t j = 0; j < N; ++j) {
-      EXPECT_NEAR(output[j], expected[j], std::abs(expected[j]) * 1e-5f + 1e-5f)
+      ASSERT_NEAR(output[j], expected[j], std::abs(expected[j]) * 1e-5f + 1e-5f)
           << "Mismatch at index " << j;
     }
   }
@@ -6269,7 +6432,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryAdd_Handle_1D) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = dataA[i] + scalarValue;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -6294,7 +6457,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryMul_Handle_2D) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = dataA[i] * scalarValue;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -6319,7 +6482,7 @@ TEST_F(BinaryVecScalarHandleTest, BinarySub_Handle_3D) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = dataA[i] - scalarValue;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -6344,7 +6507,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryDiv_Handle_4D) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = dataA[i] / scalarValue;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -6374,7 +6537,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryMax_Handle_NonAligned) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = std::max(dataA[i], scalarValue);
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -6405,7 +6568,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryMin_Handle_NonAligned) {
 
     for (uint32_t i = 0; i < elements; ++i) {
       float expected = std::min(dataA[i], scalarValue);
-      EXPECT_NEAR(output[i], expected, 1e-5f)
+      ASSERT_NEAR(output[i], expected, 1e-5f)
           << "Mismatch at index " << i << " for shape " << shapeToString(shape);
     }
   }
@@ -6436,7 +6599,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryPow_Handle) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = std::pow(dataA[i], scalarValue);
-    EXPECT_NEAR(output[i], expected, std::abs(expected) * 1e-4f + 1e-5f)
+    ASSERT_NEAR(output[i], expected, std::abs(expected) * 1e-4f + 1e-5f)
         << "Mismatch at index " << i;
   }
 }
@@ -6467,7 +6630,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalar_Handle_MultipleOps) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = (dataA[i] * scalar1) + scalar2;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -6493,7 +6656,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryLess_Handle) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = (dataA[i] < scalarValue) ? 1.0f : 0.0f;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -6518,7 +6681,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryGreater_Handle) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = (dataA[i] > scalarValue) ? 1.0f : 0.0f;
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -6544,7 +6707,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryLeakyRelu_Handle) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     float expected = dataA[i] > 0.0f ? dataA[i] : alpha * dataA[i];
-    EXPECT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
   }
 }
 
@@ -6575,7 +6738,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryAdd_Handle_Int32) {
 
   for (uint32_t i = 0; i < elements; ++i) {
     int32_t expected = dataA[i] + scalarValue;
-    EXPECT_EQ(output[i], expected) << "Mismatch at index " << i;
+    ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
   }
 }
 
@@ -6600,7 +6763,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryMul_Handle_SingleElement) {
   runtime_->copyFromTensor(bufferOut, &output, bufferSize);
 
   float expected = dataA * scalarValue;
-  EXPECT_NEAR(output, expected, 1e-5f);
+  ASSERT_NEAR(output, expected, 1e-5f);
 }
 
 } // namespace

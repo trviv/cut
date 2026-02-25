@@ -62,34 +62,44 @@ struct PushConstants {
         case OP_BINARY_MAX:
             return max(a, b);
         case OP_BINARY_BITWISE_AND:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             return asfloat(asint(a) & asint(b));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             return a & b;
+#else
+            return asfloat16(asint16(a) & asint16(b));
 #endif
         case OP_BINARY_BITWISE_OR:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             return asfloat(asint(a) | asint(b));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             return a | b;
+#else
+            return asfloat16(asint16(a) | asint16(b));
 #endif
         case OP_BINARY_BITWISE_XOR:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             return asfloat(asint(a) ^ asint(b));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             return a ^ b;
+#else
+            return asfloat16(asint16(a) ^ asint16(b));
 #endif
         case OP_BINARY_LEFT_SHIFT:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             return asfloat(asint(a) << asint(b));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             return a << b;
+#else
+            return asfloat16(asint16(a) << asint16(b));
 #endif
         case OP_BINARY_RIGHT_SHIFT:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             return asfloat(asint(a) >> asint(b));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             return a >> b;
+#else
+            return asfloat16(asint16(a) >> asint16(b));
 #endif
         case OP_BINARY_LOGICAL_AND:
             return (%VEC_DTYPE%)(a != (%VEC_DTYPE%)(0)) * (%VEC_DTYPE%)(b != (%VEC_DTYPE%)(0));
@@ -98,8 +108,10 @@ struct PushConstants {
         case OP_BINARY_LOGICAL_XOR:
             return (%VEC_DTYPE%)((a != (%VEC_DTYPE%)(0)) != (b != (%VEC_DTYPE%)(0)));
         case OP_BINARY_ATAN2:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             return atan2(a, b);
+#elif defined(DTYPE_IS_HALF)
+            return (%VEC_DTYPE%)(atan2((float4)(a), (float4)(b)));
 #else
             return (%VEC_DTYPE%)(0);
 #endif
@@ -111,7 +123,7 @@ struct PushConstants {
 #endif
         case OP_BINARY_COPYSIGN:
 #ifdef DTYPE_IS_FLOAT
-            return sign(b) * abs(a);
+            return (%VEC_DTYPE%)(sign(b)) * abs(a);
 #else
             return (%VEC_DTYPE%)(0);
 #endif

@@ -88,38 +88,48 @@ void main(uint3 DTid : SV_DispatchThreadID) {
             result = max(a, s);
             break;
         case OP_BINARY_BITWISE_AND:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             result = asfloat(asint(a) & asint(s));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             result = a & s;
+#else
+            result = asfloat16(asint16(a) & asint16(s));
 #endif
             break;
         case OP_BINARY_BITWISE_OR:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             result = asfloat(asint(a) | asint(s));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             result = a | s;
+#else
+            result = asfloat16(asint16(a) | asint16(s));
 #endif
             break;
         case OP_BINARY_BITWISE_XOR:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             result = asfloat(asint(a) ^ asint(s));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             result = a ^ s;
+#else
+            result = asfloat16(asint16(a) ^ asint16(s));
 #endif
             break;
         case OP_BINARY_LEFT_SHIFT:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             result = asfloat(asint(a) << asint(s));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             result = a << s;
+#else
+            result = asfloat16(asint16(a) << asint16(s));
 #endif
             break;
         case OP_BINARY_RIGHT_SHIFT:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             result = asfloat(asint(a) >> asint(s));
-#else
+#elif !defined(DTYPE_IS_FLOAT)
             result = a >> s;
+#else
+            result = asfloat16(asint16(a) >> asint16(s));
 #endif
             break;
         case OP_BINARY_LOGICAL_AND:
@@ -132,8 +142,10 @@ void main(uint3 DTid : SV_DispatchThreadID) {
             result = (%VEC_DTYPE%)((a != (%VEC_DTYPE%)(0)) != (s != (%VEC_DTYPE%)(0)));
             break;
         case OP_BINARY_ATAN2:
-#ifdef DTYPE_IS_FLOAT
+#if defined(DTYPE_IS_FLOAT) && !defined(DTYPE_IS_HALF)
             result = atan2(a, s);
+#elif defined(DTYPE_IS_HALF)
+            result = (%VEC_DTYPE%)(atan2((float4)(a), (float4)(s)));
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
@@ -147,7 +159,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
             break;
         case OP_BINARY_COPYSIGN:
 #ifdef DTYPE_IS_FLOAT
-            result = sign(s) * abs(a);
+            result = (%VEC_DTYPE%)(sign(s)) * abs(a);
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
@@ -182,7 +194,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
             break;
         case OP_BINARY_SOFTSHRINK:
 #ifdef DTYPE_IS_FLOAT
-            result = sign(a) * max(abs(a) - s, (%VEC_DTYPE%)(0.0));
+            result = (%VEC_DTYPE%)(sign(a)) * max(abs(a) - s, (%VEC_DTYPE%)(0.0));
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
