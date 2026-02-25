@@ -4,13 +4,6 @@
 
 namespace cut {
 
-enum class BinaryOpVariant {
-  VecVec,      // tensor-tensor (2 buffer bindings)
-  VecScalar,   // tensor-scalar via push constant (1 buffer + push constant)
-  VecScalarBuf // tensor-scalar via buffer (2 buffer bindings, second is shape
-               // {1})
-};
-
 class BinaryOpNode : public OpNode {
 public:
   BinaryOpNode(OperatorEnum op,
@@ -27,6 +20,13 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
+  enum class BinaryOpVariant {
+    VecVec,      // tensor-tensor (2 buffer bindings)
+    VecScalar,   // tensor-scalar via push constant (1 buffer + push constant)
+    VecScalarBuf // tensor-scalar via buffer (2 buffer bindings, second is shape
+                 // {1})
+  };
+
   DataType dtype_;
   size_t numElements_;
   BinaryOpVariant variant_;
