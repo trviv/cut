@@ -14,100 +14,55 @@
 #define DTYPE_INT 3
 
 // =============================================================================
-// Binary vec-vec operations (0-28)
+// Binary operations (0-32) - unified for all binary variants
 // =============================================================================
 
-// Binary vec-vec arithmetic operations
-#define OP_BINARY_VEC_VEC_ADD 0
-#define OP_BINARY_VEC_VEC_SUB 1
-#define OP_BINARY_VEC_VEC_MUL 2
-#define OP_BINARY_VEC_VEC_DIV 3
-#define OP_BINARY_VEC_VEC_MOD 4
-#define OP_BINARY_VEC_VEC_POW 5
-#define OP_BINARY_VEC_VEC_FLOOR_DIV 6
+// Binary arithmetic operations
+#define OP_BINARY_ADD 0
+#define OP_BINARY_SUB 1
+#define OP_BINARY_MUL 2
+#define OP_BINARY_DIV 3
+#define OP_BINARY_MOD 4
+#define OP_BINARY_POW 5
+#define OP_BINARY_FLOOR_DIV 6
 
-// Binary vec-vec comparison operations
-#define OP_BINARY_VEC_VEC_EQUAL 7
-#define OP_BINARY_VEC_VEC_NOT_EQUAL 8
-#define OP_BINARY_VEC_VEC_LESS 9
-#define OP_BINARY_VEC_VEC_LESS_EQUAL 10
-#define OP_BINARY_VEC_VEC_GREATER 11
-#define OP_BINARY_VEC_VEC_GREATER_EQUAL 12
+// Binary comparison operations
+#define OP_BINARY_EQUAL 7
+#define OP_BINARY_NOT_EQUAL 8
+#define OP_BINARY_LESS 9
+#define OP_BINARY_LESS_EQUAL 10
+#define OP_BINARY_GREATER 11
+#define OP_BINARY_GREATER_EQUAL 12
 
-// Binary vec-vec min/max operations
-#define OP_BINARY_VEC_VEC_MIN 13
-#define OP_BINARY_VEC_VEC_MAX 14
+// Binary min/max operations
+#define OP_BINARY_MIN 13
+#define OP_BINARY_MAX 14
 
-// Binary vec-vec bitwise operations
-#define OP_BINARY_VEC_VEC_BITWISE_AND 15
-#define OP_BINARY_VEC_VEC_BITWISE_OR 16
-#define OP_BINARY_VEC_VEC_BITWISE_XOR 17
-#define OP_BINARY_VEC_VEC_LEFT_SHIFT 18
-#define OP_BINARY_VEC_VEC_RIGHT_SHIFT 19
+// Binary bitwise operations
+#define OP_BINARY_BITWISE_AND 15
+#define OP_BINARY_BITWISE_OR 16
+#define OP_BINARY_BITWISE_XOR 17
+#define OP_BINARY_LEFT_SHIFT 18
+#define OP_BINARY_RIGHT_SHIFT 19
 
-// Binary vec-vec logical operations
-#define OP_BINARY_VEC_VEC_LOGICAL_AND 20
-#define OP_BINARY_VEC_VEC_LOGICAL_OR 21
-#define OP_BINARY_VEC_VEC_LOGICAL_XOR 22
+// Binary logical operations
+#define OP_BINARY_LOGICAL_AND 20
+#define OP_BINARY_LOGICAL_OR 21
+#define OP_BINARY_LOGICAL_XOR 22
 
-// Binary vec-vec math operations
-#define OP_BINARY_VEC_VEC_ATAN2 23
-#define OP_BINARY_VEC_VEC_HYPOT 24
-#define OP_BINARY_VEC_VEC_COPYSIGN 25
-#define OP_BINARY_VEC_VEC_FMOD 26
-#define OP_BINARY_VEC_VEC_LOGADDEXP 27
-#define OP_BINARY_VEC_VEC_LOGADDEXP2 28
+// Binary math operations
+#define OP_BINARY_ATAN2 23
+#define OP_BINARY_HYPOT 24
+#define OP_BINARY_COPYSIGN 25
+#define OP_BINARY_FMOD 26
 
-// =============================================================================
-// Binary vec-scalar operations (29-61)
-// =============================================================================
-
-// Binary vec-scalar arithmetic operations
-#define OP_BINARY_VEC_SCALAR_ADD 29
-#define OP_BINARY_VEC_SCALAR_SUB 30
-#define OP_BINARY_VEC_SCALAR_MUL 31
-#define OP_BINARY_VEC_SCALAR_DIV 32
-#define OP_BINARY_VEC_SCALAR_MOD 33
-#define OP_BINARY_VEC_SCALAR_POW 34
-#define OP_BINARY_VEC_SCALAR_FLOOR_DIV 35
-
-// Binary vec-scalar comparison operations
-#define OP_BINARY_VEC_SCALAR_EQUAL 36
-#define OP_BINARY_VEC_SCALAR_NOT_EQUAL 37
-#define OP_BINARY_VEC_SCALAR_LESS 38
-#define OP_BINARY_VEC_SCALAR_LESS_EQUAL 39
-#define OP_BINARY_VEC_SCALAR_GREATER 40
-#define OP_BINARY_VEC_SCALAR_GREATER_EQUAL 41
-
-// Binary vec-scalar min/max operations
-#define OP_BINARY_VEC_SCALAR_MIN 42
-#define OP_BINARY_VEC_SCALAR_MAX 43
-
-// Binary vec-scalar bitwise operations
-#define OP_BINARY_VEC_SCALAR_BITWISE_AND 44
-#define OP_BINARY_VEC_SCALAR_BITWISE_OR 45
-#define OP_BINARY_VEC_SCALAR_BITWISE_XOR 46
-#define OP_BINARY_VEC_SCALAR_LEFT_SHIFT 47
-#define OP_BINARY_VEC_SCALAR_RIGHT_SHIFT 48
-
-// Binary vec-scalar logical operations
-#define OP_BINARY_VEC_SCALAR_LOGICAL_AND 49
-#define OP_BINARY_VEC_SCALAR_LOGICAL_OR 50
-#define OP_BINARY_VEC_SCALAR_LOGICAL_XOR 51
-
-// Binary vec-scalar math operations
-#define OP_BINARY_VEC_SCALAR_ATAN2 52
-#define OP_BINARY_VEC_SCALAR_HYPOT 53
-#define OP_BINARY_VEC_SCALAR_COPYSIGN 54
-#define OP_BINARY_VEC_SCALAR_FMOD 55
-
-// Binary vec-scalar activation operations
-#define OP_BINARY_VEC_SCALAR_LEAKY_RELU 56
-#define OP_BINARY_VEC_SCALAR_PRELU 57
-#define OP_BINARY_VEC_SCALAR_HARDSHRINK 58
-#define OP_BINARY_VEC_SCALAR_SOFTSHRINK 59
-#define OP_BINARY_VEC_SCALAR_LOGADDEXP 60
-#define OP_BINARY_VEC_SCALAR_LOGADDEXP2 61
+// Binary activation operations
+#define OP_BINARY_LEAKY_RELU 27
+#define OP_BINARY_PRELU 28
+#define OP_BINARY_HARDSHRINK 29
+#define OP_BINARY_SOFTSHRINK 30
+#define OP_BINARY_LOGADDEXP 31
+#define OP_BINARY_LOGADDEXP2 32
 
 // =============================================================================
 // Ternary operations (62-63)

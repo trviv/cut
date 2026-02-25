@@ -42,55 +42,49 @@ constexpr std::array<uint32_t, 6> kTestDimSizes = {1, 3, 7, 9, 13, 17};
 constexpr std::array<DataType, 4> kAllDataTypes = {
     DataType::Float32, DataType::Float16, DataType::UInt32, DataType::Int32};
 
-// All binary vec-vec operators
+// All binary operators (vec-vec variant tests)
 constexpr std::array<OperatorEnum, 29> kBinaryVecVecOps = {
     // Arithmetic
-    BinaryVecVecAdd, BinaryVecVecSub, BinaryVecVecMul, BinaryVecVecDiv,
-    BinaryVecVecMod, BinaryVecVecPow, BinaryVecVecFloorDiv,
+    BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryPow,
+    BinaryFloorDiv,
     // Comparison
-    BinaryVecVecEqual, BinaryVecVecNotEqual, BinaryVecVecLess,
-    BinaryVecVecLessEqual, BinaryVecVecGreater, BinaryVecVecGreaterEqual,
+    BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
+    BinaryGreaterEqual,
     // Min/Max
-    BinaryVecVecMin, BinaryVecVecMax,
+    BinaryMin, BinaryMax,
     // Bitwise
-    BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
-    BinaryVecVecLeftShift, BinaryVecVecRightShift,
+    BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor, BinaryLeftShift,
+    BinaryRightShift,
     // Logical
-    BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor,
+    BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor,
     // Math
-    BinaryVecVecAtan2, BinaryVecVecHypot, BinaryVecVecCopysign,
-    BinaryVecVecFmod,
+    BinaryAtan2, BinaryHypot, BinaryCopysign, BinaryFmod,
     // Numerically stable log-sum-exp
-    BinaryVecVecLogaddexp, BinaryVecVecLogaddexp2};
+    BinaryLogaddexp, BinaryLogaddexp2};
 
-// All binary vec-scalar operators
+// All binary operators (vec-scalar variant tests)
 constexpr std::array<OperatorEnum, 33> kBinaryVecScalarOps = {
     // Arithmetic
-    BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
-    BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarPow,
-    BinaryVecScalarFloorDiv,
+    BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryPow,
+    BinaryFloorDiv,
     // Comparison
-    BinaryVecScalarEqual, BinaryVecScalarNotEqual, BinaryVecScalarLess,
-    BinaryVecScalarLessEqual, BinaryVecScalarGreater,
-    BinaryVecScalarGreaterEqual,
+    BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
+    BinaryGreaterEqual,
     // Min/Max
-    BinaryVecScalarMin, BinaryVecScalarMax,
+    BinaryMin, BinaryMax,
     // Bitwise
-    BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
-    BinaryVecScalarBitwiseXor, BinaryVecScalarLeftShift,
-    BinaryVecScalarRightShift,
+    BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor, BinaryLeftShift,
+    BinaryRightShift,
     // Logical
-    BinaryVecScalarLogicalAnd, BinaryVecScalarLogicalOr,
-    BinaryVecScalarLogicalXor,
+    BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor,
     // Math
-    BinaryVecScalarAtan2, BinaryVecScalarHypot, BinaryVecScalarCopysign,
-    BinaryVecScalarFmod,
+    BinaryAtan2, BinaryHypot, BinaryCopysign, BinaryFmod,
     // Activation
-    BinaryVecScalarLeakyRelu,
+    BinaryLeakyRelu,
     // Parameterized activations
-    BinaryVecScalarPrelu, BinaryVecScalarHardshrink, BinaryVecScalarSoftshrink,
+    BinaryPrelu, BinaryHardshrink, BinarySoftshrink,
     // Numerically stable log-sum-exp
-    BinaryVecScalarLogaddexp, BinaryVecScalarLogaddexp2};
+    BinaryLogaddexp, BinaryLogaddexp2};
 
 // All unary operators
 constexpr std::array<OperatorEnum, 55> kUnaryOps = {
@@ -155,41 +149,26 @@ inline const char *backendName(BackendType backend) {
   return backend == BackendType::Vulkan ? "Vulkan" : "Unknown";
 }
 
-// Helper to check if a binary vec-vec operator has Vulkan shader support
+// Helper to check if an operator has Vulkan shader support
 // (New operators not yet implemented in shaders)
 inline bool hasVulkanShaderSupport(OperatorEnum op) {
   switch (op) {
-  // Original operators with shader support
-  case BinaryVecVecAdd:
-  case BinaryVecVecSub:
-  case BinaryVecVecMul:
-  case BinaryVecVecDiv:
-  case BinaryVecVecMod:
-  case BinaryVecVecPow:
-  case BinaryVecVecFloorDiv:
-  case BinaryVecVecEqual:
-  case BinaryVecVecNotEqual:
-  case BinaryVecVecLess:
-  case BinaryVecVecLessEqual:
-  case BinaryVecVecGreater:
-  case BinaryVecVecGreaterEqual:
-  case BinaryVecVecMin:
-  case BinaryVecVecMax:
-  case BinaryVecScalarAdd:
-  case BinaryVecScalarSub:
-  case BinaryVecScalarMul:
-  case BinaryVecScalarDiv:
-  case BinaryVecScalarMod:
-  case BinaryVecScalarPow:
-  case BinaryVecScalarFloorDiv:
-  case BinaryVecScalarEqual:
-  case BinaryVecScalarNotEqual:
-  case BinaryVecScalarLess:
-  case BinaryVecScalarLessEqual:
-  case BinaryVecScalarGreater:
-  case BinaryVecScalarGreaterEqual:
-  case BinaryVecScalarMin:
-  case BinaryVecScalarMax:
+  // Binary operators with shader support
+  case BinaryAdd:
+  case BinarySub:
+  case BinaryMul:
+  case BinaryDiv:
+  case BinaryMod:
+  case BinaryPow:
+  case BinaryFloorDiv:
+  case BinaryEqual:
+  case BinaryNotEqual:
+  case BinaryLess:
+  case BinaryLessEqual:
+  case BinaryGreater:
+  case BinaryGreaterEqual:
+  case BinaryMin:
+  case BinaryMax:
   case UnaryNeg:
   case UnaryAbs:
   case UnarySqrt:
@@ -212,33 +191,20 @@ inline bool hasVulkanShaderSupport(OperatorEnum op) {
   case UnaryFloor:
   case UnaryCeil:
   case UnaryRound:
-  // Extended binary vec-vec operators (bitwise, logical, special math)
-  case BinaryVecVecBitwiseAnd:
-  case BinaryVecVecBitwiseOr:
-  case BinaryVecVecBitwiseXor:
-  case BinaryVecVecLeftShift:
-  case BinaryVecVecRightShift:
-  case BinaryVecVecLogicalAnd:
-  case BinaryVecVecLogicalOr:
-  case BinaryVecVecLogicalXor:
-  case BinaryVecVecAtan2:
-  case BinaryVecVecHypot:
-  case BinaryVecVecCopysign:
-  case BinaryVecVecFmod:
-  // Extended binary vec-scalar operators (bitwise, logical, special math)
-  case BinaryVecScalarBitwiseAnd:
-  case BinaryVecScalarBitwiseOr:
-  case BinaryVecScalarBitwiseXor:
-  case BinaryVecScalarLeftShift:
-  case BinaryVecScalarRightShift:
-  case BinaryVecScalarLogicalAnd:
-  case BinaryVecScalarLogicalOr:
-  case BinaryVecScalarLogicalXor:
-  case BinaryVecScalarAtan2:
-  case BinaryVecScalarHypot:
-  case BinaryVecScalarCopysign:
-  case BinaryVecScalarFmod:
-  case BinaryVecScalarLeakyRelu:
+  // Extended binary operators (bitwise, logical, special math)
+  case BinaryBitwiseAnd:
+  case BinaryBitwiseOr:
+  case BinaryBitwiseXor:
+  case BinaryLeftShift:
+  case BinaryRightShift:
+  case BinaryLogicalAnd:
+  case BinaryLogicalOr:
+  case BinaryLogicalXor:
+  case BinaryAtan2:
+  case BinaryHypot:
+  case BinaryCopysign:
+  case BinaryFmod:
+  case BinaryLeakyRelu:
   // Extended unary operators
   case UnaryExpm1:
   case UnaryExp2:
@@ -298,15 +264,12 @@ inline bool hasVulkanShaderSupport(OperatorEnum op) {
   case UnaryAcosh:
   case UnaryAtanh:
   case UnaryIsFinite:
-  // Extended binary vec-vec (Phase 3)
-  case BinaryVecVecLogaddexp:
-  case BinaryVecVecLogaddexp2:
-  // Extended binary vec-scalar activations
-  case BinaryVecScalarPrelu:
-  case BinaryVecScalarHardshrink:
-  case BinaryVecScalarSoftshrink:
-  case BinaryVecScalarLogaddexp:
-  case BinaryVecScalarLogaddexp2:
+  // Extended binary operators (activations and log-sum-exp)
+  case BinaryPrelu:
+  case BinaryHardshrink:
+  case BinarySoftshrink:
+  case BinaryLogaddexp:
+  case BinaryLogaddexp2:
   // Argmax/Argmin reductions
   case ReduceArgmax:
   case ReduceArgmin:
@@ -399,52 +362,52 @@ std::string shapeToString(const std::vector<uint32_t> &shape) {
 template <typename T>
 T binaryVecVecRef(OperatorEnum op, T a, T b) {
   switch (op) {
-  case BinaryVecVecAdd:
+  case BinaryAdd:
     return a + b;
-  case BinaryVecVecSub:
+  case BinarySub:
     return a - b;
-  case BinaryVecVecMul:
+  case BinaryMul:
     return a * b;
-  case BinaryVecVecDiv:
+  case BinaryDiv:
     return a / b;
-  case BinaryVecVecMod:
+  case BinaryMod:
     if constexpr (std::is_floating_point_v<T>) {
       return std::fmod(a, b);
     } else {
       return a % b;
     }
-  case BinaryVecVecPow:
+  case BinaryPow:
     if constexpr (std::is_floating_point_v<T>) {
       return std::pow(a, b);
     } else {
       return static_cast<T>(
           std::pow(static_cast<double>(a), static_cast<double>(b)));
     }
-  case BinaryVecVecFloorDiv:
+  case BinaryFloorDiv:
     if constexpr (std::is_floating_point_v<T>) {
       return std::floor(a / b);
     } else {
       return a / b;
     }
-  case BinaryVecVecEqual:
+  case BinaryEqual:
     return static_cast<T>(a == b ? 1 : 0);
-  case BinaryVecVecNotEqual:
+  case BinaryNotEqual:
     return static_cast<T>(a != b ? 1 : 0);
-  case BinaryVecVecLess:
+  case BinaryLess:
     return static_cast<T>(a < b ? 1 : 0);
-  case BinaryVecVecLessEqual:
+  case BinaryLessEqual:
     return static_cast<T>(a <= b ? 1 : 0);
-  case BinaryVecVecGreater:
+  case BinaryGreater:
     return static_cast<T>(a > b ? 1 : 0);
-  case BinaryVecVecGreaterEqual:
+  case BinaryGreaterEqual:
     return static_cast<T>(a >= b ? 1 : 0);
-  case BinaryVecVecMin:
+  case BinaryMin:
     return std::min(a, b);
-  case BinaryVecVecMax:
+  case BinaryMax:
     return std::max(a, b);
   // Bitwise operations - for floats, match GPU shader behavior:
   // intBitsToFloat(floatBitsToInt(a) OP floatBitsToInt(b))
-  case BinaryVecVecBitwiseAnd:
+  case BinaryBitwiseAnd:
     if constexpr (std::is_integral_v<T>) {
       return a & b;
     } else {
@@ -456,7 +419,7 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
       memcpy(&r, &ir, sizeof(T));
       return r;
     }
-  case BinaryVecVecBitwiseOr:
+  case BinaryBitwiseOr:
     if constexpr (std::is_integral_v<T>) {
       return a | b;
     } else {
@@ -468,7 +431,7 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
       memcpy(&r, &ir, sizeof(T));
       return r;
     }
-  case BinaryVecVecBitwiseXor:
+  case BinaryBitwiseXor:
     if constexpr (std::is_integral_v<T>) {
       return a ^ b;
     } else {
@@ -480,7 +443,7 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
       memcpy(&r, &ir, sizeof(T));
       return r;
     }
-  case BinaryVecVecLeftShift:
+  case BinaryLeftShift:
     if constexpr (std::is_integral_v<T>) {
       return a << static_cast<int>(b);
     } else {
@@ -492,7 +455,7 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
       memcpy(&r, &ur, sizeof(T));
       return r;
     }
-  case BinaryVecVecRightShift:
+  case BinaryRightShift:
     if constexpr (std::is_integral_v<T>) {
       return a >> static_cast<int>(b);
     } else {
@@ -505,28 +468,28 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
       return r;
     }
   // Logical operations
-  case BinaryVecVecLogicalAnd:
+  case BinaryLogicalAnd:
     return static_cast<T>((a != T{0} && b != T{0}) ? 1 : 0);
-  case BinaryVecVecLogicalOr:
+  case BinaryLogicalOr:
     return static_cast<T>((a != T{0} || b != T{0}) ? 1 : 0);
-  case BinaryVecVecLogicalXor:
+  case BinaryLogicalXor:
     return static_cast<T>((a != T{0}) != (b != T{0}) ? 1 : 0);
   // Math operations
-  case BinaryVecVecAtan2:
+  case BinaryAtan2:
     if constexpr (std::is_floating_point_v<T>) {
       return std::atan2(a, b);
     } else {
       return static_cast<T>(
           std::atan2(static_cast<double>(a), static_cast<double>(b)));
     }
-  case BinaryVecVecHypot:
+  case BinaryHypot:
     if constexpr (std::is_floating_point_v<T>) {
       return std::hypot(a, b);
     } else {
       return static_cast<T>(
           std::hypot(static_cast<double>(a), static_cast<double>(b)));
     }
-  case BinaryVecVecCopysign:
+  case BinaryCopysign:
     if constexpr (std::is_floating_point_v<T>) {
       return std::copysign(a, b);
     } else if constexpr (std::is_signed_v<T>) {
@@ -534,13 +497,13 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
     } else {
       return a; // unsigned values are always non-negative
     }
-  case BinaryVecVecFmod:
+  case BinaryFmod:
     if constexpr (std::is_floating_point_v<T>) {
       return std::fmod(a, b);
     } else {
       return a % b;
     }
-  case BinaryVecVecLogaddexp:
+  case BinaryLogaddexp:
     if constexpr (std::is_floating_point_v<T>) {
       return std::max(a, b) + std::log(T{1} + std::exp(-std::abs(a - b)));
     } else {
@@ -548,7 +511,7 @@ T binaryVecVecRef(OperatorEnum op, T a, T b) {
       return static_cast<T>(std::max(da, db) +
                             std::log(1.0 + std::exp(-std::abs(da - db))));
     }
-  case BinaryVecVecLogaddexp2:
+  case BinaryLogaddexp2:
     if constexpr (std::is_floating_point_v<T>) {
       return std::max(a, b) + std::log2(T{1} + std::exp2(-std::abs(a - b)));
     } else {
@@ -566,52 +529,52 @@ template <typename T>
 T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
   // Map vec-scalar ops to corresponding vec-vec logic
   switch (op) {
-  case BinaryVecScalarAdd:
+  case BinaryAdd:
     return a + scalar;
-  case BinaryVecScalarSub:
+  case BinarySub:
     return a - scalar;
-  case BinaryVecScalarMul:
+  case BinaryMul:
     return a * scalar;
-  case BinaryVecScalarDiv:
+  case BinaryDiv:
     return a / scalar;
-  case BinaryVecScalarMod:
+  case BinaryMod:
     if constexpr (std::is_floating_point_v<T>) {
       return std::fmod(a, scalar);
     } else {
       return a % scalar;
     }
-  case BinaryVecScalarPow:
+  case BinaryPow:
     if constexpr (std::is_floating_point_v<T>) {
       return std::pow(a, scalar);
     } else {
       return static_cast<T>(
           std::pow(static_cast<double>(a), static_cast<double>(scalar)));
     }
-  case BinaryVecScalarFloorDiv:
+  case BinaryFloorDiv:
     if constexpr (std::is_floating_point_v<T>) {
       return std::floor(a / scalar);
     } else {
       return a / scalar;
     }
-  case BinaryVecScalarEqual:
+  case BinaryEqual:
     return static_cast<T>(a == scalar ? 1 : 0);
-  case BinaryVecScalarNotEqual:
+  case BinaryNotEqual:
     return static_cast<T>(a != scalar ? 1 : 0);
-  case BinaryVecScalarLess:
+  case BinaryLess:
     return static_cast<T>(a < scalar ? 1 : 0);
-  case BinaryVecScalarLessEqual:
+  case BinaryLessEqual:
     return static_cast<T>(a <= scalar ? 1 : 0);
-  case BinaryVecScalarGreater:
+  case BinaryGreater:
     return static_cast<T>(a > scalar ? 1 : 0);
-  case BinaryVecScalarGreaterEqual:
+  case BinaryGreaterEqual:
     return static_cast<T>(a >= scalar ? 1 : 0);
-  case BinaryVecScalarMin:
+  case BinaryMin:
     return std::min(a, scalar);
-  case BinaryVecScalarMax:
+  case BinaryMax:
     return std::max(a, scalar);
   // Bitwise operations — GPU shader uses floatBitsToInt (bit reinterpretation)
   // for both the vector element and the scalar
-  case BinaryVecScalarBitwiseAnd:
+  case BinaryBitwiseAnd:
     if constexpr (std::is_integral_v<T>) {
       return a & static_cast<T>(scalar);
     } else {
@@ -623,7 +586,7 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
       memcpy(&r, &ir, sizeof(T));
       return r;
     }
-  case BinaryVecScalarBitwiseOr:
+  case BinaryBitwiseOr:
     if constexpr (std::is_integral_v<T>) {
       return a | static_cast<T>(scalar);
     } else {
@@ -635,7 +598,7 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
       memcpy(&r, &ir, sizeof(T));
       return r;
     }
-  case BinaryVecScalarBitwiseXor:
+  case BinaryBitwiseXor:
     if constexpr (std::is_integral_v<T>) {
       return a ^ static_cast<T>(scalar);
     } else {
@@ -647,7 +610,7 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
       memcpy(&r, &ir, sizeof(T));
       return r;
     }
-  case BinaryVecScalarLeftShift:
+  case BinaryLeftShift:
     if constexpr (std::is_integral_v<T>) {
       return a << static_cast<int>(scalar);
     } else {
@@ -659,7 +622,7 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
       memcpy(&r, &ir, sizeof(T));
       return r;
     }
-  case BinaryVecScalarRightShift:
+  case BinaryRightShift:
     if constexpr (std::is_integral_v<T>) {
       return a >> static_cast<int>(scalar);
     } else {
@@ -672,28 +635,28 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
       return r;
     }
   // Logical operations
-  case BinaryVecScalarLogicalAnd:
+  case BinaryLogicalAnd:
     return static_cast<T>((a != T{0} && scalar != T{0}) ? 1 : 0);
-  case BinaryVecScalarLogicalOr:
+  case BinaryLogicalOr:
     return static_cast<T>((a != T{0} || scalar != T{0}) ? 1 : 0);
-  case BinaryVecScalarLogicalXor:
+  case BinaryLogicalXor:
     return static_cast<T>((a != T{0}) != (scalar != T{0}) ? 1 : 0);
   // Math operations
-  case BinaryVecScalarAtan2:
+  case BinaryAtan2:
     if constexpr (std::is_floating_point_v<T>) {
       return std::atan2(a, scalar);
     } else {
       return static_cast<T>(
           std::atan2(static_cast<double>(a), static_cast<double>(scalar)));
     }
-  case BinaryVecScalarHypot:
+  case BinaryHypot:
     if constexpr (std::is_floating_point_v<T>) {
       return std::hypot(a, scalar);
     } else {
       return static_cast<T>(
           std::hypot(static_cast<double>(a), static_cast<double>(scalar)));
     }
-  case BinaryVecScalarCopysign:
+  case BinaryCopysign:
     if constexpr (std::is_floating_point_v<T>) {
       return std::copysign(a, scalar);
     } else if constexpr (std::is_unsigned_v<T>) {
@@ -701,19 +664,19 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
     } else {
       return scalar >= T{0} ? std::abs(a) : -std::abs(a);
     }
-  case BinaryVecScalarFmod:
+  case BinaryFmod:
     if constexpr (std::is_floating_point_v<T>) {
       return std::fmod(a, scalar);
     } else {
       return a % static_cast<T>(scalar);
     }
   // Activation
-  case BinaryVecScalarLeakyRelu:
+  case BinaryLeakyRelu:
     return a > T{0} ? a : a * scalar;
   // Parameterized activations
-  case BinaryVecScalarPrelu:
+  case BinaryPrelu:
     return a >= T{0} ? a : scalar * a;
-  case BinaryVecScalarHardshrink:
+  case BinaryHardshrink:
     if constexpr (std::is_floating_point_v<T>) {
       return std::abs(a) > scalar ? a : T{0};
     } else {
@@ -721,7 +684,7 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
                  ? a
                  : T{0};
     }
-  case BinaryVecScalarSoftshrink:
+  case BinarySoftshrink:
     if constexpr (std::is_floating_point_v<T>) {
       if (a > scalar)
         return a - scalar;
@@ -737,7 +700,7 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
       return T{0};
     }
   // Log-sum-exp
-  case BinaryVecScalarLogaddexp:
+  case BinaryLogaddexp:
     if constexpr (std::is_floating_point_v<T>) {
       return std::max(a, scalar) +
              std::log(T{1} + std::exp(-std::abs(a - scalar)));
@@ -746,7 +709,7 @@ T binaryVecScalarRef(OperatorEnum op, T a, T scalar) {
       return static_cast<T>(std::max(da, ds) +
                             std::log(1.0 + std::exp(-std::abs(da - ds))));
     }
-  case BinaryVecScalarLogaddexp2:
+  case BinaryLogaddexp2:
     if constexpr (std::is_floating_point_v<T>) {
       return std::max(a, scalar) +
              std::log2(T{1} + std::exp2(-std::abs(a - scalar)));
@@ -1286,7 +1249,7 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Float32) {
           if (std::isinf(expected) && std::isinf(output[i]) &&
               std::signbit(expected) == std::signbit(output[i]))
             continue;
-          float tol = (op == BinaryVecVecPow)
+          float tol = (op == BinaryPow)
                           ? std::max(1e-5f, std::abs(expected) * 1e-5f)
                           : 1e-5f;
           EXPECT_NEAR(output[i], expected, tol)
@@ -1303,18 +1266,17 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Int32) {
   // Ops that produce valid GLSL for ivec4
   constexpr std::array<OperatorEnum, 22> kInt32BinaryVecVecOps = {
       // Arithmetic
-      BinaryVecVecAdd, BinaryVecVecSub, BinaryVecVecMul, BinaryVecVecDiv,
-      BinaryVecVecMod, BinaryVecVecFloorDiv,
+      BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
       // Comparison
-      BinaryVecVecEqual, BinaryVecVecNotEqual, BinaryVecVecLess,
-      BinaryVecVecLessEqual, BinaryVecVecGreater, BinaryVecVecGreaterEqual,
+      BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
+      BinaryGreaterEqual,
       // Min/Max
-      BinaryVecVecMin, BinaryVecVecMax,
+      BinaryMin, BinaryMax,
       // Bitwise
-      BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
-      BinaryVecVecLeftShift, BinaryVecVecRightShift,
+      BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor, BinaryLeftShift,
+      BinaryRightShift,
       // Logical
-      BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor};
+      BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
 
   for (size_t numDims : kDimensionCounts) {
     for (const auto &shape : generateShapes(numDims)) {
@@ -1339,8 +1301,7 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_Int32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        bool isShift =
-            (op == BinaryVecVecLeftShift || op == BinaryVecVecRightShift);
+        bool isShift = (op == BinaryLeftShift || op == BinaryRightShift);
         const auto &rhsData = isShift ? dataBShift : dataB;
         const auto &rhsBuf = isShift ? bufferBShift : bufferB;
 
@@ -1365,18 +1326,17 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_UInt32) {
   // Ops that produce valid GLSL for uvec4
   constexpr std::array<OperatorEnum, 22> kUInt32BinaryVecVecOps = {
       // Arithmetic
-      BinaryVecVecAdd, BinaryVecVecSub, BinaryVecVecMul, BinaryVecVecDiv,
-      BinaryVecVecMod, BinaryVecVecFloorDiv,
+      BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
       // Comparison
-      BinaryVecVecEqual, BinaryVecVecNotEqual, BinaryVecVecLess,
-      BinaryVecVecLessEqual, BinaryVecVecGreater, BinaryVecVecGreaterEqual,
+      BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
+      BinaryGreaterEqual,
       // Min/Max
-      BinaryVecVecMin, BinaryVecVecMax,
+      BinaryMin, BinaryMax,
       // Bitwise
-      BinaryVecVecBitwiseAnd, BinaryVecVecBitwiseOr, BinaryVecVecBitwiseXor,
-      BinaryVecVecLeftShift, BinaryVecVecRightShift,
+      BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor, BinaryLeftShift,
+      BinaryRightShift,
       // Logical
-      BinaryVecVecLogicalAnd, BinaryVecVecLogicalOr, BinaryVecVecLogicalXor};
+      BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
 
   for (size_t numDims : kDimensionCounts) {
     for (const auto &shape : generateShapes(numDims)) {
@@ -1401,8 +1361,7 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators_UInt32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        bool isShift =
-            (op == BinaryVecVecLeftShift || op == BinaryVecVecRightShift);
+        bool isShift = (op == BinaryLeftShift || op == BinaryRightShift);
         const auto &rhsData = isShift ? dataBShift : dataB;
         const auto &rhsBuf = isShift ? bufferBShift : bufferB;
 
@@ -1526,7 +1485,7 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
           if (std::isinf(expected) && std::isinf(output[i]) &&
               std::signbit(expected) == std::signbit(output[i]))
             continue;
-          float tol = (op == BinaryVecScalarPow)
+          float tol = (op == BinaryPow)
                           ? std::max(1e-5f, std::abs(expected) * 1e-5f)
                           : 1e-5f;
           EXPECT_NEAR(output[i], expected, tol)
@@ -1551,7 +1510,7 @@ protected:
 
 TEST_F(DimensionSizeRangeTest, AllSizes_1D_Float32) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecAdd;
+  const OperatorEnum op = BinaryAdd;
 
   for (uint32_t size = kMinDimSize; size <= kMaxDimSize; ++size) {
     std::vector<uint32_t> shape = {size};
@@ -1582,7 +1541,7 @@ TEST_F(DimensionSizeRangeTest, AllSizes_1D_Float32) {
 // Test 2D shapes with various outer dimensions and aligned inner dimension
 TEST_F(DimensionSizeRangeTest, AllSizes_2D_Float32) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecMul;
+  const OperatorEnum op = BinaryMul;
 
   // Outer dimension (h) can be any odd value, inner dimension (w) must be
   // multiple of 4
@@ -1618,7 +1577,7 @@ TEST_F(DimensionSizeRangeTest, AllSizes_2D_Float32) {
 // Test 3D shapes with various outer dimensions and aligned inner dimension
 TEST_F(DimensionSizeRangeTest, AllSizes_3D_Float32) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecSub;
+  const OperatorEnum op = BinarySub;
 
   // Outer dimensions can be odd values, innermost must be multiple of 4
   constexpr std::array<uint32_t, 4> outerSizes = {1, 3, 7, 9};
@@ -1656,7 +1615,7 @@ TEST_F(DimensionSizeRangeTest, AllSizes_3D_Float32) {
 // Test 4D shapes with various outer dimensions and aligned inner dimension
 TEST_F(DimensionSizeRangeTest, AllSizes_4D_Float32) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecDiv;
+  const OperatorEnum op = BinaryDiv;
 
   // Outer dimensions can be odd values, innermost must be multiple of 4
   constexpr std::array<uint32_t, 3> outerSizes = {1, 3, 7};
@@ -1718,7 +1677,7 @@ protected:
 // Test 2D shapes with non-aligned innermost dimensions
 TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim1) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecAdd;
+  const OperatorEnum op = BinaryAdd;
 
   for (uint32_t outer : {2u, 5u, 7u}) {
     std::vector<uint32_t> shape = {outer, 1};
@@ -1748,7 +1707,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim1) {
 
 TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim3) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecMul;
+  const OperatorEnum op = BinaryMul;
 
   for (uint32_t outer : {2u, 5u, 7u}) {
     std::vector<uint32_t> shape = {outer, 3};
@@ -1778,7 +1737,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim3) {
 
 TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim5) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecSub;
+  const OperatorEnum op = BinarySub;
 
   for (uint32_t outer : {2u, 5u, 7u}) {
     std::vector<uint32_t> shape = {outer, 5};
@@ -1808,7 +1767,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim5) {
 
 TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim11) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecAdd;
+  const OperatorEnum op = BinaryAdd;
 
   for (uint32_t outer : {2u, 3u, 5u}) {
     std::vector<uint32_t> shape = {outer, 11};
@@ -1838,7 +1797,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim11) {
 
 TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim13) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecMul;
+  const OperatorEnum op = BinaryMul;
 
   for (uint32_t outer : {2u, 3u, 5u}) {
     std::vector<uint32_t> shape = {outer, 13};
@@ -1869,7 +1828,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_2D_InnermostDim13) {
 // Test 3D shapes with non-aligned innermost dimensions
 TEST_F(NonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecAdd;
+  const OperatorEnum op = BinaryAdd;
 
   // Test innermost dimensions 1, 3, 5, 11, 13
   for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
@@ -1901,7 +1860,7 @@ TEST_F(NonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
 // Test 4D shapes with non-aligned innermost dimensions
 TEST_F(NonAlignedInnermostTest, BinaryVecVec_4D_NonAlignedInnermost) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecMul;
+  const OperatorEnum op = BinaryMul;
 
   // Test innermost dimensions 1, 3, 5, 11, 13
   for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
@@ -1963,7 +1922,7 @@ TEST_F(NonAlignedInnermostTest, Unary_2D_NonAlignedInnermost) {
 // Test vec-scalar operators with non-aligned innermost dimensions
 TEST_F(NonAlignedInnermostTest, VecScalar_2D_NonAlignedInnermost) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarMul;
+  const OperatorEnum op = BinaryMul;
   const float scalar = 2.5f;
 
   // Test innermost dimensions 1, 3, 5, 11, 13
@@ -2002,7 +1961,7 @@ protected:
 
 TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_2D_NonAlignedInnermost) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecAdd;
+  const OperatorEnum op = BinaryAdd;
 
   // Test innermost dimensions 1, 3, 5, 11, 13
   for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
@@ -2036,7 +1995,7 @@ TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_2D_NonAlignedInnermost) {
 
 TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecMul;
+  const OperatorEnum op = BinaryMul;
 
   // Test innermost dimensions 1, 3, 5, 11, 13
   for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
@@ -2067,7 +2026,7 @@ TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_3D_NonAlignedInnermost) {
 
 TEST_F(VulkanNonAlignedInnermostTest, BinaryVecVec_4D_NonAlignedInnermost) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecVecSub;
+  const OperatorEnum op = BinarySub;
 
   // Test innermost dimensions 1, 3, 5, 11, 13
   for (uint32_t innerDim : {1u, 3u, 5u, 11u, 13u}) {
@@ -2937,7 +2896,7 @@ TEST_F(NewOpsShaderCompileTest, NewBinaryVecVec_Logaddexp) {
   auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
   ComputeHandle bufOut;
 
-  for (OperatorEnum op : {BinaryVecVecLogaddexp, BinaryVecVecLogaddexp2}) {
+  for (OperatorEnum op : {BinaryLogaddexp, BinaryLogaddexp2}) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op));
 
     bufOut = runtime_->ops().binaryOp(op, bufA, bufB);
@@ -2964,9 +2923,8 @@ TEST_F(NewOpsShaderCompileTest, NewBinaryVecScalar_ParameterizedActivations) {
   auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
   ComputeHandle bufOut;
 
-  for (OperatorEnum op : {BinaryVecScalarPrelu, BinaryVecScalarHardshrink,
-                          BinaryVecScalarSoftshrink, BinaryVecScalarLogaddexp,
-                          BinaryVecScalarLogaddexp2}) {
+  for (OperatorEnum op : {BinaryPrelu, BinaryHardshrink, BinarySoftshrink,
+                          BinaryLogaddexp, BinaryLogaddexp2}) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op));
 
     bufOut = runtime_->ops().vecScalarOp(op, bufA, scalar);
@@ -3551,20 +3509,16 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Int32) {
 
   constexpr std::array<OperatorEnum, 20> kInt32BinaryVecScalarOps = {
       // Arithmetic
-      BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
-      BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarFloorDiv,
+      BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
       // Comparison
-      BinaryVecScalarEqual, BinaryVecScalarNotEqual, BinaryVecScalarLess,
-      BinaryVecScalarLessEqual, BinaryVecScalarGreater,
-      BinaryVecScalarGreaterEqual,
+      BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
+      BinaryGreaterEqual,
       // Min/Max
-      BinaryVecScalarMin, BinaryVecScalarMax,
+      BinaryMin, BinaryMax,
       // Bitwise
-      BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
-      BinaryVecScalarBitwiseXor,
+      BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor,
       // Logical
-      BinaryVecScalarLogicalAnd, BinaryVecScalarLogicalOr,
-      BinaryVecScalarLogicalXor};
+      BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
 
   for (size_t numDims : kDimensionCounts) {
     for (const auto &shape : generateShapes(numDims)) {
@@ -3600,20 +3554,16 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_UInt32) {
 
   constexpr std::array<OperatorEnum, 20> kUInt32BinaryVecScalarOps = {
       // Arithmetic
-      BinaryVecScalarAdd, BinaryVecScalarSub, BinaryVecScalarMul,
-      BinaryVecScalarDiv, BinaryVecScalarMod, BinaryVecScalarFloorDiv,
+      BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
       // Comparison
-      BinaryVecScalarEqual, BinaryVecScalarNotEqual, BinaryVecScalarLess,
-      BinaryVecScalarLessEqual, BinaryVecScalarGreater,
-      BinaryVecScalarGreaterEqual,
+      BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
+      BinaryGreaterEqual,
       // Min/Max
-      BinaryVecScalarMin, BinaryVecScalarMax,
+      BinaryMin, BinaryMax,
       // Bitwise
-      BinaryVecScalarBitwiseAnd, BinaryVecScalarBitwiseOr,
-      BinaryVecScalarBitwiseXor,
+      BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor,
       // Logical
-      BinaryVecScalarLogicalAnd, BinaryVecScalarLogicalOr,
-      BinaryVecScalarLogicalXor};
+      BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
 
   for (size_t numDims : kDimensionCounts) {
     for (const auto &shape : generateShapes(numDims)) {
@@ -4942,7 +4892,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_BinaryOp) {
   size_t before = runtime_->bufferCount();
 
   {
-    auto result = runtime_->ops().binaryOp(BinaryVecVecAdd, a, b);
+    auto result = runtime_->ops().binaryOp(BinaryAdd, a, b);
     runtime_->flush();
     EXPECT_EQ(runtime_->bufferCount(), before + 1);
   }
@@ -5105,7 +5055,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_ChainedOps) {
 
   {
     auto neg = runtime_->ops().unaryOp(UnaryNeg, a);
-    auto added = runtime_->ops().vecScalarOp(BinaryVecScalarAdd, neg, 10.0f);
+    auto added = runtime_->ops().vecScalarOp(BinaryAdd, neg, 10.0f);
     runtime_->flush();
     EXPECT_EQ(runtime_->bufferCount(), before + 2);
   }
@@ -6360,9 +6310,9 @@ protected:
 };
 
 // Test binary vec-scalar operations where second operand is a handle of size 1
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarAdd_Handle_1D) {
+TEST_F(BinaryVecScalarHandleTest, BinaryAdd_Handle_1D) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarAdd;
+  const OperatorEnum op = BinaryAdd;
 
   std::vector<uint32_t> shape = {16};
   const uint32_t elements = totalElements(shape);
@@ -6386,9 +6336,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarAdd_Handle_1D) {
   }
 }
 
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMul_Handle_2D) {
+TEST_F(BinaryVecScalarHandleTest, BinaryMul_Handle_2D) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarMul;
+  const OperatorEnum op = BinaryMul;
 
   std::vector<uint32_t> shape = {4, 8};
   const uint32_t elements = totalElements(shape);
@@ -6411,9 +6361,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMul_Handle_2D) {
   }
 }
 
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarSub_Handle_3D) {
+TEST_F(BinaryVecScalarHandleTest, BinarySub_Handle_3D) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarSub;
+  const OperatorEnum op = BinarySub;
 
   std::vector<uint32_t> shape = {2, 3, 4};
   const uint32_t elements = totalElements(shape);
@@ -6436,9 +6386,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarSub_Handle_3D) {
   }
 }
 
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarDiv_Handle_4D) {
+TEST_F(BinaryVecScalarHandleTest, BinaryDiv_Handle_4D) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarDiv;
+  const OperatorEnum op = BinaryDiv;
 
   std::vector<uint32_t> shape = {2, 2, 3, 4};
   const uint32_t elements = totalElements(shape);
@@ -6462,9 +6412,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarDiv_Handle_4D) {
 }
 
 // Test with non-aligned innermost dimensions
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMax_Handle_NonAligned) {
+TEST_F(BinaryVecScalarHandleTest, BinaryMax_Handle_NonAligned) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarMax;
+  const OperatorEnum op = BinaryMax;
 
   // Test innermost dimensions that are not multiples of 4
   for (uint32_t innerDim : {1u, 3u, 5u, 7u, 11u, 13u}) {
@@ -6493,9 +6443,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMax_Handle_NonAligned) {
   }
 }
 
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMin_Handle_NonAligned) {
+TEST_F(BinaryVecScalarHandleTest, BinaryMin_Handle_NonAligned) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarMin;
+  const OperatorEnum op = BinaryMin;
 
   // Test innermost dimensions that are not multiples of 4
   for (uint32_t innerDim : {1u, 3u, 5u, 7u, 11u, 13u}) {
@@ -6524,9 +6474,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMin_Handle_NonAligned) {
   }
 }
 
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarPow_Handle) {
+TEST_F(BinaryVecScalarHandleTest, BinaryPow_Handle) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarPow;
+  const OperatorEnum op = BinaryPow;
 
   std::vector<uint32_t> shape = {2, 8};
   const uint32_t elements = totalElements(shape);
@@ -6572,9 +6522,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalar_Handle_MultipleOps) {
 
   // Perform: (A * 2.0) + 3.0
   auto bufferTemp =
-      runtime_->ops().vecScalarOp(BinaryVecScalarMul, bufferA, scalarBuffer1);
-  auto bufferOut = runtime_->ops().vecScalarOp(BinaryVecScalarAdd, bufferTemp,
-                                               scalarBuffer2);
+      runtime_->ops().vecScalarOp(BinaryMul, bufferA, scalarBuffer1);
+  auto bufferOut =
+      runtime_->ops().vecScalarOp(BinaryAdd, bufferTemp, scalarBuffer2);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6586,9 +6536,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalar_Handle_MultipleOps) {
 }
 
 // Test comparison operations with handle
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarLess_Handle) {
+TEST_F(BinaryVecScalarHandleTest, BinaryLess_Handle) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarLess;
+  const OperatorEnum op = BinaryLess;
 
   std::vector<uint32_t> shape = {4, 8};
   const uint32_t elements = totalElements(shape);
@@ -6611,9 +6561,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarLess_Handle) {
   }
 }
 
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarGreater_Handle) {
+TEST_F(BinaryVecScalarHandleTest, BinaryGreater_Handle) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarGreater;
+  const OperatorEnum op = BinaryGreater;
 
   std::vector<uint32_t> shape = {2, 3, 8};
   const uint32_t elements = totalElements(shape);
@@ -6637,9 +6587,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarGreater_Handle) {
 }
 
 // Test with activation operations
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarLeakyRelu_Handle) {
+TEST_F(BinaryVecScalarHandleTest, BinaryLeakyRelu_Handle) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarLeakyRelu;
+  const OperatorEnum op = BinaryLeakyRelu;
 
   std::vector<uint32_t> shape = {4, 12};
   const uint32_t elements = totalElements(shape);
@@ -6663,9 +6613,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarLeakyRelu_Handle) {
 }
 
 // Test with integer types
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarAdd_Handle_Int32) {
+TEST_F(BinaryVecScalarHandleTest, BinaryAdd_Handle_Int32) {
   const DataType dtype = DataType::Int32;
-  const OperatorEnum op = BinaryVecScalarAdd;
+  const OperatorEnum op = BinaryAdd;
 
   std::vector<uint32_t> shape = {4, 8};
   const uint32_t elements = totalElements(shape);
@@ -6694,9 +6644,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarAdd_Handle_Int32) {
 }
 
 // Test edge case: very small tensor
-TEST_F(BinaryVecScalarHandleTest, BinaryVecScalarMul_Handle_SingleElement) {
+TEST_F(BinaryVecScalarHandleTest, BinaryMul_Handle_SingleElement) {
   const DataType dtype = DataType::Float32;
-  const OperatorEnum op = BinaryVecScalarMul;
+  const OperatorEnum op = BinaryMul;
 
   std::vector<uint32_t> shape = {1};
   const uint32_t elements = totalElements(shape);

@@ -122,9 +122,9 @@ void Operations::encodeOp(OpNode &node) {
 
 Tensor Operations::binaryOp(OperatorEnum op,
                             const Tensor &a,
-                            const Tensor &b,
+                            const TensorLike &b,
                             std::optional<uint32_t> spec) {
-  auto node = std::make_unique<BinaryVecVecOpNode>(op, *runtime_, a, b, spec);
+  auto node = std::make_unique<BinaryOpNode>(op, *runtime_, a, b, spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -139,9 +139,8 @@ Tensor Operations::vecScalarOp(OperatorEnum op,
                                const Tensor &a,
                                const TensorLike &b,
                                std::optional<uint32_t> spec) {
-  auto node =
-      std::make_unique<BinaryVecScalarOpNode>(op, *runtime_, a, b, spec);
-  return recordOrEncode(std::move(node));
+  // Temporary wrapper - will be removed in final cleanup
+  return binaryOp(op, a, b, spec);
 }
 
 // =========================================================================
@@ -180,7 +179,7 @@ Tensor Operations::transpose(const Tensor &a, std::optional<uint32_t> spec) {
 Tensor Operations::dot(const Tensor &a,
                        const Tensor &b,
                        std::optional<uint32_t> spec) {
-  return reduce(ReduceSum, binaryOp(BinaryVecVecMul, a, b));
+  return reduce(ReduceSum, binaryOp(BinaryMul, a, b));
 }
 
 // =========================================================================
@@ -263,12 +262,12 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
     Tensor flat = reshape(a, {static_cast<int32_t>(n)});
     Tensor meanVal = reduce(OperatorEnum::ReduceMean, flat);
     Tensor meanExp = expand(meanVal, {static_cast<uint32_t>(n)});
-    Tensor diff = binaryOp(OperatorEnum::BinaryVecVecSub, flat, meanExp);
+    Tensor diff = binaryOp(OperatorEnum::BinarySub, flat, meanExp);
     Tensor diffSq = unaryOp(OperatorEnum::UnarySquare, diff);
     Tensor sumSq = reduce(OperatorEnum::ReduceSum, diffSq);
     int denom = static_cast<int>(n) - correction;
     if (denom > 0) {
-      return vecScalarOp(OperatorEnum::BinaryVecScalarDiv, sumSq,
+      return vecScalarOp(OperatorEnum::BinaryDiv, sumSq,
                          static_cast<float>(denom));
     }
     return full({1}, 0.0f, dtype);
@@ -286,12 +285,12 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
   Tensor meanVal = reduce(OperatorEnum::ReduceMean, a, d);
   Tensor meanUnsq = unsqueeze(meanVal, d);
   Tensor meanExp = expand(meanUnsq, shape);
-  Tensor diff = binaryOp(OperatorEnum::BinaryVecVecSub, a, meanExp);
+  Tensor diff = binaryOp(OperatorEnum::BinarySub, a, meanExp);
   Tensor diffSq = unaryOp(OperatorEnum::UnarySquare, diff);
   Tensor sumSq = reduce(OperatorEnum::ReduceSum, diffSq, d);
   int denom = static_cast<int>(reduceSize) - correction;
   if (denom > 0) {
-    return vecScalarOp(OperatorEnum::BinaryVecScalarDiv, sumSq,
+    return vecScalarOp(OperatorEnum::BinaryDiv, sumSq,
                        static_cast<float>(denom));
   }
   return full(computeDimParams(shape, d).outShape, 0.0f, dtype);
@@ -312,12 +311,12 @@ Tensor Operations::softmax(const Tensor &a, int dim) {
   Tensor maxVal = reduce(OperatorEnum::ReduceMax, a, dim);
   Tensor maxUnsq = unsqueeze(maxVal, dim);
   Tensor maxExp = expand(maxUnsq, shape);
-  Tensor shifted = binaryOp(OperatorEnum::BinaryVecVecSub, a, maxExp);
+  Tensor shifted = binaryOp(OperatorEnum::BinarySub, a, maxExp);
   Tensor exps = unaryOp(OperatorEnum::UnaryExp, shifted);
   Tensor sumVal = reduce(OperatorEnum::ReduceSum, exps, dim);
   Tensor sumUnsq = unsqueeze(sumVal, dim);
   Tensor sumExp = expand(sumUnsq, shape);
-  return binaryOp(OperatorEnum::BinaryVecVecDiv, exps, sumExp);
+  return binaryOp(OperatorEnum::BinaryDiv, exps, sumExp);
 }
 
 Tensor Operations::logSoftmax(const Tensor &a, int dim) {
@@ -330,13 +329,13 @@ Tensor Operations::logSoftmax(const Tensor &a, int dim) {
   Tensor maxVal = reduce(OperatorEnum::ReduceMax, a, dim);
   Tensor maxUnsq = unsqueeze(maxVal, dim);
   Tensor maxExp = expand(maxUnsq, shape);
-  Tensor shifted = binaryOp(OperatorEnum::BinaryVecVecSub, a, maxExp);
+  Tensor shifted = binaryOp(OperatorEnum::BinarySub, a, maxExp);
   Tensor exps = unaryOp(OperatorEnum::UnaryExp, shifted);
   Tensor sumVal = reduce(OperatorEnum::ReduceSum, exps, dim);
   Tensor logSum = unaryOp(OperatorEnum::UnaryLog, sumVal);
   Tensor logSumUnsq = unsqueeze(logSum, dim);
   Tensor logSumExp = expand(logSumUnsq, shape);
-  return binaryOp(OperatorEnum::BinaryVecVecSub, shifted, logSumExp);
+  return binaryOp(OperatorEnum::BinarySub, shifted, logSumExp);
 }
 
 // =========================================================================
@@ -773,27 +772,27 @@ Tensor Operations::layerNorm(const Tensor &input,
   Tensor meanVal = reduce(OperatorEnum::ReduceMean, flat, 1);
   Tensor meanUnsq = unsqueeze(meanVal, 1);
   Tensor meanExp = expand(meanUnsq, flatShape);
-  Tensor diff = binaryOp(OperatorEnum::BinaryVecVecSub, flat, meanExp);
+  Tensor diff = binaryOp(OperatorEnum::BinarySub, flat, meanExp);
   Tensor diffSq = unaryOp(OperatorEnum::UnarySquare, diff);
   Tensor varVal = reduce(OperatorEnum::ReduceMean, diffSq, 1);
-  Tensor varEps = vecScalarOp(OperatorEnum::BinaryVecScalarAdd, varVal, eps);
+  Tensor varEps = vecScalarOp(OperatorEnum::BinaryAdd, varVal, eps);
   Tensor invStd = unaryOp(OperatorEnum::UnaryRsqrt, varEps);
   Tensor invStdUnsq = unsqueeze(invStd, 1);
   Tensor invStdExp = expand(invStdUnsq, flatShape);
 
   // normalized = (x - mean) * invStd
-  Tensor normalized = binaryOp(OperatorEnum::BinaryVecVecMul, diff, invStdExp);
+  Tensor normalized = binaryOp(OperatorEnum::BinaryMul, diff, invStdExp);
 
   // Apply weight and bias if provided
   if (weight) {
     Tensor wFlat = reshape(*weight, {1, static_cast<int32_t>(normSize)});
     Tensor wExp = expand(wFlat, flatShape);
-    normalized = binaryOp(OperatorEnum::BinaryVecVecMul, normalized, wExp);
+    normalized = binaryOp(OperatorEnum::BinaryMul, normalized, wExp);
   }
   if (bias) {
     Tensor bFlat = reshape(*bias, {1, static_cast<int32_t>(normSize)});
     Tensor bExp = expand(bFlat, flatShape);
-    normalized = binaryOp(OperatorEnum::BinaryVecVecAdd, normalized, bExp);
+    normalized = binaryOp(OperatorEnum::BinaryAdd, normalized, bExp);
   }
 
   // Reshape back to original shape
@@ -866,29 +865,25 @@ Tensor Operations::batchNorm(const Tensor &input,
   std::vector<int32_t> chanShape = {1, static_cast<int32_t>(C), 1};
 
   // invStd = rsqrt(runningVar + eps)
-  Tensor varEps =
-      vecScalarOp(OperatorEnum::BinaryVecScalarAdd, runningVar, eps);
+  Tensor varEps = vecScalarOp(OperatorEnum::BinaryAdd, runningVar, eps);
   Tensor invStd = unaryOp(OperatorEnum::UnaryRsqrt, varEps);
 
   // scale = weight * invStd  (or just invStd if no weight)
-  Tensor scale = weight
-                     ? binaryOp(OperatorEnum::BinaryVecVecMul, *weight, invStd)
-                     : invStd;
+  Tensor scale =
+      weight ? binaryOp(OperatorEnum::BinaryMul, *weight, invStd) : invStd;
 
   // shift = bias - runningMean * scale  (or -runningMean * scale)
-  Tensor meanScale =
-      binaryOp(OperatorEnum::BinaryVecVecMul, runningMean, scale);
-  Tensor shift = bias
-                     ? binaryOp(OperatorEnum::BinaryVecVecSub, *bias, meanScale)
-                     : unaryOp(OperatorEnum::UnaryNeg, meanScale);
+  Tensor meanScale = binaryOp(OperatorEnum::BinaryMul, runningMean, scale);
+  Tensor shift = bias ? binaryOp(OperatorEnum::BinarySub, *bias, meanScale)
+                      : unaryOp(OperatorEnum::UnaryNeg, meanScale);
 
   // Broadcast scale and shift to match [N, C, spatial]
   Tensor scaleExp = expand(reshape(scale, chanShape), flatShape);
   Tensor shiftExp = expand(reshape(shift, chanShape), flatShape);
 
   // result = input * scale + shift
-  Tensor scaled = binaryOp(OperatorEnum::BinaryVecVecMul, flat, scaleExp);
-  Tensor result = binaryOp(OperatorEnum::BinaryVecVecAdd, scaled, shiftExp);
+  Tensor scaled = binaryOp(OperatorEnum::BinaryMul, flat, scaleExp);
+  Tensor result = binaryOp(OperatorEnum::BinaryAdd, scaled, shiftExp);
 
   // Reshape back to original shape
   std::vector<int32_t> origShape(shape.begin(), shape.end());

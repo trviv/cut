@@ -4,7 +4,7 @@
 
 // Specialization constants
 [[vk::constant_id(0)]] const uint dtype_vec_size = %DTYPE_SIZE%;
-[[vk::constant_id(1)]] const uint op_enum = OP_BINARY_VEC_VEC_ADD;
+[[vk::constant_id(1)]] const uint op_enum = OP_BINARY_ADD;
 
 // Push constants
 struct PushConstants {
@@ -19,115 +19,115 @@ struct PushConstants {
 
 %VEC_DTYPE% binaryOp(%VEC_DTYPE% a, %VEC_DTYPE% b) {
     switch (op_enum) {
-        case OP_BINARY_VEC_VEC_ADD:
+        case OP_BINARY_ADD:
             return a + b;
-        case OP_BINARY_VEC_VEC_SUB:
+        case OP_BINARY_SUB:
             return a - b;
-        case OP_BINARY_VEC_VEC_MUL:
+        case OP_BINARY_MUL:
             return a * b;
-        case OP_BINARY_VEC_VEC_DIV:
+        case OP_BINARY_DIV:
             return a / b;
-        case OP_BINARY_VEC_VEC_MOD:
+        case OP_BINARY_MOD:
 #ifdef DTYPE_IS_FLOAT
             return (a - b * floor(a / b));
 #else
             return a % b;
 #endif
-        case OP_BINARY_VEC_VEC_POW:
+        case OP_BINARY_POW:
 #ifdef DTYPE_IS_FLOAT
             return pow(a, b);
 #else
             return (%VEC_DTYPE%)(0);
 #endif
-        case OP_BINARY_VEC_VEC_FLOOR_DIV:
+        case OP_BINARY_FLOOR_DIV:
 #ifdef DTYPE_IS_FLOAT
             return floor(a / b);
 #else
             return a / b;
 #endif
-        case OP_BINARY_VEC_VEC_EQUAL:
+        case OP_BINARY_EQUAL:
             return (%VEC_DTYPE%)(a == b);
-        case OP_BINARY_VEC_VEC_NOT_EQUAL:
+        case OP_BINARY_NOT_EQUAL:
             return (%VEC_DTYPE%)(a != b);
-        case OP_BINARY_VEC_VEC_LESS:
+        case OP_BINARY_LESS:
             return (%VEC_DTYPE%)(a < b);
-        case OP_BINARY_VEC_VEC_LESS_EQUAL:
+        case OP_BINARY_LESS_EQUAL:
             return (%VEC_DTYPE%)(a <= b);
-        case OP_BINARY_VEC_VEC_GREATER:
+        case OP_BINARY_GREATER:
             return (%VEC_DTYPE%)(a > b);
-        case OP_BINARY_VEC_VEC_GREATER_EQUAL:
+        case OP_BINARY_GREATER_EQUAL:
             return (%VEC_DTYPE%)(a >= b);
-        case OP_BINARY_VEC_VEC_MIN:
+        case OP_BINARY_MIN:
             return min(a, b);
-        case OP_BINARY_VEC_VEC_MAX:
+        case OP_BINARY_MAX:
             return max(a, b);
-        case OP_BINARY_VEC_VEC_BITWISE_AND:
+        case OP_BINARY_BITWISE_AND:
 #ifdef DTYPE_IS_FLOAT
             return asfloat(asint(a) & asint(b));
 #else
             return a & b;
 #endif
-        case OP_BINARY_VEC_VEC_BITWISE_OR:
+        case OP_BINARY_BITWISE_OR:
 #ifdef DTYPE_IS_FLOAT
             return asfloat(asint(a) | asint(b));
 #else
             return a | b;
 #endif
-        case OP_BINARY_VEC_VEC_BITWISE_XOR:
+        case OP_BINARY_BITWISE_XOR:
 #ifdef DTYPE_IS_FLOAT
             return asfloat(asint(a) ^ asint(b));
 #else
             return a ^ b;
 #endif
-        case OP_BINARY_VEC_VEC_LEFT_SHIFT:
+        case OP_BINARY_LEFT_SHIFT:
 #ifdef DTYPE_IS_FLOAT
             return asfloat(asint(a) << asint(b));
 #else
             return a << b;
 #endif
-        case OP_BINARY_VEC_VEC_RIGHT_SHIFT:
+        case OP_BINARY_RIGHT_SHIFT:
 #ifdef DTYPE_IS_FLOAT
             return asfloat(asint(a) >> asint(b));
 #else
             return a >> b;
 #endif
-        case OP_BINARY_VEC_VEC_LOGICAL_AND:
+        case OP_BINARY_LOGICAL_AND:
             return (%VEC_DTYPE%)(a != (%VEC_DTYPE%)(0)) * (%VEC_DTYPE%)(b != (%VEC_DTYPE%)(0));
-        case OP_BINARY_VEC_VEC_LOGICAL_OR:
+        case OP_BINARY_LOGICAL_OR:
             return min((%VEC_DTYPE%)(a != (%VEC_DTYPE%)(0)) + (%VEC_DTYPE%)(b != (%VEC_DTYPE%)(0)), (%VEC_DTYPE%)(1));
-        case OP_BINARY_VEC_VEC_LOGICAL_XOR:
+        case OP_BINARY_LOGICAL_XOR:
             return (%VEC_DTYPE%)((a != (%VEC_DTYPE%)(0)) != (b != (%VEC_DTYPE%)(0)));
-        case OP_BINARY_VEC_VEC_ATAN2:
+        case OP_BINARY_ATAN2:
 #ifdef DTYPE_IS_FLOAT
             return atan2(a, b);
 #else
             return (%VEC_DTYPE%)(0);
 #endif
-        case OP_BINARY_VEC_VEC_HYPOT:
+        case OP_BINARY_HYPOT:
 #ifdef DTYPE_IS_FLOAT
             return sqrt(a * a + b * b);
 #else
             return (%VEC_DTYPE%)(0);
 #endif
-        case OP_BINARY_VEC_VEC_COPYSIGN:
+        case OP_BINARY_COPYSIGN:
 #ifdef DTYPE_IS_FLOAT
             return sign(b) * abs(a);
 #else
             return (%VEC_DTYPE%)(0);
 #endif
-        case OP_BINARY_VEC_VEC_FMOD:
+        case OP_BINARY_FMOD:
 #ifdef DTYPE_IS_FLOAT
             return (a - b * floor(a / b));
 #else
             return a % b;
 #endif
-        case OP_BINARY_VEC_VEC_LOGADDEXP:
+        case OP_BINARY_LOGADDEXP:
 #ifdef DTYPE_IS_FLOAT
             return log(exp(a) + exp(b));
 #else
             return (%VEC_DTYPE%)(0);
 #endif
-        case OP_BINARY_VEC_VEC_LOGADDEXP2:
+        case OP_BINARY_LOGADDEXP2:
 #ifdef DTYPE_IS_FLOAT
             return log2(exp2(a) + exp2(b));
 #else

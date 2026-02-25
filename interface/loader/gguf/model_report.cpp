@@ -1291,11 +1291,11 @@ void generateModelReport(const GGUFReader &reader,
            "(implicit)</td>"
         << "<td class=\"arrow-col\">&rarr;</td>"
         << "<td class=\"op-role\">Residual Add</td>"
-        << "<td class=\"op-chain\">BinaryVecVecAdd</td>"
+        << "<td class=\"op-chain\">BinaryAdd</td>"
         << "<td class=\"op-chain\">"
         << "operands: hidden [" << D << "], proj [" << D
         << "]<br>"
-           "BinaryVecVecAdd(hidden, proj) &rarr; hidden ["
+           "BinaryAdd(hidden, proj) &rarr; hidden ["
         << D << "]"
         << "</td>"
         << "<td class=\"graph-node\">Add (residual)</td></tr>\n";

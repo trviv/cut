@@ -4,149 +4,85 @@ namespace cut {
 
 const char *operatorName(OperatorEnum op) {
   switch (op) {
-  // Binary vec-vec arithmetic
-  case BinaryVecVecAdd:
-    return "BinaryVecVecAdd";
-  case BinaryVecVecSub:
-    return "BinaryVecVecSub";
-  case BinaryVecVecMul:
-    return "BinaryVecVecMul";
-  case BinaryVecVecDiv:
-    return "BinaryVecVecDiv";
-  case BinaryVecVecMod:
-    return "BinaryVecVecMod";
-  case BinaryVecVecPow:
-    return "BinaryVecVecPow";
-  case BinaryVecVecFloorDiv:
-    return "BinaryVecVecFloorDiv";
+  // Binary arithmetic
+  case BinaryAdd:
+    return "BinaryAdd";
+  case BinarySub:
+    return "BinarySub";
+  case BinaryMul:
+    return "BinaryMul";
+  case BinaryDiv:
+    return "BinaryDiv";
+  case BinaryMod:
+    return "BinaryMod";
+  case BinaryPow:
+    return "BinaryPow";
+  case BinaryFloorDiv:
+    return "BinaryFloorDiv";
 
-  // Binary vec-vec comparison
-  case BinaryVecVecEqual:
-    return "BinaryVecVecEqual";
-  case BinaryVecVecNotEqual:
-    return "BinaryVecVecNotEqual";
-  case BinaryVecVecLess:
-    return "BinaryVecVecLess";
-  case BinaryVecVecLessEqual:
-    return "BinaryVecVecLessEqual";
-  case BinaryVecVecGreater:
-    return "BinaryVecVecGreater";
-  case BinaryVecVecGreaterEqual:
-    return "BinaryVecVecGreaterEqual";
+  // Binary comparison
+  case BinaryEqual:
+    return "BinaryEqual";
+  case BinaryNotEqual:
+    return "BinaryNotEqual";
+  case BinaryLess:
+    return "BinaryLess";
+  case BinaryLessEqual:
+    return "BinaryLessEqual";
+  case BinaryGreater:
+    return "BinaryGreater";
+  case BinaryGreaterEqual:
+    return "BinaryGreaterEqual";
 
-  // Binary vec-vec min/max
-  case BinaryVecVecMin:
-    return "BinaryVecVecMin";
-  case BinaryVecVecMax:
-    return "BinaryVecVecMax";
+  // Binary min/max
+  case BinaryMin:
+    return "BinaryMin";
+  case BinaryMax:
+    return "BinaryMax";
 
-  // Binary vec-vec bitwise
-  case BinaryVecVecBitwiseAnd:
-    return "BinaryVecVecBitwiseAnd";
-  case BinaryVecVecBitwiseOr:
-    return "BinaryVecVecBitwiseOr";
-  case BinaryVecVecBitwiseXor:
-    return "BinaryVecVecBitwiseXor";
-  case BinaryVecVecLeftShift:
-    return "BinaryVecVecLeftShift";
-  case BinaryVecVecRightShift:
-    return "BinaryVecVecRightShift";
+  // Binary bitwise
+  case BinaryBitwiseAnd:
+    return "BinaryBitwiseAnd";
+  case BinaryBitwiseOr:
+    return "BinaryBitwiseOr";
+  case BinaryBitwiseXor:
+    return "BinaryBitwiseXor";
+  case BinaryLeftShift:
+    return "BinaryLeftShift";
+  case BinaryRightShift:
+    return "BinaryRightShift";
 
-  // Binary vec-vec logical
-  case BinaryVecVecLogicalAnd:
-    return "BinaryVecVecLogicalAnd";
-  case BinaryVecVecLogicalOr:
-    return "BinaryVecVecLogicalOr";
-  case BinaryVecVecLogicalXor:
-    return "BinaryVecVecLogicalXor";
+  // Binary logical
+  case BinaryLogicalAnd:
+    return "BinaryLogicalAnd";
+  case BinaryLogicalOr:
+    return "BinaryLogicalOr";
+  case BinaryLogicalXor:
+    return "BinaryLogicalXor";
 
-  // Binary vec-vec math
-  case BinaryVecVecAtan2:
-    return "BinaryVecVecAtan2";
-  case BinaryVecVecHypot:
-    return "BinaryVecVecHypot";
-  case BinaryVecVecCopysign:
-    return "BinaryVecVecCopysign";
-  case BinaryVecVecFmod:
-    return "BinaryVecVecFmod";
-  case BinaryVecVecLogaddexp:
-    return "BinaryVecVecLogaddexp";
-  case BinaryVecVecLogaddexp2:
-    return "BinaryVecVecLogaddexp2";
+  // Binary math
+  case BinaryAtan2:
+    return "BinaryAtan2";
+  case BinaryHypot:
+    return "BinaryHypot";
+  case BinaryCopysign:
+    return "BinaryCopysign";
+  case BinaryFmod:
+    return "BinaryFmod";
+  case BinaryLogaddexp:
+    return "BinaryLogaddexp";
+  case BinaryLogaddexp2:
+    return "BinaryLogaddexp2";
 
-  // Binary vec-scalar arithmetic
-  case BinaryVecScalarAdd:
-    return "BinaryVecScalarAdd";
-  case BinaryVecScalarSub:
-    return "BinaryVecScalarSub";
-  case BinaryVecScalarMul:
-    return "BinaryVecScalarMul";
-  case BinaryVecScalarDiv:
-    return "BinaryVecScalarDiv";
-  case BinaryVecScalarMod:
-    return "BinaryVecScalarMod";
-  case BinaryVecScalarPow:
-    return "BinaryVecScalarPow";
-  case BinaryVecScalarFloorDiv:
-    return "BinaryVecScalarFloorDiv";
-
-  // Binary vec-scalar comparison
-  case BinaryVecScalarEqual:
-    return "BinaryVecScalarEqual";
-  case BinaryVecScalarNotEqual:
-    return "BinaryVecScalarNotEqual";
-  case BinaryVecScalarLess:
-    return "BinaryVecScalarLess";
-  case BinaryVecScalarLessEqual:
-    return "BinaryVecScalarLessEqual";
-  case BinaryVecScalarGreater:
-    return "BinaryVecScalarGreater";
-  case BinaryVecScalarGreaterEqual:
-    return "BinaryVecScalarGreaterEqual";
-
-  // Binary vec-scalar min/max
-  case BinaryVecScalarMin:
-    return "BinaryVecScalarMin";
-  case BinaryVecScalarMax:
-    return "BinaryVecScalarMax";
-
-  // Binary vec-scalar bitwise
-  case BinaryVecScalarBitwiseAnd:
-    return "BinaryVecScalarBitwiseAnd";
-  case BinaryVecScalarBitwiseOr:
-    return "BinaryVecScalarBitwiseOr";
-  case BinaryVecScalarBitwiseXor:
-    return "BinaryVecScalarBitwiseXor";
-  case BinaryVecScalarLeftShift:
-    return "BinaryVecScalarLeftShift";
-  case BinaryVecScalarRightShift:
-    return "BinaryVecScalarRightShift";
-
-  // Binary vec-scalar logical
-  case BinaryVecScalarLogicalAnd:
-    return "BinaryVecScalarLogicalAnd";
-  case BinaryVecScalarLogicalOr:
-    return "BinaryVecScalarLogicalOr";
-  case BinaryVecScalarLogicalXor:
-    return "BinaryVecScalarLogicalXor";
-
-  // Binary vec-scalar math
-  case BinaryVecScalarAtan2:
-    return "BinaryVecScalarAtan2";
-  case BinaryVecScalarHypot:
-    return "BinaryVecScalarHypot";
-  case BinaryVecScalarCopysign:
-    return "BinaryVecScalarCopysign";
-  case BinaryVecScalarFmod:
-    return "BinaryVecScalarFmod";
-
-  // Binary vec-scalar activation
-  case BinaryVecScalarLeakyRelu:
-    return "BinaryVecScalarLeakyRelu";
-  case BinaryVecScalarPrelu:
-    return "BinaryVecScalarPrelu";
-  case BinaryVecScalarHardshrink:
-    return "BinaryVecScalarHardshrink";
+  // Binary activation
+  case BinaryLeakyRelu:
+    return "BinaryLeakyRelu";
+  case BinaryPrelu:
+    return "BinaryPrelu";
+  case BinaryHardshrink:
+    return "BinaryHardshrink";
+  case BinarySoftshrink:
+    return "BinarySoftshrink";
 
   // Unary operations
   case UnaryNeg:
@@ -263,14 +199,6 @@ const char *operatorName(OperatorEnum op) {
     return "UnaryAtanh";
   case UnaryIsFinite:
     return "UnaryIsFinite";
-
-  // Extended binary vec-scalar
-  case BinaryVecScalarSoftshrink:
-    return "BinaryVecScalarSoftshrink";
-  case BinaryVecScalarLogaddexp:
-    return "BinaryVecScalarLogaddexp";
-  case BinaryVecScalarLogaddexp2:
-    return "BinaryVecScalarLogaddexp2";
 
   // Ternary operations
   case TernaryClamp:

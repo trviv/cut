@@ -250,47 +250,41 @@ PYBIND11_MODULE(_cut_compute, m) {
   // =========================================================================
   py::enum_<cut::OperatorEnum>(m, "OperatorEnum")
       // Binary arithmetic operations (vec-vec)
-      .value("BinaryVecVecAdd", cut::OperatorEnum::BinaryVecVecAdd)
-      .value("BinaryVecVecSub", cut::OperatorEnum::BinaryVecVecSub)
-      .value("BinaryVecVecMul", cut::OperatorEnum::BinaryVecVecMul)
-      .value("BinaryVecVecDiv", cut::OperatorEnum::BinaryVecVecDiv)
-      .value("BinaryVecVecMod", cut::OperatorEnum::BinaryVecVecMod)
-      .value("BinaryVecVecPow", cut::OperatorEnum::BinaryVecVecPow)
-      .value("BinaryVecVecFloorDiv", cut::OperatorEnum::BinaryVecVecFloorDiv)
+      .value("BinaryAdd", cut::OperatorEnum::BinaryAdd)
+      .value("BinarySub", cut::OperatorEnum::BinarySub)
+      .value("BinaryMul", cut::OperatorEnum::BinaryMul)
+      .value("BinaryDiv", cut::OperatorEnum::BinaryDiv)
+      .value("BinaryMod", cut::OperatorEnum::BinaryMod)
+      .value("BinaryPow", cut::OperatorEnum::BinaryPow)
+      .value("BinaryFloorDiv", cut::OperatorEnum::BinaryFloorDiv)
       // Binary comparison operations (vec-vec)
-      .value("BinaryVecVecEqual", cut::OperatorEnum::BinaryVecVecEqual)
-      .value("BinaryVecVecNotEqual", cut::OperatorEnum::BinaryVecVecNotEqual)
-      .value("BinaryVecVecLess", cut::OperatorEnum::BinaryVecVecLess)
-      .value("BinaryVecVecLessEqual", cut::OperatorEnum::BinaryVecVecLessEqual)
-      .value("BinaryVecVecGreater", cut::OperatorEnum::BinaryVecVecGreater)
-      .value("BinaryVecVecGreaterEqual",
-             cut::OperatorEnum::BinaryVecVecGreaterEqual)
+      .value("BinaryEqual", cut::OperatorEnum::BinaryEqual)
+      .value("BinaryNotEqual", cut::OperatorEnum::BinaryNotEqual)
+      .value("BinaryLess", cut::OperatorEnum::BinaryLess)
+      .value("BinaryLessEqual", cut::OperatorEnum::BinaryLessEqual)
+      .value("BinaryGreater", cut::OperatorEnum::BinaryGreater)
+      .value("BinaryGreaterEqual", cut::OperatorEnum::BinaryGreaterEqual)
       // Binary min/max operations (vec-vec)
-      .value("BinaryVecVecMin", cut::OperatorEnum::BinaryVecVecMin)
-      .value("BinaryVecVecMax", cut::OperatorEnum::BinaryVecVecMax)
+      .value("BinaryMin", cut::OperatorEnum::BinaryMin)
+      .value("BinaryMax", cut::OperatorEnum::BinaryMax)
       // Binary arithmetic operations (vec-scalar)
-      .value("BinaryVecScalarAdd", cut::OperatorEnum::BinaryVecScalarAdd)
-      .value("BinaryVecScalarSub", cut::OperatorEnum::BinaryVecScalarSub)
-      .value("BinaryVecScalarMul", cut::OperatorEnum::BinaryVecScalarMul)
-      .value("BinaryVecScalarDiv", cut::OperatorEnum::BinaryVecScalarDiv)
-      .value("BinaryVecScalarMod", cut::OperatorEnum::BinaryVecScalarMod)
-      .value("BinaryVecScalarPow", cut::OperatorEnum::BinaryVecScalarPow)
-      .value("BinaryVecScalarFloorDiv",
-             cut::OperatorEnum::BinaryVecScalarFloorDiv)
+      .value("BinaryAdd", cut::OperatorEnum::BinaryAdd)
+      .value("BinarySub", cut::OperatorEnum::BinarySub)
+      .value("BinaryMul", cut::OperatorEnum::BinaryMul)
+      .value("BinaryDiv", cut::OperatorEnum::BinaryDiv)
+      .value("BinaryMod", cut::OperatorEnum::BinaryMod)
+      .value("BinaryPow", cut::OperatorEnum::BinaryPow)
+      .value("BinaryFloorDiv", cut::OperatorEnum::BinaryFloorDiv)
       // Binary comparison operations (vec-scalar)
-      .value("BinaryVecScalarEqual", cut::OperatorEnum::BinaryVecScalarEqual)
-      .value("BinaryVecScalarNotEqual",
-             cut::OperatorEnum::BinaryVecScalarNotEqual)
-      .value("BinaryVecScalarLess", cut::OperatorEnum::BinaryVecScalarLess)
-      .value("BinaryVecScalarLessEqual",
-             cut::OperatorEnum::BinaryVecScalarLessEqual)
-      .value("BinaryVecScalarGreater",
-             cut::OperatorEnum::BinaryVecScalarGreater)
-      .value("BinaryVecScalarGreaterEqual",
-             cut::OperatorEnum::BinaryVecScalarGreaterEqual)
+      .value("BinaryEqual", cut::OperatorEnum::BinaryEqual)
+      .value("BinaryNotEqual", cut::OperatorEnum::BinaryNotEqual)
+      .value("BinaryLess", cut::OperatorEnum::BinaryLess)
+      .value("BinaryLessEqual", cut::OperatorEnum::BinaryLessEqual)
+      .value("BinaryGreater", cut::OperatorEnum::BinaryGreater)
+      .value("BinaryGreaterEqual", cut::OperatorEnum::BinaryGreaterEqual)
       // Binary min/max operations (vec-scalar)
-      .value("BinaryVecScalarMin", cut::OperatorEnum::BinaryVecScalarMin)
-      .value("BinaryVecScalarMax", cut::OperatorEnum::BinaryVecScalarMax)
+      .value("BinaryMin", cut::OperatorEnum::BinaryMin)
+      .value("BinaryMax", cut::OperatorEnum::BinaryMax)
       // Unary operations
       .value("UnaryNeg", cut::OperatorEnum::UnaryNeg)
       .value("UnaryAbs", cut::OperatorEnum::UnaryAbs)
@@ -351,59 +345,39 @@ PYBIND11_MODULE(_cut_compute, m) {
       .value("UnaryAtanh", cut::OperatorEnum::UnaryAtanh)
       .value("UnaryIsFinite", cut::OperatorEnum::UnaryIsFinite)
       // New binary vec-vec operations
-      .value("BinaryVecVecBitwiseAnd",
-             cut::OperatorEnum::BinaryVecVecBitwiseAnd)
-      .value("BinaryVecVecBitwiseOr", cut::OperatorEnum::BinaryVecVecBitwiseOr)
-      .value("BinaryVecVecBitwiseXor",
-             cut::OperatorEnum::BinaryVecVecBitwiseXor)
-      .value("BinaryVecVecLeftShift", cut::OperatorEnum::BinaryVecVecLeftShift)
-      .value("BinaryVecVecRightShift",
-             cut::OperatorEnum::BinaryVecVecRightShift)
-      .value("BinaryVecVecLogicalAnd",
-             cut::OperatorEnum::BinaryVecVecLogicalAnd)
-      .value("BinaryVecVecLogicalOr", cut::OperatorEnum::BinaryVecVecLogicalOr)
-      .value("BinaryVecVecLogicalXor",
-             cut::OperatorEnum::BinaryVecVecLogicalXor)
-      .value("BinaryVecVecAtan2", cut::OperatorEnum::BinaryVecVecAtan2)
-      .value("BinaryVecVecHypot", cut::OperatorEnum::BinaryVecVecHypot)
-      .value("BinaryVecVecCopysign", cut::OperatorEnum::BinaryVecVecCopysign)
-      .value("BinaryVecVecFmod", cut::OperatorEnum::BinaryVecVecFmod)
-      .value("BinaryVecVecLogaddexp", cut::OperatorEnum::BinaryVecVecLogaddexp)
-      .value("BinaryVecVecLogaddexp2",
-             cut::OperatorEnum::BinaryVecVecLogaddexp2)
+      .value("BinaryBitwiseAnd", cut::OperatorEnum::BinaryBitwiseAnd)
+      .value("BinaryBitwiseOr", cut::OperatorEnum::BinaryBitwiseOr)
+      .value("BinaryBitwiseXor", cut::OperatorEnum::BinaryBitwiseXor)
+      .value("BinaryLeftShift", cut::OperatorEnum::BinaryLeftShift)
+      .value("BinaryRightShift", cut::OperatorEnum::BinaryRightShift)
+      .value("BinaryLogicalAnd", cut::OperatorEnum::BinaryLogicalAnd)
+      .value("BinaryLogicalOr", cut::OperatorEnum::BinaryLogicalOr)
+      .value("BinaryLogicalXor", cut::OperatorEnum::BinaryLogicalXor)
+      .value("BinaryAtan2", cut::OperatorEnum::BinaryAtan2)
+      .value("BinaryHypot", cut::OperatorEnum::BinaryHypot)
+      .value("BinaryCopysign", cut::OperatorEnum::BinaryCopysign)
+      .value("BinaryFmod", cut::OperatorEnum::BinaryFmod)
+      .value("BinaryLogaddexp", cut::OperatorEnum::BinaryLogaddexp)
+      .value("BinaryLogaddexp2", cut::OperatorEnum::BinaryLogaddexp2)
       // New binary vec-scalar operations
-      .value("BinaryVecScalarBitwiseAnd",
-             cut::OperatorEnum::BinaryVecScalarBitwiseAnd)
-      .value("BinaryVecScalarBitwiseOr",
-             cut::OperatorEnum::BinaryVecScalarBitwiseOr)
-      .value("BinaryVecScalarBitwiseXor",
-             cut::OperatorEnum::BinaryVecScalarBitwiseXor)
-      .value("BinaryVecScalarLeftShift",
-             cut::OperatorEnum::BinaryVecScalarLeftShift)
-      .value("BinaryVecScalarRightShift",
-             cut::OperatorEnum::BinaryVecScalarRightShift)
-      .value("BinaryVecScalarLogicalAnd",
-             cut::OperatorEnum::BinaryVecScalarLogicalAnd)
-      .value("BinaryVecScalarLogicalOr",
-             cut::OperatorEnum::BinaryVecScalarLogicalOr)
-      .value("BinaryVecScalarLogicalXor",
-             cut::OperatorEnum::BinaryVecScalarLogicalXor)
-      .value("BinaryVecScalarAtan2", cut::OperatorEnum::BinaryVecScalarAtan2)
-      .value("BinaryVecScalarHypot", cut::OperatorEnum::BinaryVecScalarHypot)
-      .value("BinaryVecScalarCopysign",
-             cut::OperatorEnum::BinaryVecScalarCopysign)
-      .value("BinaryVecScalarFmod", cut::OperatorEnum::BinaryVecScalarFmod)
-      .value("BinaryVecScalarLeakyRelu",
-             cut::OperatorEnum::BinaryVecScalarLeakyRelu)
-      .value("BinaryVecScalarPrelu", cut::OperatorEnum::BinaryVecScalarPrelu)
-      .value("BinaryVecScalarHardshrink",
-             cut::OperatorEnum::BinaryVecScalarHardshrink)
-      .value("BinaryVecScalarSoftshrink",
-             cut::OperatorEnum::BinaryVecScalarSoftshrink)
-      .value("BinaryVecScalarLogaddexp",
-             cut::OperatorEnum::BinaryVecScalarLogaddexp)
-      .value("BinaryVecScalarLogaddexp2",
-             cut::OperatorEnum::BinaryVecScalarLogaddexp2)
+      .value("BinaryBitwiseAnd", cut::OperatorEnum::BinaryBitwiseAnd)
+      .value("BinaryBitwiseOr", cut::OperatorEnum::BinaryBitwiseOr)
+      .value("BinaryBitwiseXor", cut::OperatorEnum::BinaryBitwiseXor)
+      .value("BinaryLeftShift", cut::OperatorEnum::BinaryLeftShift)
+      .value("BinaryRightShift", cut::OperatorEnum::BinaryRightShift)
+      .value("BinaryLogicalAnd", cut::OperatorEnum::BinaryLogicalAnd)
+      .value("BinaryLogicalOr", cut::OperatorEnum::BinaryLogicalOr)
+      .value("BinaryLogicalXor", cut::OperatorEnum::BinaryLogicalXor)
+      .value("BinaryAtan2", cut::OperatorEnum::BinaryAtan2)
+      .value("BinaryHypot", cut::OperatorEnum::BinaryHypot)
+      .value("BinaryCopysign", cut::OperatorEnum::BinaryCopysign)
+      .value("BinaryFmod", cut::OperatorEnum::BinaryFmod)
+      .value("BinaryLeakyRelu", cut::OperatorEnum::BinaryLeakyRelu)
+      .value("BinaryPrelu", cut::OperatorEnum::BinaryPrelu)
+      .value("BinaryHardshrink", cut::OperatorEnum::BinaryHardshrink)
+      .value("BinarySoftshrink", cut::OperatorEnum::BinarySoftshrink)
+      .value("BinaryLogaddexp", cut::OperatorEnum::BinaryLogaddexp)
+      .value("BinaryLogaddexp2", cut::OperatorEnum::BinaryLogaddexp2)
       // Ternary operations
       .value("TernaryClamp", cut::OperatorEnum::TernaryClamp)
       // Reduction operations

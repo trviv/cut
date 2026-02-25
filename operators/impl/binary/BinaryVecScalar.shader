@@ -4,7 +4,7 @@
 
 // Specialization constants
 [[vk::constant_id(0)]] const uint dtype_vec_size = %DTYPE_SIZE%;
-[[vk::constant_id(1)]] const uint op_enum = OP_BINARY_VEC_SCALAR_ADD;
+[[vk::constant_id(1)]] const uint op_enum = OP_BINARY_ADD;
 
 // Push constants
 struct PushConstants {
@@ -30,171 +30,171 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     %VEC_DTYPE% result;
 
     switch (op_enum) {
-        case OP_BINARY_VEC_SCALAR_ADD:
+        case OP_BINARY_ADD:
             result = a + s;
             break;
-        case OP_BINARY_VEC_SCALAR_SUB:
+        case OP_BINARY_SUB:
             result = a - s;
             break;
-        case OP_BINARY_VEC_SCALAR_MUL:
+        case OP_BINARY_MUL:
             result = a * s;
             break;
-        case OP_BINARY_VEC_SCALAR_DIV:
+        case OP_BINARY_DIV:
             result = a / s;
             break;
-        case OP_BINARY_VEC_SCALAR_MOD:
+        case OP_BINARY_MOD:
 #ifdef DTYPE_IS_FLOAT
             result = (a - s * floor(a / s));
 #else
             result = a % s;
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_POW:
+        case OP_BINARY_POW:
 #ifdef DTYPE_IS_FLOAT
             result = pow(a, s);
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_FLOOR_DIV:
+        case OP_BINARY_FLOOR_DIV:
 #ifdef DTYPE_IS_FLOAT
             result = floor(a / s);
 #else
             result = a / s;
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_EQUAL:
+        case OP_BINARY_EQUAL:
             result = (%VEC_DTYPE%)(a == s);
             break;
-        case OP_BINARY_VEC_SCALAR_NOT_EQUAL:
+        case OP_BINARY_NOT_EQUAL:
             result = (%VEC_DTYPE%)(a != s);
             break;
-        case OP_BINARY_VEC_SCALAR_LESS:
+        case OP_BINARY_LESS:
             result = (%VEC_DTYPE%)(a < s);
             break;
-        case OP_BINARY_VEC_SCALAR_LESS_EQUAL:
+        case OP_BINARY_LESS_EQUAL:
             result = (%VEC_DTYPE%)(a <= s);
             break;
-        case OP_BINARY_VEC_SCALAR_GREATER:
+        case OP_BINARY_GREATER:
             result = (%VEC_DTYPE%)(a > s);
             break;
-        case OP_BINARY_VEC_SCALAR_GREATER_EQUAL:
+        case OP_BINARY_GREATER_EQUAL:
             result = (%VEC_DTYPE%)(a >= s);
             break;
-        case OP_BINARY_VEC_SCALAR_MIN:
+        case OP_BINARY_MIN:
             result = min(a, s);
             break;
-        case OP_BINARY_VEC_SCALAR_MAX:
+        case OP_BINARY_MAX:
             result = max(a, s);
             break;
-        case OP_BINARY_VEC_SCALAR_BITWISE_AND:
+        case OP_BINARY_BITWISE_AND:
 #ifdef DTYPE_IS_FLOAT
             result = asfloat(asint(a) & asint(s));
 #else
             result = a & s;
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_BITWISE_OR:
+        case OP_BINARY_BITWISE_OR:
 #ifdef DTYPE_IS_FLOAT
             result = asfloat(asint(a) | asint(s));
 #else
             result = a | s;
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_BITWISE_XOR:
+        case OP_BINARY_BITWISE_XOR:
 #ifdef DTYPE_IS_FLOAT
             result = asfloat(asint(a) ^ asint(s));
 #else
             result = a ^ s;
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_LEFT_SHIFT:
+        case OP_BINARY_LEFT_SHIFT:
 #ifdef DTYPE_IS_FLOAT
             result = asfloat(asint(a) << asint(s));
 #else
             result = a << s;
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_RIGHT_SHIFT:
+        case OP_BINARY_RIGHT_SHIFT:
 #ifdef DTYPE_IS_FLOAT
             result = asfloat(asint(a) >> asint(s));
 #else
             result = a >> s;
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_LOGICAL_AND:
+        case OP_BINARY_LOGICAL_AND:
             result = (%VEC_DTYPE%)(a != (%VEC_DTYPE%)(0)) * (%VEC_DTYPE%)(s != (%VEC_DTYPE%)(0));
             break;
-        case OP_BINARY_VEC_SCALAR_LOGICAL_OR:
+        case OP_BINARY_LOGICAL_OR:
             result = min((%VEC_DTYPE%)(a != (%VEC_DTYPE%)(0)) + (%VEC_DTYPE%)(s != (%VEC_DTYPE%)(0)), (%VEC_DTYPE%)(1));
             break;
-        case OP_BINARY_VEC_SCALAR_LOGICAL_XOR:
+        case OP_BINARY_LOGICAL_XOR:
             result = (%VEC_DTYPE%)((a != (%VEC_DTYPE%)(0)) != (s != (%VEC_DTYPE%)(0)));
             break;
-        case OP_BINARY_VEC_SCALAR_ATAN2:
+        case OP_BINARY_ATAN2:
 #ifdef DTYPE_IS_FLOAT
             result = atan2(a, s);
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_HYPOT:
+        case OP_BINARY_HYPOT:
 #ifdef DTYPE_IS_FLOAT
             result = sqrt(a * a + s * s);
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_COPYSIGN:
+        case OP_BINARY_COPYSIGN:
 #ifdef DTYPE_IS_FLOAT
             result = sign(s) * abs(a);
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_FMOD:
+        case OP_BINARY_FMOD:
 #ifdef DTYPE_IS_FLOAT
             result = (a - s * floor(a / s));
 #else
             result = a % s;
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_LEAKY_RELU:
+        case OP_BINARY_LEAKY_RELU:
 #ifdef DTYPE_IS_FLOAT
             result = lerp(s * a, a, (%VEC_DTYPE%)(a > (%VEC_DTYPE%)(0.0)));
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_PRELU:
+        case OP_BINARY_PRELU:
 #ifdef DTYPE_IS_FLOAT
             result = lerp(s * a, a, (%VEC_DTYPE%)(a >= (%VEC_DTYPE%)(0.0)));
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_HARDSHRINK:
+        case OP_BINARY_HARDSHRINK:
 #ifdef DTYPE_IS_FLOAT
             result = lerp((%VEC_DTYPE%)(0.0), a, (%VEC_DTYPE%)(abs(a) > s));
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_SOFTSHRINK:
+        case OP_BINARY_SOFTSHRINK:
 #ifdef DTYPE_IS_FLOAT
             result = sign(a) * max(abs(a) - s, (%VEC_DTYPE%)(0.0));
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_LOGADDEXP:
+        case OP_BINARY_LOGADDEXP:
 #ifdef DTYPE_IS_FLOAT
             result = max(a, s) + log(1.0 + exp(-abs(a - s)));
 #else
             result = (%VEC_DTYPE%)(0);
 #endif
             break;
-        case OP_BINARY_VEC_SCALAR_LOGADDEXP2:
+        case OP_BINARY_LOGADDEXP2:
 #ifdef DTYPE_IS_FLOAT
             result = max(a, s) + log2(1.0 + exp2(-abs(a - s)));
 #else

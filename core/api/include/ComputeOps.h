@@ -15,97 +15,55 @@ namespace cut {
  */
 enum OperatorEnum {
   // ===========================================================================
-  // Binary vec-vec operations (0-29)
+  // Binary operations (0-32) - unified for all binary variants
   // ===========================================================================
 
   // Arithmetic
-  BinaryVecVecAdd = OP_BINARY_VEC_VEC_ADD,
-  BinaryVecVecSub = OP_BINARY_VEC_VEC_SUB,
-  BinaryVecVecMul = OP_BINARY_VEC_VEC_MUL,
-  BinaryVecVecDiv = OP_BINARY_VEC_VEC_DIV,
-  BinaryVecVecMod = OP_BINARY_VEC_VEC_MOD,
-  BinaryVecVecPow = OP_BINARY_VEC_VEC_POW,
-  BinaryVecVecFloorDiv = OP_BINARY_VEC_VEC_FLOOR_DIV,
+  BinaryAdd = OP_BINARY_ADD,
+  BinarySub = OP_BINARY_SUB,
+  BinaryMul = OP_BINARY_MUL,
+  BinaryDiv = OP_BINARY_DIV,
+  BinaryMod = OP_BINARY_MOD,
+  BinaryPow = OP_BINARY_POW,
+  BinaryFloorDiv = OP_BINARY_FLOOR_DIV,
 
   // Comparison
-  BinaryVecVecEqual = OP_BINARY_VEC_VEC_EQUAL,
-  BinaryVecVecNotEqual = OP_BINARY_VEC_VEC_NOT_EQUAL,
-  BinaryVecVecLess = OP_BINARY_VEC_VEC_LESS,
-  BinaryVecVecLessEqual = OP_BINARY_VEC_VEC_LESS_EQUAL,
-  BinaryVecVecGreater = OP_BINARY_VEC_VEC_GREATER,
-  BinaryVecVecGreaterEqual = OP_BINARY_VEC_VEC_GREATER_EQUAL,
+  BinaryEqual = OP_BINARY_EQUAL,
+  BinaryNotEqual = OP_BINARY_NOT_EQUAL,
+  BinaryLess = OP_BINARY_LESS,
+  BinaryLessEqual = OP_BINARY_LESS_EQUAL,
+  BinaryGreater = OP_BINARY_GREATER,
+  BinaryGreaterEqual = OP_BINARY_GREATER_EQUAL,
 
   // Min/Max
-  BinaryVecVecMin = OP_BINARY_VEC_VEC_MIN,
-  BinaryVecVecMax = OP_BINARY_VEC_VEC_MAX,
+  BinaryMin = OP_BINARY_MIN,
+  BinaryMax = OP_BINARY_MAX,
 
   // Bitwise
-  BinaryVecVecBitwiseAnd = OP_BINARY_VEC_VEC_BITWISE_AND,
-  BinaryVecVecBitwiseOr = OP_BINARY_VEC_VEC_BITWISE_OR,
-  BinaryVecVecBitwiseXor = OP_BINARY_VEC_VEC_BITWISE_XOR,
-  BinaryVecVecLeftShift = OP_BINARY_VEC_VEC_LEFT_SHIFT,
-  BinaryVecVecRightShift = OP_BINARY_VEC_VEC_RIGHT_SHIFT,
+  BinaryBitwiseAnd = OP_BINARY_BITWISE_AND,
+  BinaryBitwiseOr = OP_BINARY_BITWISE_OR,
+  BinaryBitwiseXor = OP_BINARY_BITWISE_XOR,
+  BinaryLeftShift = OP_BINARY_LEFT_SHIFT,
+  BinaryRightShift = OP_BINARY_RIGHT_SHIFT,
 
   // Logical
-  BinaryVecVecLogicalAnd = OP_BINARY_VEC_VEC_LOGICAL_AND,
-  BinaryVecVecLogicalOr = OP_BINARY_VEC_VEC_LOGICAL_OR,
-  BinaryVecVecLogicalXor = OP_BINARY_VEC_VEC_LOGICAL_XOR,
+  BinaryLogicalAnd = OP_BINARY_LOGICAL_AND,
+  BinaryLogicalOr = OP_BINARY_LOGICAL_OR,
+  BinaryLogicalXor = OP_BINARY_LOGICAL_XOR,
 
   // Math
-  BinaryVecVecAtan2 = OP_BINARY_VEC_VEC_ATAN2,
-  BinaryVecVecHypot = OP_BINARY_VEC_VEC_HYPOT,
-  BinaryVecVecCopysign = OP_BINARY_VEC_VEC_COPYSIGN,
-  BinaryVecVecFmod = OP_BINARY_VEC_VEC_FMOD,
-  BinaryVecVecLogaddexp = OP_BINARY_VEC_VEC_LOGADDEXP,
-  BinaryVecVecLogaddexp2 = OP_BINARY_VEC_VEC_LOGADDEXP2,
-
-  // ===========================================================================
-  // Binary vec-scalar operations (29-61)
-  // ===========================================================================
-
-  // Arithmetic
-  BinaryVecScalarAdd = OP_BINARY_VEC_SCALAR_ADD,
-  BinaryVecScalarSub = OP_BINARY_VEC_SCALAR_SUB,
-  BinaryVecScalarMul = OP_BINARY_VEC_SCALAR_MUL,
-  BinaryVecScalarDiv = OP_BINARY_VEC_SCALAR_DIV,
-  BinaryVecScalarMod = OP_BINARY_VEC_SCALAR_MOD,
-  BinaryVecScalarPow = OP_BINARY_VEC_SCALAR_POW,
-  BinaryVecScalarFloorDiv = OP_BINARY_VEC_SCALAR_FLOOR_DIV,
-
-  // Comparison
-  BinaryVecScalarEqual = OP_BINARY_VEC_SCALAR_EQUAL,
-  BinaryVecScalarNotEqual = OP_BINARY_VEC_SCALAR_NOT_EQUAL,
-  BinaryVecScalarLess = OP_BINARY_VEC_SCALAR_LESS,
-  BinaryVecScalarLessEqual = OP_BINARY_VEC_SCALAR_LESS_EQUAL,
-  BinaryVecScalarGreater = OP_BINARY_VEC_SCALAR_GREATER,
-  BinaryVecScalarGreaterEqual = OP_BINARY_VEC_SCALAR_GREATER_EQUAL,
-
-  // Min/Max
-  BinaryVecScalarMin = OP_BINARY_VEC_SCALAR_MIN,
-  BinaryVecScalarMax = OP_BINARY_VEC_SCALAR_MAX,
-
-  // Bitwise
-  BinaryVecScalarBitwiseAnd = OP_BINARY_VEC_SCALAR_BITWISE_AND,
-  BinaryVecScalarBitwiseOr = OP_BINARY_VEC_SCALAR_BITWISE_OR,
-  BinaryVecScalarBitwiseXor = OP_BINARY_VEC_SCALAR_BITWISE_XOR,
-  BinaryVecScalarLeftShift = OP_BINARY_VEC_SCALAR_LEFT_SHIFT,
-  BinaryVecScalarRightShift = OP_BINARY_VEC_SCALAR_RIGHT_SHIFT,
-
-  // Logical
-  BinaryVecScalarLogicalAnd = OP_BINARY_VEC_SCALAR_LOGICAL_AND,
-  BinaryVecScalarLogicalOr = OP_BINARY_VEC_SCALAR_LOGICAL_OR,
-  BinaryVecScalarLogicalXor = OP_BINARY_VEC_SCALAR_LOGICAL_XOR,
-
-  // Math
-  BinaryVecScalarAtan2 = OP_BINARY_VEC_SCALAR_ATAN2,
-  BinaryVecScalarHypot = OP_BINARY_VEC_SCALAR_HYPOT,
-  BinaryVecScalarCopysign = OP_BINARY_VEC_SCALAR_COPYSIGN,
-  BinaryVecScalarFmod = OP_BINARY_VEC_SCALAR_FMOD,
+  BinaryAtan2 = OP_BINARY_ATAN2,
+  BinaryHypot = OP_BINARY_HYPOT,
+  BinaryCopysign = OP_BINARY_COPYSIGN,
+  BinaryFmod = OP_BINARY_FMOD,
 
   // Activation
-  BinaryVecScalarLeakyRelu = OP_BINARY_VEC_SCALAR_LEAKY_RELU,
-  BinaryVecScalarPrelu = OP_BINARY_VEC_SCALAR_PRELU,
-  BinaryVecScalarHardshrink = OP_BINARY_VEC_SCALAR_HARDSHRINK,
+  BinaryLeakyRelu = OP_BINARY_LEAKY_RELU,
+  BinaryPrelu = OP_BINARY_PRELU,
+  BinaryHardshrink = OP_BINARY_HARDSHRINK,
+  BinarySoftshrink = OP_BINARY_SOFTSHRINK,
+  BinaryLogaddexp = OP_BINARY_LOGADDEXP,
+  BinaryLogaddexp2 = OP_BINARY_LOGADDEXP2,
 
   // ===========================================================================
   // Unary operations (100-154)
@@ -194,12 +152,6 @@ enum OperatorEnum {
 
   // ===========================================================================
   // Extended binary vec-scalar operations (59-61)
-  // ===========================================================================
-
-  BinaryVecScalarSoftshrink = OP_BINARY_VEC_SCALAR_SOFTSHRINK,
-  BinaryVecScalarLogaddexp = OP_BINARY_VEC_SCALAR_LOGADDEXP,
-  BinaryVecScalarLogaddexp2 = OP_BINARY_VEC_SCALAR_LOGADDEXP2,
-
   // ===========================================================================
   // Ternary operations (62-63)
   // ===========================================================================

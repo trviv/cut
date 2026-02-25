@@ -31,7 +31,7 @@ public:
 
   Tensor binaryOp(OperatorEnum op,
                   const Tensor &a,
-                  const Tensor &b,
+                  const TensorLike &b,
                   std::optional<uint32_t> spec = {});
 
   Tensor

@@ -291,10 +291,10 @@ cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
                                  config_.norm_eps);
 
   // 3. Scale x
-  auto normalized = ops_->vecScalarOp(cut::BinaryVecScalarMul, x, scale);
+  auto normalized = ops_->vecScalarOp(cut::BinaryMul, x, scale);
 
   // 4. Multiply by weight
-  return ops_->binaryOp(cut::BinaryVecVecMul, normalized, weight);
+  return ops_->binaryOp(cut::BinaryMul, normalized, weight);
 }
 
 // ============================================================================
@@ -483,7 +483,7 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   auto proj_id = builder.reshape(proj, {1, dim});
   // Reshape chain (optimizer: ReshapeChainPass collapses)
   auto proj_1d = builder.reshape(proj_id, {dim});
-  auto result = builder.binaryOp(cut::BinaryVecVecAdd, vHidden, proj_1d);
+  auto result = builder.binaryOp(cut::BinaryAdd, vHidden, proj_1d);
 
   // Dead code: unused transpose (optimizer: DeadCodePass removes)
   builder.transpose(proj);
@@ -525,7 +525,7 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   auto up_id = builder.reshape(up, {1, ffn});
 
   auto gate_silu = builder.unaryOp(cut::UnarySilu, gate_id);
-  auto gate_up = builder.binaryOp(cut::BinaryVecVecMul, gate_silu, up_id);
+  auto gate_up = builder.binaryOp(cut::BinaryMul, gate_silu, up_id);
 
   auto out = builder.matmul(gate_up, vWDown);
   // Identity reshape + reshape chain (optimizer eliminates both)
@@ -535,7 +535,7 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   // Dead code: unused transpose (optimizer: DeadCodePass removes)
   builder.transpose(gate);
 
-  auto result = builder.binaryOp(cut::BinaryVecVecAdd, vHidden, out_1d);
+  auto result = builder.binaryOp(cut::BinaryAdd, vHidden, out_1d);
 
   builder.markOutput(result);
 

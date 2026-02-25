@@ -52,10 +52,9 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
                                 const DataType datatype) {
   // First try pre-compiled shaders
   std::optional<std::vector<uint32_t>> compiled;
-  if (shader >= BinaryVecVecAdd && shader <= BinaryVecVecLogaddexp2) {
+  if (shader >= BinaryAdd && shader <= BinaryLogaddexp2) {
     compiled = compiledBinaryVecVec(datatype);
-  } else if (shader >= BinaryVecScalarAdd &&
-             shader <= BinaryVecScalarLogaddexp2) {
+  } else if (shader >= BinaryAdd && shader <= BinaryLogaddexp2) {
     compiled = compiledBinaryVecScalar(datatype);
   } else if (shader >= UnaryNeg && shader <= UnaryIsInf) {
     compiled = compiledUnary(datatype);

@@ -71,7 +71,7 @@ TEST_F(GraphTest, LinearChain) {
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
   auto vb = builder.input(b);
-  auto sum = builder.binaryOp(BinaryVecVecAdd, va, vb);
+  auto sum = builder.binaryOp(BinaryAdd, va, vb);
   auto result = builder.unaryOp(UnarySqrt, sum);
   builder.markOutput(result);
   auto graph = builder.build();
@@ -98,7 +98,7 @@ TEST_F(GraphTest, DiamondDAG) {
   auto x = builder.input(t);
   auto a = builder.unaryOp(UnarySin, x);
   auto b = builder.unaryOp(UnaryCos, x);
-  auto c = builder.binaryOp(BinaryVecVecAdd, a, b);
+  auto c = builder.binaryOp(BinaryAdd, a, b);
   builder.markOutput(c);
   auto graph = builder.build();
 
@@ -315,7 +315,7 @@ TEST_F(GraphTest, ExecutorBinaryOp) {
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
   auto vb = builder.input(b);
-  auto sum = builder.binaryOp(BinaryVecVecAdd, va, vb);
+  auto sum = builder.binaryOp(BinaryAdd, va, vb);
   builder.markOutput(sum);
   auto graph = builder.build();
 
@@ -409,7 +409,7 @@ TEST_F(GraphTest, ExecutorVecScalarOp) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto scaled = builder.vecScalarOp(BinaryVecScalarMul, va, 0.5f);
+  auto scaled = builder.vecScalarOp(BinaryMul, va, 0.5f);
   builder.markOutput(scaled);
   auto graph = builder.build();
 
@@ -556,13 +556,13 @@ TEST_F(GraphTest, RuntimeGraphModeBinaryOp) {
   auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
 
   // Eager execution for reference
-  auto eagerResult = runtime_.ops().binaryOp(BinaryVecVecAdd, a, b);
+  auto eagerResult = runtime_.ops().binaryOp(BinaryAdd, a, b);
   std::vector<float> eagerOut(4);
   runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
 
   // Graph mode execution
   runtime_.beginGraph();
-  auto graphResult = runtime_.ops().binaryOp(BinaryVecVecAdd, a, b);
+  auto graphResult = runtime_.ops().binaryOp(BinaryAdd, a, b);
   // copyFromTensor triggers executeGraph automatically
   std::vector<float> graphOut(4);
   runtime_.copyFromTensor(graphResult, graphOut.data(), 4 * sizeof(float));
@@ -612,10 +612,10 @@ TEST_F(GraphTest, RuntimeGraphModeChain) {
 
   runtime_.beginGraph();
   auto &ops = runtime_.ops();
-  auto sum = ops.binaryOp(BinaryVecVecAdd, a, b);
+  auto sum = ops.binaryOp(BinaryAdd, a, b);
   float two = 2.0f;
-  auto scaled = ops.vecScalarOp(BinaryVecScalarMul, sum,
-                                DataReference(&two, sizeof(float)));
+  auto scaled =
+      ops.vecScalarOp(BinaryMul, sum, DataReference(&two, sizeof(float)));
   std::vector<float> output(4);
   runtime_.copyFromTensor(scaled, output.data(), 4 * sizeof(float));
 
