@@ -47,9 +47,9 @@ DTYPE_DEFS = {
         "defines": "#define DTYPE_IS_FLOAT 1",
     },
     "Float16": {
-        "vec":     "float4",
-        "scalar":  "float",
-        "size":    "4",
+        "vec":     "half4",
+        "scalar":  "half",
+        "size":    "2",
         "defines": "#define DTYPE_IS_FLOAT 1",
     },
     "Int32": {

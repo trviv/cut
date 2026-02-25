@@ -62,6 +62,21 @@ constexpr std::array<OperatorEnum, 29> kBinaryVecVecOps = {
     // Numerically stable log-sum-exp
     BinaryLogaddexp, BinaryLogaddexp2};
 
+// Binary operators valid for integer types (i/uvec4)
+constexpr std::array<OperatorEnum, 22> kIntBinaryVecVecOps = {
+    // Arithmetic
+    BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
+    // Comparison
+    BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
+    BinaryGreaterEqual,
+    // Min/Max
+    BinaryMin, BinaryMax,
+    // Bitwise
+    BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor, BinaryLeftShift,
+    BinaryRightShift,
+    // Logical
+    BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
+
 // All binary operators (vec-scalar variant tests)
 constexpr std::array<OperatorEnum, 33> kBinaryVecScalarOps = {
     // Arithmetic
@@ -131,19 +146,7 @@ constexpr std::array<OperatorEnum, 3> kMatrixOps = {MatMul, Transpose, Dot};
 // Helper Functions
 // ============================================================================
 
-inline const char *dataTypeName(DataType dtype) {
-  switch (dtype) {
-  case DataType::Float32:
-    return "Float32";
-  case DataType::Float16:
-    return "Float16";
-  case DataType::UInt32:
-    return "UInt32";
-  case DataType::Int32:
-    return "Int32";
-  }
-  return "Unknown";
-}
+// dataTypeName is provided by ComputeCommon.h
 
 inline const char *backendName(BackendType backend) {
   return backend == BackendType::Vulkan ? "Vulkan" : "Unknown";
@@ -1217,165 +1220,99 @@ protected:
   }
 };
 
-// Test binary vec-vec operators with Float32
-TEST_F(VulkanBackendTest, BinaryVecVecOperators_Float32) {
-  const DataType dtype = DataType::Float32;
+// Helper template for binary vec-vec operator testing per C++ type
+template <typename T>
+void testBinaryVecVec(Runtime *runtime, DataType dtype) {
+  constexpr bool isFloat = std::is_floating_point_v<T>;
 
   for (size_t numDims : kDimensionCounts) {
     for (const auto &shape : generateShapes(numDims)) {
       const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
+      const size_t bufferSize = elements * sizeof(T);
 
-      auto dataA = generateTestData<float>(elements, 42);
-      auto dataB = generateTestData<float>(elements, 123);
+      auto dataA = generateTestData<T>(elements, 42);
+      auto dataB = generateTestData<T>(elements, 123);
 
-      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-      auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
+      auto bufferA = runtime->createTensor(shape, dtype, dataA.data());
+      auto bufferB = runtime->createTensor(shape, dtype, dataB.data());
 
-      for (OperatorEnum op : kBinaryVecVecOps) {
+      // For integer types, prepare shift-clamped data
+      std::vector<T> dataBShift;
+      Tensor bufferBShift;
+      if constexpr (!isFloat) {
+        dataBShift = dataB;
+        for (auto &v : dataBShift)
+          v = v % 16;
+        bufferBShift = runtime->createTensor(shape, dtype, dataBShift.data());
+      }
+
+      auto testOp = [&](OperatorEnum op) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferOut = runtime_->ops().binaryOp(op, bufferA, bufferB);
+        Tensor rhsBuf = bufferB;
+        const std::vector<T> *rhsData = &dataB;
+        if constexpr (!isFloat) {
+          if (op == BinaryLeftShift || op == BinaryRightShift) {
+            rhsBuf = bufferBShift;
+            rhsData = &dataBShift;
+          }
+        }
 
-        std::vector<float> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+        auto bufferOut = runtime->ops().binaryOp(op, bufferA, rhsBuf);
+
+        std::vector<T> output(elements);
+        runtime->copyFromTensor(bufferOut, output.data(), bufferSize);
 
         for (uint32_t i = 0; i < elements; ++i) {
-          float expected = binaryVecVecRef(op, dataA[i], dataB[i]);
-          // Bitwise ops on floats can produce NaN/Inf bit patterns
-          if (std::isnan(expected) && std::isnan(output[i]))
-            continue;
-          if (std::isinf(expected) && std::isinf(output[i]) &&
-              std::signbit(expected) == std::signbit(output[i]))
-            continue;
-          float tol = (op == BinaryPow)
-                          ? std::max(1e-5f, std::abs(expected) * 1e-5f)
-                          : 1e-5f;
-          EXPECT_NEAR(output[i], expected, tol)
-              << "Mismatch at index " << i << " for " << operatorName(op);
+          T expected = binaryVecVecRef(op, dataA[i], (*rhsData)[i]);
+          if constexpr (isFloat) {
+            if (std::isnan(expected) && std::isnan(output[i]))
+              continue;
+            if (std::isinf(expected) && std::isinf(output[i]) &&
+                std::signbit(expected) == std::signbit(output[i]))
+              continue;
+            float tol = (op == BinaryPow)
+                            ? std::max(1e-5f, std::abs(expected) * 1e-5f)
+                            : 1e-5f;
+            EXPECT_NEAR(output[i], expected, tol)
+                << "Mismatch at index " << i << " for " << operatorName(op);
+          } else {
+            EXPECT_EQ(output[i], expected)
+                << "Mismatch at index " << i << " for " << operatorName(op);
+          }
         }
+      };
+
+      if constexpr (isFloat) {
+        for (OperatorEnum op : kBinaryVecVecOps)
+          testOp(op);
+      } else {
+        for (OperatorEnum op : kIntBinaryVecVecOps)
+          testOp(op);
       }
     }
   }
 }
 
-TEST_F(VulkanBackendTest, BinaryVecVecOperators_Int32) {
-  const DataType dtype = DataType::Int32;
+// Test binary vec-vec operators across all data types
+TEST_F(VulkanBackendTest, BinaryVecVecOperators) {
+  for (DataType dtype : kAllDataTypes) {
+    SCOPED_TRACE(std::string("DataType: ") + dataTypeName(dtype));
 
-  // Ops that produce valid GLSL for ivec4
-  constexpr std::array<OperatorEnum, 22> kInt32BinaryVecVecOps = {
-      // Arithmetic
-      BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
-      // Comparison
-      BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
-      BinaryGreaterEqual,
-      // Min/Max
-      BinaryMin, BinaryMax,
-      // Bitwise
-      BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor, BinaryLeftShift,
-      BinaryRightShift,
-      // Logical
-      BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(int32_t);
-
-      auto dataA = generateTestData<int32_t>(elements, 42);
-      auto dataB = generateTestData<int32_t>(elements, 123);
-
-      // Clamp shift amounts to [0, 15] to avoid overflow
-      std::vector<int32_t> dataBShift = dataB;
-      for (auto &v : dataBShift) {
-        v = v % 16;
-      }
-
-      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-      auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
-      auto bufferBShift =
-          runtime_->createTensor(shape, dtype, dataBShift.data());
-
-      for (OperatorEnum op : kInt32BinaryVecVecOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        bool isShift = (op == BinaryLeftShift || op == BinaryRightShift);
-        const auto &rhsData = isShift ? dataBShift : dataB;
-        const auto &rhsBuf = isShift ? bufferBShift : bufferB;
-
-        auto bufferOut = runtime_->ops().binaryOp(op, bufferA, rhsBuf);
-
-        std::vector<int32_t> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        for (uint32_t i = 0; i < elements; ++i) {
-          int32_t expected = binaryVecVecRef(op, dataA[i], rhsData[i]);
-          EXPECT_EQ(output[i], expected)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
-  }
-}
-
-TEST_F(VulkanBackendTest, BinaryVecVecOperators_UInt32) {
-  const DataType dtype = DataType::UInt32;
-
-  // Ops that produce valid GLSL for uvec4
-  constexpr std::array<OperatorEnum, 22> kUInt32BinaryVecVecOps = {
-      // Arithmetic
-      BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
-      // Comparison
-      BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
-      BinaryGreaterEqual,
-      // Min/Max
-      BinaryMin, BinaryMax,
-      // Bitwise
-      BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor, BinaryLeftShift,
-      BinaryRightShift,
-      // Logical
-      BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(uint32_t);
-
-      auto dataA = generateTestData<uint32_t>(elements, 42);
-      auto dataB = generateTestData<uint32_t>(elements, 123);
-
-      // Clamp shift amounts to [0, 15] to avoid overflow
-      std::vector<uint32_t> dataBShift = dataB;
-      for (auto &v : dataBShift) {
-        v = v % 16;
-      }
-
-      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-      auto bufferB = runtime_->createTensor(shape, dtype, dataB.data());
-      auto bufferBShift =
-          runtime_->createTensor(shape, dtype, dataBShift.data());
-
-      for (OperatorEnum op : kUInt32BinaryVecVecOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        bool isShift = (op == BinaryLeftShift || op == BinaryRightShift);
-        const auto &rhsData = isShift ? dataBShift : dataB;
-        const auto &rhsBuf = isShift ? bufferBShift : bufferB;
-
-        auto bufferOut = runtime_->ops().binaryOp(op, bufferA, rhsBuf);
-
-        std::vector<uint32_t> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        for (uint32_t i = 0; i < elements; ++i) {
-          uint32_t expected = binaryVecVecRef(op, dataA[i], rhsData[i]);
-          EXPECT_EQ(output[i], expected)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
+    switch (dtype) {
+    case DataType::Float32:
+      testBinaryVecVec<float>(runtime_.get(), dtype);
+      break;
+    case DataType::Float16:
+      // Float16 requires fp16 conversion utilities; skip for now
+      continue;
+    case DataType::Int32:
+      testBinaryVecVec<int32_t>(runtime_.get(), dtype);
+      break;
+    case DataType::UInt32:
+      testBinaryVecVec<uint32_t>(runtime_.get(), dtype);
+      break;
     }
   }
 }
