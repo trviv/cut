@@ -38,17 +38,12 @@ Tensor GraphBuilder::input(const Tensor &gpuHandle, bool isConstant) {
 // ============================================================================
 
 Tensor
-GraphBuilder::binaryOp(OperatorEnum op, const Tensor &a, const Tensor &b) {
+GraphBuilder::binaryOp(OperatorEnum op, const Tensor &a, const TensorLike &b) {
   return ops_->binaryOp(op, a, b);
 }
 
 Tensor GraphBuilder::unaryOp(OperatorEnum op, const Tensor &a) {
   return ops_->unaryOp(op, a);
-}
-
-Tensor
-GraphBuilder::vecScalarOp(OperatorEnum op, const Tensor &a, float scalar) {
-  return ops_->vecScalarOp(op, a, DataReference(&scalar, sizeof(float)));
 }
 
 // ============================================================================

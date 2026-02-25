@@ -39,9 +39,8 @@ public:
 
   // === Element-wise ops ===
 
-  Tensor binaryOp(OperatorEnum op, const Tensor &a, const Tensor &b);
+  Tensor binaryOp(OperatorEnum op, const Tensor &a, const TensorLike &b);
   Tensor unaryOp(OperatorEnum op, const Tensor &a);
-  Tensor vecScalarOp(OperatorEnum op, const Tensor &a, float scalar);
 
   // === Reduction ===
 

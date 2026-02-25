@@ -291,7 +291,7 @@ cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
                                  config_.norm_eps);
 
   // 3. Scale x
-  auto normalized = ops_->vecScalarOp(cut::BinaryMul, x, scale);
+  auto normalized = ops_->binaryOp(cut::BinaryMul, x, scale);
 
   // 4. Multiply by weight
   return ops_->binaryOp(cut::BinaryMul, normalized, weight);

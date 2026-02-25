@@ -1473,7 +1473,7 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalar);
+        auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalar);
 
         std::vector<float> output(elements);
         runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -1937,7 +1937,7 @@ TEST_F(NonAlignedInnermostTest, VecScalar_2D_NonAlignedInnermost) {
 
     auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
 
-    auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalar);
+    auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalar);
 
     std::vector<float> output(elements);
     runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -2927,7 +2927,7 @@ TEST_F(NewOpsShaderCompileTest, NewBinaryVecScalar_ParameterizedActivations) {
                           BinaryLogaddexp, BinaryLogaddexp2}) {
     SCOPED_TRACE(std::string("Op: ") + operatorName(op));
 
-    bufOut = runtime_->ops().vecScalarOp(op, bufA, scalar);
+    bufOut = runtime_->ops().binaryOp(op, bufA, scalar);
 
     std::vector<float> output(elements);
     runtime_->copyFromTensor(bufOut, output.data(), bufferSize);
@@ -3533,7 +3533,7 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Int32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalar);
+        auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalar);
 
         std::vector<int32_t> output(elements);
         runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -3578,7 +3578,7 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_UInt32) {
         SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
                      " Shape: " + shapeToString(shape));
 
-        auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalar);
+        auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalar);
 
         std::vector<uint32_t> output(elements);
         runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -5055,7 +5055,7 @@ TEST_F(VulkanBackendTest, TemporaryTensors_ChainedOps) {
 
   {
     auto neg = runtime_->ops().unaryOp(UnaryNeg, a);
-    auto added = runtime_->ops().vecScalarOp(BinaryAdd, neg, 10.0f);
+    auto added = runtime_->ops().binaryOp(BinaryAdd, neg, 10.0f);
     runtime_->flush();
     EXPECT_EQ(runtime_->bufferCount(), before + 2);
   }
@@ -6324,8 +6324,8 @@ TEST_F(BinaryVecScalarHandleTest, BinaryAdd_Handle_1D) {
   auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
   auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-  // Use vecScalarOp with compute handle of size 1
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+  // Use binaryOp with compute handle of size 1
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6350,7 +6350,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryMul_Handle_2D) {
   auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
   auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6375,7 +6375,7 @@ TEST_F(BinaryVecScalarHandleTest, BinarySub_Handle_3D) {
   auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
   auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6400,7 +6400,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryDiv_Handle_4D) {
   auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
   auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6430,7 +6430,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryMax_Handle_NonAligned) {
     auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
     auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-    auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+    auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
     std::vector<float> output(elements);
     runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6461,7 +6461,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryMin_Handle_NonAligned) {
     auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
     auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-    auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+    auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
     std::vector<float> output(elements);
     runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6492,7 +6492,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryPow_Handle) {
   auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
   auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6521,10 +6521,9 @@ TEST_F(BinaryVecScalarHandleTest, BinaryVecScalar_Handle_MultipleOps) {
   auto scalarBuffer2 = runtime_->createTensor({1}, dtype, &scalar2);
 
   // Perform: (A * 2.0) + 3.0
-  auto bufferTemp =
-      runtime_->ops().vecScalarOp(BinaryMul, bufferA, scalarBuffer1);
+  auto bufferTemp = runtime_->ops().binaryOp(BinaryMul, bufferA, scalarBuffer1);
   auto bufferOut =
-      runtime_->ops().vecScalarOp(BinaryAdd, bufferTemp, scalarBuffer2);
+      runtime_->ops().binaryOp(BinaryAdd, bufferTemp, scalarBuffer2);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6550,7 +6549,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryLess_Handle) {
   auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
   auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6575,7 +6574,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryGreater_Handle) {
   auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
   auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6601,7 +6600,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryLeakyRelu_Handle) {
   auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
   auto alphaBuffer = runtime_->createTensor({1}, dtype, &alpha);
 
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, alphaBuffer);
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, alphaBuffer);
 
   std::vector<float> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6632,7 +6631,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryAdd_Handle_Int32) {
   auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
   auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
   std::vector<int32_t> output(elements);
   runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
@@ -6658,7 +6657,7 @@ TEST_F(BinaryVecScalarHandleTest, BinaryMul_Handle_SingleElement) {
   auto bufferA = runtime_->createTensor(shape, dtype, &dataA);
   auto scalarBuffer = runtime_->createTensor({1}, dtype, &scalarValue);
 
-  auto bufferOut = runtime_->ops().vecScalarOp(op, bufferA, scalarBuffer);
+  auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
   float output;
   runtime_->copyFromTensor(bufferOut, &output, bufferSize);

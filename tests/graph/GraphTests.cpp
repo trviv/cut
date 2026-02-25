@@ -409,7 +409,7 @@ TEST_F(GraphTest, ExecutorVecScalarOp) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto scaled = builder.vecScalarOp(BinaryMul, va, 0.5f);
+  auto scaled = builder.binaryOp(BinaryMul, va, 0.5f);
   builder.markOutput(scaled);
   auto graph = builder.build();
 
@@ -615,7 +615,7 @@ TEST_F(GraphTest, RuntimeGraphModeChain) {
   auto sum = ops.binaryOp(BinaryAdd, a, b);
   float two = 2.0f;
   auto scaled =
-      ops.vecScalarOp(BinaryMul, sum, DataReference(&two, sizeof(float)));
+      ops.binaryOp(BinaryMul, sum, DataReference(&two, sizeof(float)));
   std::vector<float> output(4);
   runtime_.copyFromTensor(scaled, output.data(), 4 * sizeof(float));
 

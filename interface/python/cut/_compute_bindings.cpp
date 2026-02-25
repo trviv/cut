@@ -667,16 +667,16 @@ PYBIND11_MODULE(_cut_compute, m) {
         auto dtype = getRuntime().getTensor(a).getDtype();
         if (dtype == cut::DataType::Float32) {
           float val = scalar.cast<float>();
-          return getOps().vecScalarOp(op, a, cut::DataReference(val));
+          return getOps().binaryOp(op, a, cut::DataReference(val));
         } else if (dtype == cut::DataType::Int32) {
           int32_t val = scalar.cast<int32_t>();
-          return getOps().vecScalarOp(op, a, cut::DataReference(val));
+          return getOps().binaryOp(op, a, cut::DataReference(val));
         } else if (dtype == cut::DataType::UInt32) {
           uint32_t val = scalar.cast<uint32_t>();
-          return getOps().vecScalarOp(op, a, cut::DataReference(val));
+          return getOps().binaryOp(op, a, cut::DataReference(val));
         } else {
           uint16_t val = scalar.cast<uint16_t>();
-          return getOps().vecScalarOp(op, a, cut::DataReference(val));
+          return getOps().binaryOp(op, a, cut::DataReference(val));
         }
       },
       py::arg("op"), py::arg("a"), py::arg("scalar"),

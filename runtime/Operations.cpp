@@ -135,14 +135,6 @@ Tensor Operations::unaryOp(OperatorEnum op,
   return recordOrEncode(std::move(node));
 }
 
-Tensor Operations::vecScalarOp(OperatorEnum op,
-                               const Tensor &a,
-                               const TensorLike &b,
-                               std::optional<uint32_t> spec) {
-  // Temporary wrapper - will be removed in final cleanup
-  return binaryOp(op, a, b, spec);
-}
-
 // =========================================================================
 // Reduction ops
 // =========================================================================
@@ -267,8 +259,8 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
     Tensor sumSq = reduce(OperatorEnum::ReduceSum, diffSq);
     int denom = static_cast<int>(n) - correction;
     if (denom > 0) {
-      return vecScalarOp(OperatorEnum::BinaryDiv, sumSq,
-                         static_cast<float>(denom));
+      return binaryOp(OperatorEnum::BinaryDiv, sumSq,
+                      static_cast<float>(denom));
     }
     return full({1}, 0.0f, dtype);
   }
@@ -290,8 +282,7 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
   Tensor sumSq = reduce(OperatorEnum::ReduceSum, diffSq, d);
   int denom = static_cast<int>(reduceSize) - correction;
   if (denom > 0) {
-    return vecScalarOp(OperatorEnum::BinaryDiv, sumSq,
-                       static_cast<float>(denom));
+    return binaryOp(OperatorEnum::BinaryDiv, sumSq, static_cast<float>(denom));
   }
   return full(computeDimParams(shape, d).outShape, 0.0f, dtype);
 }
@@ -775,7 +766,7 @@ Tensor Operations::layerNorm(const Tensor &input,
   Tensor diff = binaryOp(OperatorEnum::BinarySub, flat, meanExp);
   Tensor diffSq = unaryOp(OperatorEnum::UnarySquare, diff);
   Tensor varVal = reduce(OperatorEnum::ReduceMean, diffSq, 1);
-  Tensor varEps = vecScalarOp(OperatorEnum::BinaryAdd, varVal, eps);
+  Tensor varEps = binaryOp(OperatorEnum::BinaryAdd, varVal, eps);
   Tensor invStd = unaryOp(OperatorEnum::UnaryRsqrt, varEps);
   Tensor invStdUnsq = unsqueeze(invStd, 1);
   Tensor invStdExp = expand(invStdUnsq, flatShape);
@@ -865,7 +856,7 @@ Tensor Operations::batchNorm(const Tensor &input,
   std::vector<int32_t> chanShape = {1, static_cast<int32_t>(C), 1};
 
   // invStd = rsqrt(runningVar + eps)
-  Tensor varEps = vecScalarOp(OperatorEnum::BinaryAdd, runningVar, eps);
+  Tensor varEps = binaryOp(OperatorEnum::BinaryAdd, runningVar, eps);
   Tensor invStd = unaryOp(OperatorEnum::UnaryRsqrt, varEps);
 
   // scale = weight * invStd  (or just invStd if no weight)

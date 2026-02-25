@@ -37,11 +37,6 @@ public:
   Tensor
   unaryOp(OperatorEnum op, const Tensor &a, std::optional<uint32_t> spec = {});
 
-  Tensor vecScalarOp(OperatorEnum op,
-                     const Tensor &a,
-                     const TensorLike &b,
-                     std::optional<uint32_t> spec = {});
-
   // ===== Reduction ops =====
 
   Tensor reduce(OperatorEnum op,
