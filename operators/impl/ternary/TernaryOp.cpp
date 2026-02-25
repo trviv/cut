@@ -20,7 +20,6 @@ TernaryClampOpNode::TernaryClampOpNode(Runtime &runtime,
   numElements_ = alignedElementCount(buf.getShape());
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType TernaryClampOpNode::shaderDtype() const {
@@ -76,7 +75,6 @@ TernarySelectOpNode::TernarySelectOpNode(Runtime &runtime,
   }
   inputs_ = {cond, x, y};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType TernarySelectOpNode::shaderDtype() const {

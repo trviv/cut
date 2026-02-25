@@ -14,7 +14,6 @@ PrefixScanOpNode::PrefixScanOpNode(OperatorEnum op,
   numElements_ = actualElementCount(buf.getShape());
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType PrefixScanOpNode::shaderDtype() const {

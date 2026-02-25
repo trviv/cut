@@ -27,7 +27,6 @@ CopyOpNode::CopyOpNode(Runtime &runtime,
     totalElements_ = 1;
   inputs_ = {src};
   output_ = runtime.createTensorEmpty(dstShape_, dtype_);
-  hasOutput_ = true;
 }
 
 DataType CopyOpNode::shaderDtype() const {
@@ -88,7 +87,6 @@ EmbeddingOpNode::EmbeddingOpNode(Runtime &runtime,
   outShape_.push_back(embDim_);
   inputs_ = {indices, weight};
   output_ = runtime.createTensorEmpty(outputShape(), DataType::Float32);
-  hasOutput_ = true;
 }
 
 DataType EmbeddingOpNode::shaderDtype() const {
@@ -169,7 +167,6 @@ PadOpNode::PadOpNode(Runtime &runtime,
   }
   inputs_ = {input};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType PadOpNode::shaderDtype() const {
@@ -244,7 +241,6 @@ ExpandOpNode::ExpandOpNode(Runtime &runtime,
 
   inputs_ = {src};
   output_ = runtime.createTensorEmpty(outShape_, dtype_);
-  hasOutput_ = true;
 }
 
 DataType ExpandOpNode::shaderDtype() const {

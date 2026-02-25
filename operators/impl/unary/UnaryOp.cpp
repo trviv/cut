@@ -15,7 +15,6 @@ UnaryOpNode::UnaryOpNode(OperatorEnum op,
   numElements_ = alignedElementCount(buf.getShape());
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType UnaryOpNode::shaderDtype() const {

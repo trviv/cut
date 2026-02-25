@@ -33,7 +33,6 @@ AvgPool2DOpNode::AvgPool2DOpNode(Runtime &runtime,
   resolvedVariant_ = spec.value_or(kAvgPool2DDefaultVariant);
   inputs_ = {input};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType AvgPool2DOpNode::shaderDtype() const {

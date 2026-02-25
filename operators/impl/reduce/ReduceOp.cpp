@@ -39,7 +39,6 @@ GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
   alignedInner_ = (actualInner_ + 3) & ~static_cast<uint32_t>(3);
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType GlobalReduceOpNode::shaderDtype() const {
@@ -139,7 +138,6 @@ NormOpNode::NormOpNode(Runtime &runtime,
   numElements_ = actualElementCount(buf.getShape());
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType NormOpNode::shaderDtype() const {
@@ -194,7 +192,6 @@ DotOpNode::DotOpNode(Runtime &runtime,
   numWorkgroups_ = (count_ + 255) / 256;
   inputs_ = {a, b};
   output_ = runtime.createTensorEmpty(outputShape(), DataType::Float32);
-  hasOutput_ = true;
 }
 
 DataType DotOpNode::shaderDtype() const {
@@ -265,7 +262,6 @@ CumOpNode::CumOpNode(OperatorEnum op,
   }
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType CumOpNode::shaderDtype() const {

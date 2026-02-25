@@ -28,7 +28,6 @@ MatMulOpNode::MatMulOpNode(Runtime &runtime,
   resolvedVariant_ = spec.value_or(kMatMulDefaultVariant);
   inputs_ = {a, b};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType MatMulOpNode::shaderDtype() const {

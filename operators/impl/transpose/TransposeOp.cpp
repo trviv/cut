@@ -18,7 +18,6 @@ TransposeOpNode::TransposeOpNode(Runtime &runtime,
   resolvedVariant_ = spec.value_or(kTransposeDefaultVariant);
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType TransposeOpNode::shaderDtype() const {

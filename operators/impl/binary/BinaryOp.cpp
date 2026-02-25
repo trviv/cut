@@ -61,7 +61,6 @@ BinaryOpNode::BinaryOpNode(OperatorEnum op,
   }
 
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType BinaryOpNode::shaderDtype() const {

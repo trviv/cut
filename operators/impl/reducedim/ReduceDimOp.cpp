@@ -53,7 +53,6 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
   resolvedVariant_ = spec.value_or(kReduceDimDefaultVariant);
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType DimReduceOpNode::shaderDtype() const {

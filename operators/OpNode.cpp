@@ -53,7 +53,7 @@ std::vector<ComputeBinding> OpNode::bindings() const {
   for (const auto &h : inputs_) {
     result.emplace_back(idx++, h);
   }
-  if (hasOutput_) {
+  if (output_) {
     result.emplace_back(idx++, output_);
   }
   auto pc = pushConstants();

@@ -32,7 +32,6 @@ Conv1DOpNode::Conv1DOpNode(Runtime &runtime,
   resolvedVariant_ = spec.value_or(kConv1DDefaultVariant);
   inputs_ = {input, weight};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType Conv1DOpNode::shaderDtype() const {

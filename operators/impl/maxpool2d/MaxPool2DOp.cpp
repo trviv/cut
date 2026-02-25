@@ -33,7 +33,6 @@ MaxPool2DOpNode::MaxPool2DOpNode(Runtime &runtime,
   resolvedVariant_ = spec.value_or(kMaxPool2DDefaultVariant);
   inputs_ = {input};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
-  hasOutput_ = true;
 }
 
 DataType MaxPool2DOpNode::shaderDtype() const {

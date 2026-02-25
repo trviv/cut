@@ -175,10 +175,9 @@ protected:
   OperatorEnum op_;
   Runtime *runtime_;
   std::optional<uint32_t> spec_;
-  std::vector<Tensor> inputs_;
-  Tensor output_;
-  bool hasOutput_ = false;
-  std::vector<std::unique_ptr<OpNode>> subOps_;
+  std::vector<Tensor> inputs_{};
+  Tensor output_{};
+  std::vector<std::unique_ptr<OpNode>> subOps_{};
 
   // Graph metadata
   std::vector<uint32_t> graphInputIds_;
