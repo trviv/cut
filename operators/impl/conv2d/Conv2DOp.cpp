@@ -36,7 +36,7 @@ Conv2DOpNode::Conv2DOpNode(Runtime &runtime,
     throw std::runtime_error("conv2d: weight C_in dimension mismatch");
   H_out_ = (H_in_ + 2 * padH_ - kH_) / strideH_ + 1;
   W_out_ = (W_in_ + 2 * padW_ - kW_) / strideW_ + 1;
-  resolvedVariant_ = spec.value_or(kConv2DDefaultVariant);
+  spec_ = spec.value_or(kConv2DDefaultVariant);
   inputs_ = {input, weight};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
 }
@@ -45,12 +45,8 @@ DataType Conv2DOpNode::shaderDtype() const {
   return dtype_;
 }
 
-std::optional<uint32_t> Conv2DOpNode::spec() const {
-  return resolvedVariant_;
-}
-
 std::optional<std::vector<uint32_t>> Conv2DOpNode::shader() const {
-  return getCompiledConv2D(resolvedVariant_, dtype_);
+  return getCompiledConv2D(*spec_, dtype_);
 }
 
 std::vector<uint32_t> Conv2DOpNode::outputShape() const {
@@ -58,8 +54,8 @@ std::vector<uint32_t> Conv2DOpNode::outputShape() const {
 }
 
 ThreadSize Conv2DOpNode::dispatchSize() const {
-  const auto &info = kConv2DVariants[resolvedVariant_];
-  if (resolvedVariant_ == 0) {
+  const auto &info = kConv2DVariants[*spec_];
+  if (*spec_ == 0) {
     // Naive: x = W_out, y = linearized(N*C_out*H_out)
     uint32_t gridX = ((W_out_ + info.effTileN - 1) / info.effTileN) * info.wgX;
     uint32_t gridY =

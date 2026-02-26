@@ -25,7 +25,7 @@ MatMulOpNode::MatMulOpNode(Runtime &runtime,
   M_ = shapeA[0];
   K_ = shapeA[1];
   N_ = shapeB[1];
-  resolvedVariant_ = spec.value_or(kMatMulDefaultVariant);
+  spec_ = spec.value_or(kMatMulDefaultVariant);
   inputs_ = {a, b};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
 }
@@ -36,12 +36,9 @@ DataType MatMulOpNode::shaderDtype() const {
 DataType MatMulOpNode::outputDtype() const {
   return DataType::Float32;
 }
-std::optional<uint32_t> MatMulOpNode::spec() const {
-  return resolvedVariant_;
-}
 
 std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
-  return getCompiledMatMul(resolvedVariant_, dtype_);
+  return getCompiledMatMul(*spec_, dtype_);
 }
 
 std::vector<uint32_t> MatMulOpNode::outputShape() const {
@@ -49,7 +46,7 @@ std::vector<uint32_t> MatMulOpNode::outputShape() const {
 }
 
 ThreadSize MatMulOpNode::dispatchSize() const {
-  const auto &info = kMatMulVariants[resolvedVariant_];
+  const auto &info = kMatMulVariants[*spec_];
   uint32_t gridX = ((N_ + info.effTileN - 1) / info.effTileN) * info.wgX;
   uint32_t gridY = ((M_ + info.effTileM - 1) / info.effTileM) * info.wgY;
   return {gridX, gridY, 1};

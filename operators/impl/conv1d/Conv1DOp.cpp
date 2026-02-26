@@ -29,7 +29,7 @@ Conv1DOpNode::Conv1DOpNode(Runtime &runtime,
   if (wShape[1] != C_in_)
     throw std::runtime_error("conv1d: weight C_in dimension mismatch");
   L_out_ = (L_in_ + 2 * padding_ - kL_) / stride_ + 1;
-  resolvedVariant_ = spec.value_or(kConv1DDefaultVariant);
+  spec_ = spec.value_or(kConv1DDefaultVariant);
   inputs_ = {input, weight};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
 }
@@ -38,12 +38,8 @@ DataType Conv1DOpNode::shaderDtype() const {
   return dtype_;
 }
 
-std::optional<uint32_t> Conv1DOpNode::spec() const {
-  return resolvedVariant_;
-}
-
 std::optional<std::vector<uint32_t>> Conv1DOpNode::shader() const {
-  return getCompiledConv1D(resolvedVariant_, dtype_);
+  return getCompiledConv1D(*spec_, dtype_);
 }
 
 std::vector<uint32_t> Conv1DOpNode::outputShape() const {
@@ -51,8 +47,8 @@ std::vector<uint32_t> Conv1DOpNode::outputShape() const {
 }
 
 ThreadSize Conv1DOpNode::dispatchSize() const {
-  const auto &info = kConv1DVariants[resolvedVariant_];
-  if (resolvedVariant_ == 0) {
+  const auto &info = kConv1DVariants[*spec_];
+  if (*spec_ == 0) {
     // Naive: linear dispatch over all output elements
     uint32_t totalOutputs = N_ * C_out_ * L_out_;
     uint32_t gridX = ((totalOutputs + info.wgX - 1) / info.wgX) * info.wgX;

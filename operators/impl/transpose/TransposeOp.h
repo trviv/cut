@@ -17,7 +17,6 @@ public:
 
   DataType shaderDtype() const override;
   DataType outputDtype() const override;
-  std::optional<uint32_t> spec() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -26,7 +25,6 @@ public:
 private:
   DataType dtype_;
   uint32_t M_, N_;
-  uint32_t resolvedVariant_;
 };
 
 } // namespace cut

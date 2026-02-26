@@ -81,7 +81,7 @@ public:
   virtual DataType shaderDtype() const = 0;
 
   /// Returns the optional specialization index.
-  virtual std::optional<uint32_t> spec() const { return spec_; }
+  std::optional<uint32_t> spec() const { return spec_; }
 
   /// Returns SPIR-V bytecode for this node's shader.
   /// Default calls getShader(op_, shaderDtype()). Override for variant ops

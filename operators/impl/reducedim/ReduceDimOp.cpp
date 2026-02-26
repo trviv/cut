@@ -50,7 +50,7 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
     inReduceStride_ = 1;
     inOuterStride_ = alignedBufInner_;
   }
-  resolvedVariant_ = spec.value_or(kReduceDimDefaultVariant);
+  spec_ = spec.value_or(kReduceDimDefaultVariant);
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
 }
@@ -60,7 +60,7 @@ DataType DimReduceOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> DimReduceOpNode::shader() const {
-  return getDimReduceShader(op_, dtype_, resolvedVariant_);
+  return getDimReduceShader(op_, dtype_, *spec_);
 }
 
 std::vector<uint32_t> DimReduceOpNode::outputShape() const {
@@ -69,7 +69,7 @@ std::vector<uint32_t> DimReduceOpNode::outputShape() const {
 
 ThreadSize DimReduceOpNode::dispatchSize() const {
   uint32_t numOutputs = outerSize_ * innerSize_;
-  if (resolvedVariant_ == 0) {
+  if (*spec_ == 0) {
     // Naive: one thread per output element
     uint32_t gridX = ((numOutputs + 255) / 256) * 256;
     return {gridX, 1, 1};

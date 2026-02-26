@@ -30,7 +30,7 @@ AvgPool2DOpNode::AvgPool2DOpNode(Runtime &runtime,
   W_in_ = shape[3];
   H_out_ = (H_in_ + 2 * padH_ - kernelH_) / strideH_ + 1;
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
-  resolvedVariant_ = spec.value_or(kAvgPool2DDefaultVariant);
+  spec_ = spec.value_or(kAvgPool2DDefaultVariant);
   inputs_ = {input};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
 }
@@ -39,12 +39,8 @@ DataType AvgPool2DOpNode::shaderDtype() const {
   return dtype_;
 }
 
-std::optional<uint32_t> AvgPool2DOpNode::spec() const {
-  return resolvedVariant_;
-}
-
 std::optional<std::vector<uint32_t>> AvgPool2DOpNode::shader() const {
-  return getCompiledAvgPool2D(resolvedVariant_, dtype_);
+  return getCompiledAvgPool2D(*spec_, dtype_);
 }
 
 std::vector<uint32_t> AvgPool2DOpNode::outputShape() const {
@@ -52,8 +48,8 @@ std::vector<uint32_t> AvgPool2DOpNode::outputShape() const {
 }
 
 ThreadSize AvgPool2DOpNode::dispatchSize() const {
-  const auto &info = kAvgPool2DVariants[resolvedVariant_];
-  if (resolvedVariant_ == 0) {
+  const auto &info = kAvgPool2DVariants[*spec_];
+  if (*spec_ == 0) {
     // Naive variant: original dispatch logic (vec4 output)
     uint32_t outAlignedW4 = ((W_out_ + 3) & ~3u) / 4;
     uint32_t gridX = ((outAlignedW4 + info.wgX - 1) / info.wgX) * info.wgX;

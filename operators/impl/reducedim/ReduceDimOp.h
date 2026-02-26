@@ -26,7 +26,6 @@ private:
   uint32_t inReduceStride_, inOuterStride_;
   uint32_t bufInnerDim_, alignedBufInner_;
   std::vector<uint32_t> outShape_;
-  uint32_t resolvedVariant_;
 };
 
 } // namespace cut

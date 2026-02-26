@@ -15,7 +15,7 @@ TransposeOpNode::TransposeOpNode(Runtime &runtime,
   }
   M_ = shape[0];
   N_ = shape[1];
-  resolvedVariant_ = spec.value_or(kTransposeDefaultVariant);
+  spec_ = spec.value_or(kTransposeDefaultVariant);
   inputs_ = {a};
   output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
 }
@@ -28,12 +28,8 @@ DataType TransposeOpNode::outputDtype() const {
   return dtype_;
 }
 
-std::optional<uint32_t> TransposeOpNode::spec() const {
-  return resolvedVariant_;
-}
-
 std::optional<std::vector<uint32_t>> TransposeOpNode::shader() const {
-  return getCompiledTranspose(resolvedVariant_, dtype_);
+  return getCompiledTranspose(*spec_, dtype_);
 }
 
 std::vector<uint32_t> TransposeOpNode::outputShape() const {
@@ -41,8 +37,8 @@ std::vector<uint32_t> TransposeOpNode::outputShape() const {
 }
 
 ThreadSize TransposeOpNode::dispatchSize() const {
-  const auto &info = kTransposeVariants[resolvedVariant_];
-  if (resolvedVariant_ == 0) {
+  const auto &info = kTransposeVariants[*spec_];
+  if (*spec_ == 0) {
     // Naive variant: original dispatch logic (vec4 output writes)
     uint32_t alignedM = (M_ + 3) & ~3u;
     uint32_t gridX = ((N_ + info.wgX - 1) / info.wgX) * info.wgX;
