@@ -429,25 +429,29 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   auto vWk = builder.input(layer.wk, /*isConstant=*/true);
   auto vWv = builder.input(layer.wv, /*isConstant=*/true);
 
-  auto normed_2d = builder.reshape(vNormed, {1, dim});
+  auto normed_2d = builder.ops().reshape(vNormed, {1, dim});
 
-  auto q = builder.matmul(normed_2d, vWq);
+  auto q = builder.ops().matmul(normed_2d, vWq);
   // Identity reshape (optimizer: IdentityReshapePass eliminates)
-  auto q_id = builder.reshape(q, {1, dim});
+  auto q_id = builder.ops().reshape(q, {1, dim});
   // Reshape chain with above (optimizer: ReshapeChainPass collapses)
-  auto q_flat = builder.reshape(
+  auto q_flat = builder.ops().reshape(
       q_id, {static_cast<int32_t>(config_.n_heads * config_.head_dim)});
 
-  auto k = builder.matmul(normed_2d, vWk);
-  auto k_id = builder.reshape(k, {1, static_cast<int32_t>(config_.kv_dim)});
-  auto k_flat = builder.reshape(k_id, {static_cast<int32_t>(config_.kv_dim)});
+  auto k = builder.ops().matmul(normed_2d, vWk);
+  auto k_id =
+      builder.ops().reshape(k, {1, static_cast<int32_t>(config_.kv_dim)});
+  auto k_flat =
+      builder.ops().reshape(k_id, {static_cast<int32_t>(config_.kv_dim)});
 
-  auto v = builder.matmul(normed_2d, vWv);
-  auto v_id = builder.reshape(v, {1, static_cast<int32_t>(config_.kv_dim)});
-  auto v_flat = builder.reshape(v_id, {static_cast<int32_t>(config_.kv_dim)});
+  auto v = builder.ops().matmul(normed_2d, vWv);
+  auto v_id =
+      builder.ops().reshape(v, {1, static_cast<int32_t>(config_.kv_dim)});
+  auto v_flat =
+      builder.ops().reshape(v_id, {static_cast<int32_t>(config_.kv_dim)});
 
   // Dead code: result never used (optimizer: DeadCodePass removes)
-  builder.transpose(q);
+  builder.ops().transpose(q);
 
   builder.markOutput(q_flat);
   builder.markOutput(k_flat);
@@ -477,16 +481,16 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   auto vWo = builder.input(layer.wo, /*isConstant=*/true);
   auto vHidden = builder.input(layer.ffn_norm, /*isConstant=*/false);
 
-  auto attn_2d = builder.reshape(vAttnOut, {1, dim});
-  auto proj = builder.matmul(attn_2d, vWo);
+  auto attn_2d = builder.ops().reshape(vAttnOut, {1, dim});
+  auto proj = builder.ops().matmul(attn_2d, vWo);
   // Identity reshape (optimizer: IdentityReshapePass eliminates)
-  auto proj_id = builder.reshape(proj, {1, dim});
+  auto proj_id = builder.ops().reshape(proj, {1, dim});
   // Reshape chain (optimizer: ReshapeChainPass collapses)
-  auto proj_1d = builder.reshape(proj_id, {dim});
-  auto result = builder.binaryOp(cut::BinaryAdd, vHidden, proj_1d);
+  auto proj_1d = builder.ops().reshape(proj_id, {dim});
+  auto result = builder.ops().binaryOp(cut::BinaryAdd, vHidden, proj_1d);
 
   // Dead code: unused transpose (optimizer: DeadCodePass removes)
-  builder.transpose(proj);
+  builder.ops().transpose(proj);
 
   builder.markOutput(result);
 
@@ -513,29 +517,29 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   auto vWDown = builder.input(layer.w_down, /*isConstant=*/true);
   auto vHidden = builder.input(layer.attn_norm, /*isConstant=*/false);
 
-  auto x_2d = builder.reshape(vNormed, {1, dim});
+  auto x_2d = builder.ops().reshape(vNormed, {1, dim});
 
   int32_t ffn = static_cast<int32_t>(config_.ffn_dim);
 
-  auto gate = builder.matmul(x_2d, vWGate);
+  auto gate = builder.ops().matmul(x_2d, vWGate);
   // Identity reshape (optimizer: IdentityReshapePass eliminates)
-  auto gate_id = builder.reshape(gate, {1, ffn});
-  auto up = builder.matmul(x_2d, vWUp);
+  auto gate_id = builder.ops().reshape(gate, {1, ffn});
+  auto up = builder.ops().matmul(x_2d, vWUp);
   // Identity reshape (optimizer: IdentityReshapePass eliminates)
-  auto up_id = builder.reshape(up, {1, ffn});
+  auto up_id = builder.ops().reshape(up, {1, ffn});
 
-  auto gate_silu = builder.unaryOp(cut::UnarySilu, gate_id);
-  auto gate_up = builder.binaryOp(cut::BinaryMul, gate_silu, up_id);
+  auto gate_silu = builder.ops().unaryOp(cut::UnarySilu, gate_id);
+  auto gate_up = builder.ops().binaryOp(cut::BinaryMul, gate_silu, up_id);
 
-  auto out = builder.matmul(gate_up, vWDown);
+  auto out = builder.ops().matmul(gate_up, vWDown);
   // Identity reshape + reshape chain (optimizer eliminates both)
-  auto out_id = builder.reshape(out, {1, dim});
-  auto out_1d = builder.reshape(out_id, {dim});
+  auto out_id = builder.ops().reshape(out, {1, dim});
+  auto out_1d = builder.ops().reshape(out_id, {dim});
 
   // Dead code: unused transpose (optimizer: DeadCodePass removes)
-  builder.transpose(gate);
+  builder.ops().transpose(gate);
 
-  auto result = builder.binaryOp(cut::BinaryAdd, vHidden, out_1d);
+  auto result = builder.ops().binaryOp(cut::BinaryAdd, vHidden, out_1d);
 
   builder.markOutput(result);
 
@@ -558,14 +562,15 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
   auto vHidden = builder.input(output_norm_, /*isConstant=*/false);
   auto vOutWeight = builder.input(output_weight_, /*isConstant=*/true);
 
-  auto hidden_2d = builder.reshape(vHidden, {1, dim});
-  auto logits_raw = builder.matmul(hidden_2d, vOutWeight);
+  auto hidden_2d = builder.ops().reshape(vHidden, {1, dim});
+  auto logits_raw = builder.ops().matmul(hidden_2d, vOutWeight);
 
   // Dead code: identity reshape (optimizer: IdentityReshapePass + DeadCodePass)
-  builder.reshape(logits_raw, {1, static_cast<int32_t>(config_.vocab_size)});
+  builder.ops().reshape(logits_raw,
+                        {1, static_cast<int32_t>(config_.vocab_size)});
 
   // Dead code: unused transpose (optimizer: DeadCodePass removes)
-  builder.transpose(logits_raw);
+  builder.ops().transpose(logits_raw);
 
   builder.markOutput(logits_raw);
 

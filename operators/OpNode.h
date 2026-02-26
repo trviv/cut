@@ -7,7 +7,6 @@
 
 #include <cstdint>
 #include <cstring>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -17,7 +16,6 @@
 namespace cut {
 
 class Dispatcher;
-class Operations;
 class Runtime;
 
 // ============================================================================
@@ -254,42 +252,6 @@ private:
   std::vector<uint32_t> shape_;
   DataType dtype_;
   bool isConstant_;
-};
-
-// ============================================================================
-// DeferredOpNode — defers execution to Operations at graph execution time
-// ============================================================================
-
-/// For operations (variance, softmax, etc.) that compute on CPU and can't be
-/// represented as a single GPU dispatch. Stores a callable that re-dispatches
-/// through the Operations API at execution time.
-class DeferredOpNode : public OpNode {
-public:
-  using ExecuteFn =
-      std::function<Tensor(Operations &, const std::vector<Tensor> &)>;
-
-  DeferredOpNode(const std::vector<uint32_t> &shape,
-                 DataType dtype,
-                 std::string name,
-                 ExecuteFn fn);
-
-  std::string displayName() const override { return name_; }
-
-  DataType shaderDtype() const override { return dtype_; }
-  std::vector<uint32_t> outputShape() const override { return shape_; }
-  DataType outputDtype() const override { return dtype_; }
-  ThreadSize dispatchSize() const override { return {0, 0, 0}; }
-
-  Tensor execute(Operations &ops, const std::vector<Tensor> &inputs);
-
-protected:
-  std::vector<uint8_t> pushConstants() const override { return {}; }
-
-private:
-  std::vector<uint32_t> shape_;
-  DataType dtype_;
-  std::string name_;
-  ExecuteFn fn_;
 };
 
 // ============================================================================

@@ -140,22 +140,6 @@ std::string InputOpNode::displayName() const {
 }
 
 // ============================================================================
-// DeferredOpNode
-// ============================================================================
-
-DeferredOpNode::DeferredOpNode(const std::vector<uint32_t> &shape,
-                               DataType dtype,
-                               std::string name,
-                               ExecuteFn fn)
-    : OpNode(static_cast<OperatorEnum>(0)), shape_(shape), dtype_(dtype),
-      name_(std::move(name)), fn_(std::move(fn)) {}
-
-Tensor DeferredOpNode::execute(Operations &ops,
-                               const std::vector<Tensor> &inputs) {
-  return fn_(ops, inputs);
-}
-
-// ============================================================================
 // StubOpNode
 // ============================================================================
 

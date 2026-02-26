@@ -71,8 +71,8 @@ TEST_F(GraphTest, LinearChain) {
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
   auto vb = builder.input(b);
-  auto sum = builder.binaryOp(BinaryAdd, va, vb);
-  auto result = builder.unaryOp(UnarySqrt, sum);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto result = builder.ops().unaryOp(UnarySqrt, sum);
   builder.markOutput(result);
   auto graph = builder.build();
 
@@ -96,9 +96,9 @@ TEST_F(GraphTest, DiamondDAG) {
 
   GraphBuilder builder(runtime_);
   auto x = builder.input(t);
-  auto a = builder.unaryOp(UnarySin, x);
-  auto b = builder.unaryOp(UnaryCos, x);
-  auto c = builder.binaryOp(BinaryAdd, a, b);
+  auto a = builder.ops().unaryOp(UnarySin, x);
+  auto b = builder.ops().unaryOp(UnaryCos, x);
+  auto c = builder.ops().binaryOp(BinaryAdd, a, b);
   builder.markOutput(c);
   auto graph = builder.build();
 
@@ -115,7 +115,7 @@ TEST_F(GraphTest, MatMulShapeInference) {
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
   auto vb = builder.input(b);
-  auto c = builder.matmul(va, vb);
+  auto c = builder.ops().matmul(va, vb);
   builder.markOutput(c);
   auto graph = builder.build();
 
@@ -128,7 +128,7 @@ TEST_F(GraphTest, TransposeShapeInference) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto t = builder.transpose(va);
+  auto t = builder.ops().transpose(va);
   builder.markOutput(t);
   auto graph = builder.build();
 
@@ -140,7 +140,7 @@ TEST_F(GraphTest, ReshapeShapeInference) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto r = builder.reshape(va, {3, 4});
+  auto r = builder.ops().reshape(va, {3, 4});
   builder.markOutput(r);
   auto graph = builder.build();
 
@@ -152,7 +152,7 @@ TEST_F(GraphTest, ReshapeWithNegativeOne) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto r = builder.reshape(va, {3, -1});
+  auto r = builder.ops().reshape(va, {3, -1});
   builder.markOutput(r);
   auto graph = builder.build();
 
@@ -164,7 +164,7 @@ TEST_F(GraphTest, ReduceGlobalShapeInference) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto r = builder.reduce(ReduceSum, va);
+  auto r = builder.ops().reduce(ReduceSum, va);
   builder.markOutput(r);
   auto graph = builder.build();
 
@@ -176,7 +176,7 @@ TEST_F(GraphTest, ReduceDimShapeInference) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto r = builder.reduce(ReduceSum, va, 0);
+  auto r = builder.ops().reduce(ReduceSum, va, 0);
   builder.markOutput(r);
   auto graph = builder.build();
 
@@ -193,7 +193,7 @@ TEST_F(GraphTest, IdentityReshapeElimination) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto r = builder.reshape(va, {8}); // Same shape → identity
+  auto r = builder.ops().reshape(va, {8}); // Same shape → identity
   builder.markOutput(r);
   auto graph = builder.build();
 
@@ -215,8 +215,8 @@ TEST_F(GraphTest, ReshapeChainElimination) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto r1 = builder.reshape(va, {1, 8}); // 8 → 1x8
-  auto r2 = builder.reshape(r1, {8});    // 1x8 → 8
+  auto r1 = builder.ops().reshape(va, {1, 8}); // 8 → 1x8
+  auto r2 = builder.ops().reshape(r1, {8});    // 1x8 → 8
   builder.markOutput(r2);
   auto graph = builder.build();
 
@@ -237,8 +237,8 @@ TEST_F(GraphTest, TransposeCancelElimination) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto t1 = builder.transpose(va);
-  auto t2 = builder.transpose(t1);
+  auto t1 = builder.ops().transpose(va);
+  auto t2 = builder.ops().transpose(t1);
   builder.markOutput(t2);
   auto graph = builder.build();
 
@@ -257,8 +257,8 @@ TEST_F(GraphTest, DeadCodeElimination) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto dead = builder.unaryOp(UnarySin, va); // Not used by output
-  auto live = builder.unaryOp(UnaryCos, va);
+  auto dead = builder.ops().unaryOp(UnarySin, va); // Not used by output
+  auto live = builder.ops().unaryOp(UnaryCos, va);
   builder.markOutput(live);
   auto graph = builder.build();
 
@@ -283,10 +283,10 @@ TEST_F(GraphTest, FullOptimizationPipeline) {
   auto vx = builder.input(x);
   auto vw = builder.input(w, true);
 
-  auto reshaped = builder.reshape(vx, {1, 8});
-  auto mm = builder.matmul(reshaped, vw);          // [1, 4]
-  auto activated = builder.unaryOp(UnarySilu, mm); // [1, 4]
-  auto out = builder.reshape(activated, {4});      // [4]
+  auto reshaped = builder.ops().reshape(vx, {1, 8});
+  auto mm = builder.ops().matmul(reshaped, vw);          // [1, 4]
+  auto activated = builder.ops().unaryOp(UnarySilu, mm); // [1, 4]
+  auto out = builder.ops().reshape(activated, {4});      // [4]
   builder.markOutput(out);
 
   auto graph = builder.build();
@@ -315,7 +315,7 @@ TEST_F(GraphTest, ExecutorBinaryOp) {
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
   auto vb = builder.input(b);
-  auto sum = builder.binaryOp(BinaryAdd, va, vb);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
   builder.markOutput(sum);
   auto graph = builder.build();
 
@@ -339,7 +339,7 @@ TEST_F(GraphTest, ExecutorUnaryOp) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto sq = builder.unaryOp(UnarySqrt, va);
+  auto sq = builder.ops().unaryOp(UnarySqrt, va);
   builder.markOutput(sq);
   auto graph = builder.build();
 
@@ -365,7 +365,7 @@ TEST_F(GraphTest, ExecutorMatMul) {
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
   auto vb = builder.input(b);
-  auto mm = builder.matmul(va, vb);
+  auto mm = builder.ops().matmul(va, vb);
   builder.markOutput(mm);
   auto graph = builder.build();
 
@@ -387,7 +387,7 @@ TEST_F(GraphTest, ExecutorReshape) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto r = builder.reshape(va, {2, 3});
+  auto r = builder.ops().reshape(va, {2, 3});
   builder.markOutput(r);
   auto graph = builder.build();
 
@@ -409,7 +409,7 @@ TEST_F(GraphTest, ExecutorVecScalarOp) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto scaled = builder.binaryOp(BinaryMul, va, 0.5f);
+  auto scaled = builder.ops().binaryOp(BinaryMul, va, 0.5f);
   builder.markOutput(scaled);
   auto graph = builder.build();
 
@@ -431,7 +431,7 @@ TEST_F(GraphTest, ExecutorTranspose) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto t = builder.transpose(va);
+  auto t = builder.ops().transpose(va);
   builder.markOutput(t);
   auto graph = builder.build();
 
@@ -456,7 +456,7 @@ TEST_F(GraphTest, ExecutorReduce) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto sum = builder.reduce(ReduceSum, va);
+  auto sum = builder.ops().reduce(ReduceSum, va);
   builder.markOutput(sum);
   auto graph = builder.build();
 
@@ -495,10 +495,10 @@ TEST_F(GraphTest, OptimizedExecutionMatchesEager) {
   GraphBuilder builder(runtime_);
   auto vx = builder.input(x);
   auto vw = builder.input(w, true);
-  auto vx2d = builder.reshape(vx, {1, 8});
-  auto vmm = builder.matmul(vx2d, vw);
-  auto vact = builder.unaryOp(UnarySilu, vmm);
-  auto vout = builder.reshape(vact, {4});
+  auto vx2d = builder.ops().reshape(vx, {1, 8});
+  auto vmm = builder.ops().matmul(vx2d, vw);
+  auto vact = builder.ops().unaryOp(UnarySilu, vmm);
+  auto vout = builder.ops().reshape(vact, {4});
   builder.markOutput(vout);
 
   auto graph = builder.build();
@@ -523,8 +523,8 @@ TEST_F(GraphTest, MultiOutputGraph) {
 
   GraphBuilder builder(runtime_);
   auto va = builder.input(a);
-  auto s = builder.unaryOp(UnarySin, va);
-  auto c = builder.unaryOp(UnaryCos, va);
+  auto s = builder.ops().unaryOp(UnarySin, va);
+  auto c = builder.ops().unaryOp(UnaryCos, va);
   builder.markOutput(s);
   builder.markOutput(c);
   auto graph = builder.build();

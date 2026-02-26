@@ -48,12 +48,6 @@ void GraphExecutor::executeNode(Graph &graph, uint32_t nodeIndex) {
     realInputs.push_back(tensorMap_[id]);
   }
 
-  // --- Deferred ops (softmax, variance, layerNorm, etc.) ---
-  if (auto *d = dynamic_cast<DeferredOpNode *>(op.get())) {
-    tensorMap_[nodeIndex] = d->execute(*ops_, realInputs);
-    return;
-  }
-
   // --- Standard OpNode dispatch ---
   op->rebindInputs(realInputs);
 

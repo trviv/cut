@@ -220,31 +220,6 @@ Tensor Operations::cumOp(const Tensor &a,
 
 Tensor
 Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
-  if (graph_) {
-    uint32_t inputNodeId = toNodeId(a);
-    auto shape = getShape(a);
-    auto dtype = getDtype(a);
-    std::vector<uint32_t> outShape;
-    if (!dim.has_value()) {
-      outShape = {1};
-    } else {
-      auto params = computeDimParams(shape, dim.value());
-      outShape = params.outShape;
-    }
-    int capturedCorrection = correction;
-    auto capturedDim = dim;
-    auto node = std::make_unique<DeferredOpNode>(
-        outShape, dtype, "Variance",
-        [capturedCorrection, capturedDim](Operations &ops,
-                                          const std::vector<Tensor> &in) {
-          return ops.variance(in[0], capturedCorrection, capturedDim);
-        });
-    node->setGraphInputIds({inputNodeId});
-    Tensor output = runtime_->createTensorEmpty(outShape, dtype);
-    uint32_t nodeId = graph_->addNode(std::move(node), output);
-    tensorToNodeId_.emplace_back(output, nodeId);
-    return output;
-  }
   auto shape = getShape(a);
   auto dtype = getDtype(a);
 
@@ -691,40 +666,6 @@ Tensor Operations::layerNorm(const Tensor &input,
                              const Tensor *weight,
                              const Tensor *bias,
                              float eps) {
-  if (graph_) {
-    uint32_t inputNodeId = toNodeId(input);
-    auto shape = getShape(input);
-    auto dtype = getDtype(input);
-    std::vector<uint32_t> inputIds = {inputNodeId};
-    if (weight)
-      inputIds.push_back(toNodeId(*weight));
-    if (bias)
-      inputIds.push_back(toNodeId(*bias));
-
-    auto capturedNormShape = normalizedShape;
-    float capturedEps = eps;
-    bool hasWeight = weight != nullptr;
-    bool hasBias = bias != nullptr;
-    auto node = std::make_unique<DeferredOpNode>(
-        shape, dtype, "LayerNorm",
-        [capturedNormShape, capturedEps, hasWeight,
-         hasBias](Operations &ops, const std::vector<Tensor> &in) {
-          const Tensor *wPtr = nullptr;
-          const Tensor *bPtr = nullptr;
-          size_t nextInput = 1;
-          if (hasWeight)
-            wPtr = &in[nextInput++];
-          if (hasBias)
-            bPtr = &in[nextInput++];
-          return ops.layerNorm(in[0], capturedNormShape, wPtr, bPtr,
-                               capturedEps);
-        });
-    node->setGraphInputIds(std::move(inputIds));
-    Tensor output = runtime_->createTensorEmpty(shape, dtype);
-    uint32_t nodeId = graph_->addNode(std::move(node), output);
-    tensorToNodeId_.emplace_back(output, nodeId);
-    return output;
-  }
   auto shape = getShape(input);
   auto dtype = getDtype(input);
 
@@ -798,40 +739,6 @@ Tensor Operations::batchNorm(const Tensor &input,
                              const Tensor *weight,
                              const Tensor *bias,
                              float eps) {
-  if (graph_) {
-    uint32_t inputNodeId = toNodeId(input);
-    uint32_t meanNodeId = toNodeId(runningMean);
-    uint32_t varNodeId = toNodeId(runningVar);
-    auto shape = getShape(input);
-    auto dtype = getDtype(input);
-    std::vector<uint32_t> inputIds = {inputNodeId, meanNodeId, varNodeId};
-    if (weight)
-      inputIds.push_back(toNodeId(*weight));
-    if (bias)
-      inputIds.push_back(toNodeId(*bias));
-
-    float capturedEps = eps;
-    bool hasWeight = weight != nullptr;
-    bool hasBias = bias != nullptr;
-    auto node = std::make_unique<DeferredOpNode>(
-        shape, dtype, "BatchNorm",
-        [capturedEps, hasWeight, hasBias](Operations &ops,
-                                          const std::vector<Tensor> &in) {
-          const Tensor *wPtr = nullptr;
-          const Tensor *bPtr = nullptr;
-          size_t nextInput = 3;
-          if (hasWeight)
-            wPtr = &in[nextInput++];
-          if (hasBias)
-            bPtr = &in[nextInput++];
-          return ops.batchNorm(in[0], in[1], in[2], wPtr, bPtr, capturedEps);
-        });
-    node->setGraphInputIds(std::move(inputIds));
-    Tensor output = runtime_->createTensorEmpty(shape, dtype);
-    uint32_t nodeId = graph_->addNode(std::move(node), output);
-    tensorToNodeId_.emplace_back(output, nodeId);
-    return output;
-  }
   auto shape = getShape(input);
   auto dtype = getDtype(input);
 
