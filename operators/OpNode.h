@@ -16,7 +16,7 @@
 namespace cut {
 
 class Dispatcher;
-class Runtime;
+class TensorStore;
 
 // ============================================================================
 // LogicalOpType — coarse classification for graph optimizer passes
@@ -60,7 +60,7 @@ inline void appendBytes(std::vector<uint8_t> &vec, const T &val) {
  * and push constant generation for a single GPU operator invocation.
  *
  * Subclasses validate inputs in their constructors, then are passed
- * to Runtime::encodeOperator() for dispatch.
+ * to Runtime::dispatch() for dispatch.
  */
 class OpNode {
 public:
@@ -159,11 +159,11 @@ public:
   void setGraphRemoved(bool v) { isGraphRemoved_ = v; }
 
 protected:
-  OpNode(OperatorEnum op, Runtime &runtime, std::optional<uint32_t> spec = {})
-      : op_(op), runtime_(&runtime), spec_(spec) {}
+  OpNode(OperatorEnum op, TensorStore &store, std::optional<uint32_t> spec = {})
+      : op_(op), store_(&store), spec_(spec) {}
 
-  /// Minimal constructor for internal nodes that don't need Runtime access.
-  explicit OpNode(OperatorEnum op) : op_(op), runtime_(nullptr) {}
+  /// Minimal constructor for internal nodes that don't need TensorStore access.
+  explicit OpNode(OperatorEnum op) : op_(op), store_(nullptr) {}
 
   /// Combines the base shaderKey() with extra data OR'd at bit 60.
   /// Subclasses should call this instead of doing manual bit math.
@@ -176,7 +176,7 @@ protected:
   virtual void buildSubOperations(Dispatcher &dispatcher) {}
 
   OperatorEnum op_;
-  Runtime *runtime_;
+  TensorStore *store_;
   std::optional<uint32_t> spec_;
   std::vector<Tensor> inputs_{};
   Tensor output_{};

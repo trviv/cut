@@ -7,7 +7,7 @@ namespace cut {
 class BinaryOpNode : public OpNode {
 public:
   BinaryOpNode(OperatorEnum op,
-               Runtime &runtime,
+               TensorStore &store,
                const Tensor &a,
                const TensorLike &b,
                std::optional<uint32_t> spec = {});

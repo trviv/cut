@@ -7,7 +7,7 @@ namespace cut {
 
 class MaxPool2DOpNode : public OpNode {
 public:
-  MaxPool2DOpNode(Runtime &runtime,
+  MaxPool2DOpNode(TensorStore &store,
                   const Tensor &input,
                   uint32_t kernelH,
                   uint32_t kernelW,

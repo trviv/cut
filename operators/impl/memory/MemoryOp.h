@@ -6,7 +6,7 @@ namespace cut {
 
 class CopyOpNode : public OpNode {
 public:
-  CopyOpNode(Runtime &runtime,
+  CopyOpNode(TensorStore &store,
              const Tensor &src,
              std::vector<uint32_t> &&dstShape,
              std::optional<uint32_t> spec = {});
@@ -29,7 +29,7 @@ private:
 
 class EmbeddingOpNode : public OpNode {
 public:
-  EmbeddingOpNode(Runtime &runtime,
+  EmbeddingOpNode(TensorStore &store,
                   const Tensor &indices,
                   const Tensor &weight,
                   std::optional<uint32_t> spec = {});
@@ -49,7 +49,7 @@ private:
 
 class PadOpNode : public OpNode {
 public:
-  PadOpNode(Runtime &runtime,
+  PadOpNode(TensorStore &store,
             const Tensor &input,
             std::vector<uint32_t> &&padWidths,
             float value,
@@ -81,7 +81,7 @@ private:
 
 class ExpandOpNode : public OpNode {
 public:
-  ExpandOpNode(Runtime &runtime,
+  ExpandOpNode(TensorStore &store,
                const Tensor &src,
                const std::vector<uint32_t> &targetShape,
                std::optional<uint32_t> spec = {});

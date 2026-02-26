@@ -7,7 +7,7 @@ namespace cut {
 
 class MatMulOpNode : public OpNode {
 public:
-  MatMulOpNode(Runtime &runtime,
+  MatMulOpNode(TensorStore &store,
                const Tensor &a,
                const Tensor &b,
                std::optional<uint32_t> spec = {});

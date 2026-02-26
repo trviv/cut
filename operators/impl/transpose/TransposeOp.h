@@ -7,7 +7,7 @@ namespace cut {
 
 class TransposeOpNode : public OpNode {
 public:
-  TransposeOpNode(Runtime &runtime,
+  TransposeOpNode(TensorStore &store,
                   const Tensor &a,
                   std::optional<uint32_t> spec = {});
 

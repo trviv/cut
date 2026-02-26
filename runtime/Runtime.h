@@ -1,8 +1,6 @@
 #pragma once
 
-#include "graph/Graph.h"
-#include "graph/GraphExecutor.h"
-#include "graph/GraphOptimizer.h"
+#include "TensorStore.h"
 
 #include <ComputeCommon.h>
 #include <ComputeHandle.h>
@@ -35,8 +33,6 @@ enum class BackendType { Vulkan };
  * returned by ops().
  */
 class Runtime {
-  friend class Operations;
-
 public:
   /**
    * Constructs a Runtime instance.
@@ -166,6 +162,18 @@ public:
    */
   Operations &ops();
 
+  /**
+   * Returns the TensorStore for buffer creation and metadata queries.
+   */
+  TensorStore &store();
+
+  /**
+   * Dispatches a compute operator using an OpNode.
+   * The OpNode provides all operator-level information.
+   */
+  void dispatch(std::unique_ptr<OpNode> node);
+  void dispatch(OpNode &node);
+
   // =========================================================================
   // Graph Mode
   // =========================================================================
@@ -189,28 +197,20 @@ private:
   bool vulkanChecked_ = false;
   bool pendingCommands_ = false;
 
+  // Tensor buffer storage
+  std::unique_ptr<TensorStore> store_;
+
   // Dispatcher for encoding operators
   std::unique_ptr<Dispatcher> dispatcher_;
 
   // High-level operations
   std::unique_ptr<Operations> operations_;
 
-  // Graph mode state
-  std::unique_ptr<graph::Graph> activeGraph_;
-  std::vector<std::pair<Tensor, Tensor>> resolvedTensors_;
-
   /**
    * Returns the underlying compute interface.
    * @throws std::runtime_error if not initialized.
    */
   ComputeInterface *getInterface();
-
-  /**
-   * Encodes a compute operator using an OpNode.
-   * The OpNode provides all operator-level information.
-   */
-  void encodeOperator(std::unique_ptr<OpNode> node);
-  void encodeOperator(OpNode &node);
 
   bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
 

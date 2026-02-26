@@ -1,24 +1,24 @@
 #include "BinaryOp.h"
 #include "BinaryShaders.generated.h"
-#include "Runtime.h"
 #include "Shaders.h"
+#include "TensorStore.h"
 
 namespace cut {
 
 BinaryOpNode::BinaryOpNode(OperatorEnum op,
-                           Runtime &runtime,
+                           TensorStore &store,
                            const Tensor &a,
                            const TensorLike &b,
                            std::optional<uint32_t> spec)
-    : OpNode(op, runtime, spec) {
-  const auto &bufA = runtime.getTensor(a);
+    : OpNode(op, store, spec) {
+  const auto &bufA = store.getTensor(a);
   const auto shapeA = bufA.getShape();
   dtype_ = bufA.getDtype();
   numElements_ = alignedElementCount(shapeA);
 
   // Detect variant based on b's type
   if (b.isHandle()) {
-    const auto &bufB = runtime.getTensor(b.getHandle());
+    const auto &bufB = store.getTensor(b.getHandle());
     const auto shapeB = bufB.getShape();
 
     if (actualElementCount(shapeB) == 1) {
@@ -60,7 +60,7 @@ BinaryOpNode::BinaryOpNode(OperatorEnum op,
     throw std::runtime_error("Invalid TensorLike type for binary operation");
   }
 
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType BinaryOpNode::shaderDtype() const {
@@ -95,7 +95,7 @@ std::optional<std::vector<uint32_t>> BinaryOpNode::shader() const {
 }
 
 std::vector<uint32_t> BinaryOpNode::outputShape() const {
-  return runtime_->getTensor(inputs_[0]).getShape();
+  return store_->getTensor(inputs_[0]).getShape();
 }
 
 ThreadSize BinaryOpNode::dispatchSize() const {

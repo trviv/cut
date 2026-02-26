@@ -7,7 +7,7 @@ namespace cut {
 
 class AvgPool2DOpNode : public OpNode {
 public:
-  AvgPool2DOpNode(Runtime &runtime,
+  AvgPool2DOpNode(TensorStore &store,
                   const Tensor &input,
                   uint32_t kernelH,
                   uint32_t kernelW,

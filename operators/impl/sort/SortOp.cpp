@@ -1,6 +1,6 @@
 #include "SortOp.h"
 #include "Dispatcher.h"
-#include "Runtime.h"
+#include "TensorStore.h"
 
 namespace cut {
 
@@ -22,12 +22,12 @@ uint32_t nextPowerOf2(uint32_t n) {
 
 // --- BitonicSortOpNode ---
 
-BitonicSortOpNode::BitonicSortOpNode(Runtime &runtime,
+BitonicSortOpNode::BitonicSortOpNode(TensorStore &store,
                                      const Tensor &keys,
                                      const Tensor &vals,
                                      std::optional<uint32_t> spec)
-    : OpNode(SortBitonic, runtime, spec) {
-  const auto &buf = runtime.getTensor(keys);
+    : OpNode(SortBitonic, store, spec) {
+  const auto &buf = store.getTensor(keys);
   executionSize_ = actualElementCount(buf.getShape());
   dtype_ = buf.getDtype();
   inputs_ = {keys, vals};
@@ -107,12 +107,12 @@ void BitonicSortOpNode::buildSubOperations(Dispatcher &dispatcher) {
 
 // --- RadixSortOpNode ---
 
-RadixSortOpNode::RadixSortOpNode(Runtime &runtime,
+RadixSortOpNode::RadixSortOpNode(TensorStore &store,
                                  const Tensor &keys,
                                  const Tensor &vals,
                                  std::optional<uint32_t> spec)
-    : OpNode(SortRadix, runtime, spec) {
-  const auto &buf = runtime.getTensor(keys);
+    : OpNode(SortRadix, store, spec) {
+  const auto &buf = store.getTensor(keys);
   executionSize_ = actualElementCount(buf.getShape());
   dtype_ = buf.getDtype();
   inputs_ = {keys, vals};

@@ -39,6 +39,9 @@ void Runtime::init(BackendType backend) {
     throw std::runtime_error("Invalid backend type");
   }
 
+  // Create tensor store with the initialized interface
+  store_ = std::make_unique<TensorStore>(interface_.get());
+
   // Create dispatcher with the initialized interface
   dispatcher_ = std::make_unique<Dispatcher>(interface_.get());
 
@@ -49,13 +52,13 @@ void Runtime::init(BackendType backend) {
 void Runtime::shutdown() {
   // Flush any pending commands before shutdown
   flushPendingCommands();
-  // Clear graph state before destroying operations (holds Tensor handles)
-  resolvedTensors_.clear();
-  activeGraph_.reset();
-  // Destroy operations before dispatcher (it holds a raw pointer to runtime)
+  // Destroy operations before dispatcher (it holds graph state and raw
+  // pointers)
   operations_.reset();
   // Destroy dispatcher before interface (it holds a raw pointer)
   dispatcher_.reset();
+  // Destroy tensor store before interface
+  store_.reset();
   // First destroy the interface (which holds backend resources)
   interface_.reset();
   // Then destroy the Vulkan instance if present
@@ -75,7 +78,7 @@ size_t Runtime::bufferCount() const {
 }
 
 void Runtime::flush() {
-  if (activeGraph_) {
+  if (operations_ && operations_->isGraphMode()) {
     executeGraph();
   }
   flushPendingCommands();
@@ -86,6 +89,13 @@ Operations &Runtime::ops() {
     throw std::runtime_error("Runtime not initialized. Call init() first.");
   }
   return *operations_;
+}
+
+TensorStore &Runtime::store() {
+  if (!store_) {
+    throw std::runtime_error("Runtime not initialized. Call init() first.");
+  }
+  return *store_;
 }
 
 ComputeInterface *Runtime::getInterface() {
@@ -101,20 +111,20 @@ ComputeInterface *Runtime::getInterface() {
 // =========================================================================
 
 const ComputeBuffer &Runtime::getTensor(const Tensor &handle) const {
-  return interface_->getBuffer(handle);
+  return store_->getTensor(handle);
 }
 
 Tensor Runtime::createTensor(const std::vector<uint32_t> &shape,
                              DataType dtype,
                              const void *srcPtr,
                              bool isUniform) {
-  return getInterface()->createBuffer(shape, dtype, srcPtr, isUniform);
+  return store_->createTensor(shape, dtype, srcPtr, isUniform);
 }
 
 Tensor Runtime::createTensorEmpty(const std::vector<uint32_t> &shape,
                                   DataType dtype,
                                   bool isUniform) {
-  return getInterface()->createBuffer(shape, dtype, nullptr, isUniform);
+  return store_->createTensorEmpty(shape, dtype, isUniform);
 }
 
 void Runtime::copyToTensor(Tensor handle,
@@ -132,14 +142,16 @@ void Runtime::copyFromTensor(Tensor handle,
                              size_t srcOffset,
                              size_t dstOffset) {
   // If graph is still recording, execute it first
-  if (activeGraph_) {
+  if (operations_ && operations_->isGraphMode()) {
     executeGraph();
   }
   // If this handle was a placeholder, read from the resolved real tensor
-  for (const auto &p : resolvedTensors_) {
-    if (p.first == handle) {
-      handle = p.second;
-      break;
+  if (operations_) {
+    for (const auto &p : operations_->resolvedTensors()) {
+      if (p.first == handle) {
+        handle = p.second;
+        break;
+      }
     }
   }
   // Ensure all pending GPU work is complete before reading data back
@@ -149,14 +161,14 @@ void Runtime::copyFromTensor(Tensor handle,
 }
 
 // =========================================================================
-// Operator Execution
+// Operator Dispatch
 // =========================================================================
 
-void Runtime::encodeOperator(std::unique_ptr<OpNode> node) {
-  encodeOperator(*node);
+void Runtime::dispatch(std::unique_ptr<OpNode> node) {
+  dispatch(*node);
 }
 
-void Runtime::encodeOperator(OpNode &node) {
+void Runtime::dispatch(OpNode &node) {
   if (!dispatcher_) {
     throw std::runtime_error("Dispatcher not initialized. Call init() first.");
   }
@@ -174,63 +186,19 @@ void Runtime::encodeOperator(OpNode &node) {
 }
 
 // =========================================================================
-// Graph Mode
+// Graph Mode (forwarded to Operations)
 // =========================================================================
 
 void Runtime::beginGraph() {
-  if (activeGraph_) {
-    throw std::runtime_error(
-        "Already in graph mode. Call executeGraph() first.");
-  }
-  activeGraph_ = std::make_unique<graph::Graph>();
-  operations_->setGraph(activeGraph_.get());
-  resolvedTensors_.clear();
+  ops().beginGraph();
 }
 
 void Runtime::executeGraph() {
-  if (!activeGraph_)
-    return;
-
-  // Copy mappings before clearGraph() invalidates the reference
-  auto mappings = operations_->graphMappings();
-
-  // Mark all non-input nodes as graph outputs
-  for (const auto &p : mappings) {
-    const auto &n = activeGraph_->node(p.second);
-    if (!n.isInputNode()) {
-      activeGraph_->markOutput(p.second);
-    }
-  }
-
-  // Exit graph mode before executing (executor calls go through immediate mode)
-  operations_->clearGraph();
-
-  // Optimize
-  graph::GraphOptimizer optimizer = graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*activeGraph_);
-
-  // Execute
-  graph::GraphExecutor executor(ops(), *this);
-  std::vector<Tensor> results = executor.execute(*activeGraph_);
-
-  // Map placeholder tensors → real result tensors
-  const auto &graphOutputs = activeGraph_->outputs();
-  resolvedTensors_.clear();
-  for (size_t ri = 0; ri < results.size(); ++ri) {
-    uint32_t outNodeId = graphOutputs[ri];
-    for (const auto &p : mappings) {
-      if (p.second == outNodeId) {
-        resolvedTensors_.emplace_back(p.first, results[ri]);
-        break;
-      }
-    }
-  }
-
-  activeGraph_.reset();
+  ops().executeGraph();
 }
 
 bool Runtime::isGraphMode() const {
-  return activeGraph_ != nullptr;
+  return operations_ && operations_->isGraphMode();
 }
 
 void Runtime::flushPendingCommands() {

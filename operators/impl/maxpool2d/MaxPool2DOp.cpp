@@ -1,9 +1,9 @@
 #include "MaxPool2DOp.h"
-#include "Runtime.h"
+#include "TensorStore.h"
 
 namespace cut {
 
-MaxPool2DOpNode::MaxPool2DOpNode(Runtime &runtime,
+MaxPool2DOpNode::MaxPool2DOpNode(TensorStore &store,
                                  const Tensor &input,
                                  uint32_t kernelH,
                                  uint32_t kernelW,
@@ -12,8 +12,8 @@ MaxPool2DOpNode::MaxPool2DOpNode(Runtime &runtime,
                                  uint32_t padH,
                                  uint32_t padW,
                                  std::optional<uint32_t> spec)
-    : OpNode(MaxPool2D, runtime, spec) {
-  const auto &buf = runtime.getTensor(input);
+    : OpNode(MaxPool2D, store, spec) {
+  const auto &buf = store.getTensor(input);
   dtype_ = buf.getDtype();
   auto shape = buf.getShape();
   if (shape.size() != 4)
@@ -32,7 +32,7 @@ MaxPool2DOpNode::MaxPool2DOpNode(Runtime &runtime,
   W_out_ = (W_in_ + 2 * padW_ - kernelW_) / strideW_ + 1;
   spec_ = spec.value_or(kMaxPool2DDefaultVariant);
   inputs_ = {input};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType MaxPool2DOpNode::shaderDtype() const {

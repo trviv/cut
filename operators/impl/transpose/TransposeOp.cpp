@@ -1,13 +1,13 @@
 #include "TransposeOp.h"
-#include "Runtime.h"
+#include "TensorStore.h"
 
 namespace cut {
 
-TransposeOpNode::TransposeOpNode(Runtime &runtime,
+TransposeOpNode::TransposeOpNode(TensorStore &store,
                                  const Tensor &a,
                                  std::optional<uint32_t> spec)
-    : OpNode(Transpose, runtime, spec) {
-  const auto &buf = runtime.getTensor(a);
+    : OpNode(Transpose, store, spec) {
+  const auto &buf = store.getTensor(a);
   dtype_ = buf.getDtype();
   auto shape = buf.getShape();
   if (shape.size() != 2) {
@@ -17,7 +17,7 @@ TransposeOpNode::TransposeOpNode(Runtime &runtime,
   N_ = shape[1];
   spec_ = spec.value_or(kTransposeDefaultVariant);
   inputs_ = {a};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType TransposeOpNode::shaderDtype() const {

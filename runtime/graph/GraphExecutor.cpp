@@ -1,15 +1,13 @@
 #include "GraphExecutor.h"
 #include "OpNode.h"
 #include "Operations.h"
-#include "Runtime.h"
 
 #include <stdexcept>
 
 namespace cut {
 namespace graph {
 
-GraphExecutor::GraphExecutor(Operations &ops, Runtime &runtime)
-    : ops_(&ops), runtime_(&runtime) {}
+GraphExecutor::GraphExecutor(Operations &ops) : ops_(&ops) {}
 
 std::vector<Tensor> GraphExecutor::execute(Graph &graph) {
   tensorMap_.clear();
@@ -56,7 +54,7 @@ void GraphExecutor::executeNode(Graph &graph, uint32_t nodeIndex) {
   // that aliases an output with a still-in-flight input.
   tensorMap_[nodeIndex] = op->output();
 
-  ops_->encodeOp(*op);
+  ops_->dispatch(*op);
 }
 
 } // namespace graph

@@ -1,25 +1,25 @@
 #include "TernaryOp.h"
-#include "Runtime.h"
 #include "Shaders.h"
+#include "TensorStore.h"
 #include "TernaryShaders.generated.h"
 
 namespace cut {
 
 // --- TernaryClampOpNode ---
 
-TernaryClampOpNode::TernaryClampOpNode(Runtime &runtime,
+TernaryClampOpNode::TernaryClampOpNode(TensorStore &store,
                                        const Tensor &a,
                                        uint32_t minBits,
                                        uint32_t maxBits,
                                        std::optional<uint32_t> spec)
-    : OpNode(TernaryClamp, runtime, spec) {
-  const auto &buf = runtime.getTensor(a);
+    : OpNode(TernaryClamp, store, spec) {
+  const auto &buf = store.getTensor(a);
   dtype_ = buf.getDtype();
   minBits_ = minBits;
   maxBits_ = maxBits;
   numElements_ = alignedElementCount(buf.getShape());
   inputs_ = {a};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType TernaryClampOpNode::shaderDtype() const {
@@ -37,7 +37,7 @@ std::optional<std::vector<uint32_t>> TernaryClampOpNode::shader() const {
 }
 
 std::vector<uint32_t> TernaryClampOpNode::outputShape() const {
-  return runtime_->getTensor(inputs_[0]).getShape();
+  return store_->getTensor(inputs_[0]).getShape();
 }
 
 ThreadSize TernaryClampOpNode::dispatchSize() const {
@@ -55,15 +55,15 @@ std::vector<uint8_t> TernaryClampOpNode::pushConstants() const {
 
 // --- TernarySelectOpNode ---
 
-TernarySelectOpNode::TernarySelectOpNode(Runtime &runtime,
+TernarySelectOpNode::TernarySelectOpNode(TensorStore &store,
                                          const Tensor &cond,
                                          const Tensor &x,
                                          const Tensor &y,
                                          std::optional<uint32_t> spec)
-    : OpNode(TernarySelect, runtime, spec) {
-  const auto &condBuf = runtime.getTensor(cond);
-  const auto &xBuf = runtime.getTensor(x);
-  const auto &yBuf = runtime.getTensor(y);
+    : OpNode(TernarySelect, store, spec) {
+  const auto &condBuf = store.getTensor(cond);
+  const auto &xBuf = store.getTensor(x);
+  const auto &yBuf = store.getTensor(y);
   const auto condShape = condBuf.getShape();
   const auto xShape = xBuf.getShape();
   const auto yShape = yBuf.getShape();
@@ -74,7 +74,7 @@ TernarySelectOpNode::TernarySelectOpNode(Runtime &runtime,
     throw std::runtime_error("condition, x, and y must have the same size");
   }
   inputs_ = {cond, x, y};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType TernarySelectOpNode::shaderDtype() const {
@@ -92,7 +92,7 @@ std::optional<std::vector<uint32_t>> TernarySelectOpNode::shader() const {
 }
 
 std::vector<uint32_t> TernarySelectOpNode::outputShape() const {
-  return runtime_->getTensor(inputs_[1]).getShape();
+  return store_->getTensor(inputs_[1]).getShape();
 }
 
 ThreadSize TernarySelectOpNode::dispatchSize() const {

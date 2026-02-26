@@ -2,6 +2,7 @@
 
 #include "ShapeUtils.h"
 #include "graph/Graph.h"
+#include "graph/GraphOptimizer.h"
 
 #include <ComputeCommon.h>
 #include <ComputeHandle.h>
@@ -17,11 +18,12 @@ namespace cut {
 
 class OpNode;
 class Runtime;
+class TensorStore;
 
 /**
  * High-level tensor operations implemented in C++.
- * Works directly on Tensor objects and uses the Runtime for GPU
- * dispatch. Retrieves tensor metadata (shape, dtype) via Runtime::getBuffer().
+ * Works directly on Tensor objects. Uses TensorStore for tensor
+ * metadata and creation, and Runtime for GPU dispatch.
  */
 class Operations {
 public:
@@ -207,15 +209,30 @@ public:
 
   // ===== Direct dispatch =====
 
-  void encodeOp(std::unique_ptr<OpNode> node);
-  void encodeOp(OpNode &node);
+  void dispatch(std::unique_ptr<OpNode> node);
+  void dispatch(OpNode &node);
 
   // ===== Graph mode =====
 
-  void setGraph(graph::Graph *g);
-  void clearGraph();
+  /// Enter graph mode: subsequent operation calls record OpNodes instead
+  /// of dispatching immediately.
+  void beginGraph();
+
+  /// Execute the recorded graph: optimize, execute, and resolve placeholder
+  /// tensors to real computed results.
+  void executeGraph();
+
+  /// Returns true if in graph recording mode.
   bool isGraphMode() const;
 
+  /// Returns the resolved placeholder→real tensor mappings after execution.
+  const std::vector<std::pair<Tensor, Tensor>> &resolvedTensors() const;
+
+  /// Set/clear graph recording target (used by GraphBuilder).
+  void setGraph(graph::Graph *g);
+  void clearGraph();
+
+  /// Graph tensor→nodeId mappings (used by GraphBuilder).
   const std::vector<std::pair<Tensor, uint32_t>> &graphMappings() const;
 
   /// Register a pre-existing GPU tensor as a graph input (InputOpNode).
@@ -224,8 +241,12 @@ public:
 
 private:
   Runtime *runtime_;
-  graph::Graph *graph_ = nullptr;
+  TensorStore *store_;
 
+  // Graph mode state
+  std::unique_ptr<graph::Graph> activeGraph_;
+  std::vector<std::pair<Tensor, Tensor>> resolvedTensors_;
+  graph::Graph *graph_ = nullptr;
   std::vector<std::pair<Tensor, uint32_t>> tensorToNodeId_;
 
   std::vector<uint32_t> getShape(const Tensor &h) const;

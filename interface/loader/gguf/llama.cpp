@@ -586,7 +586,7 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
 }
 
 void LlamaModel::buildGraphTemplates() {
-  executor_ = std::make_unique<cut::graph::GraphExecutor>(*ops_, *runtime_);
+  executor_ = std::make_unique<cut::graph::GraphExecutor>(*ops_);
 
   layerGraphs_.resize(config_.n_layers);
   for (uint32_t i = 0; i < config_.n_layers; ++i) {

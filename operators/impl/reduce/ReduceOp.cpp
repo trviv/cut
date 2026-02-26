@@ -1,8 +1,8 @@
 #include "ReduceOp.h"
 #include "Dispatcher.h"
 #include "ReduceShaders.generated.h"
-#include "Runtime.h"
 #include "Shaders.h"
+#include "TensorStore.h"
 
 namespace cut {
 
@@ -28,17 +28,17 @@ inline bool isMultiReduceCapable(OperatorEnum op) {
 // --- GlobalReduceOpNode ---
 
 GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
-                                       Runtime &runtime,
+                                       TensorStore &store,
                                        const Tensor &a,
                                        std::optional<uint32_t> spec)
-    : OpNode(op, runtime, spec) {
-  const auto &buf = runtime.getTensor(a);
+    : OpNode(op, store, spec) {
+  const auto &buf = store.getTensor(a);
   dtype_ = buf.getDtype();
   numElements_ = actualElementCount(buf.getShape());
   actualInner_ = buf.innerDimSize();
   alignedInner_ = (actualInner_ + 3) & ~static_cast<uint32_t>(3);
   inputs_ = {a};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType GlobalReduceOpNode::shaderDtype() const {
@@ -129,15 +129,15 @@ void GlobalReduceOpNode::buildSubOperations(Dispatcher &dispatcher) {
 
 // --- NormOpNode ---
 
-NormOpNode::NormOpNode(Runtime &runtime,
+NormOpNode::NormOpNode(TensorStore &store,
                        const Tensor &a,
                        std::optional<uint32_t> spec)
-    : OpNode(Norm, runtime, spec) {
-  const auto &buf = runtime.getTensor(a);
+    : OpNode(Norm, store, spec) {
+  const auto &buf = store.getTensor(a);
   dtype_ = buf.getDtype();
   numElements_ = actualElementCount(buf.getShape());
   inputs_ = {a};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType NormOpNode::shaderDtype() const {
@@ -173,13 +173,13 @@ size_t NormOpNode::executionSize() const {
 
 // --- DotOpNode ---
 
-DotOpNode::DotOpNode(Runtime &runtime,
+DotOpNode::DotOpNode(TensorStore &store,
                      const Tensor &a,
                      const Tensor &b,
                      std::optional<uint32_t> spec)
-    : OpNode(Dot, runtime, spec) {
-  const auto &bufA = runtime.getTensor(a);
-  const auto &bufB = runtime.getTensor(b);
+    : OpNode(Dot, store, spec) {
+  const auto &bufA = store.getTensor(a);
+  const auto &bufB = store.getTensor(b);
   const auto shapeA = bufA.getShape();
   const auto shapeB = bufB.getShape();
   dtype_ = bufA.getDtype();
@@ -191,7 +191,7 @@ DotOpNode::DotOpNode(Runtime &runtime,
   count_ = static_cast<uint32_t>(actualElementCount(shapeA));
   numWorkgroups_ = (count_ + 255) / 256;
   inputs_ = {a, b};
-  output_ = runtime.createTensorEmpty(outputShape(), DataType::Float32);
+  output_ = store.createTensorEmpty(outputShape(), DataType::Float32);
 }
 
 DataType DotOpNode::shaderDtype() const {
@@ -223,12 +223,12 @@ std::vector<uint8_t> DotOpNode::pushConstants() const {
 // --- CumOpNode ---
 
 CumOpNode::CumOpNode(OperatorEnum op,
-                     Runtime &runtime,
+                     TensorStore &store,
                      const Tensor &a,
                      int dim,
                      std::optional<uint32_t> spec)
-    : OpNode(op, runtime, spec) {
-  const auto &buf = runtime.getTensor(a);
+    : OpNode(op, store, spec) {
+  const auto &buf = store.getTensor(a);
   const auto shape = buf.getShape();
   dtype_ = buf.getDtype();
   bufInnerDim_ = buf.innerDimSize();
@@ -261,7 +261,7 @@ CumOpNode::CumOpNode(OperatorEnum op,
     inOuterStride_ = alignedBufInner_;
   }
   inputs_ = {a};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType CumOpNode::shaderDtype() const {
@@ -279,7 +279,7 @@ std::optional<std::vector<uint32_t>> CumOpNode::shader() const {
 }
 
 std::vector<uint32_t> CumOpNode::outputShape() const {
-  return runtime_->getTensor(inputs_[0]).getShape();
+  return store_->getTensor(inputs_[0]).getShape();
 }
 
 ThreadSize CumOpNode::dispatchSize() const {

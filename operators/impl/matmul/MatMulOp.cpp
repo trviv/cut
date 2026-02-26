@@ -1,15 +1,15 @@
 #include "MatMulOp.h"
-#include "Runtime.h"
+#include "TensorStore.h"
 
 namespace cut {
 
-MatMulOpNode::MatMulOpNode(Runtime &runtime,
+MatMulOpNode::MatMulOpNode(TensorStore &store,
                            const Tensor &a,
                            const Tensor &b,
                            std::optional<uint32_t> spec)
-    : OpNode(MatMul, runtime, spec) {
-  const auto &bufA = runtime.getTensor(a);
-  const auto &bufB = runtime.getTensor(b);
+    : OpNode(MatMul, store, spec) {
+  const auto &bufA = store.getTensor(a);
+  const auto &bufB = store.getTensor(b);
   const auto shapeA = bufA.getShape();
   const auto shapeB = bufB.getShape();
   dtype_ = bufA.getDtype();
@@ -27,7 +27,7 @@ MatMulOpNode::MatMulOpNode(Runtime &runtime,
   N_ = shapeB[1];
   spec_ = spec.value_or(kMatMulDefaultVariant);
   inputs_ = {a, b};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType MatMulOpNode::shaderDtype() const {

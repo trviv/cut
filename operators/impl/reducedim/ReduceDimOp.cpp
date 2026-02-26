@@ -1,16 +1,16 @@
 #include "ReduceDimOp.h"
-#include "Runtime.h"
 #include "Shaders.h"
+#include "TensorStore.h"
 
 namespace cut {
 
 DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
-                                 Runtime &runtime,
+                                 TensorStore &store,
                                  const Tensor &a,
                                  int dim,
                                  std::optional<uint32_t> spec)
-    : OpNode(op, runtime, spec) {
-  const auto &buf = runtime.getTensor(a);
+    : OpNode(op, store, spec) {
+  const auto &buf = store.getTensor(a);
   const auto shape = buf.getShape();
   dtype_ = buf.getDtype();
   bufInnerDim_ = buf.innerDimSize();
@@ -52,7 +52,7 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
   }
   spec_ = spec.value_or(kReduceDimDefaultVariant);
   inputs_ = {a};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType DimReduceOpNode::shaderDtype() const {

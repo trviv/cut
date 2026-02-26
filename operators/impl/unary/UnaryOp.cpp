@@ -1,20 +1,20 @@
 #include "UnaryOp.h"
-#include "Runtime.h"
 #include "Shaders.h"
+#include "TensorStore.h"
 #include "UnaryShaders.generated.h"
 
 namespace cut {
 
 UnaryOpNode::UnaryOpNode(OperatorEnum op,
-                         Runtime &runtime,
+                         TensorStore &store,
                          const Tensor &a,
                          std::optional<uint32_t> spec)
-    : OpNode(op, runtime, spec) {
-  const auto &buf = runtime.getTensor(a);
+    : OpNode(op, store, spec) {
+  const auto &buf = store.getTensor(a);
   dtype_ = buf.getDtype();
   numElements_ = alignedElementCount(buf.getShape());
   inputs_ = {a};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType UnaryOpNode::shaderDtype() const {
@@ -32,7 +32,7 @@ std::optional<std::vector<uint32_t>> UnaryOpNode::shader() const {
 }
 
 std::vector<uint32_t> UnaryOpNode::outputShape() const {
-  return runtime_->getTensor(inputs_[0]).getShape();
+  return store_->getTensor(inputs_[0]).getShape();
 }
 
 ThreadSize UnaryOpNode::dispatchSize() const {

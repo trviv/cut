@@ -1,17 +1,17 @@
 #include "Conv1DOp.h"
-#include "Runtime.h"
+#include "TensorStore.h"
 
 namespace cut {
 
-Conv1DOpNode::Conv1DOpNode(Runtime &runtime,
+Conv1DOpNode::Conv1DOpNode(TensorStore &store,
                            const Tensor &input,
                            const Tensor &weight,
                            uint32_t stride,
                            uint32_t padding,
                            std::optional<uint32_t> spec)
-    : OpNode(Conv1D, runtime, spec) {
-  const auto &inputBuf = runtime.getTensor(input);
-  const auto &weightBuf = runtime.getTensor(weight);
+    : OpNode(Conv1D, store, spec) {
+  const auto &inputBuf = store.getTensor(input);
+  const auto &weightBuf = store.getTensor(weight);
   const auto inShape = inputBuf.getShape();
   const auto wShape = weightBuf.getShape();
   stride_ = stride;
@@ -31,7 +31,7 @@ Conv1DOpNode::Conv1DOpNode(Runtime &runtime,
   L_out_ = (L_in_ + 2 * padding_ - kL_) / stride_ + 1;
   spec_ = spec.value_or(kConv1DDefaultVariant);
   inputs_ = {input, weight};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType Conv1DOpNode::shaderDtype() const {

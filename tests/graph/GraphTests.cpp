@@ -320,7 +320,7 @@ TEST_F(GraphTest, ExecutorBinaryOp) {
   auto graph = builder.build();
 
   // Execute
-  GraphExecutor executor(runtime_.ops(), runtime_);
+  GraphExecutor executor(runtime_.ops());
   auto results = executor.execute(graph);
   ASSERT_EQ(results.size(), 1u);
 
@@ -343,7 +343,7 @@ TEST_F(GraphTest, ExecutorUnaryOp) {
   builder.markOutput(sq);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops(), runtime_);
+  GraphExecutor executor(runtime_.ops());
   auto results = executor.execute(graph);
 
   std::vector<float> output(4);
@@ -369,7 +369,7 @@ TEST_F(GraphTest, ExecutorMatMul) {
   builder.markOutput(mm);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops(), runtime_);
+  GraphExecutor executor(runtime_.ops());
   auto results = executor.execute(graph);
 
   std::vector<float> output(4);
@@ -391,7 +391,7 @@ TEST_F(GraphTest, ExecutorReshape) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops(), runtime_);
+  GraphExecutor executor(runtime_.ops());
   auto results = executor.execute(graph);
 
   // Verify shape via reading back all elements
@@ -413,7 +413,7 @@ TEST_F(GraphTest, ExecutorVecScalarOp) {
   builder.markOutput(scaled);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops(), runtime_);
+  GraphExecutor executor(runtime_.ops());
   auto results = executor.execute(graph);
 
   std::vector<float> output(4);
@@ -435,7 +435,7 @@ TEST_F(GraphTest, ExecutorTranspose) {
   builder.markOutput(t);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops(), runtime_);
+  GraphExecutor executor(runtime_.ops());
   auto results = executor.execute(graph);
 
   std::vector<float> output(6);
@@ -460,7 +460,7 @@ TEST_F(GraphTest, ExecutorReduce) {
   builder.markOutput(sum);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops(), runtime_);
+  GraphExecutor executor(runtime_.ops());
   auto results = executor.execute(graph);
 
   float output = 0.0f;
@@ -505,7 +505,7 @@ TEST_F(GraphTest, OptimizedExecutionMatchesEager) {
   auto optimizer = GraphOptimizer::createDefault();
   optimizer.optimize(graph);
 
-  GraphExecutor executor(ops, runtime_);
+  GraphExecutor executor(ops);
   auto results = executor.execute(graph);
 
   std::vector<float> graphResult(4);
@@ -531,7 +531,7 @@ TEST_F(GraphTest, MultiOutputGraph) {
 
   EXPECT_EQ(graph.outputs().size(), 2u);
 
-  GraphExecutor executor(runtime_.ops(), runtime_);
+  GraphExecutor executor(runtime_.ops());
   auto results = executor.execute(graph);
   ASSERT_EQ(results.size(), 2u);
 

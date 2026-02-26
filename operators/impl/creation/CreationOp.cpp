@@ -1,19 +1,19 @@
 #include "CreationOp.h"
 #include "CreationShaders.generated.h"
-#include "Runtime.h"
 #include "Shaders.h"
+#include "TensorStore.h"
 
 namespace cut {
 
 // --- FillOpNode ---
 
 FillOpNode::FillOpNode(OperatorEnum op,
-                       Runtime &runtime,
+                       TensorStore &store,
                        std::vector<uint32_t> &&shape,
                        DataType dtype,
                        float fillValue,
                        std::optional<uint32_t> spec)
-    : OpNode(op, runtime, spec), shape_(std::move(shape)), dtype_(dtype),
+    : OpNode(op, store, spec), shape_(std::move(shape)), dtype_(dtype),
       fillValue_(fillValue), numElements_(alignedElementCount(shape_)) {
   if (op_ == Ones)
     fillValue_ = 1.0f;
@@ -52,13 +52,13 @@ std::vector<uint8_t> FillOpNode::pushConstants() const {
 // --- ArangeOpNode ---
 
 ArangeOpNode::ArangeOpNode(OperatorEnum op,
-                           Runtime &runtime,
+                           TensorStore &store,
                            std::vector<uint32_t> &&shape,
                            DataType dtype,
                            float start,
                            float step,
                            std::optional<uint32_t> spec)
-    : OpNode(op, runtime, spec), shape_(std::move(shape)), dtype_(dtype),
+    : OpNode(op, store, spec), shape_(std::move(shape)), dtype_(dtype),
       start_(start), step_(step), numElements_(alignedElementCount(shape_)) {}
 
 DataType ArangeOpNode::shaderDtype() const {

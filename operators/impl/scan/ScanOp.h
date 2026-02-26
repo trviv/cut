@@ -7,7 +7,7 @@ namespace cut {
 class PrefixScanOpNode : public OpNode {
 public:
   PrefixScanOpNode(OperatorEnum op,
-                   Runtime &runtime,
+                   TensorStore &store,
                    const Tensor &a,
                    std::optional<uint32_t> spec = {});
 

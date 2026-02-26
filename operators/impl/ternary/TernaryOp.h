@@ -6,7 +6,7 @@ namespace cut {
 
 class TernaryClampOpNode : public OpNode {
 public:
-  TernaryClampOpNode(Runtime &runtime,
+  TernaryClampOpNode(TensorStore &store,
                      const Tensor &a,
                      uint32_t minBits,
                      uint32_t maxBits,
@@ -27,7 +27,7 @@ private:
 
 class TernarySelectOpNode : public OpNode {
 public:
-  TernarySelectOpNode(Runtime &runtime,
+  TernarySelectOpNode(TensorStore &store,
                       const Tensor &cond,
                       const Tensor &x,
                       const Tensor &y,

@@ -6,7 +6,7 @@ namespace cut {
 
 class BitonicSortOpNode : public OpNode {
 public:
-  BitonicSortOpNode(Runtime &runtime,
+  BitonicSortOpNode(TensorStore &store,
                     const Tensor &keys,
                     const Tensor &vals,
                     std::optional<uint32_t> spec = {});
@@ -26,7 +26,7 @@ private:
 
 class RadixSortOpNode : public OpNode {
 public:
-  RadixSortOpNode(Runtime &runtime,
+  RadixSortOpNode(TensorStore &store,
                   const Tensor &keys,
                   const Tensor &vals,
                   std::optional<uint32_t> spec = {});

@@ -8,7 +8,7 @@ namespace cut {
 class DimReduceOpNode : public OpNode {
 public:
   DimReduceOpNode(OperatorEnum op,
-                  Runtime &runtime,
+                  TensorStore &store,
                   const Tensor &a,
                   int dim,
                   std::optional<uint32_t> spec = {});

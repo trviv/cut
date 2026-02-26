@@ -7,7 +7,7 @@ namespace cut {
 
 class Conv2DOpNode : public OpNode {
 public:
-  Conv2DOpNode(Runtime &runtime,
+  Conv2DOpNode(TensorStore &store,
                const Tensor &input,
                const Tensor &weight,
                uint32_t strideH,

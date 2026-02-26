@@ -7,7 +7,7 @@ namespace cut {
 class GlobalReduceOpNode : public OpNode {
 public:
   GlobalReduceOpNode(OperatorEnum op,
-                     Runtime &runtime,
+                     TensorStore &store,
                      const Tensor &a,
                      std::optional<uint32_t> spec = {});
 
@@ -29,7 +29,7 @@ private:
 
 class NormOpNode : public OpNode {
 public:
-  NormOpNode(Runtime &runtime,
+  NormOpNode(TensorStore &store,
              const Tensor &a,
              std::optional<uint32_t> spec = {});
 
@@ -47,7 +47,7 @@ private:
 
 class DotOpNode : public OpNode {
 public:
-  DotOpNode(Runtime &runtime,
+  DotOpNode(TensorStore &store,
             const Tensor &a,
             const Tensor &b,
             std::optional<uint32_t> spec = {});
@@ -67,7 +67,7 @@ private:
 class CumOpNode : public OpNode {
 public:
   CumOpNode(OperatorEnum op,
-            Runtime &runtime,
+            TensorStore &store,
             const Tensor &a,
             int dim,
             std::optional<uint32_t> spec = {});

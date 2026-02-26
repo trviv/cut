@@ -1,18 +1,18 @@
 #include "MemoryOp.h"
 #include "MemoryShaders.generated.h"
-#include "Runtime.h"
 #include "Shaders.h"
+#include "TensorStore.h"
 
 namespace cut {
 
 // --- CopyOpNode ---
 
-CopyOpNode::CopyOpNode(Runtime &runtime,
+CopyOpNode::CopyOpNode(TensorStore &store,
                        const Tensor &src,
                        std::vector<uint32_t> &&dstShape,
                        std::optional<uint32_t> spec)
-    : OpNode(Copy, runtime, spec) {
-  const auto &buf = runtime.getTensor(src);
+    : OpNode(Copy, store, spec) {
+  const auto &buf = store.getTensor(src);
   const auto srcShape = buf.getShape();
   dtype_ = buf.getDtype();
   dstShape_ = std::move(dstShape);
@@ -26,7 +26,7 @@ CopyOpNode::CopyOpNode(Runtime &runtime,
   if (dstShape_.empty())
     totalElements_ = 1;
   inputs_ = {src};
-  output_ = runtime.createTensorEmpty(dstShape_, dtype_);
+  output_ = store.createTensorEmpty(dstShape_, dtype_);
 }
 
 DataType CopyOpNode::shaderDtype() const {
@@ -65,13 +65,13 @@ std::vector<uint8_t> CopyOpNode::pushConstants() const {
 
 // --- EmbeddingOpNode ---
 
-EmbeddingOpNode::EmbeddingOpNode(Runtime &runtime,
+EmbeddingOpNode::EmbeddingOpNode(TensorStore &store,
                                  const Tensor &indices,
                                  const Tensor &weight,
                                  std::optional<uint32_t> spec)
-    : OpNode(Embedding, runtime, spec) {
-  const auto &idxBuf = runtime.getTensor(indices);
-  const auto &wBuf = runtime.getTensor(weight);
+    : OpNode(Embedding, store, spec) {
+  const auto &idxBuf = store.getTensor(indices);
+  const auto &wBuf = store.getTensor(weight);
   const auto idxShape = idxBuf.getShape();
   const auto wShape = wBuf.getShape();
   dtype_ = wBuf.getDtype();
@@ -86,7 +86,7 @@ EmbeddingOpNode::EmbeddingOpNode(Runtime &runtime,
   outShape_ = idxShape;
   outShape_.push_back(embDim_);
   inputs_ = {indices, weight};
-  output_ = runtime.createTensorEmpty(outputShape(), DataType::Float32);
+  output_ = store.createTensorEmpty(outputShape(), DataType::Float32);
 }
 
 DataType EmbeddingOpNode::shaderDtype() const {
@@ -124,13 +124,13 @@ std::vector<uint8_t> EmbeddingOpNode::pushConstants() const {
 
 // --- PadOpNode ---
 
-PadOpNode::PadOpNode(Runtime &runtime,
+PadOpNode::PadOpNode(TensorStore &store,
                      const Tensor &input,
                      std::vector<uint32_t> &&padWidths,
                      float value,
                      std::optional<uint32_t> spec)
-    : OpNode(Pad, runtime, spec) {
-  const auto &buf = runtime.getTensor(input);
+    : OpNode(Pad, store, spec) {
+  const auto &buf = store.getTensor(input);
   const auto shape = buf.getShape();
   dtype_ = buf.getDtype();
   padWidths_ = std::move(padWidths);
@@ -166,7 +166,7 @@ PadOpNode::PadOpNode(Runtime &runtime,
     params_.padBefore[dim] = padWidths_[2 * i];
   }
   inputs_ = {input};
-  output_ = runtime.createTensorEmpty(outputShape(), outputDtype());
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
 DataType PadOpNode::shaderDtype() const {
@@ -198,12 +198,12 @@ std::vector<uint8_t> PadOpNode::pushConstants() const {
 
 // --- ExpandOpNode ---
 
-ExpandOpNode::ExpandOpNode(Runtime &runtime,
+ExpandOpNode::ExpandOpNode(TensorStore &store,
                            const Tensor &src,
                            const std::vector<uint32_t> &targetShape,
                            std::optional<uint32_t> spec)
-    : OpNode(Expand, runtime, spec) {
-  const auto &buf = runtime.getTensor(src);
+    : OpNode(Expand, store, spec) {
+  const auto &buf = store.getTensor(src);
   const auto srcShape = buf.getShape();
   dtype_ = buf.getDtype();
   int ndim = static_cast<int>(targetShape.size());
@@ -240,7 +240,7 @@ ExpandOpNode::ExpandOpNode(Runtime &runtime,
   }
 
   inputs_ = {src};
-  output_ = runtime.createTensorEmpty(outShape_, dtype_);
+  output_ = store.createTensorEmpty(outShape_, dtype_);
 }
 
 DataType ExpandOpNode::shaderDtype() const {
