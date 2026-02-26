@@ -17,7 +17,7 @@ public:
   size_t executionSize() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
-  void buildSubOperations(Dispatcher &dispatcher) override;
+  void buildSubOperations() override;
 
 private:
   size_t executionSize_;
@@ -37,7 +37,7 @@ public:
   size_t executionSize() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
-  void buildSubOperations(Dispatcher &dispatcher) override;
+  void buildSubOperations() override;
 
 private:
   size_t executionSize_;

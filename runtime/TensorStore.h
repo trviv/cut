@@ -10,32 +10,43 @@ namespace cut {
 
 /**
  * Thin wrapper over ComputeInterface for tensor buffer operations.
- * Provides tensor creation and metadata queries without exposing
- * the full Runtime or GPU backend.
+ * Provides tensor creation, metadata queries, and temporary buffer
+ * pooling for multi-pass operations.
  */
 class TensorStore {
 public:
   explicit TensorStore(ComputeInterface *iface) : iface_(iface) {}
 
-  const ComputeBuffer &getTensor(const Tensor &handle) const {
-    return iface_->getBuffer(handle);
-  }
+  /// Returns the underlying compute interface (used by Dispatcher for
+  /// encode/shader operations).
+  ComputeInterface *iface() const { return iface_; }
+
+  const ComputeBuffer &getTensor(const Tensor &handle) const;
 
   Tensor createTensor(const std::vector<uint32_t> &shape,
                       DataType dtype,
                       const void *srcPtr = nullptr,
-                      bool isUniform = false) {
-    return iface_->createBuffer(shape, dtype, srcPtr, isUniform);
-  }
+                      bool isUniform = false);
 
   Tensor createTensorEmpty(const std::vector<uint32_t> &shape,
                            DataType dtype,
-                           bool isUniform = false) {
-    return iface_->createBuffer(shape, dtype, nullptr, isUniform);
-  }
+                           bool isUniform = false);
+
+  /// Acquires a temporary GPU buffer from the pool or creates a new one.
+  /// Used by multi-pass OpNodes to allocate intermediate buffers.
+  Tensor acquireTempBuffer(size_t numElements, DataType dtype);
+
+  /// Releases all temporary buffers back to the pool.
+  void releaseTempBuffers();
 
 private:
   ComputeInterface *iface_;
+
+  /// Pool of reusable temporary GPU buffers.
+  std::vector<Tensor> tempBufferPool_;
+
+  /// Temporary buffers currently in use by the current multi-pass operation.
+  std::vector<Tensor> activeTempBuffers_;
 };
 
 } // namespace cut

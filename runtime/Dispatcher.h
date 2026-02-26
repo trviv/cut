@@ -15,22 +15,21 @@ namespace cut {
 // Forward declarations
 class ComputeInterface;
 class OpNode;
+class TensorStore;
 
 /**
  * Dispatcher class for encoding math operators to the compute backend.
  * Generates compute dispatches based on operator enums, inferring dtype
  * and workgroup size from buffer bindings.
- *
- * Also manages temporary GPU buffers for multi-pass operations
- * (multi-workgroup reduce, prefix scan, sort).
  */
 class Dispatcher {
 public:
   /**
-   * Constructs a Dispatcher with the given compute interface.
-   * @param iface The compute interface to use for encoding dispatches.
+   * Constructs a Dispatcher with the given tensor store.
+   * @param store The tensor store (provides iface() for encoding and temp
+   * buffers).
    */
-  explicit Dispatcher(ComputeInterface *iface);
+  explicit Dispatcher(TensorStore *store);
 
   /**
    * Encodes an operator dispatch using an OpNode.
@@ -45,29 +44,9 @@ public:
   /// Non-owning overload for graph execution (graph retains node ownership).
   bool encode(OpNode &node);
 
-  /**
-   * Releases all temporary buffers back to the pool.
-   * Should be called after a multi-pass operation completes.
-   */
-  void releaseTempBuffers();
-
-  /**
-   * Acquires a temporary GPU buffer from the pool or creates a new one.
-   * Used by multi-pass OpNodes to allocate intermediate buffers.
-   * @param numElements Number of elements.
-   * @param dtype Data type of elements.
-   * @return Handle to the temporary buffer.
-   */
-  Tensor acquireTempBuffer(size_t numElements, DataType dtype);
-
 private:
+  TensorStore *store_;
   ComputeInterface *iface_;
-
-  /// Pool of reusable temporary GPU buffers.
-  std::vector<Tensor> tempBufferPool_;
-
-  /// Temporary buffers currently in use by the current multi-pass operation.
-  std::vector<Tensor> activeTempBuffers_;
 
   /// Shader cache keyed by OpNode::shaderKey().
   std::unordered_map<size_t, Tensor> shaderCache_;

@@ -1,5 +1,4 @@
 #include "ScanOp.h"
-#include "Dispatcher.h"
 #include "TensorStore.h"
 
 namespace cut {
@@ -38,7 +37,7 @@ std::vector<uint8_t> PrefixScanOpNode::pushConstants() const {
   return {};
 }
 
-void PrefixScanOpNode::buildSubOperations(Dispatcher &dispatcher) {
+void PrefixScanOpNode::buildSubOperations() {
   uint32_t numElements = static_cast<uint32_t>(numElements_);
   uint32_t isExclusive = (op_ == PrefixScanExclusiveSum) ? 1u : 0u;
   uint32_t groupCount = (numElements + 255) / 256;
@@ -53,7 +52,7 @@ void PrefixScanOpNode::buildSubOperations(Dispatcher &dispatcher) {
 
   if (groupCount <= 1) {
     // Single workgroup: simple scan
-    Tensor partialSums = dispatcher.acquireTempBuffer(1, DataType::Float32);
+    Tensor partialSums = store_->acquireTempBuffer(1, DataType::Float32);
     subOps_.push_back(std::make_unique<InternalOpNode>(
         InternalScanPerWg, DataType::Float32,
         std::vector<Tensor>{inputHandle, outputHandle, partialSums},
@@ -62,8 +61,7 @@ void PrefixScanOpNode::buildSubOperations(Dispatcher &dispatcher) {
   }
 
   // Multi-workgroup: three-pass approach
-  Tensor partialSums =
-      dispatcher.acquireTempBuffer(groupCount, DataType::Float32);
+  Tensor partialSums = store_->acquireTempBuffer(groupCount, DataType::Float32);
 
   // Pass 1: Per-workgroup scan
   subOps_.push_back(std::make_unique<InternalOpNode>(

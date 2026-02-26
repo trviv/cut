@@ -1,5 +1,4 @@
 #include "SortOp.h"
-#include "Dispatcher.h"
 #include "TensorStore.h"
 
 namespace cut {
@@ -55,7 +54,7 @@ std::vector<uint8_t> BitonicSortOpNode::pushConstants() const {
   return {};
 }
 
-void BitonicSortOpNode::buildSubOperations(Dispatcher &dispatcher) {
+void BitonicSortOpNode::buildSubOperations() {
   uint32_t numElements = static_cast<uint32_t>(executionSize_);
   uint32_t n = nextPowerOf2(numElements);
 
@@ -67,8 +66,8 @@ void BitonicSortOpNode::buildSubOperations(Dispatcher &dispatcher) {
   bool needsPadding = (numElements != n);
 
   if (needsPadding) {
-    sortKeys = dispatcher.acquireTempBuffer(n, DataType::Float32);
-    sortVals = dispatcher.acquireTempBuffer(n, DataType::UInt32);
+    sortKeys = store_->acquireTempBuffer(n, DataType::Float32);
+    sortVals = store_->acquireTempBuffer(n, DataType::UInt32);
 
     struct InitPC {
       uint32_t numElements;
@@ -140,7 +139,7 @@ std::vector<uint8_t> RadixSortOpNode::pushConstants() const {
   return {};
 }
 
-void RadixSortOpNode::buildSubOperations(Dispatcher &dispatcher) {
+void RadixSortOpNode::buildSubOperations() {
   uint32_t numElements = static_cast<uint32_t>(executionSize_);
 
   Tensor keysHandle = inputs_[0];
@@ -149,9 +148,9 @@ void RadixSortOpNode::buildSubOperations(Dispatcher &dispatcher) {
   uint32_t groupCount = std::max((numElements + 255) / 256, 1u);
   uint32_t histSize = 16 * groupCount;
 
-  Tensor histogram = dispatcher.acquireTempBuffer(histSize, DataType::UInt32);
-  Tensor keysAlt = dispatcher.acquireTempBuffer(numElements, DataType::UInt32);
-  Tensor valsAlt = dispatcher.acquireTempBuffer(numElements, DataType::UInt32);
+  Tensor histogram = store_->acquireTempBuffer(histSize, DataType::UInt32);
+  Tensor keysAlt = store_->acquireTempBuffer(numElements, DataType::UInt32);
+  Tensor valsAlt = store_->acquireTempBuffer(numElements, DataType::UInt32);
 
   // 8 passes (4 bits each) for 32-bit keys
   for (uint32_t pass = 0; pass < 8; pass++) {

@@ -42,8 +42,8 @@ void Runtime::init(BackendType backend) {
   // Create tensor store with the initialized interface
   store_ = std::make_unique<TensorStore>(interface_.get());
 
-  // Create dispatcher with the initialized interface
-  dispatcher_ = std::make_unique<Dispatcher>(interface_.get());
+  // Create dispatcher with the tensor store
+  dispatcher_ = std::make_unique<Dispatcher>(store_.get());
 
   // Create operations object
   operations_ = std::make_unique<Operations>(*this);

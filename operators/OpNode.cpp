@@ -73,10 +73,9 @@ std::vector<ComputeBinding> OpNode::bindings() const {
   return result;
 }
 
-const std::vector<std::unique_ptr<OpNode>> &
-OpNode::subOperations(Dispatcher &dispatcher) {
+const std::vector<std::unique_ptr<OpNode>> &OpNode::subOperations() {
   if (subOps_.empty()) {
-    buildSubOperations(dispatcher);
+    buildSubOperations();
   }
   return subOps_;
 }

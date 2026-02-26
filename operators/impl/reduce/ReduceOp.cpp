@@ -1,5 +1,4 @@
 #include "ReduceOp.h"
-#include "Dispatcher.h"
 #include "ReduceShaders.generated.h"
 #include "Shaders.h"
 #include "TensorStore.h"
@@ -91,7 +90,7 @@ std::vector<uint8_t> GlobalReduceOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
-void GlobalReduceOpNode::buildSubOperations(Dispatcher &dispatcher) {
+void GlobalReduceOpNode::buildSubOperations() {
   uint32_t numElements = static_cast<uint32_t>(numElements_);
 
   // Each WG of 256 threads processes ~1024 elements, cap at 256 workgroups
@@ -102,7 +101,7 @@ void GlobalReduceOpNode::buildSubOperations(Dispatcher &dispatcher) {
   Tensor inputHandle = inputs_[0];
   Tensor outputHandle = output_;
 
-  Tensor partialSums = dispatcher.acquireTempBuffer(groupCount, dtype_);
+  Tensor partialSums = store_->acquireTempBuffer(groupCount, dtype_);
 
   // Phase 1: Partial reduce — each workgroup reduces its batch
   struct PartialPC {

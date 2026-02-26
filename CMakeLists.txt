@@ -154,6 +154,7 @@ set(LIB_SOURCES
     operators/impl/unary/UnaryOp.cpp
     runtime/Runtime.cpp
     runtime/Dispatcher.cpp
+    runtime/TensorStore.cpp
     runtime/Operations.cpp
     runtime/ShapeUtils.cpp
     runtime/graph/Graph.cpp

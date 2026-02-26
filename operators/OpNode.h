@@ -15,7 +15,6 @@
 
 namespace cut {
 
-class Dispatcher;
 class TensorStore;
 
 // ============================================================================
@@ -113,8 +112,7 @@ public:
   /// Populates and returns the sub-operations for composite/multi-pass ops.
   /// On first call, invokes buildSubOperations() to populate subOps_.
   /// Subsequent calls return the cached result.
-  const std::vector<std::unique_ptr<OpNode>> &
-  subOperations(Dispatcher &dispatcher);
+  const std::vector<std::unique_ptr<OpNode>> &subOperations();
 
   /// Whether a barrier should be encoded after dispatching this node.
   virtual bool needsBarrierAfter() const { return false; }
@@ -173,7 +171,7 @@ protected:
   virtual std::vector<uint8_t> pushConstants() const = 0;
 
   /// Override in multi-pass subclasses to populate subOps_.
-  virtual void buildSubOperations(Dispatcher &dispatcher) {}
+  virtual void buildSubOperations() {}
 
   OperatorEnum op_;
   TensorStore *store_;
