@@ -237,15 +237,15 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
     if (!layerGraphs_.empty()) {
       auto &lg = layerGraphs_[0];
       graphs.push_back({"QKV Projection", &lg.qkvProjection.preOptGraph,
-                        &lg.qkvProjection.graph});
+                        lg.qkvProjection.graph.get()});
       graphs.push_back({"Attention Output + Residual",
                         &lg.attnOutputResidual.preOptGraph,
-                        &lg.attnOutputResidual.graph});
+                        lg.attnOutputResidual.graph.get()});
       graphs.push_back({"FFN + Residual", &lg.ffnResidual.preOptGraph,
-                        &lg.ffnResidual.graph});
+                        lg.ffnResidual.graph.get()});
     }
     graphs.push_back(
-        {"Logits", &logitsGraph_.preOptGraph, &logitsGraph_.graph});
+        {"Logits", &logitsGraph_.preOptGraph, logitsGraph_.graph.get()});
     generateModelReport(reader, config_, reportPath, graphs);
   }
 }
@@ -460,10 +460,10 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   auto graph = builder.build();
 
   GraphTemplate tpl;
-  tpl.dynamicInputIds = {graph.nodeId(vNormed)};
-  tpl.preOptGraph = graph.clone();
+  tpl.dynamicInputIds = {graph->nodeId(vNormed)};
+  tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
+  optimizer.optimize(*graph);
   tpl.graph = std::move(graph);
   return tpl;
 }
@@ -497,10 +497,10 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   auto graph = builder.build();
 
   GraphTemplate tpl;
-  tpl.dynamicInputIds = {graph.nodeId(vAttnOut), graph.nodeId(vHidden)};
-  tpl.preOptGraph = graph.clone();
+  tpl.dynamicInputIds = {graph->nodeId(vAttnOut), graph->nodeId(vHidden)};
+  tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
+  optimizer.optimize(*graph);
   tpl.graph = std::move(graph);
   return tpl;
 }
@@ -546,10 +546,10 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   auto graph = builder.build();
 
   GraphTemplate tpl;
-  tpl.dynamicInputIds = {graph.nodeId(vNormed), graph.nodeId(vHidden)};
-  tpl.preOptGraph = graph.clone();
+  tpl.dynamicInputIds = {graph->nodeId(vNormed), graph->nodeId(vHidden)};
+  tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
+  optimizer.optimize(*graph);
   tpl.graph = std::move(graph);
   return tpl;
 }
@@ -577,10 +577,10 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
   auto graph = builder.build();
 
   GraphTemplate tpl;
-  tpl.dynamicInputIds = {graph.nodeId(vHidden)};
-  tpl.preOptGraph = graph.clone();
+  tpl.dynamicInputIds = {graph->nodeId(vHidden)};
+  tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
+  optimizer.optimize(*graph);
   tpl.graph = std::move(graph);
   return tpl;
 }
@@ -604,11 +604,11 @@ void LlamaModel::buildGraphTemplates() {
 std::vector<cut::Tensor> LlamaModel::executeGraph(
     GraphTemplate &tpl, const std::vector<cut::ComputeHandle> &dynamicHandles) {
   for (size_t i = 0; i < tpl.dynamicInputIds.size(); ++i) {
-    auto &gn = tpl.graph.node(tpl.dynamicInputIds[i]);
+    auto &gn = tpl.graph->node(tpl.dynamicInputIds[i]);
     static_cast<cut::InputOpNode *>(gn.op.get())
         ->setGpuHandle(dynamicHandles[i]);
   }
-  return executor_->execute(tpl.graph);
+  return executor_->execute(*tpl.graph);
 }
 
 // ============================================================================

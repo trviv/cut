@@ -57,11 +57,11 @@ TEST_F(GraphTest, SingleInputNode) {
   builder.markOutput(x);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.size(), 1u);
-  EXPECT_EQ(graph.outputs().size(), 1u);
-  EXPECT_TRUE(graph.node(x).isInput);
-  EXPECT_EQ(graph.node(x).op->outputShape(), (std::vector<uint32_t>{4, 8}));
-  EXPECT_EQ(graph.node(x).op->outputDtype(), DataType::Float32);
+  EXPECT_EQ(graph->size(), 1u);
+  EXPECT_EQ(graph->outputs().size(), 1u);
+  EXPECT_TRUE(graph->node(x).isInput);
+  EXPECT_EQ(graph->node(x).op->outputShape(), (std::vector<uint32_t>{4, 8}));
+  EXPECT_EQ(graph->node(x).op->outputDtype(), DataType::Float32);
 }
 
 TEST_F(GraphTest, LinearChain) {
@@ -76,14 +76,14 @@ TEST_F(GraphTest, LinearChain) {
   builder.markOutput(result);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.size(), 4u);
-  EXPECT_EQ(graph.node(result).op->outputShape(), (std::vector<uint32_t>{8}));
+  EXPECT_EQ(graph->size(), 4u);
+  EXPECT_EQ(graph->node(result).op->outputShape(), (std::vector<uint32_t>{8}));
 
-  auto order = graph.topologicalOrder();
+  auto order = graph->topologicalOrder();
   EXPECT_EQ(order.size(), 4u);
   // inputs come first, then sum, then result
-  uint32_t sumId = graph.nodeId(sum);
-  uint32_t resultId = graph.nodeId(result);
+  uint32_t sumId = graph->nodeId(sum);
+  uint32_t resultId = graph->nodeId(result);
   EXPECT_TRUE(std::find(order.begin(), order.end(), sumId) != order.end());
   auto sumPos = std::find(order.begin(), order.end(), sumId);
   auto resultPos = std::find(order.begin(), order.end(), resultId);
@@ -102,10 +102,10 @@ TEST_F(GraphTest, DiamondDAG) {
   builder.markOutput(c);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.size(), 4u);
+  EXPECT_EQ(graph->size(), 4u);
   // x has refCount 2 (used by both a and b)
-  graph.recomputeRefCounts();
-  EXPECT_EQ(graph.node(x).refCount, 2u);
+  graph->recomputeRefCounts();
+  EXPECT_EQ(graph->node(x).refCount, 2u);
 }
 
 TEST_F(GraphTest, MatMulShapeInference) {
@@ -119,8 +119,8 @@ TEST_F(GraphTest, MatMulShapeInference) {
   builder.markOutput(c);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(c).op->outputShape(), (std::vector<uint32_t>{3, 5}));
-  EXPECT_EQ(graph.node(c).op->outputDtype(), DataType::Float32);
+  EXPECT_EQ(graph->node(c).op->outputShape(), (std::vector<uint32_t>{3, 5}));
+  EXPECT_EQ(graph->node(c).op->outputDtype(), DataType::Float32);
 }
 
 TEST_F(GraphTest, TransposeShapeInference) {
@@ -132,7 +132,7 @@ TEST_F(GraphTest, TransposeShapeInference) {
   builder.markOutput(t);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(t).op->outputShape(), (std::vector<uint32_t>{7, 3}));
+  EXPECT_EQ(graph->node(t).op->outputShape(), (std::vector<uint32_t>{7, 3}));
 }
 
 TEST_F(GraphTest, ReshapeShapeInference) {
@@ -144,7 +144,7 @@ TEST_F(GraphTest, ReshapeShapeInference) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(r).op->outputShape(), (std::vector<uint32_t>{3, 4}));
+  EXPECT_EQ(graph->node(r).op->outputShape(), (std::vector<uint32_t>{3, 4}));
 }
 
 TEST_F(GraphTest, ReshapeWithNegativeOne) {
@@ -156,7 +156,7 @@ TEST_F(GraphTest, ReshapeWithNegativeOne) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(r).op->outputShape(), (std::vector<uint32_t>{3, 4}));
+  EXPECT_EQ(graph->node(r).op->outputShape(), (std::vector<uint32_t>{3, 4}));
 }
 
 TEST_F(GraphTest, ReduceGlobalShapeInference) {
@@ -168,7 +168,7 @@ TEST_F(GraphTest, ReduceGlobalShapeInference) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(r).op->outputShape(), (std::vector<uint32_t>{1}));
+  EXPECT_EQ(graph->node(r).op->outputShape(), (std::vector<uint32_t>{1}));
 }
 
 TEST_F(GraphTest, ReduceDimShapeInference) {
@@ -180,7 +180,7 @@ TEST_F(GraphTest, ReduceDimShapeInference) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.node(r).op->outputShape(), (std::vector<uint32_t>{8}));
+  EXPECT_EQ(graph->node(r).op->outputShape(), (std::vector<uint32_t>{8}));
 }
 
 // ============================================================================
@@ -197,16 +197,16 @@ TEST_F(GraphTest, IdentityReshapeElimination) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  uint32_t vaId = graph.nodeId(va);
+  uint32_t vaId = graph->nodeId(va);
 
-  EXPECT_EQ(graph.size(), 2u);
+  EXPECT_EQ(graph->size(), 2u);
 
   IdentityReshapePass pass;
-  bool changed = pass.run(graph);
+  bool changed = pass.run(*graph);
   EXPECT_TRUE(changed);
 
   // Output should now point to the input node
-  EXPECT_EQ(graph.outputs()[0], vaId);
+  EXPECT_EQ(graph->outputs()[0], vaId);
 }
 
 TEST_F(GraphTest, ReshapeChainElimination) {
@@ -220,16 +220,16 @@ TEST_F(GraphTest, ReshapeChainElimination) {
   builder.markOutput(r2);
   auto graph = builder.build();
 
-  uint32_t vaId = graph.nodeId(va);
-  uint32_t r2Id = graph.nodeId(r2);
+  uint32_t vaId = graph->nodeId(va);
+  uint32_t r2Id = graph->nodeId(r2);
 
-  EXPECT_EQ(graph.size(), 3u);
+  EXPECT_EQ(graph->size(), 3u);
 
   ReshapeChainPass chainPass;
-  chainPass.run(graph);
+  chainPass.run(*graph);
 
   // r2 should now point directly to va's output (skip r1)
-  EXPECT_EQ(graph.node(r2Id).inputIds[0], vaId);
+  EXPECT_EQ(graph->node(r2Id).inputIds[0], vaId);
 }
 
 TEST_F(GraphTest, TransposeCancelElimination) {
@@ -242,14 +242,14 @@ TEST_F(GraphTest, TransposeCancelElimination) {
   builder.markOutput(t2);
   auto graph = builder.build();
 
-  uint32_t vaId = graph.nodeId(va);
+  uint32_t vaId = graph->nodeId(va);
 
   TransposeCancelPass pass;
-  bool changed = pass.run(graph);
+  bool changed = pass.run(*graph);
   EXPECT_TRUE(changed);
 
   // Output should now point to the original input
-  EXPECT_EQ(graph.outputs()[0], vaId);
+  EXPECT_EQ(graph->outputs()[0], vaId);
 }
 
 TEST_F(GraphTest, DeadCodeElimination) {
@@ -262,15 +262,15 @@ TEST_F(GraphTest, DeadCodeElimination) {
   builder.markOutput(live);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.size(), 3u);
+  EXPECT_EQ(graph->size(), 3u);
 
   DeadCodePass pass;
-  bool changed = pass.run(graph);
+  bool changed = pass.run(*graph);
   EXPECT_TRUE(changed);
 
   // The dead node should be marked as removed
-  EXPECT_TRUE(graph.node(dead).isRemoved);
-  EXPECT_FALSE(graph.node(live).isRemoved);
+  EXPECT_TRUE(graph->node(dead).isRemoved);
+  EXPECT_FALSE(graph->node(live).isRemoved);
 }
 
 TEST_F(GraphTest, FullOptimizationPipeline) {
@@ -290,13 +290,13 @@ TEST_F(GraphTest, FullOptimizationPipeline) {
   builder.markOutput(out);
 
   auto graph = builder.build();
-  size_t origSize = graph.size();
+  size_t origSize = graph->size();
 
   auto optimizer = GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
+  optimizer.optimize(*graph);
 
   // The topological order should only contain non-removed nodes
-  auto order = graph.topologicalOrder();
+  auto order = graph->topologicalOrder();
   EXPECT_LE(order.size(), origSize);
 }
 
@@ -321,7 +321,7 @@ TEST_F(GraphTest, ExecutorBinaryOp) {
 
   // Execute
   GraphExecutor executor(runtime_.ops());
-  auto results = executor.execute(graph);
+  auto results = executor.execute(*graph);
   ASSERT_EQ(results.size(), 1u);
 
   // Read back and verify
@@ -344,7 +344,7 @@ TEST_F(GraphTest, ExecutorUnaryOp) {
   auto graph = builder.build();
 
   GraphExecutor executor(runtime_.ops());
-  auto results = executor.execute(graph);
+  auto results = executor.execute(*graph);
 
   std::vector<float> output(4);
   runtime_.copyFromTensor(results[0], output.data(), 4 * sizeof(float));
@@ -370,7 +370,7 @@ TEST_F(GraphTest, ExecutorMatMul) {
   auto graph = builder.build();
 
   GraphExecutor executor(runtime_.ops());
-  auto results = executor.execute(graph);
+  auto results = executor.execute(*graph);
 
   std::vector<float> output(4);
   runtime_.copyFromTensor(results[0], output.data(), 4 * sizeof(float));
@@ -392,7 +392,7 @@ TEST_F(GraphTest, ExecutorReshape) {
   auto graph = builder.build();
 
   GraphExecutor executor(runtime_.ops());
-  auto results = executor.execute(graph);
+  auto results = executor.execute(*graph);
 
   // Verify shape via reading back all elements
   std::vector<float> output(6);
@@ -414,7 +414,7 @@ TEST_F(GraphTest, ExecutorVecScalarOp) {
   auto graph = builder.build();
 
   GraphExecutor executor(runtime_.ops());
-  auto results = executor.execute(graph);
+  auto results = executor.execute(*graph);
 
   std::vector<float> output(4);
   runtime_.copyFromTensor(results[0], output.data(), 4 * sizeof(float));
@@ -436,7 +436,7 @@ TEST_F(GraphTest, ExecutorTranspose) {
   auto graph = builder.build();
 
   GraphExecutor executor(runtime_.ops());
-  auto results = executor.execute(graph);
+  auto results = executor.execute(*graph);
 
   std::vector<float> output(6);
   runtime_.copyFromTensor(results[0], output.data(), 6 * sizeof(float));
@@ -461,7 +461,7 @@ TEST_F(GraphTest, ExecutorReduce) {
   auto graph = builder.build();
 
   GraphExecutor executor(runtime_.ops());
-  auto results = executor.execute(graph);
+  auto results = executor.execute(*graph);
 
   float output = 0.0f;
   runtime_.copyFromTensor(results[0], &output, sizeof(float));
@@ -503,10 +503,10 @@ TEST_F(GraphTest, OptimizedExecutionMatchesEager) {
 
   auto graph = builder.build();
   auto optimizer = GraphOptimizer::createDefault();
-  optimizer.optimize(graph);
+  optimizer.optimize(*graph);
 
   GraphExecutor executor(ops);
-  auto results = executor.execute(graph);
+  auto results = executor.execute(*graph);
 
   std::vector<float> graphResult(4);
   runtime_.copyFromTensor(results[0], graphResult.data(), 4 * sizeof(float));
@@ -529,10 +529,10 @@ TEST_F(GraphTest, MultiOutputGraph) {
   builder.markOutput(c);
   auto graph = builder.build();
 
-  EXPECT_EQ(graph.outputs().size(), 2u);
+  EXPECT_EQ(graph->outputs().size(), 2u);
 
   GraphExecutor executor(runtime_.ops());
-  auto results = executor.execute(graph);
+  auto results = executor.execute(*graph);
   ASSERT_EQ(results.size(), 2u);
 
   std::vector<float> sinOut(4), cosOut(4);

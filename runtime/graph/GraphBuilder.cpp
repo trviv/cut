@@ -16,7 +16,7 @@ GraphBuilder::~GraphBuilder() {
   }
 }
 
-Graph GraphBuilder::build() {
+std::unique_ptr<Graph> GraphBuilder::build() {
   built_ = true;
   return ops_->takeGraph();
 }

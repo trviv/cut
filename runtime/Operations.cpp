@@ -52,17 +52,16 @@ void Operations::flush() {
     return;
 
   // Mark all non-input nodes as graph outputs
-  for (const auto &p : tensorToNodeId_) {
-    const auto &n = graph_->node(p.second);
-    if (!n.isInput) {
-      graph_->markOutput(p.second);
+  for (uint32_t i = 0; i < graph_->size(); ++i) {
+    auto &n = graph_->nodes()[i];
+    if (n.op && !n.isRemoved && !n.isInput) {
+      graph_->markOutput(i);
     }
   }
 
-  // Mark as executed and clear mappings before running the executor,
+  // Mark as executed before running the executor,
   // so that recursive flush() calls (from dispatch) are no-ops.
   graph_->markExecuted();
-  tensorToNodeId_.clear();
 
   // Execute without optimizing.  Auto-flush marks every non-input node as
   // an output, and the user holds placeholder tensors for those nodes.
@@ -77,10 +76,9 @@ void Operations::flush() {
   graph_ = std::make_unique<graph::Graph>();
 }
 
-graph::Graph Operations::takeGraph() {
-  graph::Graph result = std::move(*graph_);
+std::unique_ptr<graph::Graph> Operations::takeGraph() {
+  auto result = std::move(graph_);
   graph_ = std::make_unique<graph::Graph>();
-  tensorToNodeId_.clear();
   return result;
 }
 
@@ -91,19 +89,16 @@ void Operations::markGraphOutput(const Tensor &t) {
 void Operations::ensureFreshGraph() {
   if (graph_->isExecuted()) {
     graph_ = std::make_unique<graph::Graph>();
-    tensorToNodeId_.clear();
   }
 }
 
 uint32_t Operations::toNodeId(const Tensor &t) {
-  // Check if already mapped
-  for (const auto &p : tensorToNodeId_) {
-    if (p.first == t)
-      return p.second;
-  }
+  auto id = graph_->tryNodeId(t);
+  if (id)
+    return *id;
   // Register as a new graph input
   registerInput(t, false);
-  return tensorToNodeId_.back().second;
+  return graph_->nodeId(t);
 }
 
 Tensor Operations::registerInput(const Tensor &gpuHandle, bool isConstant) {
@@ -112,17 +107,14 @@ Tensor Operations::registerInput(const Tensor &gpuHandle, bool isConstant) {
   // same placeholder handle for distinct graph inputs that receive different
   // tensors at execution time, so each call must create a separate node.
   if (isConstant) {
-    for (const auto &p : tensorToNodeId_) {
-      if (p.first == gpuHandle)
-        return gpuHandle;
-    }
+    if (graph_->tryNodeId(gpuHandle))
+      return gpuHandle;
   }
   auto shape = getShape(gpuHandle);
   auto dtype = getDtype(gpuHandle);
   auto node =
       std::make_unique<InputOpNode>(gpuHandle, shape, dtype, isConstant);
-  uint32_t nodeId = graph_->addNode(std::move(node), gpuHandle);
-  tensorToNodeId_.emplace_back(gpuHandle, nodeId);
+  graph_->addNode(std::move(node), gpuHandle);
   return gpuHandle;
 }
 
@@ -133,9 +125,7 @@ Tensor Operations::recordOrEncode(std::unique_ptr<OpNode> node) {
   for (const auto &inp : node->inputs()) {
     inputIds.push_back(toNodeId(inp));
   }
-  uint32_t nodeId =
-      graph_->addNode(std::move(node), output, std::move(inputIds));
-  tensorToNodeId_.emplace_back(output, nodeId);
+  graph_->addNode(std::move(node), output, std::move(inputIds));
   return output;
 }
 

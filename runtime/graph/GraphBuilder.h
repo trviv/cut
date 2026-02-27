@@ -3,6 +3,7 @@
 #include "Graph.h"
 
 #include <ComputeHandle.h>
+#include <memory>
 
 namespace cut {
 
@@ -22,7 +23,7 @@ public:
 
   /// Move-returns the constructed graph. The builder should not be used after
   /// this.
-  Graph build();
+  std::unique_ptr<Graph> build();
 
   /// Returns the Operations instance in graph mode.
   /// Use this to call any operation (e.g. builder.ops().matmul(a, b)).

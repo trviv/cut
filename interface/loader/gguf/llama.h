@@ -67,7 +67,7 @@ struct KVCache {
 
 /// A pre-built, optimized computation graph with handles to rebindable inputs.
 struct GraphTemplate {
-  cut::graph::Graph graph;
+  std::unique_ptr<cut::graph::Graph> graph;
   cut::graph::Graph preOptGraph; // snapshot before optimization passes
   std::vector<uint32_t> dynamicInputIds;
 };

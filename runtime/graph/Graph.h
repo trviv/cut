@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -60,6 +61,9 @@ public:
 
   /// Returns the node index for a given Tensor.
   uint32_t nodeId(const Tensor &t) const;
+
+  /// Returns the node index for a given Tensor, or nullopt if not found.
+  std::optional<uint32_t> tryNodeId(const Tensor &t) const;
 
   /// Returns the number of nodes (including tombstones).
   size_t size() const;

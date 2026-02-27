@@ -82,6 +82,14 @@ uint32_t Graph::nodeId(const Tensor &t) const {
   throw std::out_of_range("No node found for tensor");
 }
 
+std::optional<uint32_t> Graph::tryNodeId(const Tensor &t) const {
+  for (const auto &p : tensorToNodeId_) {
+    if (p.first == t)
+      return p.second;
+  }
+  return std::nullopt;
+}
+
 size_t Graph::size() const {
   return nodes_.size();
 }

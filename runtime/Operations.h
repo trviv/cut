@@ -219,7 +219,7 @@ public:
 
   /// Move the current graph out and replace with a fresh one.
   /// Used by GraphBuilder to obtain the recorded graph.
-  graph::Graph takeGraph();
+  std::unique_ptr<graph::Graph> takeGraph();
 
   /// Mark a tensor as a graph output (used by GraphBuilder).
   void markGraphOutput(const Tensor &t);
@@ -234,7 +234,6 @@ private:
 
   // Graph state — Operations always records to graph_.
   std::unique_ptr<graph::Graph> graph_;
-  std::vector<std::pair<Tensor, uint32_t>> tensorToNodeId_;
 
   std::vector<uint32_t> getShape(const Tensor &h) const;
   DataType getDtype(const Tensor &h) const;
