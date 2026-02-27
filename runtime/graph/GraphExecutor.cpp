@@ -30,31 +30,32 @@ std::vector<Tensor> GraphExecutor::execute(Graph &graph) {
 }
 
 void GraphExecutor::executeNode(Graph &graph, uint32_t nodeIndex) {
-  auto &op = graph.nodes()[nodeIndex];
-  if (!op || op->isGraphRemoved())
+  auto &gn = graph.nodes()[nodeIndex];
+  if (!gn.op || gn.isRemoved)
     return;
 
   // --- Input nodes ---
-  if (op->isInputNode()) {
-    tensorMap_[nodeIndex] = static_cast<InputOpNode *>(op.get())->gpuHandle();
+  if (gn.isInput) {
+    tensorMap_[nodeIndex] =
+        static_cast<InputOpNode *>(gn.op.get())->gpuHandle();
     return;
   }
 
   // Resolve real inputs from the tensorMap
   std::vector<Tensor> realInputs;
-  for (uint32_t id : op->graphInputIds()) {
+  for (uint32_t id : gn.inputIds) {
     realInputs.push_back(tensorMap_[id]);
   }
 
   // --- Standard OpNode dispatch ---
-  op->rebindInputs(realInputs);
+  gn.op->rebindInputs(realInputs);
 
   // Reuse the output tensor allocated during graph construction.
   // Creating new tensors each execution can trigger buffer-pool reuse
   // that aliases an output with a still-in-flight input.
-  tensorMap_[nodeIndex] = op->output();
+  tensorMap_[nodeIndex] = gn.op->output();
 
-  ops_->dispatch(*op);
+  ops_->dispatch(*gn.op);
 }
 
 } // namespace graph

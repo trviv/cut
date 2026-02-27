@@ -256,8 +256,8 @@ static OpMapping mapTensorToOps(const std::string &name,
 // Optimized-graph SVG rendering helpers
 // =========================================================================
 
-static std::string nodeDetailStr(const cut::OpNode &node) {
-  auto *stub = dynamic_cast<const cut::StubOpNode *>(&node);
+static std::string nodeDetailStr(const cut::graph::GraphNode &gn) {
+  auto *stub = dynamic_cast<const cut::StubOpNode *>(gn.op.get());
   if (stub)
     return stub->detail();
   return "";
@@ -274,17 +274,17 @@ static std::string formatShape(const std::vector<uint32_t> &shape) {
   return s;
 }
 
-static std::string chooseFillColor(const cut::OpNode &n) {
+static std::string chooseFillColor(const cut::graph::GraphNode &n) {
   using LT = cut::LogicalOpType;
-  if (n.isInputNode())
+  if (n.isInput)
     return "#e0e7ff";
-  if (n.logicalType() == LT::Reshape)
+  if (n.logicalType == LT::Reshape)
     return "#f3f4f6";
-  if (n.logicalType() == LT::Transpose)
+  if (n.logicalType == LT::Transpose)
     return "#f0f4ff";
 
   // Use display name for finer-grained colouring
-  std::string name = n.displayName();
+  const std::string &name = n.displayName;
   if (name == "MatMul")
     return "#dbeafe";
   if (name.find("Reduce") != std::string::npos)
@@ -307,11 +307,10 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
   // Compute level (depth) for each node.
   std::vector<int> level(nodes.size(), 0);
   for (uint32_t idx : order) {
-    const auto &n = *nodes[idx];
+    const auto &n = nodes[idx];
     int maxInputLevel = -1;
-    for (uint32_t inpId : n.graphInputIds()) {
-      if (inpId < nodes.size() && nodes[inpId] &&
-          !nodes[inpId]->isGraphRemoved()) {
+    for (uint32_t inpId : n.inputIds) {
+      if (inpId < nodes.size() && nodes[inpId].op && !nodes[inpId].isRemoved) {
         maxInputLevel = std::max(maxInputLevel, level[inpId]);
       }
     }
@@ -375,10 +374,9 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
 
   // Draw edges (behind nodes).
   for (uint32_t idx : order) {
-    const auto &n = *nodes[idx];
-    for (uint32_t inpId : n.graphInputIds()) {
-      if (inpId < nodes.size() && nodes[inpId] &&
-          !nodes[inpId]->isGraphRemoved()) {
+    const auto &n = nodes[idx];
+    for (uint32_t inpId : n.inputIds) {
+      if (inpId < nodes.size() && nodes[inpId].op && !nodes[inpId].isRemoved) {
         int x1 = pos[inpId].x + nodeW / 2;
         int y1 = pos[inpId].y + nodeH;
         int x2 = pos[idx].x + nodeW / 2;
@@ -394,19 +392,19 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
 
   // Draw nodes.
   for (uint32_t idx : order) {
-    const auto &n = *nodes[idx];
+    const auto &n = nodes[idx];
     int x = pos[idx].x, ny = pos[idx].y;
 
     std::string fill = chooseFillColor(n);
-    std::string stroke = n.isGraphOutput() ? "#0969da" : "#d0d7de";
-    int strokeW = n.isGraphOutput() ? 2 : 1;
+    std::string stroke = n.isOutput ? "#0969da" : "#d0d7de";
+    int strokeW = n.isOutput ? 2 : 1;
 
     svg << "<g class=\"node\"><rect x=\"" << x << "\" y=\"" << ny
         << "\" width=\"" << nodeW << "\" height=\"" << nodeH << "\" fill=\""
         << fill << "\" stroke=\"" << stroke << "\" stroke-width=\"" << strokeW
         << "\" rx=\"6\" ry=\"6\"/>";
 
-    std::string label = n.displayName();
+    std::string label = n.displayName;
     std::string detail = nodeDetailStr(n);
 
     int labelY = detail.empty() ? (ny + nodeH / 2 + 4) : (ny + nodeH / 2 - 4);
@@ -425,7 +423,7 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
     }
 
     // Shape annotation to the right of the node.
-    auto shape = n.outputShape();
+    auto shape = n.op->outputShape();
     if (!shape.empty()) {
       svg << "<text x=\"" << (x + nodeW + 5) << "\" y=\""
           << (ny + nodeH / 2 + 4)

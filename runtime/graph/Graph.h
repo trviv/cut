@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -13,7 +14,20 @@ namespace cut {
 
 namespace graph {
 
-/// Container for a computation DAG. Owns all nodes (as OpNode pointers) and
+/// Wraps an OpNode with graph-level topology and metadata.
+/// OpNode handles GPU dispatch; GraphNode handles DAG structure.
+struct GraphNode {
+  std::unique_ptr<OpNode> op;
+  std::vector<uint32_t> inputIds;
+  uint32_t refCount = 0;
+  bool isOutput = false;
+  bool isRemoved = false;
+  LogicalOpType logicalType = LogicalOpType::Other;
+  bool isInput = false;
+  std::string displayName;
+};
+
+/// Container for a computation DAG. Owns all nodes (as GraphNode wrappers) and
 /// provides graph manipulation primitives used by optimization passes.
 class Graph {
 public:
@@ -23,22 +37,26 @@ public:
   Graph(Graph &&) = default;
   Graph &operator=(Graph &&) = default;
 
-  /// Adds a node to the graph. Increments graphRefCount on all input nodes
-  /// (identified by the node's graphInputIds). Returns the node index.
+  /// Adds a node to the graph. Increments refCount on all input nodes.
+  /// Returns the node index.
   /// @param outputTensor The Tensor associated with this node's output
   ///        (used for Tensor-based lookups).
-  uint32_t addNode(std::unique_ptr<OpNode> node, const Tensor &outputTensor);
+  /// @param inputIds Node indices of this node's inputs (DAG edges).
+  uint32_t addNode(std::unique_ptr<OpNode> node,
+                   const Tensor &outputTensor,
+                   std::vector<uint32_t> inputIds = {});
 
   /// Adds a node without an associated output tensor (for internal use).
-  uint32_t addNode(std::unique_ptr<OpNode> node);
+  uint32_t addNode(std::unique_ptr<OpNode> node,
+                   std::vector<uint32_t> inputIds = {});
 
-  /// Returns a mutable reference to a node by index.
-  OpNode &node(uint32_t id);
-  const OpNode &node(uint32_t id) const;
+  /// Returns a mutable reference to a GraphNode by index.
+  GraphNode &node(uint32_t id);
+  const GraphNode &node(uint32_t id) const;
 
-  /// Returns a mutable reference to a node by its associated Tensor.
-  OpNode &node(const Tensor &t);
-  const OpNode &node(const Tensor &t) const;
+  /// Returns a mutable reference to a GraphNode by its associated Tensor.
+  GraphNode &node(const Tensor &t);
+  const GraphNode &node(const Tensor &t) const;
 
   /// Returns the node index for a given Tensor.
   uint32_t nodeId(const Tensor &t) const;
@@ -47,8 +65,8 @@ public:
   size_t size() const;
 
   /// Direct access to the node vector for iteration by passes.
-  std::vector<std::unique_ptr<OpNode>> &nodes();
-  const std::vector<std::unique_ptr<OpNode>> &nodes() const;
+  std::vector<GraphNode> &nodes();
+  const std::vector<GraphNode> &nodes() const;
 
   /// Mark a node (by index) as a graph output.
   void markOutput(uint32_t id);
@@ -60,12 +78,11 @@ public:
   const std::vector<uint32_t> &outputs() const;
 
   /// Replace all uses of oldId with newId throughout the graph.
-  /// Updates graphRefCounts on both old and new nodes. Also updates outputs
-  /// list.
+  /// Updates refCounts on both old and new nodes. Also updates outputs list.
   void replaceAllUses(uint32_t oldId, uint32_t newId);
 
-  /// Recompute all graphRefCounts from scratch by scanning every node's
-  /// graphInputIds and the output list.
+  /// Recompute all refCounts from scratch by scanning every node's
+  /// inputIds and the output list.
   void recomputeRefCounts();
 
   /// Returns node indices in topological (dependency) order.
@@ -77,7 +94,7 @@ public:
   Graph clone() const;
 
 private:
-  std::vector<std::unique_ptr<OpNode>> nodes_;
+  std::vector<GraphNode> nodes_;
   std::vector<uint32_t> outputs_;
 
   /// Maps Tensor handle → node index for Tensor-based lookups.

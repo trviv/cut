@@ -9,54 +9,68 @@ namespace cut {
 namespace graph {
 
 uint32_t Graph::addNode(std::unique_ptr<OpNode> node,
-                        const Tensor &outputTensor) {
+                        const Tensor &outputTensor,
+                        std::vector<uint32_t> inputIds) {
   uint32_t idx = static_cast<uint32_t>(nodes_.size());
 
-  // Increment graphRefCount on all input nodes
-  for (uint32_t inputId : node->graphInputIds()) {
-    if (inputId < nodes_.size() && nodes_[inputId]) {
-      nodes_[inputId]->setGraphRefCount(nodes_[inputId]->graphRefCount() + 1);
+  // Increment refCount on all input nodes
+  for (uint32_t inputId : inputIds) {
+    if (inputId < nodes_.size() && nodes_[inputId].op) {
+      nodes_[inputId].refCount++;
     }
   }
 
-  nodes_.push_back(std::move(node));
+  GraphNode gn;
+  gn.op = std::move(node);
+  gn.logicalType = gn.op->logicalType();
+  gn.isInput = gn.op->isInputNode();
+  gn.displayName = gn.op->displayName();
+  gn.inputIds = std::move(inputIds);
+  nodes_.push_back(std::move(gn));
   tensorToNodeId_.emplace_back(outputTensor, idx);
   return idx;
 }
 
-uint32_t Graph::addNode(std::unique_ptr<OpNode> node) {
+uint32_t Graph::addNode(std::unique_ptr<OpNode> node,
+                        std::vector<uint32_t> inputIds) {
   uint32_t idx = static_cast<uint32_t>(nodes_.size());
 
-  // Increment graphRefCount on all input nodes
-  for (uint32_t inputId : node->graphInputIds()) {
-    if (inputId < nodes_.size() && nodes_[inputId]) {
-      nodes_[inputId]->setGraphRefCount(nodes_[inputId]->graphRefCount() + 1);
+  // Increment refCount on all input nodes
+  for (uint32_t inputId : inputIds) {
+    if (inputId < nodes_.size() && nodes_[inputId].op) {
+      nodes_[inputId].refCount++;
     }
   }
 
-  nodes_.push_back(std::move(node));
+  GraphNode gn;
+  gn.op = std::move(node);
+  gn.logicalType = gn.op->logicalType();
+  gn.isInput = gn.op->isInputNode();
+  gn.displayName = gn.op->displayName();
+  gn.inputIds = std::move(inputIds);
+  nodes_.push_back(std::move(gn));
   return idx;
 }
 
-OpNode &Graph::node(uint32_t id) {
-  if (id == UINT32_MAX || id >= nodes_.size() || !nodes_[id]) {
+GraphNode &Graph::node(uint32_t id) {
+  if (id == UINT32_MAX || id >= nodes_.size() || !nodes_[id].op) {
     throw std::out_of_range("Invalid node id");
   }
-  return *nodes_[id];
+  return nodes_[id];
 }
 
-const OpNode &Graph::node(uint32_t id) const {
-  if (id == UINT32_MAX || id >= nodes_.size() || !nodes_[id]) {
+const GraphNode &Graph::node(uint32_t id) const {
+  if (id == UINT32_MAX || id >= nodes_.size() || !nodes_[id].op) {
     throw std::out_of_range("Invalid node id");
   }
-  return *nodes_[id];
+  return nodes_[id];
 }
 
-OpNode &Graph::node(const Tensor &t) {
+GraphNode &Graph::node(const Tensor &t) {
   return node(nodeId(t));
 }
 
-const OpNode &Graph::node(const Tensor &t) const {
+const GraphNode &Graph::node(const Tensor &t) const {
   return node(nodeId(t));
 }
 
@@ -72,17 +86,17 @@ size_t Graph::size() const {
   return nodes_.size();
 }
 
-std::vector<std::unique_ptr<OpNode>> &Graph::nodes() {
+std::vector<GraphNode> &Graph::nodes() {
   return nodes_;
 }
 
-const std::vector<std::unique_ptr<OpNode>> &Graph::nodes() const {
+const std::vector<GraphNode> &Graph::nodes() const {
   return nodes_;
 }
 
 void Graph::markOutput(uint32_t id) {
-  if (id != UINT32_MAX && id < nodes_.size() && nodes_[id]) {
-    nodes_[id]->setGraphOutput(true);
+  if (id != UINT32_MAX && id < nodes_.size() && nodes_[id].op) {
+    nodes_[id].isOutput = true;
     outputs_.push_back(id);
   }
 }
@@ -99,20 +113,15 @@ void Graph::replaceAllUses(uint32_t oldId, uint32_t newId) {
   if (oldId == newId)
     return;
 
-  // Replace in all node graphInputIds
+  // Replace in all node inputIds
   for (auto &n : nodes_) {
-    if (!n || n->isGraphRemoved())
+    if (!n.op || n.isRemoved)
       continue;
-    auto ids = n->graphInputIds();
-    bool changed = false;
-    for (auto &id : ids) {
+    for (auto &id : n.inputIds) {
       if (id == oldId) {
         id = newId;
-        changed = true;
       }
     }
-    if (changed)
-      n->setGraphInputIds(std::move(ids));
   }
 
   // Replace in outputs list
@@ -120,8 +129,8 @@ void Graph::replaceAllUses(uint32_t oldId, uint32_t newId) {
     if (out == oldId) {
       out = newId;
       // Transfer output marking
-      if (newId != UINT32_MAX && newId < nodes_.size() && nodes_[newId]) {
-        nodes_[newId]->setGraphOutput(true);
+      if (newId != UINT32_MAX && newId < nodes_.size() && nodes_[newId].op) {
+        nodes_[newId].isOutput = true;
       }
     }
   }
@@ -133,25 +142,25 @@ void Graph::replaceAllUses(uint32_t oldId, uint32_t newId) {
 void Graph::recomputeRefCounts() {
   // Reset all
   for (auto &n : nodes_) {
-    if (n)
-      n->setGraphRefCount(0);
+    if (n.op)
+      n.refCount = 0;
   }
 
-  // Count from node graphInputIds
+  // Count from node inputIds
   for (const auto &n : nodes_) {
-    if (!n || n->isGraphRemoved())
+    if (!n.op || n.isRemoved)
       continue;
-    for (uint32_t inputId : n->graphInputIds()) {
-      if (inputId < nodes_.size() && nodes_[inputId]) {
-        nodes_[inputId]->setGraphRefCount(nodes_[inputId]->graphRefCount() + 1);
+    for (uint32_t inputId : n.inputIds) {
+      if (inputId < nodes_.size() && nodes_[inputId].op) {
+        nodes_[inputId].refCount++;
       }
     }
   }
 
   // Count from output list
   for (const auto &out : outputs_) {
-    if (out != UINT32_MAX && out < nodes_.size() && nodes_[out]) {
-      nodes_[out]->setGraphRefCount(nodes_[out]->graphRefCount() + 1);
+    if (out != UINT32_MAX && out < nodes_.size() && nodes_[out].op) {
+      nodes_[out].refCount++;
     }
   }
 }
@@ -162,11 +171,10 @@ std::vector<uint32_t> Graph::topologicalOrder() const {
   // Compute in-degrees (only from non-removed nodes)
   std::vector<uint32_t> inDegree(n, 0);
   for (uint32_t i = 0; i < n; ++i) {
-    if (!nodes_[i] || nodes_[i]->isGraphRemoved())
+    if (!nodes_[i].op || nodes_[i].isRemoved)
       continue;
-    for (uint32_t inputId : nodes_[i]->graphInputIds()) {
-      if (inputId < n && nodes_[inputId] &&
-          !nodes_[inputId]->isGraphRemoved()) {
+    for (uint32_t inputId : nodes_[i].inputIds) {
+      if (inputId < n && nodes_[inputId].op && !nodes_[inputId].isRemoved) {
         inDegree[i]++;
       }
     }
@@ -175,7 +183,7 @@ std::vector<uint32_t> Graph::topologicalOrder() const {
   // Start with nodes that have no inputs (in-degree 0)
   std::queue<uint32_t> ready;
   for (uint32_t i = 0; i < n; ++i) {
-    if (nodes_[i] && !nodes_[i]->isGraphRemoved() && inDegree[i] == 0) {
+    if (nodes_[i].op && !nodes_[i].isRemoved && inDegree[i] == 0) {
       ready.push(i);
     }
   }
@@ -187,11 +195,10 @@ std::vector<uint32_t> Graph::topologicalOrder() const {
   // Build adjacency: for each node, which nodes depend on it
   std::vector<std::vector<uint32_t>> dependents(n);
   for (uint32_t i = 0; i < n; ++i) {
-    if (!nodes_[i] || nodes_[i]->isGraphRemoved())
+    if (!nodes_[i].op || nodes_[i].isRemoved)
       continue;
-    for (uint32_t inputId : nodes_[i]->graphInputIds()) {
-      if (inputId < n && nodes_[inputId] &&
-          !nodes_[inputId]->isGraphRemoved()) {
+    for (uint32_t inputId : nodes_[i].inputIds) {
+      if (inputId < n && nodes_[inputId].op && !nodes_[inputId].isRemoved) {
         dependents[inputId].push_back(i);
       }
     }
@@ -216,33 +223,31 @@ Graph Graph::clone() const {
   Graph copy;
   copy.nodes_.reserve(nodes_.size());
   for (const auto &n : nodes_) {
-    if (!n) {
-      copy.nodes_.push_back(nullptr);
+    if (!n.op) {
+      copy.nodes_.push_back(GraphNode{});
       continue;
     }
 
     // Determine detail string for reporting
     std::string detail;
-    if (n->isInputNode()) {
-      auto *inp = dynamic_cast<const InputOpNode *>(n.get());
+    if (n.isInput) {
+      auto *inp = dynamic_cast<const InputOpNode *>(n.op.get());
       detail = (inp && inp->isConstant()) ? "constant" : "dynamic";
     }
 
-    auto stub = std::make_unique<StubOpNode>(
-        n->op(), n->outputShape(), n->outputDtype(), n->displayName(), detail);
+    GraphNode gn;
+    gn.op = std::make_unique<StubOpNode>(n.op->op(), n.op->outputShape(),
+                                         n.op->outputDtype(), n.displayName,
+                                         detail);
+    gn.inputIds = n.inputIds;
+    gn.refCount = n.refCount;
+    gn.isOutput = n.isOutput;
+    gn.isRemoved = n.isRemoved;
+    gn.logicalType = n.logicalType;
+    gn.isInput = n.isInput;
+    gn.displayName = n.displayName;
 
-    // Copy graph metadata
-    stub->setGraphInputIds(std::vector<uint32_t>(n->graphInputIds().begin(),
-                                                 n->graphInputIds().end()));
-    stub->setGraphRefCount(n->graphRefCount());
-    stub->setGraphOutput(n->isGraphOutput());
-    stub->setGraphRemoved(n->isGraphRemoved());
-
-    // Preserve logical type and input status
-    stub->setLogicalType(n->logicalType());
-    stub->setIsInput(n->isInputNode());
-
-    copy.nodes_.push_back(std::move(stub));
+    copy.nodes_.push_back(std::move(gn));
   }
   copy.outputs_ = outputs_;
   return copy;

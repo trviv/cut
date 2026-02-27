@@ -43,7 +43,7 @@ size_t OpNode::shaderKey() const {
   for (size_t i = 0; i < inputs_.size() && i < 8; ++i) {
     key |= dtype << (16 + i * 4);
   }
-  key |= static_cast<size_t>(spec().value_or(0)) << 48;
+  key |= static_cast<size_t>(spec_.value_or(0)) << 48;
   return key;
 }
 

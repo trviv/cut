@@ -80,7 +80,7 @@ void Operations::executeGraph() {
   // Mark all non-input nodes as graph outputs
   for (const auto &p : mappings) {
     const auto &n = activeGraph_->node(p.second);
-    if (!n.isInputNode()) {
+    if (!n.isInput) {
       activeGraph_->markOutput(p.second);
     }
   }
@@ -159,8 +159,8 @@ Tensor Operations::recordOrEncode(std::unique_ptr<OpNode> node) {
     for (const auto &inp : node->inputs()) {
       inputIds.push_back(toNodeId(inp));
     }
-    node->setGraphInputIds(std::move(inputIds));
-    uint32_t nodeId = graph_->addNode(std::move(node), output);
+    uint32_t nodeId =
+        graph_->addNode(std::move(node), output, std::move(inputIds));
     tensorToNodeId_.emplace_back(output, nodeId);
     return output;
   }

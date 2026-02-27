@@ -604,8 +604,9 @@ void LlamaModel::buildGraphTemplates() {
 std::vector<cut::Tensor> LlamaModel::executeGraph(
     GraphTemplate &tpl, const std::vector<cut::ComputeHandle> &dynamicHandles) {
   for (size_t i = 0; i < tpl.dynamicInputIds.size(); ++i) {
-    auto &node = tpl.graph.node(tpl.dynamicInputIds[i]);
-    static_cast<cut::InputOpNode &>(node).setGpuHandle(dynamicHandles[i]);
+    auto &gn = tpl.graph.node(tpl.dynamicInputIds[i]);
+    static_cast<cut::InputOpNode *>(gn.op.get())
+        ->setGpuHandle(dynamicHandles[i]);
   }
   return executor_->execute(tpl.graph);
 }

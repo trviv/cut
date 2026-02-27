@@ -45,16 +45,16 @@ bool IdentityReshapePass::run(Graph &graph) {
 
   for (uint32_t i = 0; i < graph.size(); ++i) {
     auto &n = graph.nodes()[i];
-    if (!n || n->isGraphRemoved())
+    if (!n.op || n.isRemoved)
       continue;
-    if (n->logicalType() != LogicalOpType::Reshape)
+    if (n.logicalType != LogicalOpType::Reshape)
       continue;
-    if (n->graphInputIds().empty())
+    if (n.inputIds.empty())
       continue;
 
-    uint32_t inputId = n->graphInputIds()[0];
+    uint32_t inputId = n.inputIds[0];
     const auto &inputNode = graph.node(inputId);
-    if (n->outputShape() == inputNode.outputShape()) {
+    if (n.op->outputShape() == inputNode.op->outputShape()) {
       // This reshape is a no-op — rewire consumers to use the input directly
       graph.replaceAllUses(i, inputId);
       changed = true;
@@ -73,26 +73,24 @@ bool ReshapeChainPass::run(Graph &graph) {
 
   for (uint32_t i = 0; i < graph.size(); ++i) {
     auto &n = graph.nodes()[i];
-    if (!n || n->isGraphRemoved())
+    if (!n.op || n.isRemoved)
       continue;
-    if (n->logicalType() != LogicalOpType::Reshape)
+    if (n.logicalType != LogicalOpType::Reshape)
       continue;
-    if (n->graphInputIds().empty())
+    if (n.inputIds.empty())
       continue;
 
-    uint32_t inputId = n->graphInputIds()[0];
+    uint32_t inputId = n.inputIds[0];
     auto &inputNode = graph.nodes()[inputId];
-    if (!inputNode || inputNode->isGraphRemoved())
+    if (!inputNode.op || inputNode.isRemoved)
       continue;
-    if (inputNode->logicalType() != LogicalOpType::Reshape)
+    if (inputNode.logicalType != LogicalOpType::Reshape)
       continue;
-    if (inputNode->graphInputIds().empty())
+    if (inputNode.inputIds.empty())
       continue;
 
     // Skip the intermediate reshape: point this node at the inner input
-    auto ids = n->graphInputIds();
-    ids[0] = inputNode->graphInputIds()[0];
-    n->setGraphInputIds(std::move(ids));
+    n.inputIds[0] = inputNode.inputIds[0];
     graph.recomputeRefCounts();
     changed = true;
   }
@@ -109,24 +107,24 @@ bool TransposeCancelPass::run(Graph &graph) {
 
   for (uint32_t i = 0; i < graph.size(); ++i) {
     auto &n = graph.nodes()[i];
-    if (!n || n->isGraphRemoved())
+    if (!n.op || n.isRemoved)
       continue;
-    if (n->logicalType() != LogicalOpType::Transpose)
+    if (n.logicalType != LogicalOpType::Transpose)
       continue;
-    if (n->graphInputIds().empty())
+    if (n.inputIds.empty())
       continue;
 
-    uint32_t inputId = n->graphInputIds()[0];
+    uint32_t inputId = n.inputIds[0];
     const auto &inputNode = graph.nodes()[inputId];
-    if (!inputNode || inputNode->isGraphRemoved())
+    if (!inputNode.op || inputNode.isRemoved)
       continue;
-    if (inputNode->logicalType() != LogicalOpType::Transpose)
+    if (inputNode.logicalType != LogicalOpType::Transpose)
       continue;
-    if (inputNode->graphInputIds().empty())
+    if (inputNode.inputIds.empty())
       continue;
 
     // transpose(transpose(x)) → x
-    uint32_t origInputId = inputNode->graphInputIds()[0];
+    uint32_t origInputId = inputNode.inputIds[0];
     graph.replaceAllUses(i, origInputId);
     changed = true;
   }
@@ -149,25 +147,25 @@ bool DeadCodePass::run(Graph &graph) {
   for (auto it = order.rbegin(); it != order.rend(); ++it) {
     uint32_t idx = *it;
     auto &n = graph.nodes()[idx];
-    if (!n || n->isGraphRemoved())
+    if (!n.op || n.isRemoved)
       continue;
 
     // Don't remove outputs or inputs
-    if (n->isGraphOutput())
+    if (n.isOutput)
       continue;
-    if (n->isInputNode())
+    if (n.isInput)
       continue;
 
-    if (n->graphRefCount() == 0) {
+    if (n.refCount == 0) {
       // Decrement refCount on this node's inputs
-      for (uint32_t inputId : n->graphInputIds()) {
+      for (uint32_t inputId : n.inputIds) {
         if (inputId < graph.size()) {
           auto &inputNode = graph.nodes()[inputId];
-          if (inputNode && inputNode->graphRefCount() > 0)
-            inputNode->setGraphRefCount(inputNode->graphRefCount() - 1);
+          if (inputNode.op && inputNode.refCount > 0)
+            inputNode.refCount--;
         }
       }
-      n->setGraphRemoved(true);
+      n.isRemoved = true;
       changed = true;
     }
   }

@@ -77,9 +77,6 @@ public:
   /// Returns the DataType for shader dtype selection.
   virtual DataType shaderDtype() const = 0;
 
-  /// Returns the optional specialization index.
-  std::optional<uint32_t> spec() const { return spec_; }
-
   /// Returns SPIR-V bytecode for this node's shader.
   /// Default calls getShader(op_, shaderDtype()). Override for variant ops
   /// (MatMul, Transpose, etc.) and dim-reduce ops.
@@ -122,11 +119,9 @@ public:
     inputs_ = newInputs;
   }
 
-  /// Rebinds the output tensor handle for graph execution.
-  void rebindOutput(const Tensor &newOutput) { output_ = newOutput; }
-
   // ==========================================================================
-  // Graph metadata — used when this OpNode lives inside a Graph
+  // Classification — queried once during graph construction to populate
+  // GraphNode metadata. Not used during optimization or execution.
   // ==========================================================================
 
   /// Coarse logical type for optimizer passes.
@@ -137,24 +132,6 @@ public:
 
   /// Whether this node is an InputOpNode (graph input, not dispatched to GPU).
   virtual bool isInputNode() const { return false; }
-
-  /// Graph edge indices: IDs of nodes whose outputs feed into this node.
-  const std::vector<uint32_t> &graphInputIds() const { return graphInputIds_; }
-  void setGraphInputIds(std::vector<uint32_t> ids) {
-    graphInputIds_ = std::move(ids);
-  }
-
-  /// Reference count: how many other graph nodes consume this node's output.
-  uint32_t graphRefCount() const { return graphRefCount_; }
-  void setGraphRefCount(uint32_t c) { graphRefCount_ = c; }
-
-  /// Whether this node's output is a graph output.
-  bool isGraphOutput() const { return isGraphOutput_; }
-  void setGraphOutput(bool v) { isGraphOutput_ = v; }
-
-  /// Tombstone flag for removed/dead nodes.
-  bool isGraphRemoved() const { return isGraphRemoved_; }
-  void setGraphRemoved(bool v) { isGraphRemoved_ = v; }
 
 protected:
   OpNode(OperatorEnum op, TensorStore &store, std::optional<uint32_t> spec = {})
@@ -179,12 +156,6 @@ protected:
   std::vector<Tensor> inputs_{};
   Tensor output_{};
   std::vector<std::unique_ptr<OpNode>> subOps_{};
-
-  // Graph metadata
-  std::vector<uint32_t> graphInputIds_;
-  uint32_t graphRefCount_ = 0;
-  bool isGraphOutput_ = false;
-  bool isGraphRemoved_ = false;
 };
 
 // ============================================================================
@@ -265,8 +236,6 @@ public:
              std::string detail,
              bool isConstant = false);
 
-  bool isInputNode() const override { return isInput_; }
-  LogicalOpType logicalType() const override { return logicalType_; }
   std::string displayName() const override { return name_; }
 
   DataType shaderDtype() const override { return dtype_; }
@@ -277,9 +246,6 @@ public:
   const std::string &detail() const { return detail_; }
   bool isConstant() const { return isConstant_; }
 
-  void setIsInput(bool v) { isInput_ = v; }
-  void setLogicalType(LogicalOpType t) { logicalType_ = t; }
-
 protected:
   std::vector<uint8_t> pushConstants() const override { return {}; }
 
@@ -289,8 +255,6 @@ private:
   std::string name_;
   std::string detail_;
   bool isConstant_ = false;
-  bool isInput_ = false;
-  LogicalOpType logicalType_ = LogicalOpType::Other;
 };
 
 } // namespace cut
