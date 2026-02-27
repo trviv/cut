@@ -32,7 +32,7 @@ using graph::Graph;
 // =========================================================================
 
 Operations::Operations(Runtime &runtime)
-    : runtime_(&runtime), store_(&runtime.store()) {}
+    : runtime_(&runtime), store_(&runtime.store()), graph_(&internalGraph_) {}
 
 std::vector<uint32_t> Operations::getShape(const Tensor &h) const {
   return store_->getTensor(h).getShape();
@@ -47,74 +47,43 @@ DataType Operations::getDtype(const Tensor &h) const {
 // =========================================================================
 
 void Operations::setGraph(Graph *g) {
+  flush();
   graph_ = g;
   tensorToNodeId_.clear();
 }
 
 void Operations::clearGraph() {
-  graph_ = nullptr;
+  graph_ = &internalGraph_;
   tensorToNodeId_.clear();
 }
 
-bool Operations::isGraphMode() const {
-  return graph_ != nullptr;
-}
-
-void Operations::beginGraph() {
-  if (activeGraph_) {
-    throw std::runtime_error(
-        "Already in graph mode. Call executeGraph() first.");
-  }
-  activeGraph_ = std::make_unique<graph::Graph>();
-  setGraph(activeGraph_.get());
-  resolvedTensors_.clear();
-}
-
-void Operations::executeGraph() {
-  if (!activeGraph_)
+void Operations::flush() {
+  if (internalGraph_.size() == 0)
     return;
 
-  // Copy mappings before clearGraph() invalidates the reference
-  auto mappings = graphMappings();
-
   // Mark all non-input nodes as graph outputs
-  for (const auto &p : mappings) {
-    const auto &n = activeGraph_->node(p.second);
+  for (const auto &p : tensorToNodeId_) {
+    const auto &n = internalGraph_.node(p.second);
     if (!n.isInput) {
-      activeGraph_->markOutput(p.second);
+      internalGraph_.markOutput(p.second);
     }
   }
 
-  // Exit graph mode before executing (executor calls go through immediate mode)
-  clearGraph();
+  // Move graph out and reset so executor dispatches bypass the graph
+  graph::Graph executingGraph = std::move(internalGraph_);
+  internalGraph_ = graph::Graph();
+  graph_ = &internalGraph_;
+  tensorToNodeId_.clear();
 
-  // Optimize
+  // Optimize and execute
   graph::GraphOptimizer optimizer = graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*activeGraph_);
+  optimizer.optimize(executingGraph);
 
-  // Execute
   graph::GraphExecutor executor(*this);
-  std::vector<Tensor> results = executor.execute(*activeGraph_);
+  executor.execute(executingGraph);
 
-  // Map placeholder tensors → real result tensors
-  const auto &graphOutputs = activeGraph_->outputs();
-  resolvedTensors_.clear();
-  for (size_t ri = 0; ri < results.size(); ++ri) {
-    uint32_t outNodeId = graphOutputs[ri];
-    for (const auto &p : mappings) {
-      if (p.second == outNodeId) {
-        resolvedTensors_.emplace_back(p.first, results[ri]);
-        break;
-      }
-    }
-  }
-
-  activeGraph_.reset();
-}
-
-const std::vector<std::pair<Tensor, Tensor>> &
-Operations::resolvedTensors() const {
-  return resolvedTensors_;
+  // The executor writes results directly into the OpNode output buffers,
+  // which are the same handles returned to the caller during recording.
 }
 
 const std::vector<std::pair<Tensor, uint32_t>> &
@@ -154,25 +123,23 @@ Tensor Operations::registerInput(const Tensor &gpuHandle, bool isConstant) {
 
 Tensor Operations::recordOrEncode(std::unique_ptr<OpNode> node) {
   Tensor output = node->output();
-  if (graph_) {
-    std::vector<uint32_t> inputIds;
-    for (const auto &inp : node->inputs()) {
-      inputIds.push_back(toNodeId(inp));
-    }
-    uint32_t nodeId =
-        graph_->addNode(std::move(node), output, std::move(inputIds));
-    tensorToNodeId_.emplace_back(output, nodeId);
-    return output;
+  std::vector<uint32_t> inputIds;
+  for (const auto &inp : node->inputs()) {
+    inputIds.push_back(toNodeId(inp));
   }
-  runtime_->dispatch(std::move(node));
+  uint32_t nodeId =
+      graph_->addNode(std::move(node), output, std::move(inputIds));
+  tensorToNodeId_.emplace_back(output, nodeId);
   return output;
 }
 
 void Operations::dispatch(std::unique_ptr<OpNode> node) {
+  flush();
   runtime_->dispatch(std::move(node));
 }
 
 void Operations::dispatch(OpNode &node) {
+  flush();
   runtime_->dispatch(node);
 }
 
@@ -889,10 +856,7 @@ Tensor Operations::expand(const Tensor &a,
 void Operations::sortBitonic(const Tensor &keys,
                              const Tensor &vals,
                              std::optional<uint32_t> spec) {
-  if (graph_) {
-    throw std::runtime_error(
-        "sortBitonic: in-place sort not supported in graph mode");
-  }
+  flush();
   runtime_->dispatch(
       std::make_unique<BitonicSortOpNode>(*store_, keys, vals, spec));
 }
@@ -900,10 +864,7 @@ void Operations::sortBitonic(const Tensor &keys,
 void Operations::sortRadix(const Tensor &keys,
                            const Tensor &vals,
                            std::optional<uint32_t> spec) {
-  if (graph_) {
-    throw std::runtime_error(
-        "sortRadix: in-place sort not supported in graph mode");
-  }
+  flush();
   runtime_->dispatch(
       std::make_unique<RadixSortOpNode>(*store_, keys, vals, spec));
 }

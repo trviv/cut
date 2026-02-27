@@ -174,21 +174,6 @@ public:
   void dispatch(std::unique_ptr<OpNode> node);
   void dispatch(OpNode &node);
 
-  // =========================================================================
-  // Graph Mode
-  // =========================================================================
-
-  /// Enter graph mode: subsequent Operations calls record OpNodes instead
-  /// of dispatching immediately.
-  void beginGraph();
-
-  /// Execute the recorded graph: optimize, execute, and resolve placeholder
-  /// tensors to real computed results.
-  void executeGraph();
-
-  /// Returns true if in graph recording mode.
-  bool isGraphMode() const;
-
 private:
   BackendType backendType_ = BackendType::Vulkan;
   std::shared_ptr<VulkanInstance> vulkanInstance_;

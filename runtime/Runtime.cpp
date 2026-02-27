@@ -78,8 +78,8 @@ size_t Runtime::bufferCount() const {
 }
 
 void Runtime::flush() {
-  if (operations_ && operations_->isGraphMode()) {
-    executeGraph();
+  if (operations_) {
+    operations_->flush();
   }
   flushPendingCommands();
 }
@@ -141,18 +141,10 @@ void Runtime::copyFromTensor(Tensor handle,
                              size_t size,
                              size_t srcOffset,
                              size_t dstOffset) {
-  // If graph is still recording, execute it first
-  if (operations_ && operations_->isGraphMode()) {
-    executeGraph();
-  }
-  // If this handle was a placeholder, read from the resolved real tensor
+  // Flush any pending graph operations — the executor writes results
+  // directly into the placeholder buffers, so the handle is already valid.
   if (operations_) {
-    for (const auto &p : operations_->resolvedTensors()) {
-      if (p.first == handle) {
-        handle = p.second;
-        break;
-      }
-    }
+    operations_->flush();
   }
   // Ensure all pending GPU work is complete before reading data back
   flushPendingCommands();
@@ -183,22 +175,6 @@ void Runtime::dispatch(OpNode &node) {
     Tensor cmd = getInterface()->submit();
     getInterface()->wait(cmd);
   }
-}
-
-// =========================================================================
-// Graph Mode (forwarded to Operations)
-// =========================================================================
-
-void Runtime::beginGraph() {
-  ops().beginGraph();
-}
-
-void Runtime::executeGraph() {
-  ops().executeGraph();
-}
-
-bool Runtime::isGraphMode() const {
-  return operations_ && operations_->isGraphMode();
 }
 
 void Runtime::flushPendingCommands() {

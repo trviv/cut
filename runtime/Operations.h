@@ -212,23 +212,15 @@ public:
   void dispatch(std::unique_ptr<OpNode> node);
   void dispatch(OpNode &node);
 
-  // ===== Graph mode =====
+  // ===== Graph =====
 
-  /// Enter graph mode: subsequent operation calls record OpNodes instead
-  /// of dispatching immediately.
-  void beginGraph();
-
-  /// Execute the recorded graph: optimize, execute, and resolve placeholder
-  /// tensors to real computed results.
-  void executeGraph();
-
-  /// Returns true if in graph recording mode.
-  bool isGraphMode() const;
-
-  /// Returns the resolved placeholder→real tensor mappings after execution.
-  const std::vector<std::pair<Tensor, Tensor>> &resolvedTensors() const;
+  /// Flush the internal graph: optimize, execute, and write results into
+  /// placeholder buffers. No-op if the graph is empty.
+  void flush();
 
   /// Set/clear graph recording target (used by GraphBuilder).
+  /// setGraph() redirects recording to an external graph.
+  /// clearGraph() returns recording to the internal graph.
   void setGraph(graph::Graph *g);
   void clearGraph();
 
@@ -243,10 +235,11 @@ private:
   Runtime *runtime_;
   TensorStore *store_;
 
-  // Graph mode state
-  std::unique_ptr<graph::Graph> activeGraph_;
-  std::vector<std::pair<Tensor, Tensor>> resolvedTensors_;
-  graph::Graph *graph_ = nullptr;
+  // Graph state — Operations always records to a graph.
+  // graph_ points to internalGraph_ by default, or to an external graph
+  // when GraphBuilder is active.
+  graph::Graph internalGraph_;
+  graph::Graph *graph_;
   std::vector<std::pair<Tensor, uint32_t>> tensorToNodeId_;
 
   std::vector<uint32_t> getShape(const Tensor &h) const;

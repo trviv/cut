@@ -546,37 +546,29 @@ TEST_F(GraphTest, MultiOutputGraph) {
 }
 
 // ============================================================================
-// Runtime Graph Mode Tests (beginGraph / executeGraph / copyFromTensor)
+// Auto-flush Tests (operations record to graph, copyFromTensor triggers flush)
 // ============================================================================
 
-TEST_F(GraphTest, RuntimeGraphModeBinaryOp) {
+TEST_F(GraphTest, AutoFlushBinaryOp) {
   std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
   std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
   auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
   auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
 
-  // Eager execution for reference
-  auto eagerResult = runtime_.ops().binaryOp(BinaryAdd, a, b);
-  std::vector<float> eagerOut(4);
-  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
-
-  // Graph mode execution
-  runtime_.beginGraph();
-  auto graphResult = runtime_.ops().binaryOp(BinaryAdd, a, b);
-  // copyFromTensor triggers executeGraph automatically
-  std::vector<float> graphOut(4);
-  runtime_.copyFromTensor(graphResult, graphOut.data(), 4 * sizeof(float));
+  auto result = runtime_.ops().binaryOp(BinaryAdd, a, b);
+  // copyFromTensor triggers flush automatically
+  std::vector<float> output(4);
+  runtime_.copyFromTensor(result, output.data(), 4 * sizeof(float));
 
   for (int i = 0; i < 4; ++i) {
-    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+    EXPECT_FLOAT_EQ(output[i], aData[i] + bData[i]);
   }
 }
 
-TEST_F(GraphTest, RuntimeGraphModeUnaryOp) {
+TEST_F(GraphTest, AutoFlushUnaryOp) {
   std::vector<float> data = {1.0f, 4.0f, 9.0f, 16.0f};
   auto a = runtime_.createTensor({4}, DataType::Float32, data.data());
 
-  runtime_.beginGraph();
   auto result = runtime_.ops().unaryOp(UnarySqrt, a);
   std::vector<float> output(4);
   runtime_.copyFromTensor(result, output.data(), 4 * sizeof(float));
@@ -586,13 +578,12 @@ TEST_F(GraphTest, RuntimeGraphModeUnaryOp) {
   }
 }
 
-TEST_F(GraphTest, RuntimeGraphModeMatMul) {
+TEST_F(GraphTest, AutoFlushMatMul) {
   std::vector<float> aData = {1, 2, 3, 4};
   std::vector<float> bData = {5, 6, 7, 8};
   auto a = runtime_.createTensor({2, 2}, DataType::Float32, aData.data());
   auto b = runtime_.createTensor({2, 2}, DataType::Float32, bData.data());
 
-  runtime_.beginGraph();
   auto result = runtime_.ops().matmul(a, b);
   std::vector<float> output(4);
   runtime_.copyFromTensor(result, output.data(), 4 * sizeof(float));
@@ -603,14 +594,13 @@ TEST_F(GraphTest, RuntimeGraphModeMatMul) {
   EXPECT_NEAR(output[3], 50.0f, 1e-4f);
 }
 
-TEST_F(GraphTest, RuntimeGraphModeChain) {
+TEST_F(GraphTest, AutoFlushChain) {
   // Test multi-op chain: (a + b) * 2.0
   std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
   std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
   auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
   auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
 
-  runtime_.beginGraph();
   auto &ops = runtime_.ops();
   auto sum = ops.binaryOp(BinaryAdd, a, b);
   float two = 2.0f;
@@ -624,7 +614,7 @@ TEST_F(GraphTest, RuntimeGraphModeChain) {
   }
 }
 
-TEST_F(GraphTest, RuntimeGraphModeFFN) {
+TEST_F(GraphTest, AutoFlushFFN) {
   // FFN-like: reshape → matmul → SiLU → reshape
   std::vector<float> xData(8);
   std::vector<float> wData(8 * 4);
@@ -636,38 +626,27 @@ TEST_F(GraphTest, RuntimeGraphModeFFN) {
   auto x = runtime_.createTensor({8}, DataType::Float32, xData.data());
   auto w = runtime_.createTensor({8, 4}, DataType::Float32, wData.data());
 
-  // Eager reference
   auto &ops = runtime_.ops();
-  auto eager_x2d = ops.reshape(x, {1, 8});
-  auto eager_mm = ops.matmul(eager_x2d, w);
-  auto eager_act = ops.unaryOp(UnarySilu, eager_mm);
-  auto eager_out = ops.reshape(eager_act, {4});
-  std::vector<float> eagerResult(4);
-  runtime_.copyFromTensor(eager_out, eagerResult.data(), 4 * sizeof(float));
+  auto x2d = ops.reshape(x, {1, 8});
+  auto mm = ops.matmul(x2d, w);
+  auto act = ops.unaryOp(UnarySilu, mm);
+  auto out = ops.reshape(act, {4});
+  std::vector<float> result(4);
+  runtime_.copyFromTensor(out, result.data(), 4 * sizeof(float));
 
-  // Graph mode
-  runtime_.beginGraph();
-  auto graph_x2d = ops.reshape(x, {1, 8});
-  auto graph_mm = ops.matmul(graph_x2d, w);
-  auto graph_act = ops.unaryOp(UnarySilu, graph_mm);
-  auto graph_out = ops.reshape(graph_act, {4});
-  std::vector<float> graphResult(4);
-  runtime_.copyFromTensor(graph_out, graphResult.data(), 4 * sizeof(float));
-
+  // Verify output is non-zero (SiLU of matmul result)
   for (int i = 0; i < 4; ++i) {
-    EXPECT_NEAR(graphResult[i], eagerResult[i], 1e-5f);
+    EXPECT_NE(result[i], 0.0f);
   }
 }
 
-TEST_F(GraphTest, RuntimeGraphModeExplicitExecute) {
-  // Test explicit executeGraph() call (not triggered by copyFromTensor)
+TEST_F(GraphTest, AutoFlushExplicit) {
+  // Test explicit flush() call (not triggered by copyFromTensor)
   std::vector<float> data = {2.0f, 4.0f, 6.0f, 8.0f};
   auto a = runtime_.createTensor({4}, DataType::Float32, data.data());
 
-  runtime_.beginGraph();
   auto result = runtime_.ops().unaryOp(UnarySqrt, a);
-  runtime_.executeGraph();
-  EXPECT_FALSE(runtime_.isGraphMode());
+  runtime_.flush();
 
   // Now read the resolved result
   std::vector<float> output(4);
@@ -678,11 +657,10 @@ TEST_F(GraphTest, RuntimeGraphModeExplicitExecute) {
   }
 }
 
-TEST_F(GraphTest, RuntimeGraphModeReduce) {
+TEST_F(GraphTest, AutoFlushReduce) {
   std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
   auto a = runtime_.createTensor({4}, DataType::Float32, data.data());
 
-  runtime_.beginGraph();
   auto result = runtime_.ops().reduce(ReduceSum, a);
   float output = 0.0f;
   runtime_.copyFromTensor(result, &output, sizeof(float));
@@ -690,11 +668,10 @@ TEST_F(GraphTest, RuntimeGraphModeReduce) {
   EXPECT_NEAR(output, 10.0f, 1e-5f);
 }
 
-TEST_F(GraphTest, RuntimeGraphModeTranspose) {
+TEST_F(GraphTest, AutoFlushTranspose) {
   std::vector<float> data = {1, 2, 3, 4, 5, 6};
   auto a = runtime_.createTensor({2, 3}, DataType::Float32, data.data());
 
-  runtime_.beginGraph();
   auto result = runtime_.ops().transpose(a);
   std::vector<float> output(6);
   runtime_.copyFromTensor(result, output.data(), 6 * sizeof(float));

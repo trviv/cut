@@ -10,14 +10,15 @@ GraphBuilder::GraphBuilder(Runtime &runtime) : ops_(&runtime.ops()) {
 }
 
 GraphBuilder::~GraphBuilder() {
-  // Ensure we exit graph mode if build() was never called
-  if (ops_->isGraphMode()) {
+  // Ensure we return to internal graph if build() was never called
+  if (!built_) {
     ops_->clearGraph();
   }
 }
 
 Graph GraphBuilder::build() {
   ops_->clearGraph();
+  built_ = true;
   return std::move(graph_);
 }
 
