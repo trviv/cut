@@ -6,20 +6,19 @@ namespace cut {
 namespace graph {
 
 GraphBuilder::GraphBuilder(Runtime &runtime) : ops_(&runtime.ops()) {
-  ops_->setGraph(&graph_);
+  ops_->flush();
 }
 
 GraphBuilder::~GraphBuilder() {
-  // Ensure we return to internal graph if build() was never called
+  // Discard any recorded ops if build() was never called
   if (!built_) {
-    ops_->clearGraph();
+    ops_->takeGraph();
   }
 }
 
 Graph GraphBuilder::build() {
-  ops_->clearGraph();
   built_ = true;
-  return std::move(graph_);
+  return ops_->takeGraph();
 }
 
 Tensor GraphBuilder::input(const Tensor &gpuHandle, bool isConstant) {
@@ -27,7 +26,7 @@ Tensor GraphBuilder::input(const Tensor &gpuHandle, bool isConstant) {
 }
 
 void GraphBuilder::markOutput(const Tensor &t) {
-  graph_.markOutput(t);
+  ops_->markGraphOutput(t);
 }
 
 } // namespace graph

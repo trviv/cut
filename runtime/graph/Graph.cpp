@@ -135,6 +135,18 @@ void Graph::replaceAllUses(uint32_t oldId, uint32_t newId) {
     }
   }
 
+  // Clear isOutput on old node if no output entry still references it
+  if (oldId < nodes_.size() && nodes_[oldId].isOutput) {
+    bool stillOutput = false;
+    for (auto out : outputs_) {
+      if (out == oldId) {
+        stillOutput = true;
+        break;
+      }
+    }
+    nodes_[oldId].isOutput = stillOutput;
+  }
+
   // Recompute refCounts (simpler and safer than incremental tracking)
   recomputeRefCounts();
 }

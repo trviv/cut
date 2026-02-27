@@ -93,9 +93,14 @@ public:
   /// Suitable for snapshots used in reporting/visualization but not execution.
   Graph clone() const;
 
+  /// Mark the graph as executed. flush() checks this to avoid re-execution.
+  void markExecuted() { executed_ = true; }
+  bool isExecuted() const { return executed_; }
+
 private:
   std::vector<GraphNode> nodes_;
   std::vector<uint32_t> outputs_;
+  bool executed_ = false;
 
   /// Maps Tensor handle → node index for Tensor-based lookups.
   std::vector<std::pair<Tensor, uint32_t>> tensorToNodeId_;

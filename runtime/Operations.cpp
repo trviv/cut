@@ -32,7 +32,8 @@ using graph::Graph;
 // =========================================================================
 
 Operations::Operations(Runtime &runtime)
-    : runtime_(&runtime), store_(&runtime.store()), graph_(&internalGraph_) {}
+    : runtime_(&runtime), store_(&runtime.store()),
+      graph_(std::make_unique<Graph>()) {}
 
 std::vector<uint32_t> Operations::getShape(const Tensor &h) const {
   return store_->getTensor(h).getShape();
@@ -46,49 +47,52 @@ DataType Operations::getDtype(const Tensor &h) const {
 // Graph mode helpers
 // =========================================================================
 
-void Operations::setGraph(Graph *g) {
-  flush();
-  graph_ = g;
-  tensorToNodeId_.clear();
-}
-
-void Operations::clearGraph() {
-  graph_ = &internalGraph_;
-  tensorToNodeId_.clear();
-}
-
 void Operations::flush() {
-  if (internalGraph_.size() == 0)
+  if (graph_->size() == 0 || graph_->isExecuted())
     return;
 
   // Mark all non-input nodes as graph outputs
   for (const auto &p : tensorToNodeId_) {
-    const auto &n = internalGraph_.node(p.second);
+    const auto &n = graph_->node(p.second);
     if (!n.isInput) {
-      internalGraph_.markOutput(p.second);
+      graph_->markOutput(p.second);
     }
   }
 
-  // Move graph out and reset so executor dispatches bypass the graph
-  graph::Graph executingGraph = std::move(internalGraph_);
-  internalGraph_ = graph::Graph();
-  graph_ = &internalGraph_;
+  // Mark as executed and clear mappings before running the executor,
+  // so that recursive flush() calls (from dispatch) are no-ops.
+  graph_->markExecuted();
   tensorToNodeId_.clear();
 
-  // Optimize and execute
-  graph::GraphOptimizer optimizer = graph::GraphOptimizer::createDefault();
-  optimizer.optimize(executingGraph);
-
+  // Execute without optimizing.  Auto-flush marks every non-input node as
+  // an output, and the user holds placeholder tensors for those nodes.
+  // Optimizer passes (e.g. IdentityReshapePass) may replace output nodes,
+  // causing the executor to write results into the replacement node's buffer
+  // rather than the placeholder the user holds.  Optimization is applied by
+  // GraphBuilder::build() where outputs are explicitly marked.
   graph::GraphExecutor executor(*this);
-  executor.execute(executingGraph);
+  executor.execute(*graph_);
 
-  // The executor writes results directly into the OpNode output buffers,
-  // which are the same handles returned to the caller during recording.
+  // Replace with a fresh graph to release OpNode buffer references.
+  graph_ = std::make_unique<graph::Graph>();
 }
 
-const std::vector<std::pair<Tensor, uint32_t>> &
-Operations::graphMappings() const {
-  return tensorToNodeId_;
+graph::Graph Operations::takeGraph() {
+  graph::Graph result = std::move(*graph_);
+  graph_ = std::make_unique<graph::Graph>();
+  tensorToNodeId_.clear();
+  return result;
+}
+
+void Operations::markGraphOutput(const Tensor &t) {
+  graph_->markOutput(t);
+}
+
+void Operations::ensureFreshGraph() {
+  if (graph_->isExecuted()) {
+    graph_ = std::make_unique<graph::Graph>();
+    tensorToNodeId_.clear();
+  }
 }
 
 uint32_t Operations::toNodeId(const Tensor &t) {
@@ -103,6 +107,7 @@ uint32_t Operations::toNodeId(const Tensor &t) {
 }
 
 Tensor Operations::registerInput(const Tensor &gpuHandle, bool isConstant) {
+  ensureFreshGraph();
   // Deduplicate only constant inputs (weights). Dynamic inputs may reuse the
   // same placeholder handle for distinct graph inputs that receive different
   // tensors at execution time, so each call must create a separate node.
@@ -122,6 +127,7 @@ Tensor Operations::registerInput(const Tensor &gpuHandle, bool isConstant) {
 }
 
 Tensor Operations::recordOrEncode(std::unique_ptr<OpNode> node) {
+  ensureFreshGraph();
   Tensor output = node->output();
   std::vector<uint32_t> inputIds;
   for (const auto &inp : node->inputs()) {

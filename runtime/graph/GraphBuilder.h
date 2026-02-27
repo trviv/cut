@@ -37,7 +37,6 @@ public:
 
 private:
   Operations *ops_;
-  Graph graph_;
   bool built_ = false;
 };
 

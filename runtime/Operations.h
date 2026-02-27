@@ -2,7 +2,6 @@
 
 #include "ShapeUtils.h"
 #include "graph/Graph.h"
-#include "graph/GraphOptimizer.h"
 
 #include <ComputeCommon.h>
 #include <ComputeHandle.h>
@@ -215,17 +214,15 @@ public:
   // ===== Graph =====
 
   /// Flush the internal graph: optimize, execute, and write results into
-  /// placeholder buffers. No-op if the graph is empty.
+  /// placeholder buffers. No-op if the graph is empty or already executed.
   void flush();
 
-  /// Set/clear graph recording target (used by GraphBuilder).
-  /// setGraph() redirects recording to an external graph.
-  /// clearGraph() returns recording to the internal graph.
-  void setGraph(graph::Graph *g);
-  void clearGraph();
+  /// Move the current graph out and replace with a fresh one.
+  /// Used by GraphBuilder to obtain the recorded graph.
+  graph::Graph takeGraph();
 
-  /// Graph tensor→nodeId mappings (used by GraphBuilder).
-  const std::vector<std::pair<Tensor, uint32_t>> &graphMappings() const;
+  /// Mark a tensor as a graph output (used by GraphBuilder).
+  void markGraphOutput(const Tensor &t);
 
   /// Register a pre-existing GPU tensor as a graph input (InputOpNode).
   /// Used by GraphBuilder.
@@ -235,15 +232,15 @@ private:
   Runtime *runtime_;
   TensorStore *store_;
 
-  // Graph state — Operations always records to a graph.
-  // graph_ points to internalGraph_ by default, or to an external graph
-  // when GraphBuilder is active.
-  graph::Graph internalGraph_;
-  graph::Graph *graph_;
+  // Graph state — Operations always records to graph_.
+  std::unique_ptr<graph::Graph> graph_;
   std::vector<std::pair<Tensor, uint32_t>> tensorToNodeId_;
 
   std::vector<uint32_t> getShape(const Tensor &h) const;
   DataType getDtype(const Tensor &h) const;
+
+  /// Replace the graph with a fresh one if the current one has been executed.
+  void ensureFreshGraph();
 
   uint32_t toNodeId(const Tensor &t);
 
