@@ -6,6 +6,8 @@
 
 namespace cut {
 
+constexpr size_t kAlignment = 16;
+
 VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
                              VulkanContextConfig config)
     : instance_(instance) {
@@ -266,9 +268,48 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
   return handle;
 }
 
+ComputeHandle
+VulkanCompute::createBufferView(const ComputeHandle &parent,
+                                size_t byteOffset,
+                                const std::vector<uint32_t> &shape,
+                                DataType dtype) {
+  const auto &parentBuffer = containers_->bufferContainer.getBuffer(parent);
+
+  // Validate offset alignment against Vulkan device limits
+  const VkDeviceSize minAlignment =
+      std::max(static_cast<VkDeviceSize>(kAlignment),
+               deviceProperties_.limits.minStorageBufferOffsetAlignment);
+  if (byteOffset % minAlignment != 0) {
+    logErr("Buffer view offset %zu is not aligned to "
+           "minStorageBufferOffsetAlignment (%llu)",
+           byteOffset, static_cast<unsigned long long>(minAlignment));
+  }
+
+  const size_t viewSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
+  if (byteOffset + viewSize > parentBuffer.size()) {
+    logErr("Buffer view (offset=%zu + size=%zu) exceeds parent buffer "
+           "size (%zu)",
+           byteOffset, viewSize, parentBuffer.size());
+  }
+
+  VulkanBufferStruct viewStruct;
+  viewStruct.setDtype(dtype);
+  viewStruct.setShape(shape);
+  viewStruct.buffer = parentBuffer.buffer;
+  viewStruct.offset = byteOffset;
+  viewStruct.isCoherent = parentBuffer.isCoherent;
+  viewStruct.isView_ = true;
+  viewStruct.parentHandle_ = parent;
+
+  if (parentBuffer.data != nullptr) {
+    viewStruct.data = static_cast<uint8_t *>(parentBuffer.data) + byteOffset;
+  }
+
+  return containers_->bufferContainer.create(std::move(viewStruct));
+}
+
 VulkanBufferStruct VulkanCompute::createStagingBuffer(size_t size) {
   // Align buffer size to 16 bytes
-  constexpr size_t kAlignment = 16;
   const size_t alignedSize = (size + kAlignment - 1) & ~(kAlignment - 1);
 
   VkBufferCreateInfo bufferInfo = {};
@@ -434,7 +475,7 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
     copyActualToAligned(srcPtr, stagingBuffer.data, buffer,
                         isFullCopy ? 0 : srcOffset, 0, size);
     executeBufferCopy(stagingBuffer.buffer, buffer.buffer, copySize, 0,
-                      isFullCopy ? 0 : dstOffset);
+                      (isFullCopy ? 0 : dstOffset) + buffer.offset);
     destroyStagingBuffer(stagingBuffer);
   } else {
     // Host-visible buffer - use unified copy function
@@ -446,12 +487,19 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
       const size_t flushSize =
           isFullCopy ? buffer.calculateAlignedSize() : size;
 #if CUT_USE_VMA
-      vmaFlushAllocation(allocator_, buffer.allocation, dstOffset, flushSize);
+      if (buffer.isView_) {
+        const auto &parentBuffer =
+            containers_->bufferContainer.getBuffer(buffer.parentHandle_);
+        vmaFlushAllocation(allocator_, parentBuffer.allocation,
+                           dstOffset + buffer.offset, flushSize);
+      } else {
+        vmaFlushAllocation(allocator_, buffer.allocation, dstOffset, flushSize);
+      }
 #else
       VkMappedMemoryRange memoryRange = {};
       memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
       memoryRange.memory = buffer.memory;
-      memoryRange.offset = dstOffset;
+      memoryRange.offset = dstOffset + buffer.offset;
       memoryRange.size = flushSize;
 
       VK_CHECK(vkFlushMappedMemoryRanges(device_, 1, &memoryRange));
@@ -483,7 +531,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
     VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
     executeBufferCopy(buffer.buffer, stagingBuffer.buffer, copySize,
-                      isFullCopy ? 0 : srcOffset, 0);
+                      (isFullCopy ? 0 : srcOffset) + buffer.offset, 0);
     copyAlignedToActual(stagingBuffer.data, dstPtr, buffer, 0,
                         isFullCopy ? 0 : dstOffset, size);
     destroyStagingBuffer(stagingBuffer);
@@ -493,13 +541,20 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
       const size_t invalidateSize =
           isFullCopy ? buffer.calculateAlignedSize() : size;
 #if CUT_USE_VMA
-      vmaInvalidateAllocation(allocator_, buffer.allocation, srcOffset,
-                              invalidateSize);
+      if (buffer.isView_) {
+        const auto &parentBuffer =
+            containers_->bufferContainer.getBuffer(buffer.parentHandle_);
+        vmaInvalidateAllocation(allocator_, parentBuffer.allocation,
+                                srcOffset + buffer.offset, invalidateSize);
+      } else {
+        vmaInvalidateAllocation(allocator_, buffer.allocation, srcOffset,
+                                invalidateSize);
+      }
 #else
       VkMappedMemoryRange memoryRange = {};
       memoryRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
       memoryRange.memory = buffer.memory;
-      memoryRange.offset = srcOffset;
+      memoryRange.offset = srcOffset + buffer.offset;
       memoryRange.size = invalidateSize;
 
       VK_CHECK(vkInvalidateMappedMemoryRanges(device_, 1, &memoryRange));

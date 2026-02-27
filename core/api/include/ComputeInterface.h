@@ -48,6 +48,22 @@ public:
                                      bool immutable = false) = 0;
 
   /**
+   * Creates a buffer view referencing a sub-region of an existing buffer.
+   * The view shares the parent's GPU buffer but binds at a non-zero offset.
+   * The parent is kept alive via ref-counting.
+   * @param parent Handle to the parent buffer.
+   * @param byteOffset Byte offset into the parent buffer (must be aligned to
+   *                   device storage buffer offset alignment).
+   * @param shape Shape of the view.
+   * @param dtype Data type of view elements.
+   * @return Handle to the created buffer view.
+   */
+  virtual ComputeHandle createBufferView(const ComputeHandle &parent,
+                                         size_t byteOffset,
+                                         const std::vector<uint32_t> &shape,
+                                         DataType dtype) = 0;
+
+  /**
    * Copies data from host memory to a GPU buffer.
    * @param hostSourcePtr Pointer to the source data in host memory.
    * @param destBufferHandle Handle to the destination GPU buffer.

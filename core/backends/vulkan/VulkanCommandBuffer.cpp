@@ -336,7 +336,7 @@ void VulkanCommandBuffer::end() {
 
         VkDescriptorBufferInfo bufferInfo{};
         bufferInfo.buffer = bufferStruct.buffer;
-        bufferInfo.offset = 0;
+        bufferInfo.offset = bufferStruct.offset;
         bufferInfo.range = bufferStruct.size();
         bufferInfos.emplace_back(bufferInfo);
 

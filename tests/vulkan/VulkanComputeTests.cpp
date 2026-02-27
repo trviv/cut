@@ -288,3 +288,218 @@ TEST_F(VulkanComputeTest, MisalignedBuffer2DWithInitData) {
 
   EXPECT_EQ(original, readback);
 }
+
+// ==================== Buffer View Tests ====================
+
+TEST_F(VulkanComputeTest, CanCreateBufferView) {
+  const size_t baseline = compute_->bufferCount();
+  auto parent = compute_->createBuffer({256}, DataType::Float32);
+  EXPECT_EQ(compute_->bufferCount(), baseline + 1);
+
+  auto view = compute_->createBufferView(parent, 0, {64}, DataType::Float32);
+  EXPECT_TRUE(view);
+  EXPECT_EQ(compute_->bufferCount(), baseline + 2);
+
+  view.reset();
+  EXPECT_EQ(compute_->bufferCount(), baseline + 1);
+
+  parent.reset();
+  EXPECT_EQ(compute_->bufferCount(), baseline);
+}
+
+TEST_F(VulkanComputeTest, BufferViewKeepsParentAlive) {
+  const size_t baseline = compute_->bufferCount();
+  auto parent = compute_->createBuffer({256}, DataType::Float32);
+  auto view = compute_->createBufferView(parent, 0, {64}, DataType::Float32);
+  EXPECT_EQ(compute_->bufferCount(), baseline + 2);
+
+  // Drop the parent handle — view's parentHandle_ keeps parent alive
+  parent.reset();
+  EXPECT_EQ(compute_->bufferCount(), baseline + 2);
+
+  // Drop the view — parent ref count drops to 0, both destroyed
+  view.reset();
+  EXPECT_EQ(compute_->bufferCount(), baseline);
+}
+
+TEST_F(VulkanComputeTest, BufferViewAtOffset) {
+  // Create parent with 128 floats (aligned, multiple of 4)
+  // 128 * 4 = 512 bytes total
+  std::vector<float> parentData(128);
+  for (size_t i = 0; i < 128; ++i) {
+    parentData[i] = static_cast<float>(i + 1);
+  }
+  auto parent =
+      compute_->createBuffer({static_cast<uint32_t>(parentData.size())},
+                             DataType::Float32, parentData.data());
+
+  // Create view at byte offset 256 (64 floats * 4 bytes), shape {64}
+  // This should reference elements [64..127]
+  auto view = compute_->createBufferView(parent, 256, {64}, DataType::Float32);
+
+  std::vector<float> readback(64);
+  compute_->copyDataFromBuffer(view, readback.data(), 64 * sizeof(float), 0, 0);
+
+  for (size_t i = 0; i < 64; ++i) {
+    EXPECT_FLOAT_EQ(readback[i], static_cast<float>(i + 65)) << "Element " << i;
+  }
+}
+
+TEST_F(VulkanComputeTest, BufferViewMultipleViews) {
+  const size_t baseline = compute_->bufferCount();
+  // 1024 floats = 4096 bytes
+  auto parent = compute_->createBuffer({1024}, DataType::Float32);
+
+  // Create 4 views at offsets 0, 1024, 2048, 3072 bytes (each 64 floats = 256
+  // bytes)
+  auto view0 = compute_->createBufferView(parent, 0, {64}, DataType::Float32);
+  auto view1 =
+      compute_->createBufferView(parent, 1024, {64}, DataType::Float32);
+  auto view2 =
+      compute_->createBufferView(parent, 2048, {64}, DataType::Float32);
+  auto view3 =
+      compute_->createBufferView(parent, 3072, {64}, DataType::Float32);
+
+  EXPECT_TRUE(view0);
+  EXPECT_TRUE(view1);
+  EXPECT_TRUE(view2);
+  EXPECT_TRUE(view3);
+  EXPECT_EQ(compute_->bufferCount(), baseline + 5); // 1 parent + 4 views
+
+  view1.reset();
+  EXPECT_EQ(compute_->bufferCount(), baseline + 4);
+  view3.reset();
+  EXPECT_EQ(compute_->bufferCount(), baseline + 3);
+  view0.reset();
+  EXPECT_EQ(compute_->bufferCount(), baseline + 2);
+  view2.reset();
+  EXPECT_EQ(compute_->bufferCount(), baseline + 1);
+  parent.reset();
+  EXPECT_EQ(compute_->bufferCount(), baseline);
+}
+
+TEST_F(VulkanComputeTest, BufferViewMetadata) {
+  auto parent = compute_->createBuffer({256}, DataType::Float32);
+
+  // View at offset 512 bytes, shape {64} Float32
+  auto view = compute_->createBufferView(parent, 512, {64}, DataType::Float32);
+  const auto &viewBuf = compute_->getBuffer(view);
+
+  EXPECT_EQ(viewBuf.size(),
+            ComputeBuffer::calculateAlignedSize({64}, DataType::Float32));
+  EXPECT_EQ(viewBuf.getDtype(), DataType::Float32);
+  EXPECT_EQ(viewBuf.getShape(), std::vector<uint32_t>({64}));
+}
+
+// ==================== Copy Tests for Buffer Views ====================
+
+TEST_F(VulkanComputeTest, CopyDataToBufferView) {
+  // Create parent with 128 floats, init to zeros
+  std::vector<float> zeros(128, 0.0f);
+  auto parent = compute_->createBuffer({128}, DataType::Float32, zeros.data());
+
+  // Create view at offset 256 bytes (64 floats in), shape {64}
+  auto view = compute_->createBufferView(parent, 256, {64}, DataType::Float32);
+
+  // Write data to the view
+  std::vector<float> viewData(64);
+  for (size_t i = 0; i < 64; ++i) {
+    viewData[i] = static_cast<float>(i + 10);
+  }
+  compute_->copyDataToBuffer(viewData.data(), view, 64 * sizeof(float), 0, 0);
+
+  // Read back entire parent
+  std::vector<float> readback(128);
+  compute_->copyDataFromBuffer(parent, readback.data(), 128 * sizeof(float), 0,
+                               0);
+
+  // First 64 elements should be zero
+  for (size_t i = 0; i < 64; ++i) {
+    EXPECT_FLOAT_EQ(readback[i], 0.0f) << "Element " << i;
+  }
+  // Next 64 elements should be viewData
+  for (size_t i = 0; i < 64; ++i) {
+    EXPECT_FLOAT_EQ(readback[64 + i], static_cast<float>(i + 10))
+        << "Element " << (64 + i);
+  }
+}
+
+TEST_F(VulkanComputeTest, CopyDataFromBufferView) {
+  // Create parent with 128 floats with known data
+  std::vector<float> parentData(128);
+  for (size_t i = 0; i < 128; ++i) {
+    parentData[i] = static_cast<float>(i + 1);
+  }
+  auto parent =
+      compute_->createBuffer({128}, DataType::Float32, parentData.data());
+
+  // Create view at offset 256 bytes (64 floats in), shape {64}
+  auto view = compute_->createBufferView(parent, 256, {64}, DataType::Float32);
+
+  // Read from the view
+  std::vector<float> readback(64);
+  compute_->copyDataFromBuffer(view, readback.data(), 64 * sizeof(float), 0, 0);
+
+  // View should contain elements [64..127] of parent
+  for (size_t i = 0; i < 64; ++i) {
+    EXPECT_FLOAT_EQ(readback[i], static_cast<float>(i + 65)) << "Element " << i;
+  }
+}
+
+TEST_F(VulkanComputeTest, CopyRoundTripThroughView) {
+  auto parent = compute_->createBuffer({256}, DataType::Float32);
+
+  // Create view at offset 0, shape {64}
+  auto view = compute_->createBufferView(parent, 0, {64}, DataType::Float32);
+
+  // Write data to view
+  std::vector<float> original(64);
+  for (size_t i = 0; i < 64; ++i) {
+    original[i] = static_cast<float>(i) * 3.14f;
+  }
+  compute_->copyDataToBuffer(original.data(), view, 64 * sizeof(float), 0, 0);
+
+  // Read data back from view
+  std::vector<float> readback(64);
+  compute_->copyDataFromBuffer(view, readback.data(), 64 * sizeof(float), 0, 0);
+
+  for (size_t i = 0; i < 64; ++i) {
+    EXPECT_FLOAT_EQ(original[i], readback[i]) << "Element " << i;
+  }
+}
+
+TEST_F(VulkanComputeTest, CopyToMultipleViews) {
+  // Create parent with 256 floats
+  std::vector<float> zeros(256, 0.0f);
+  auto parent = compute_->createBuffer({256}, DataType::Float32, zeros.data());
+
+  // Create 4 views at offsets 0, 256, 512, 768 bytes (each 64 floats)
+  auto view0 = compute_->createBufferView(parent, 0, {64}, DataType::Float32);
+  auto view1 = compute_->createBufferView(parent, 256, {64}, DataType::Float32);
+  auto view2 = compute_->createBufferView(parent, 512, {64}, DataType::Float32);
+  auto view3 = compute_->createBufferView(parent, 768, {64}, DataType::Float32);
+
+  // Write different data to each view
+  ComputeHandle *views[] = {&view0, &view1, &view2, &view3};
+  for (int v = 0; v < 4; ++v) {
+    std::vector<float> data(64);
+    for (size_t i = 0; i < 64; ++i) {
+      data[i] = static_cast<float>((v + 1) * 100 + i);
+    }
+    compute_->copyDataToBuffer(data.data(), *views[v], 64 * sizeof(float), 0,
+                               0);
+  }
+
+  // Read back entire parent and verify
+  std::vector<float> readback(256);
+  compute_->copyDataFromBuffer(parent, readback.data(), 256 * sizeof(float), 0,
+                               0);
+
+  for (int v = 0; v < 4; ++v) {
+    for (size_t i = 0; i < 64; ++i) {
+      EXPECT_FLOAT_EQ(readback[v * 64 + i],
+                      static_cast<float>((v + 1) * 100 + i))
+          << "View " << v << ", element " << i;
+    }
+  }
+}

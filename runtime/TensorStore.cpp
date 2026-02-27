@@ -19,6 +19,13 @@ Tensor TensorStore::createTensorEmpty(const std::vector<uint32_t> &shape,
   return iface_->createBuffer(shape, dtype, nullptr, isUniform);
 }
 
+Tensor TensorStore::createTensorView(const Tensor &parent,
+                                     size_t byteOffset,
+                                     const std::vector<uint32_t> &shape,
+                                     DataType dtype) {
+  return iface_->createBufferView(parent, byteOffset, shape, dtype);
+}
+
 Tensor TensorStore::acquireTempBuffer(size_t numElements, DataType dtype) {
   size_t sizeBytes = ComputeBuffer::calculateAlignedSize(
       {static_cast<uint32_t>(numElements)}, dtype);

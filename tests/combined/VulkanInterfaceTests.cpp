@@ -618,3 +618,171 @@ TEST_F(VulkanTestEnvironment, DependentDispatchesChain) {
 
   cmdBuffer.reset();
 }
+
+// ==================== Buffer View Dispatch Tests ====================
+
+TEST_F(VulkanTestEnvironment, BufferViewAsShaderInput) {
+  constexpr uint32_t elements = 64;
+  constexpr size_t bufferSize = elements * sizeof(float);
+
+  // Create parent buffer with 128 floats
+  std::vector<float> parentData(128);
+  for (uint32_t i = 0; i < 128; ++i) {
+    parentData[i] = static_cast<float>(i);
+  }
+  auto parent =
+      interface->createBuffer({128}, cut::DataType::Float32, parentData.data());
+
+  // Create two views: view_A at offset 0 (64 floats), view_B at offset 256
+  // bytes (64 floats)
+  auto viewA = interface->createBufferView(parent, 0, {elements},
+                                           cut::DataType::Float32);
+  auto viewB = interface->createBufferView(parent, 256, {elements},
+                                           cut::DataType::Float32);
+
+  // Output buffer
+  auto bufferOut =
+      interface->createBuffer({elements}, cut::DataType::Float32, nullptr);
+
+  // Load shader and dispatch: viewA + viewB -> output
+  const auto shader = getShader(cut::OperatorEnum::BinaryAdd);
+  auto shaderModule = interface->createShaderModule(shader);
+
+  cut::ThreadSize dispatchSize{elements, 1, 1};
+
+  interface->encode(
+      {shaderModule,
+       dispatchSize,
+       {cut::ComputeBinding(0, viewA), cut::ComputeBinding(1, viewB),
+        cut::ComputeBinding(2, bufferOut),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->submit();
+  interface->wait(cmdBuffer);
+
+  // Read back and verify: output[i] = parentData[i] + parentData[64+i]
+  std::vector<float> outputData(elements);
+  interface->copyDataFromBuffer(bufferOut, outputData.data(), bufferSize, 0, 0,
+                                false, false);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = static_cast<float>(i) + static_cast<float>(i + 64);
+    EXPECT_FLOAT_EQ(expected, outputData[i])
+        << "Element " << i << ": expected " << expected << " but got "
+        << outputData[i];
+  }
+
+  cmdBuffer.reset();
+}
+
+TEST_F(VulkanTestEnvironment, BufferViewAsShaderOutput) {
+  constexpr uint32_t elements = 64;
+  constexpr size_t bufferSize = elements * sizeof(float);
+
+  // Create input buffers A and B
+  std::vector<float> dataA(elements), dataB(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataA[i] = static_cast<float>(i);
+    dataB[i] = static_cast<float>(i * 2);
+  }
+  auto bufferA =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataA.data());
+  auto bufferB =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataB.data());
+
+  // Create a large parent buffer (256 floats = 1024 bytes)
+  auto parent = interface->createBuffer({256}, cut::DataType::Float32, nullptr);
+
+  // Create a view at offset 256 bytes (64 floats in), shape {64}
+  auto viewOut = interface->createBufferView(parent, 256, {elements},
+                                             cut::DataType::Float32);
+
+  // Load shader and dispatch: A + B -> viewOut
+  const auto shader = getShader(cut::OperatorEnum::BinaryAdd);
+  auto shaderModule = interface->createShaderModule(shader);
+
+  cut::ThreadSize dispatchSize{elements, 1, 1};
+
+  interface->encode(
+      {shaderModule,
+       dispatchSize,
+       {cut::ComputeBinding(0, bufferA), cut::ComputeBinding(1, bufferB),
+        cut::ComputeBinding(2, viewOut),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->submit();
+  interface->wait(cmdBuffer);
+
+  // Read back from the view and verify
+  std::vector<float> outputData(elements);
+  interface->copyDataFromBuffer(viewOut, outputData.data(), bufferSize, 0, 0,
+                                false, false);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = dataA[i] + dataB[i];
+    EXPECT_FLOAT_EQ(expected, outputData[i])
+        << "Element " << i << ": expected " << expected << " but got "
+        << outputData[i];
+  }
+
+  cmdBuffer.reset();
+}
+
+TEST_F(VulkanTestEnvironment, BufferViewAsInputAndOutput) {
+  constexpr uint32_t elements = 64;
+  constexpr size_t bufferSize = elements * sizeof(float);
+
+  // Create a large parent buffer (256 floats = 1024 bytes) with known data
+  std::vector<float> parentData(256);
+  for (uint32_t i = 0; i < 256; ++i) {
+    parentData[i] = static_cast<float>(i);
+  }
+  auto parent =
+      interface->createBuffer({256}, cut::DataType::Float32, parentData.data());
+
+  // view_in at offset 0 (elements [0..63])
+  auto viewIn = interface->createBufferView(parent, 0, {elements},
+                                            cut::DataType::Float32);
+  // view_out at offset 512 bytes (elements [128..191])
+  auto viewOut = interface->createBufferView(parent, 512, {elements},
+                                             cut::DataType::Float32);
+
+  // Create another input buffer B
+  std::vector<float> dataB(elements);
+  for (uint32_t i = 0; i < elements; ++i) {
+    dataB[i] = static_cast<float>(i * 10);
+  }
+  auto bufferB =
+      interface->createBuffer({elements}, cut::DataType::Float32, dataB.data());
+
+  // Load shader and dispatch: viewIn + B -> viewOut
+  const auto shader = getShader(cut::OperatorEnum::BinaryAdd);
+  auto shaderModule = interface->createShaderModule(shader);
+
+  cut::ThreadSize dispatchSize{elements, 1, 1};
+
+  interface->encode(
+      {shaderModule,
+       dispatchSize,
+       {cut::ComputeBinding(0, viewIn), cut::ComputeBinding(1, bufferB),
+        cut::ComputeBinding(2, viewOut),
+        cut::ComputeBinding(3, cut::DataReference(elements))}});
+
+  auto cmdBuffer = interface->submit();
+  interface->wait(cmdBuffer);
+
+  // Read back from viewOut and verify
+  std::vector<float> outputData(elements);
+  interface->copyDataFromBuffer(viewOut, outputData.data(), bufferSize, 0, 0,
+                                false, false);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    // viewIn[i] = parentData[i] = i, dataB[i] = i*10
+    float expected = static_cast<float>(i) + static_cast<float>(i * 10);
+    EXPECT_FLOAT_EQ(expected, outputData[i])
+        << "Element " << i << ": expected " << expected << " but got "
+        << outputData[i];
+  }
+
+  cmdBuffer.reset();
+}

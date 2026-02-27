@@ -71,6 +71,12 @@ ComputeHandle VulkanCommandBufferContainer::createCommandBuffer() {
 void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
   auto &buffer = get(handle);
 
+  // Views share the parent's VkBuffer — do not destroy GPU resources.
+  // The parentHandle_ ref is released when the struct is reset to default.
+  if (buffer.isView_) {
+    return;
+  }
+
 #if CUT_USE_VMA
   if (buffer.data != nullptr) {
     vmaUnmapMemory(allocator_, buffer.allocation);

@@ -60,6 +60,13 @@ public:
                           bool = false,
                           bool = false) override {}
 
+  ComputeHandle createBufferView(const ComputeHandle &,
+                                 size_t,
+                                 const std::vector<uint32_t> &,
+                                 DataType) override {
+    return {};
+  }
+
   ComputeHandle createShaderModule(const std::vector<uint32_t> &) override {
     return {};
   }

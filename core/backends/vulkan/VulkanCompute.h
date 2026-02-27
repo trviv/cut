@@ -48,6 +48,12 @@ public:
   ComputeHandle
   createShaderModule(const std::vector<uint32_t> &spirvCode) override;
 
+  /// Creates a buffer view referencing a sub-region of an existing buffer.
+  ComputeHandle createBufferView(const ComputeHandle &parent,
+                                 size_t byteOffset,
+                                 const std::vector<uint32_t> &shape,
+                                 DataType dtype) override;
+
   /// Returns a const reference to the buffer metadata.
   const ComputeBuffer &
   getBuffer(const ComputeHandle &bufferHandle) const override;

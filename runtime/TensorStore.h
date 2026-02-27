@@ -32,6 +32,13 @@ public:
                            DataType dtype,
                            bool isUniform = false);
 
+  /// Creates a tensor view referencing a sub-region of an existing tensor.
+  /// The view shares the parent's GPU buffer at the given byte offset.
+  Tensor createTensorView(const Tensor &parent,
+                          size_t byteOffset,
+                          const std::vector<uint32_t> &shape,
+                          DataType dtype);
+
   /// Acquires a temporary GPU buffer from the pool or creates a new one.
   /// Used by multi-pass OpNodes to allocate intermediate buffers.
   Tensor acquireTempBuffer(size_t numElements, DataType dtype);

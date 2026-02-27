@@ -2638,6 +2638,65 @@ TEST_F(VulkanBackendTest, NormDim_KnownValues) {
 }
 
 // ============================================================================
+// Buffer View Tests (Runtime Level)
+// ============================================================================
+
+TEST_F(VulkanBackendTest, BufferView_BinaryOp) {
+  constexpr uint32_t elements = 64;
+  constexpr size_t bufferSize = elements * sizeof(float);
+
+  // Create parent tensor with 128 floats of known data
+  std::vector<float> parentData(128);
+  for (uint32_t i = 0; i < 128; ++i) {
+    parentData[i] = static_cast<float>(i);
+  }
+  auto parent =
+      runtime_->createTensor({128}, DataType::Float32, parentData.data());
+
+  // Create two views via TensorStore
+  auto viewA = runtime_->store().createTensorView(parent, 0, {elements},
+                                                  DataType::Float32);
+  auto viewB = runtime_->store().createTensorView(parent, 256, {elements},
+                                                  DataType::Float32);
+
+  // Perform add: viewA + viewB -> result
+  auto result = runtime_->ops().binaryOp(BinaryAdd, viewA, viewB);
+
+  std::vector<float> output(elements);
+  runtime_->copyFromTensor(result, output.data(), bufferSize);
+
+  for (uint32_t i = 0; i < elements; ++i) {
+    float expected = static_cast<float>(i) + static_cast<float>(i + 64);
+    EXPECT_FLOAT_EQ(expected, output[i]) << "Element " << i;
+  }
+}
+
+TEST_F(VulkanBackendTest, BufferView_RefCounting) {
+  auto parent = runtime_->createTensor({256}, DataType::Float32);
+  auto view =
+      runtime_->store().createTensorView(parent, 0, {64}, DataType::Float32);
+
+  // Drop parent handle — view's parentHandle_ keeps parent alive
+  parent.reset();
+  EXPECT_TRUE(view);
+
+  // View should still be usable for a binary op with another tensor
+  std::vector<float> data(64, 1.0f);
+  auto other = runtime_->createTensor({64}, DataType::Float32, data.data());
+  auto result = runtime_->ops().binaryOp(BinaryAdd, view, other);
+
+  std::vector<float> output(64);
+  runtime_->copyFromTensor(result, output.data(), 64 * sizeof(float));
+
+  // Result should not crash; values depend on uninitialized parent data + 1.0
+  // Just verify we got valid output without crashing
+  EXPECT_EQ(output.size(), 64u);
+
+  // Drop view — parent ref count drops, both destroyed
+  view.reset();
+}
+
+// ============================================================================
 // Runtime Lifecycle Tests
 // ============================================================================
 

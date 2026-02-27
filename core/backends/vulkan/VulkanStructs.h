@@ -32,6 +32,8 @@ struct VulkanBufferStruct : public ComputeBuffer {
   VkBuffer buffer = VK_NULL_HANDLE;
   VkDeviceSize offset = 0;
   bool isCoherent = false;
+  bool isView_ = false;        ///< True if this is a view into a parent buffer.
+  ComputeHandle parentHandle_; ///< Ref-counted handle keeping the parent alive.
 
   /// Returns true if this buffer is device-only (not host-visible).
   bool isDeviceOnly() const { return data == nullptr; }
