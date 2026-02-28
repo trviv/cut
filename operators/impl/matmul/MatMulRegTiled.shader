@@ -9,30 +9,7 @@
 #define TM 4
 #define TN 4
 
-struct PushConstants {
-    uint M;  // rows of A
-    uint K;  // cols of A / rows of B
-    uint N;  // cols of B
-    uint strideA; // padded K (multiple of 4)
-    uint strideB; // padded N (multiple of 4)
-};
-[[vk::push_constant]] PushConstants pc;
-
-[[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE%> dataA;
-[[vk::binding(1, 0)]] StructuredBuffer<%VEC_DTYPE%> dataB;
-[[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataC;
-
-%SCALAR_DTYPE% loadA(uint row, uint col) {
-    if (row >= pc.M || col >= pc.K) return (%SCALAR_DTYPE%)(0);
-    uint idx = row * pc.strideA + col;
-    return dataA[idx >> 2][idx & 3];
-}
-
-%SCALAR_DTYPE% loadB(uint row, uint col) {
-    if (row >= pc.K || col >= pc.N) return (%SCALAR_DTYPE%)(0);
-    uint idx = row * pc.strideB + col;
-    return dataB[idx >> 2][idx & 3];
-}
+#include "MatMulCommon.shaderh"
 
 [numthreads(16, 16, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {

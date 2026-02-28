@@ -17,20 +17,7 @@
 #define SHARED_H (TILE_H * 2 + MAX_KH - 1)
 #define SHARED_W (TILE_W * 2 + MAX_KW - 1)
 
-struct PushConstants {
-    uint batchSize;       // N
-    uint C_in;            // input channels
-    uint H_in;            // input height
-    uint W_in;            // input width
-    uint C_out;           // output channels
-    uint kH;              // kernel height
-    uint kW;              // kernel width
-    uint strideH;         // stride height
-    uint strideW;         // stride width
-    uint padH;            // padding height
-    uint padW;            // padding width
-};
-[[vk::push_constant]] PushConstants pc;
+#include "Conv2DCommon.shaderh"
 
 [[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> input_data;
 

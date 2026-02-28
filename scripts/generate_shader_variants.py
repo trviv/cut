@@ -32,6 +32,7 @@ JSON format (unified for all shader groups):
 import argparse
 import json
 import os
+import re
 import sys
 
 
@@ -77,6 +78,56 @@ def substitute_dtype(content, dtype_name):
     return content
 
 
+_SHADERH_INCLUDE_RE = re.compile(r'^\s*#include\s+"([^"]+\.shaderh)"\s*$')
+
+
+def resolve_shaderh_includes(content, source_dir, impl_dir, include_stack=None):
+    """Inline #include "*.shaderh" directives before dtype substitution.
+
+    Searches source_dir first, then impl_dir. Recurses for nested includes.
+    """
+    if include_stack is None:
+        include_stack = set()
+
+    lines = content.split("\n")
+    result = []
+    for line in lines:
+        m = _SHADERH_INCLUDE_RE.match(line)
+        if not m:
+            result.append(line)
+            continue
+
+        include_name = m.group(1)
+
+        # Resolve: source_dir first, then impl_dir
+        candidate = os.path.join(source_dir, include_name)
+        if not os.path.exists(candidate):
+            candidate = os.path.join(impl_dir, include_name)
+        if not os.path.exists(candidate):
+            print(f"ERROR: Shader header not found: {include_name} "
+                  f"(searched {source_dir} and {impl_dir})", file=sys.stderr)
+            sys.exit(1)
+
+        real_path = os.path.realpath(candidate)
+        if real_path in include_stack:
+            print(f"ERROR: Circular include detected: {include_name}",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        with open(candidate, "r") as f:
+            included_content = f.read()
+
+        include_stack.add(real_path)
+        included_content = resolve_shaderh_includes(
+            included_content, os.path.dirname(real_path), impl_dir,
+            include_stack)
+        include_stack.discard(real_path)
+
+        result.append(included_content)
+
+    return "\n".join(result)
+
+
 def write_if_changed(path, content):
     """Write file only if content differs from existing. Returns True if written."""
     if os.path.exists(path):
@@ -97,7 +148,7 @@ def full_name_for(cpp_prefix, variant_name):
 # Shader file generation (template expansion + dtype preprocessing)
 # =============================================================================
 
-def generate_shader_files(config, group_dir, output_dir):
+def generate_shader_files(config, group_dir, output_dir, impl_dir):
     """Generate dtype-preprocessed .shader files for all variants.
 
     Returns a list of (full_name, dtype_name, output_path) tuples.
@@ -131,6 +182,10 @@ def generate_shader_files(config, group_dir, output_dir):
                 sys.exit(1)
             with open(shader_path, "r") as f:
                 base_content = f.read()
+
+        # Resolve .shaderh includes before dtype substitution
+        base_content = resolve_shaderh_includes(base_content, group_dir,
+                                                impl_dir)
 
         # Generate dtype-specific shader files
         for dtype in variant["dtypes"]:
@@ -426,7 +481,8 @@ def main():
         print(f"Processing group: {group_name}")
 
         # Generate dtype-preprocessed shader files
-        generated = generate_shader_files(config, group_dir, output_dir)
+        generated = generate_shader_files(config, group_dir, output_dir,
+                                                 impl_dir)
         all_generated.extend(generated)
 
         # Generate appropriate header

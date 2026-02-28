@@ -2,13 +2,7 @@
 
 %DTYPE_DEFINES%
 
-struct PushConstants {
-    uint M;         // logical rows of input
-    uint N;         // logical cols of input
-    uint strideIn;  // aligned stride for input rows (aligned N)
-    uint strideOut; // aligned stride for output rows (aligned M)
-};
-[[vk::push_constant]] PushConstants pc;
+#include "TransposeCommon.shaderh"
 
 [[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
 

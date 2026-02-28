@@ -22,19 +22,7 @@
 #define OOB_SENTINEL (-2147483648)
 #endif
 
-struct PushConstants {
-    uint N;
-    uint C;
-    uint H_in;
-    uint W_in;
-    uint kernelH;
-    uint kernelW;
-    uint strideH;
-    uint strideW;
-    uint padH;
-    uint padW;
-};
-[[vk::push_constant]] PushConstants pc;
+#include "Pool2DCommon.shaderh"
 
 [[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> input_data;
 

@@ -2,16 +2,7 @@
 
 %DTYPE_DEFINES%
 
-struct PushConstants {
-    uint batchSize;       // N
-    uint C_in;            // input channels
-    uint L_in;            // input length
-    uint C_out;           // output channels
-    uint kL;              // kernel length
-    uint stride;          // stride
-    uint padding;         // padding
-};
-[[vk::push_constant]] PushConstants pc;
+#include "Conv1DCommon.shaderh"
 
 [[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> input_data;
 
