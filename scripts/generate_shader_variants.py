@@ -30,6 +30,7 @@ JSON format (unified for all shader groups):
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -187,6 +188,9 @@ def generate_shader_files(config, group_dir, output_dir, impl_dir):
         base_content = resolve_shaderh_includes(base_content, group_dir,
                                                 impl_dir)
 
+        # Compute source hash (after include resolution, before dtype substitution)
+        source_hash = hashlib.md5(base_content.encode()).hexdigest()
+
         # Generate dtype-specific shader files
         for dtype in variant["dtypes"]:
             if dtype not in DTYPE_DEFS:
@@ -200,7 +204,7 @@ def generate_shader_files(config, group_dir, output_dir, impl_dir):
             if write_if_changed(out_path, preprocessed):
                 print(f"  Generated {fname}_{dtype}.shader")
 
-            generated.append((fname, dtype, out_path))
+            generated.append((fname, dtype, out_path, source_hash))
 
     return generated
 
@@ -396,15 +400,17 @@ def generate_simple_header(config, group_dir, group_name):
 
 def generate_cmake_manifest(all_generated, output_dir):
     """Write generated_shaders.cmake with file list and per-function dtype info."""
-    # Collect per-function dtype lists (preserving order)
+    # Collect per-function dtype lists and source hashes (preserving order)
     func_dtypes = {}
+    func_hashes = {}
     func_order = []
     all_files = []
 
-    for full_name, dtype, out_path in all_generated:
+    for full_name, dtype, out_path, source_hash in all_generated:
         all_files.append(out_path)
         if full_name not in func_dtypes:
             func_dtypes[full_name] = []
+            func_hashes[full_name] = source_hash
             func_order.append(full_name)
         func_dtypes[full_name].append(dtype)
 
@@ -420,11 +426,12 @@ def generate_cmake_manifest(all_generated, output_dir):
     lines.append("")
 
     # Per-function dtype info for CompiledShaders.cpp generation
-    # Format: "FunctionName|Dtype1,Dtype2,..."
+    # Format: "FunctionName|Dtype1,Dtype2,...|source_hash"
     lines.append("set(SHADER_FUNCTION_DTYPES")
     for full_name in func_order:
         dtypes_str = ",".join(func_dtypes[full_name])
-        lines.append(f'    "{full_name}|{dtypes_str}"')
+        src_hash = func_hashes[full_name]
+        lines.append(f'    "{full_name}|{dtypes_str}|{src_hash}"')
     lines.append(")")
     lines.append("")
 

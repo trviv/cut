@@ -23,54 +23,87 @@ find_program(DXC_EXECUTABLE dxc REQUIRED)
 message(STATUS "DXC compiler: ${DXC_EXECUTABLE}")
 
 # =============================================================================
-# Function to compile an already-preprocessed .shader file to SPIR-V
-# (dtype substitution is now handled by generate_shader_variants.py)
+# Function to compile all dtype variants of a shader function to SPIR-V.
+# Groups all dtypes into a single build step with one cache check, instead of
+# spawning a separate process per dtype variant.
 # =============================================================================
-function(compile_shader SHADER_SOURCE)
-    # Optional extra arguments: DXC flags (e.g. "-Od -enable-16bit-types")
+function(compile_shader_group FUNC_NAME DTYPES_CSV SOURCE_HASH)
     set(EXTRA_DXC_FLAGS "${ARGN}")
-    get_filename_component(SHADER_NAME ${SHADER_SOURCE} NAME)
-    get_filename_component(SHADER_NAME_WE ${SHADER_SOURCE} NAME_WE)
+    string(REPLACE "," ";" DTYPE_LIST "${DTYPES_CSV}")
 
-    set(SHADER_BINARY ${SHADER_BINARY_DIR}/${SHADER_NAME_WE}.spv)
+    # Collect all output SPV files and source shader files
+    set(ALL_OUTPUTS "")
+    set(ALL_SOURCES "")
+    foreach(DTYPE ${DTYPE_LIST})
+        list(APPEND ALL_OUTPUTS ${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv)
+        list(APPEND ALL_SOURCES ${GENERATED_SHADER_DIR}/${FUNC_NAME}_${DTYPE}.shader)
+    endforeach()
 
-    # Create a CMake script that compiles with hash-based caching
-    set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${SHADER_NAME_WE}.cmake)
-    file(WRITE ${COMPILE_SCRIPT} "
-# Hash the shader and included header to form a cache key
-file(MD5 \"${SHADER_SOURCE}\" HLSL_HASH)
+    # Create a single CMake script that compiles all dtype variants with caching
+    set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${FUNC_NAME}.cmake)
+
+    # Build the script: hash header at build time, combine with pre-computed source hash
+    set(SCRIPT_CONTENT "# Compile all dtype variants of ${FUNC_NAME} with per-shader caching
 file(MD5 \"${SHADER_INCLUDE_DIR}/ComputeOpsShared.h\" HEADER_HASH)
-string(MD5 CACHE_KEY \"\${HLSL_HASH}_\${HEADER_HASH}\")
+string(MD5 CACHE_KEY \"${SOURCE_HASH}_\${HEADER_HASH}\")
 
-set(CACHE_FILE \"${SHADER_CACHE_DIR}/\${CACHE_KEY}.spv\")
+# Check if all variants are cached
+set(ALL_CACHED TRUE)
+")
 
-if(EXISTS \${CACHE_FILE})
-    message(STATUS \"Cache hit: ${SHADER_NAME_WE}\")
-    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \${CACHE_FILE} \"${SHADER_BINARY}\")
+    foreach(DTYPE ${DTYPE_LIST})
+        string(APPEND SCRIPT_CONTENT "
+if(NOT EXISTS \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\")
+    set(ALL_CACHED FALSE)
+endif()
+")
+    endforeach()
+
+    # Cache hit path: copy all variants from cache
+    string(APPEND SCRIPT_CONTENT "
+if(ALL_CACHED)
+    message(STATUS \"Cache hit: ${FUNC_NAME} (all variants)\")
+")
+    foreach(DTYPE ${DTYPE_LIST})
+        string(APPEND SCRIPT_CONTENT "\
+    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\" \"${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv\")
+")
+    endforeach()
+
+    # Cache miss path: compile all variants and store in cache
+    string(APPEND SCRIPT_CONTENT "\
 else()
-    message(STATUS \"Cache miss: ${SHADER_NAME_WE} — compiling\")
+    message(STATUS \"Cache miss: ${FUNC_NAME} — compiling all variants\")
+")
+    foreach(DTYPE ${DTYPE_LIST})
+        string(APPEND SCRIPT_CONTENT "
     execute_process(
-        COMMAND ${DXC_EXECUTABLE} -T cs_6_2 -E main -spirv -fspv-target-env=vulkan1.1 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${SHADER_SOURCE}\" -Fo \"${SHADER_BINARY}\"
+        COMMAND ${DXC_EXECUTABLE} -T cs_6_2 -E main -spirv -fspv-target-env=vulkan1.1 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${GENERATED_SHADER_DIR}/${FUNC_NAME}_${DTYPE}.shader\" -Fo \"${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv\"
         RESULT_VARIABLE result
     )
     if(NOT result EQUAL 0)
-        message(FATAL_ERROR \"Shader compilation failed for ${SHADER_NAME_WE}\")
+        message(FATAL_ERROR \"Shader compilation failed for ${FUNC_NAME}_${DTYPE}\")
     endif()
-    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SHADER_BINARY}\" \${CACHE_FILE})
+    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv\" \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\")
+")
+    endforeach()
+
+    string(APPEND SCRIPT_CONTENT "\
 endif()
 ")
 
-    # Compile the shader to SPIR-V (with caching)
+    file(WRITE ${COMPILE_SCRIPT} "${SCRIPT_CONTENT}")
+
+    # Single custom command for all dtype variants of this function
     add_custom_command(
-        OUTPUT ${SHADER_BINARY}
+        OUTPUT ${ALL_OUTPUTS}
         COMMAND ${CMAKE_COMMAND} -P ${COMPILE_SCRIPT}
-        DEPENDS ${SHADER_SOURCE} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
-        COMMENT "Compiling ${SHADER_NAME_WE} to SPIR-V (cached)"
+        DEPENDS ${ALL_SOURCES} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
+        COMMENT "Compiling ${FUNC_NAME} shaders to SPIR-V (${DTYPES_CSV})"
         VERBATIM
     )
 
-    # Add to global list of compiled shaders
-    list(APPEND COMPILED_SHADERS ${SHADER_BINARY})
+    list(APPEND COMPILED_SHADERS ${ALL_OUTPUTS})
     set(COMPILED_SHADERS ${COMPILED_SHADERS} PARENT_SCOPE)
 endfunction()
 
@@ -222,13 +255,18 @@ endif()
 include(${GENERATED_SHADER_DIR}/generated_shaders.cmake)
 
 # =============================================================================
-# Compile all generated shader files
+# Compile all generated shader files (grouped by source shader function)
 # =============================================================================
 list(LENGTH GENERATED_SHADER_FILES NUM_GEN_SHADERS)
 message(STATUS "Found ${NUM_GEN_SHADERS} generated shader files")
 
-foreach(SHADER_FILE ${GENERATED_SHADER_FILES})
-    compile_shader(${SHADER_FILE} "-enable-16bit-types" "-T" "cs_6_2")
+foreach(ENTRY ${SHADER_FUNCTION_DTYPES})
+    # Parse "FunctionName|Dtype1,Dtype2,...|source_hash"
+    string(REPLACE "|" ";" PARTS "${ENTRY}")
+    list(GET PARTS 0 FUNC_NAME)
+    list(GET PARTS 1 DTYPES_CSV)
+    list(GET PARTS 2 SOURCE_HASH)
+    compile_shader_group(${FUNC_NAME} ${DTYPES_CSV} ${SOURCE_HASH} "-enable-16bit-types")
 endforeach()
 
 # Generate CompiledShaders.cpp from compiled SPIR-V binaries
