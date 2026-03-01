@@ -62,4 +62,31 @@ std::vector<uint8_t> MatMulOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+std::vector<DataType> MatMulOpNode::resolveInputDtypes(
+    const std::vector<DataType> &inputDtypes) const {
+  DataType dtA = inputDtypes[0];
+  DataType dtB = inputDtypes[1];
+
+  // Check if (dtA, dtB) is directly supported by this variant's shader
+  if (getCompiledMatMul(*spec_, dtA, dtB, dtA).has_value())
+    return {dtA, dtB};
+
+  // Try widening both to higher precision
+  DataType wA = widenPrecision(dtA);
+  DataType wB = widenPrecision(dtB);
+  if (getCompiledMatMul(*spec_, wA, wB, wA).has_value())
+    return {wA, wB};
+
+  // Try mixed: keep A, widen B
+  if (getCompiledMatMul(*spec_, dtA, wB, dtA).has_value())
+    return {dtA, wB};
+
+  // Try mixed: widen A, keep B
+  if (getCompiledMatMul(*spec_, wA, dtB, wA).has_value())
+    return {wA, dtB};
+
+  // Fallback: both Float32
+  return {DataType::Float32, DataType::Float32};
+}
+
 } // namespace cut

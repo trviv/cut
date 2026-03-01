@@ -68,4 +68,12 @@ std::vector<uint8_t> Conv1DOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+std::vector<DataType> Conv1DOpNode::resolveInputDtypes(
+    const std::vector<DataType> &inputDtypes) const {
+  // Input and weight must match; if they differ, widen both
+  if (inputDtypes[0] != inputDtypes[1])
+    return {widenPrecision(inputDtypes[0]), widenPrecision(inputDtypes[1])};
+  return inputDtypes;
+}
+
 } // namespace cut

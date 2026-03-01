@@ -196,6 +196,12 @@ public:
              float value = 0.0f,
              std::optional<uint32_t> spec = {});
 
+  // ===== Type conversion =====
+
+  /// Eagerly casts a tensor to a different dtype via GPU dispatch.
+  /// Returns the input unchanged if it already has the target dtype.
+  Tensor cast(const Tensor &input, DataType targetDtype);
+
   // ===== Sort (in-place) =====
 
   void sortBitonic(const Tensor &keys,

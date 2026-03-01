@@ -19,6 +19,8 @@ public:
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
+  std::vector<DataType>
+  resolveInputDtypes(const std::vector<DataType> &inputDtypes) const override;
 
 private:
   uint32_t stride_, padding_;

@@ -97,6 +97,7 @@ set(LIB_HEADERS
     operators/Shaders.h
     operators/impl/avgpool2d/AvgPool2DOp.h
     operators/impl/binary/BinaryOp.h
+    operators/impl/cast/CastOp.h
     operators/impl/conv1d/Conv1DOp.h
     operators/impl/conv2d/Conv2DOp.h
     operators/impl/creation/CreationOp.h
@@ -140,6 +141,7 @@ set(LIB_SOURCES
     operators/OpNode.cpp
     operators/impl/avgpool2d/AvgPool2DOp.cpp
     operators/impl/binary/BinaryOp.cpp
+    operators/impl/cast/CastOp.cpp
     operators/impl/conv1d/Conv1DOp.cpp
     operators/impl/conv2d/Conv2DOp.cpp
     operators/impl/creation/CreationOp.cpp

@@ -93,6 +93,13 @@ public:
   /// Returns the output dtype (defaults to shaderDtype()).
   virtual DataType outputDtype() const { return shaderDtype(); }
 
+  /// Given the dtypes of input tensors, returns the dtypes this operator
+  /// actually requires. If an input dtype is unsupported (e.g. Float16 when
+  /// only Float32 works), returns the nearest supported higher-precision type.
+  /// Default: returns inputDtypes unchanged (accepts anything).
+  virtual std::vector<DataType>
+  resolveInputDtypes(const std::vector<DataType> &inputDtypes) const;
+
   /// Returns the dispatch thread dimensions (total grid size).
   virtual ThreadSize dispatchSize() const = 0;
 

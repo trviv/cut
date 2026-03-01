@@ -267,6 +267,8 @@ const char *operatorName(OperatorEnum op) {
     return "Full";
   case Copy:
     return "Copy";
+  case Cast:
+    return "Cast";
 
   // Prefix scan operations
   case PrefixScanExclusiveSum:

@@ -104,6 +104,7 @@
 #define OP_ONES 75
 #define OP_FULL 76
 #define OP_COPY 77
+#define OP_CAST 78
 
 // Matmul variants are defined in matmul_variants.json and selected by index
 // at runtime rather than by individual op codes.

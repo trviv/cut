@@ -6,6 +6,7 @@
 
 #include "impl/avgpool2d/AvgPool2DOp.h"
 #include "impl/binary/BinaryOp.h"
+#include "impl/cast/CastOp.h"
 #include "impl/conv1d/Conv1DOp.h"
 #include "impl/conv2d/Conv2DOp.h"
 #include "impl/matmul/MatMulOp.h"
@@ -843,6 +844,19 @@ Tensor Operations::expand(const Tensor &a,
                           std::optional<uint32_t> spec) {
   auto node = std::make_unique<ExpandOpNode>(*store_, a, targetShape, spec);
   return recordOrEncode(std::move(node));
+}
+
+// =========================================================================
+// Type conversion
+// =========================================================================
+
+Tensor Operations::cast(const Tensor &input, DataType targetDtype) {
+  if (getDtype(input) == targetDtype)
+    return input;
+  auto node = std::make_unique<CastOpNode>(*store_, input, targetDtype);
+  Tensor output = node->output();
+  dispatch(std::move(node));
+  return output;
 }
 
 // =========================================================================

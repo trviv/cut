@@ -298,4 +298,14 @@ std::vector<uint8_t> CumOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+// --- DotOpNode::resolveInputDtypes ---
+
+std::vector<DataType>
+DotOpNode::resolveInputDtypes(const std::vector<DataType> &inputDtypes) const {
+  // Both inputs must match; if they differ, widen both to Float32
+  if (inputDtypes[0] != inputDtypes[1])
+    return {widenPrecision(inputDtypes[0]), widenPrecision(inputDtypes[1])};
+  return inputDtypes;
+}
+
 } // namespace cut

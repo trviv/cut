@@ -230,6 +230,7 @@ enum OperatorEnum {
   Ones = OP_ONES,
   Full = OP_FULL,
   Copy = OP_COPY,
+  Cast = OP_CAST,
 
   // ===========================================================================
   // Dispatcher internal shader templates (280-299)

@@ -37,6 +37,11 @@ std::optional<std::vector<uint32_t>> OpNode::shader() const {
   return getShader(op_, shaderDtype());
 }
 
+std::vector<DataType>
+OpNode::resolveInputDtypes(const std::vector<DataType> &inputDtypes) const {
+  return inputDtypes;
+}
+
 size_t OpNode::shaderKey() const {
   size_t key = static_cast<size_t>(op_);
   size_t dtype = static_cast<size_t>(shaderDtype()) & 0xF;

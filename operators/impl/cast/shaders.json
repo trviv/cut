@@ -1,0 +1,20 @@
+{
+  "type": "variants",
+  "cpp_prefix": "",
+  "variants": [
+    {
+      "name": "Cast",
+      "description": "Type conversion",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float16", "output": "Float32"},
+          {"input": "Float32", "output": "Float16"},
+          {"input": "Int32", "output": "Float32"},
+          {"input": "UInt32", "output": "Float32"},
+          {"input": "Float32", "output": "Int32"},
+          {"input": "Float32", "output": "UInt32"}
+        ]
+      }
+    }
+  ]
+}

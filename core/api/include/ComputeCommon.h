@@ -130,6 +130,12 @@ inline constexpr const char *dataTypeName(DataType dtype) {
   return "Unknown";
 }
 
+/// Widens a floating-point type to the next higher precision.
+/// Float16 → Float32. All others unchanged.
+inline constexpr DataType widenPrecision(DataType dt) {
+  return dt == DataType::Float16 ? DataType::Float32 : dt;
+}
+
 /**
  * A lightweight wrapper for referencing raw data with size information.
  * Used to pass data to compute operations without copying.
