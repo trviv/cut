@@ -18,10 +18,10 @@
       "description": "Naive (no tiling)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -40,10 +40,10 @@
       "description": "SharedMem 16x16",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -62,10 +62,10 @@
       "description": "RegTiled 4x4",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -88,10 +88,11 @@
       "description": "T16 R2x2 (4KB)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -114,10 +115,11 @@
       "description": "T8 R2x2 (1KB)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -140,10 +142,11 @@
       "description": "T8 R4x4 (2KB)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -166,10 +169,11 @@
       "description": "T16 R4x4 (8KB)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -192,10 +196,11 @@
       "description": "T16 R8x8 (16KB)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -218,10 +223,11 @@
       "description": "T32 R2x2 (16KB)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -245,10 +251,10 @@
       "description": "SIMD R4x4 (32x16)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -272,10 +278,10 @@
       "description": "SIMD R4x8 (32x32)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     },
@@ -299,10 +305,10 @@
       "description": "SIMD R8x8 (64x32)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
     }

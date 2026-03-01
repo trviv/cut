@@ -12,7 +12,8 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   const auto &bufB = store.getTensor(b);
   const auto shapeA = bufA.getShape();
   const auto shapeB = bufB.getShape();
-  dtype_ = bufA.getDtype();
+  dtypeA_ = bufA.getDtype();
+  dtypeB_ = bufB.getDtype();
   if (shapeA.size() != 2 || shapeB.size() != 2) {
     throw std::runtime_error("matmul requires 2D matrices");
   }
@@ -31,14 +32,14 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
 }
 
 DataType MatMulOpNode::shaderDtype() const {
-  return dtype_;
+  return dtypeA_;
 }
 DataType MatMulOpNode::outputDtype() const {
   return DataType::Float32;
 }
 
 std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
-  return getCompiledMatMul(*spec_, dtype_, dtype_);
+  return getCompiledMatMul(*spec_, dtypeA_, dtypeB_, dtypeA_);
 }
 
 std::vector<uint32_t> MatMulOpNode::outputShape() const {

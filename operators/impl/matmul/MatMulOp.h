@@ -20,7 +20,8 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
-  DataType dtype_;
+  DataType dtypeA_;
+  DataType dtypeB_;
   uint32_t M_, K_, N_;
 };
 

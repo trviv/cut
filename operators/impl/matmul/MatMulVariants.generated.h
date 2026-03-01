@@ -36,20 +36,20 @@ inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
-std::optional<std::vector<uint32_t>> compiledMatMulNaive(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMul(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulRegTiled(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulTiled2x2(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulT8R2x2(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulT8R4x4(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulT16R4x4(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulT16R8x8(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulT32R2x2(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x4(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x8(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulSimdR8x8(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulNaive(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMul(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulRegTiled(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulTiled2x2(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulT8R2x2(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulT8R4x4(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulT16R4x4(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulT16R8x8(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulT32R2x2(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x4(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x8(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulSimdR8x8(DataType input1, DataType input2, DataType output);
 
-using CompiledMatMulFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
+using CompiledMatMulFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType, DataType);
 
 inline const CompiledMatMulFn kMatMulCompiledFns[kMatMulVariantCount] = {
     compiledMatMulNaive,
@@ -68,10 +68,10 @@ inline const CompiledMatMulFn kMatMulCompiledFns[kMatMulVariantCount] = {
 
 /// Returns compiled SPIR-V for a matmul variant by index.
 inline std::optional<std::vector<uint32_t>>
-getCompiledMatMul(int variantIndex, DataType input = DataType::Float32, DataType output = DataType::Float32) {
+getCompiledMatMul(int variantIndex, DataType input1 = DataType::Float32, DataType input2 = DataType::Float32, DataType output = DataType::Float32) {
     if (variantIndex < 0 || variantIndex >= kMatMulVariantCount)
         return std::nullopt;
-    return kMatMulCompiledFns[variantIndex](input, output);
+    return kMatMulCompiledFns[variantIndex](input1, input2, output);
 }
 
 /// Returns the number of matmul variants.

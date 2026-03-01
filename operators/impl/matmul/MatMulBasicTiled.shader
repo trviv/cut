@@ -1,13 +1,15 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES_INPUT%
+%DTYPE_DEFINES_INPUT1%
+%DTYPE_DEFINES_INPUT2%
+%DTYPE_DEFINES_OUTPUT%
 
 #define TILE_SIZE 16
 
 #include "MatMulCommon.shaderh"
 
-groupshared %SCALAR_DTYPE_INPUT% tileA[TILE_SIZE][TILE_SIZE];
-groupshared %SCALAR_DTYPE_INPUT% tileB[TILE_SIZE][TILE_SIZE];
+groupshared %SCALAR_DTYPE_INPUT1% tileA[TILE_SIZE][TILE_SIZE];
+groupshared %SCALAR_DTYPE_INPUT2% tileB[TILE_SIZE][TILE_SIZE];
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID) {
@@ -16,7 +18,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID) {
     uint localRow = GTid.y;
     uint localCol = GTid.x;
 
-    %SCALAR_DTYPE_INPUT% sum = (%SCALAR_DTYPE_INPUT%)(0);
+    %SCALAR_DTYPE_OUTPUT% sum = (%SCALAR_DTYPE_OUTPUT%)(0);
 
     uint numTiles = (pc.K + TILE_SIZE - 1) / TILE_SIZE;
     for (uint t = 0; t < numTiles; t++) {
@@ -29,7 +31,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID) {
         GroupMemoryBarrierWithGroupSync();
 
         for (uint k = 0; k < TILE_SIZE; k++) {
-            sum += tileA[localRow][k] * tileB[k][localCol];
+            sum += (%SCALAR_DTYPE_OUTPUT%)(tileA[localRow][k]) * (%SCALAR_DTYPE_OUTPUT%)(tileB[k][localCol]);
         }
 
         GroupMemoryBarrierWithGroupSync();

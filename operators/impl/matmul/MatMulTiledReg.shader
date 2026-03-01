@@ -1,6 +1,8 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES_INPUT%
+%DTYPE_DEFINES_INPUT1%
+%DTYPE_DEFINES_INPUT2%
+%DTYPE_DEFINES_OUTPUT%
 
 // Tiled matmul with register blocking: TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%
 
@@ -10,8 +12,8 @@
 
 #include "MatMulCommon.shaderh"
 
-groupshared %SCALAR_DTYPE_INPUT% tileA[TILE_SIZE * TM][TILE_SIZE];
-groupshared %SCALAR_DTYPE_INPUT% tileB[TILE_SIZE][TILE_SIZE * TN];
+groupshared %SCALAR_DTYPE_INPUT1% tileA[TILE_SIZE * TM][TILE_SIZE];
+groupshared %SCALAR_DTYPE_INPUT2% tileB[TILE_SIZE][TILE_SIZE * TN];
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
@@ -21,10 +23,10 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     uint blockRowStart = Gid.y * TILE_SIZE * TM;
     uint blockColStart = Gid.x * TILE_SIZE * TN;
 
-    %SCALAR_DTYPE_INPUT% acc[TM][TN];
+    %SCALAR_DTYPE_OUTPUT% acc[TM][TN];
     [unroll] for (uint m = 0; m < TM; m++)
         [unroll] for (uint n = 0; n < TN; n++)
-            acc[m][n] = (%SCALAR_DTYPE_INPUT%)(0);
+            acc[m][n] = (%SCALAR_DTYPE_OUTPUT%)(0);
 
     uint numTiles = (pc.K + TILE_SIZE - 1) / TILE_SIZE;
 
@@ -47,9 +49,9 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
 
         for (uint k = 0; k < TILE_SIZE; k++) {
             [unroll] for (uint m = 0; m < TM; m++) {
-                %SCALAR_DTYPE_INPUT% aVal = tileA[localRow + m * TILE_SIZE][k];
+                %SCALAR_DTYPE_OUTPUT% aVal = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k];
                 [unroll] for (uint n = 0; n < TN; n++) {
-                    acc[m][n] += aVal * tileB[k][localCol + n * TILE_SIZE];
+                    acc[m][n] += aVal * (%SCALAR_DTYPE_OUTPUT%)tileB[k][localCol + n * TILE_SIZE];
                 }
             }
         }
