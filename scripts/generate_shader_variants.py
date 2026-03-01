@@ -79,6 +79,40 @@ def substitute_dtype(content, dtype_name):
     return content
 
 
+# Mapping from dtype name to per-slot define lines.
+# The slot name is uppercased and inserted: DTYPE_{SLOT}_IS_FLOAT, etc.
+_SLOT_DEFINE_TEMPLATES = {
+    "Float32": ["#define DTYPE_{SLOT}_IS_FLOAT 1"],
+    "Float16": ["#define DTYPE_{SLOT}_IS_FLOAT 1",
+                 "#define DTYPE_{SLOT}_IS_HALF 1"],
+    "Int32":   ["#define DTYPE_{SLOT}_IS_INT 1"],
+    "UInt32":  ["#define DTYPE_{SLOT}_IS_UINT 1"],
+}
+
+
+def substitute_dtype_slot(content, slot_name, dtype_name):
+    """Replace slot-specific dtype placeholders for a named slot.
+
+    For slot 'input' and dtype 'Float32', replaces:
+      %VEC_DTYPE_INPUT%    -> float4
+      %SCALAR_DTYPE_INPUT% -> float
+      %DTYPE_SIZE_INPUT%   -> 4
+      %DTYPE_DEFINES_INPUT% -> #define DTYPE_INPUT_IS_FLOAT 1
+    """
+    d = DTYPE_DEFS[dtype_name]
+    suffix = "_" + slot_name.upper()
+    content = content.replace(f"%VEC_DTYPE{suffix}%", d["vec"])
+    content = content.replace(f"%SCALAR_DTYPE{suffix}%", d["scalar"])
+    content = content.replace(f"%DTYPE_SIZE{suffix}%", d["size"])
+    # Slot-specific defines use DTYPE_{SLOT}_IS_xxx to avoid collisions
+    slot_defines = "\n".join(
+        t.replace("{SLOT}", slot_name.upper())
+        for t in _SLOT_DEFINE_TEMPLATES[dtype_name]
+    )
+    content = content.replace(f"%DTYPE_DEFINES{suffix}%", slot_defines)
+    return content
+
+
 _SHADERH_INCLUDE_RE = re.compile(r'^\s*#include\s+"([^"]+\.shaderh)"\s*$')
 
 
@@ -149,10 +183,37 @@ def full_name_for(cpp_prefix, variant_name):
 # Shader file generation (template expansion + dtype preprocessing)
 # =============================================================================
 
+def _load_shader_content(variant, fname, group_dir):
+    """Load base shader content for a variant (template or direct file)."""
+    if "template" in variant:
+        template_path = os.path.join(group_dir,
+                                     variant["template"] + ".shader")
+        if not os.path.exists(template_path):
+            print(f"ERROR: Shader template not found: {template_path}",
+                  file=sys.stderr)
+            sys.exit(1)
+        with open(template_path, "r") as f:
+            content = f.read()
+        for key, value in variant.get("defines", {}).items():
+            content = content.replace(f"%{key}%", str(value))
+        return content
+
+    shader_path = os.path.join(group_dir, fname + ".shader")
+    if not os.path.exists(shader_path):
+        print(f"ERROR: Shader source not found: {shader_path}",
+              file=sys.stderr)
+        sys.exit(1)
+    with open(shader_path, "r") as f:
+        return f.read()
+
+
 def generate_shader_files(config, group_dir, output_dir, impl_dir):
     """Generate dtype-preprocessed .shader files for all variants.
 
-    Returns a list of (full_name, dtype_name, output_path) tuples.
+    Returns a list of (full_name, dtype_suffix, output_path, source_hash, slots)
+    tuples.  For single-dtype variants slots is None and dtype_suffix is e.g.
+    "Float32".  For multi-slot variants slots is the ordered list of slot names
+    and dtype_suffix is e.g. "Float32_UInt32".
     """
     cpp_prefix = config.get("cpp_prefix", "")
     generated = []
@@ -161,28 +222,7 @@ def generate_shader_files(config, group_dir, output_dir, impl_dir):
         name = variant["name"]
         fname = full_name_for(cpp_prefix, name)
 
-        # Get base shader content
-        if "template" in variant:
-            # Load parameterised shader and substitute define placeholders
-            template_path = os.path.join(group_dir,
-                                         variant["template"] + ".shader")
-            if not os.path.exists(template_path):
-                print(f"ERROR: Shader template not found: {template_path}",
-                      file=sys.stderr)
-                sys.exit(1)
-            with open(template_path, "r") as f:
-                base_content = f.read()
-            for key, value in variant.get("defines", {}).items():
-                base_content = base_content.replace(f"%{key}%", str(value))
-        else:
-            # Read existing .shader source file
-            shader_path = os.path.join(group_dir, fname + ".shader")
-            if not os.path.exists(shader_path):
-                print(f"ERROR: Shader source not found: {shader_path}",
-                      file=sys.stderr)
-                sys.exit(1)
-            with open(shader_path, "r") as f:
-                base_content = f.read()
+        base_content = _load_shader_content(variant, fname, group_dir)
 
         # Resolve .shaderh includes before dtype substitution
         base_content = resolve_shaderh_includes(base_content, group_dir,
@@ -191,20 +231,55 @@ def generate_shader_files(config, group_dir, output_dir, impl_dir):
         # Compute source hash (after include resolution, before dtype substitution)
         source_hash = hashlib.md5(base_content.encode()).hexdigest()
 
-        # Generate dtype-specific shader files
-        for dtype in variant["dtypes"]:
-            if dtype not in DTYPE_DEFS:
-                print(f"ERROR: Unknown dtype '{dtype}' in variant '{fname}'",
-                      file=sys.stderr)
-                sys.exit(1)
+        if "dtype_slots" in variant:
+            # Multi-slot: named dtype slots with explicit combos
+            ds = variant["dtype_slots"]
+            combos = ds["combos"]
+            # Derive slot names from the first combo's keys (preserves insertion order)
+            slots = list(combos[0].keys())
+            for combo in combos:
+                # Validate all slot names present
+                for slot in slots:
+                    dtype = combo[slot]
+                    if dtype not in DTYPE_DEFS:
+                        print(f"ERROR: Unknown dtype '{dtype}' for slot "
+                              f"'{slot}' in variant '{fname}'",
+                              file=sys.stderr)
+                        sys.exit(1)
 
-            preprocessed = substitute_dtype(base_content, dtype)
-            out_path = os.path.join(output_dir, f"{fname}_{dtype}.shader")
+                # Apply per-slot substitution
+                preprocessed = base_content
+                for slot in slots:
+                    preprocessed = substitute_dtype_slot(
+                        preprocessed, slot, combo[slot])
 
-            if write_if_changed(out_path, preprocessed):
-                print(f"  Generated {fname}_{dtype}.shader")
+                # Compound suffix: dtypes in slot order joined by _
+                suffix = "_".join(combo[slot] for slot in slots)
+                out_path = os.path.join(output_dir,
+                                        f"{fname}_{suffix}.shader")
 
-            generated.append((fname, dtype, out_path, source_hash))
+                if write_if_changed(out_path, preprocessed):
+                    print(f"  Generated {fname}_{suffix}.shader")
+
+                generated.append(
+                    (fname, suffix, out_path, source_hash, slots))
+        else:
+            # Single-dtype: existing behaviour
+            for dtype in variant["dtypes"]:
+                if dtype not in DTYPE_DEFS:
+                    print(f"ERROR: Unknown dtype '{dtype}' in variant "
+                          f"'{fname}'", file=sys.stderr)
+                    sys.exit(1)
+
+                preprocessed = substitute_dtype(base_content, dtype)
+                out_path = os.path.join(output_dir,
+                                        f"{fname}_{dtype}.shader")
+
+                if write_if_changed(out_path, preprocessed):
+                    print(f"  Generated {fname}_{dtype}.shader")
+
+                generated.append(
+                    (fname, dtype, out_path, source_hash, None))
 
     return generated
 
@@ -375,10 +450,19 @@ def generate_simple_header(config, group_dir, group_name):
 
     for v in config["variants"]:
         fname = full_name_for(cpp_prefix, v["name"])
-        lines.append(
-            f"std::optional<std::vector<uint32_t>> "
-            f"compiled{fname}(DataType datatype = DataType::Float32);"
-        )
+        if "dtype_slots" in v:
+            # Multi-slot: one DataType parameter per slot
+            slots = list(v["dtype_slots"]["combos"][0].keys())
+            params = ", ".join(f"DataType {s}" for s in slots)
+            lines.append(
+                f"std::optional<std::vector<uint32_t>> "
+                f"compiled{fname}({params});"
+            )
+        else:
+            lines.append(
+                f"std::optional<std::vector<uint32_t>> "
+                f"compiled{fname}(DataType datatype = DataType::Float32);"
+            )
 
     lines.append("")
     lines.append("} // namespace cut")
@@ -400,19 +484,21 @@ def generate_simple_header(config, group_dir, group_name):
 
 def generate_cmake_manifest(all_generated, output_dir):
     """Write generated_shaders.cmake with file list and per-function dtype info."""
-    # Collect per-function dtype lists and source hashes (preserving order)
+    # Collect per-function dtype lists, source hashes, and slot info
     func_dtypes = {}
     func_hashes = {}
+    func_slots = {}   # None for legacy, list of slot names for multi-slot
     func_order = []
     all_files = []
 
-    for full_name, dtype, out_path, source_hash in all_generated:
+    for full_name, dtype_suffix, out_path, source_hash, slots in all_generated:
         all_files.append(out_path)
         if full_name not in func_dtypes:
             func_dtypes[full_name] = []
             func_hashes[full_name] = source_hash
+            func_slots[full_name] = slots
             func_order.append(full_name)
-        func_dtypes[full_name].append(dtype)
+        func_dtypes[full_name].append(dtype_suffix)
 
     lines = []
     lines.append("# Auto-generated by generate_shader_variants.py — do not edit")
@@ -426,12 +512,20 @@ def generate_cmake_manifest(all_generated, output_dir):
     lines.append("")
 
     # Per-function dtype info for CompiledShaders.cpp generation
-    # Format: "FunctionName|Dtype1,Dtype2,...|source_hash"
+    # Legacy format:     "FunctionName|Dtype1,Dtype2,...|source_hash"
+    # Multi-slot format: "FunctionName|D1_D2,D1_D2,...|source_hash|slots:s1,s2"
     lines.append("set(SHADER_FUNCTION_DTYPES")
     for full_name in func_order:
         dtypes_str = ",".join(func_dtypes[full_name])
         src_hash = func_hashes[full_name]
-        lines.append(f'    "{full_name}|{dtypes_str}|{src_hash}"')
+        slots = func_slots[full_name]
+        if slots is not None:
+            slots_str = ",".join(slots)
+            lines.append(
+                f'    "{full_name}|{dtypes_str}|{src_hash}'
+                f'|slots:{slots_str}"')
+        else:
+            lines.append(f'    "{full_name}|{dtypes_str}|{src_hash}"')
     lines.append(")")
     lines.append("")
 

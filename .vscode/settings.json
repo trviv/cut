@@ -1,5 +1,8 @@
 {
   "editor.formatOnSave": true,
+  "[json]": {
+    "editor.formatOnSave": false
+  },
   "[cpp]": {
     "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
   },

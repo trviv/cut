@@ -5,32 +5,77 @@
     {
       "name": "VecVec",
       "description": "Binary vec-vec operations",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "VecVecCmp",
+      "description": "Binary vec-vec comparison (typed input, uint output)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "UInt32"},
+          {"input": "Float16", "output": "UInt32"},
+          {"input": "Int32", "output": "UInt32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "VecScalar",
       "description": "Binary vec-scalar operations",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"},
+          {"input": "Float16", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "VecScalarCmp",
+      "description": "Binary vec-scalar comparison (typed input, uint output)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "UInt32"},
+          {"input": "Float16", "output": "UInt32"},
+          {"input": "Int32", "output": "UInt32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "VecScalarBuf",
-      "description": "Binary vec-scalar operations",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "description": "Binary vec-scalar buffer operations",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"},
+          {"input": "Float16", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "VecScalarBufCmp",
+      "description": "Binary vec-scalar buffer comparison (typed input, uint output)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "UInt32"},
+          {"input": "Float16", "output": "UInt32"},
+          {"input": "Int32", "output": "UInt32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     }
   ]
 }

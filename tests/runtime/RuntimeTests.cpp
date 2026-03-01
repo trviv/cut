@@ -1322,25 +1322,39 @@ void testBinaryVecVec(Runtime *runtime, DataType dtype) {
 
         auto bufferOut = runtime->ops().binaryOp(op, bufferA, rhsBuf);
 
-        std::vector<T> output(elements);
-        runtime->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        for (uint32_t i = 0; i < elements; ++i) {
-          T expected = binaryVecVecRef(op, dataA[i], (*rhsData)[i]);
-          if constexpr (isFloat) {
-            if (std::isnan(expected) && std::isnan(output[i]))
-              continue;
-            if (std::isinf(expected) && std::isinf(output[i]) &&
-                std::signbit(expected) == std::signbit(output[i]))
-              continue;
-            float tol = (op == BinaryPow)
-                            ? std::max(1e-5f, std::abs(expected) * 1e-5f)
-                            : 1e-5f;
-            ASSERT_NEAR(output[i], expected, tol)
-                << "Mismatch at index " << i << " for " << operatorName(op);
-          } else {
+        // Comparison ops (VecVecCmp) produce UInt32 output
+        bool isCmp = (op >= BinaryEqual && op <= BinaryGreaterEqual);
+        if (isCmp) {
+          std::vector<uint32_t> output(elements);
+          runtime->copyFromTensor(bufferOut, output.data(),
+                                  elements * sizeof(uint32_t));
+          for (uint32_t i = 0; i < elements; ++i) {
+            T refVal = binaryVecVecRef(op, dataA[i], (*rhsData)[i]);
+            uint32_t expected = (refVal != T(0)) ? 1u : 0u;
             ASSERT_EQ(output[i], expected)
                 << "Mismatch at index " << i << " for " << operatorName(op);
+          }
+        } else {
+          std::vector<T> output(elements);
+          runtime->copyFromTensor(bufferOut, output.data(), bufferSize);
+
+          for (uint32_t i = 0; i < elements; ++i) {
+            T expected = binaryVecVecRef(op, dataA[i], (*rhsData)[i]);
+            if constexpr (isFloat) {
+              if (std::isnan(expected) && std::isnan(output[i]))
+                continue;
+              if (std::isinf(expected) && std::isinf(output[i]) &&
+                  std::signbit(expected) == std::signbit(output[i]))
+                continue;
+              float tol = (op == BinaryPow)
+                              ? std::max(1e-5f, std::abs(expected) * 1e-5f)
+                              : 1e-5f;
+              ASSERT_NEAR(output[i], expected, tol)
+                  << "Mismatch at index " << i << " for " << operatorName(op);
+            } else {
+              ASSERT_EQ(output[i], expected)
+                  << "Mismatch at index " << i << " for " << operatorName(op);
+            }
           }
         }
       };
@@ -1385,72 +1399,83 @@ void testBinaryVecVecFloat16(Runtime *runtime) {
 
         auto bufferOut = runtime->ops().binaryOp(op, bufferA, bufferB);
 
-        std::vector<uint16_t> output16(elements);
-        runtime->copyFromTensor(bufferOut, output16.data(), bufferSize);
-        auto output = halvesToFloats(output16);
-
-        for (uint32_t i = 0; i < elements; ++i) {
-          float expected;
-          // Bitwise/shift ops must use 16-bit representation to match GPU
-          // (GPU uses asint16/asfloat16, not 32-bit reinterpret)
-          if (op == BinaryBitwiseAnd || op == BinaryBitwiseOr ||
-              op == BinaryBitwiseXor || op == BinaryLeftShift ||
-              op == BinaryRightShift) {
-            uint16_t ha = dataA16[i], hb = dataB16[i];
-            uint16_t hr;
-            switch (op) {
-            case BinaryBitwiseAnd:
-              hr = ha & hb;
-              break;
-            case BinaryBitwiseOr:
-              hr = ha | hb;
-              break;
-            case BinaryBitwiseXor:
-              hr = ha ^ hb;
-              break;
-            case BinaryLeftShift:
-              hr = ha << (hb & 0xF);
-              break;
-            case BinaryRightShift: {
-              int16_t ia;
-              std::memcpy(&ia, &ha, sizeof(int16_t));
-              hr = static_cast<uint16_t>(ia >> (hb & 0xF));
-              break;
-            }
-            default:
-              hr = 0;
-              break;
-            }
-            expected = halfToFloat(hr);
-          } else {
-            expected = binaryVecVecRef(op, dataA[i], dataB[i]);
-            // Round-trip through fp16 to match GPU overflow/underflow behavior
-            expected = halfToFloat(floatToHalf(expected));
+        // Comparison ops (VecVecCmp) produce UInt32 output
+        bool isCmp = (op >= BinaryEqual && op <= BinaryGreaterEqual);
+        if (isCmp) {
+          std::vector<uint32_t> output(elements);
+          runtime->copyFromTensor(bufferOut, output.data(),
+                                  elements * sizeof(uint32_t));
+          for (uint32_t i = 0; i < elements; ++i) {
+            float refVal = binaryVecVecRef(op, dataA[i], dataB[i]);
+            uint32_t expected = (refVal != 0.0f) ? 1u : 0u;
+            ASSERT_EQ(output[i], expected)
+                << "Mismatch at index " << i << " for " << operatorName(op);
           }
-          if (std::isnan(expected) && std::isnan(output[i]))
-            continue;
-          if (std::isinf(expected) && std::isinf(output[i]) &&
-              std::signbit(expected) == std::signbit(output[i]))
-            continue;
-          // fp16 has ~3 decimal digits of precision
-          float tol = std::max(1e-2f, std::abs(expected) * 1e-2f);
-          if (op == BinaryMod || op == BinaryFmod) {
-            // fp16 intermediate precision in a/b can shift the quotient,
-            // causing the result to differ by a multiple of b
-            float b = dataB[i];
-            float diff = output[i] - expected;
-            float adj = diff - std::round(diff / b) * b;
-            ASSERT_NEAR(adj, 0.0f, tol)
-                << "Mismatch at index " << i << " for " << operatorName(op);
-          } else if (op == BinaryFloorDiv) {
-            // fp16 intermediate precision can shift floor result by ±1
-            float diff = std::abs(output[i] - expected);
-            ASSERT_TRUE(diff <= tol || std::abs(diff - 1.0f) <= tol)
-                << "Mismatch at index " << i << " for " << operatorName(op)
-                << " expected=" << expected << " got=" << output[i];
-          } else {
-            ASSERT_NEAR(output[i], expected, tol)
-                << "Mismatch at index " << i << " for " << operatorName(op);
+        } else {
+          std::vector<uint16_t> output16(elements);
+          runtime->copyFromTensor(bufferOut, output16.data(), bufferSize);
+          auto output = halvesToFloats(output16);
+
+          for (uint32_t i = 0; i < elements; ++i) {
+            float expected;
+            // Bitwise/shift ops must use 16-bit representation to match GPU
+            // (GPU uses asint16/asfloat16, not 32-bit reinterpret)
+            if (op == BinaryBitwiseAnd || op == BinaryBitwiseOr ||
+                op == BinaryBitwiseXor || op == BinaryLeftShift ||
+                op == BinaryRightShift) {
+              uint16_t ha = dataA16[i], hb = dataB16[i];
+              uint16_t hr;
+              switch (op) {
+              case BinaryBitwiseAnd:
+                hr = ha & hb;
+                break;
+              case BinaryBitwiseOr:
+                hr = ha | hb;
+                break;
+              case BinaryBitwiseXor:
+                hr = ha ^ hb;
+                break;
+              case BinaryLeftShift:
+                hr = ha << (hb & 0xF);
+                break;
+              case BinaryRightShift: {
+                int16_t ia;
+                std::memcpy(&ia, &ha, sizeof(int16_t));
+                hr = static_cast<uint16_t>(ia >> (hb & 0xF));
+                break;
+              }
+              default:
+                hr = 0;
+                break;
+              }
+              expected = halfToFloat(hr);
+            } else {
+              expected = binaryVecVecRef(op, dataA[i], dataB[i]);
+              // Round-trip through fp16 to match GPU overflow/underflow
+              expected = halfToFloat(floatToHalf(expected));
+            }
+            if (std::isnan(expected) && std::isnan(output[i]))
+              continue;
+            if (std::isinf(expected) && std::isinf(output[i]) &&
+                std::signbit(expected) == std::signbit(output[i]))
+              continue;
+            // fp16 has ~3 decimal digits of precision
+            float tol = std::max(1e-2f, std::abs(expected) * 1e-2f);
+            if (op == BinaryMod || op == BinaryFmod) {
+              float b = dataB[i];
+              float diff = output[i] - expected;
+              float adj = diff - std::round(diff / b) * b;
+              ASSERT_NEAR(adj, 0.0f, tol)
+                  << "Mismatch at index " << i << " for " << operatorName(op);
+            } else if (op == BinaryFloorDiv) {
+              float diff = std::abs(output[i] - expected);
+              ASSERT_TRUE(diff <= tol || std::abs(diff - 1.0f) <= tol)
+                  << "Mismatch at index " << i << " for " << operatorName(op)
+                  << " expected=" << expected << " got=" << output[i];
+            } else {
+              ASSERT_NEAR(output[i], expected, tol)
+                  << "Mismatch at index " << i << " for " << operatorName(op);
+            }
           }
         }
       }
@@ -1575,21 +1600,34 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
 
         auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalar);
 
-        std::vector<float> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+        bool isCmp = (op >= BinaryEqual && op <= BinaryGreaterEqual);
+        if (isCmp) {
+          std::vector<uint32_t> output(elements);
+          runtime_->copyFromTensor(bufferOut, output.data(),
+                                   elements * sizeof(uint32_t));
+          for (uint32_t i = 0; i < elements; ++i) {
+            float refVal = binaryVecScalarRef(op, dataA[i], scalar);
+            uint32_t expected = (refVal != 0.0f) ? 1u : 0u;
+            ASSERT_EQ(output[i], expected)
+                << "Mismatch at index " << i << " for " << operatorName(op);
+          }
+        } else {
+          std::vector<float> output(elements);
+          runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
-        for (uint32_t i = 0; i < elements; ++i) {
-          float expected = binaryVecScalarRef(op, dataA[i], scalar);
-          if (std::isnan(expected) && std::isnan(output[i]))
-            continue;
-          if (std::isinf(expected) && std::isinf(output[i]) &&
-              std::signbit(expected) == std::signbit(output[i]))
-            continue;
-          float tol = (op == BinaryPow)
-                          ? std::max(1e-5f, std::abs(expected) * 1e-5f)
-                          : 1e-5f;
-          ASSERT_NEAR(output[i], expected, tol)
-              << "Mismatch at index " << i << " for " << operatorName(op);
+          for (uint32_t i = 0; i < elements; ++i) {
+            float expected = binaryVecScalarRef(op, dataA[i], scalar);
+            if (std::isnan(expected) && std::isnan(output[i]))
+              continue;
+            if (std::isinf(expected) && std::isinf(output[i]) &&
+                std::signbit(expected) == std::signbit(output[i]))
+              continue;
+            float tol = (op == BinaryPow)
+                            ? std::max(1e-5f, std::abs(expected) * 1e-5f)
+                            : 1e-5f;
+            ASSERT_NEAR(output[i], expected, tol)
+                << "Mismatch at index " << i << " for " << operatorName(op);
+          }
         }
       }
     }
@@ -6700,7 +6738,6 @@ TEST_F(BinaryVecScalarHandleTest, BinaryLess_Handle) {
 
   std::vector<uint32_t> shape = {4, 8};
   const uint32_t elements = totalElements(shape);
-  const size_t bufferSize = elements * sizeof(float);
 
   auto dataA = generateTestData<float>(elements, 42);
   float scalarValue = 5.0f;
@@ -6710,12 +6747,14 @@ TEST_F(BinaryVecScalarHandleTest, BinaryLess_Handle) {
 
   auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+  // Comparison ops produce UInt32 output
+  std::vector<uint32_t> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(),
+                           elements * sizeof(uint32_t));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    float expected = (dataA[i] < scalarValue) ? 1.0f : 0.0f;
-    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    uint32_t expected = (dataA[i] < scalarValue) ? 1u : 0u;
+    ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
   }
 }
 
@@ -6725,7 +6764,6 @@ TEST_F(BinaryVecScalarHandleTest, BinaryGreater_Handle) {
 
   std::vector<uint32_t> shape = {2, 3, 8};
   const uint32_t elements = totalElements(shape);
-  const size_t bufferSize = elements * sizeof(float);
 
   auto dataA = generateTestData<float>(elements, 42);
   float scalarValue = 5.0f;
@@ -6735,12 +6773,14 @@ TEST_F(BinaryVecScalarHandleTest, BinaryGreater_Handle) {
 
   auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalarBuffer);
 
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
+  // Comparison ops produce UInt32 output
+  std::vector<uint32_t> output(elements);
+  runtime_->copyFromTensor(bufferOut, output.data(),
+                           elements * sizeof(uint32_t));
 
   for (uint32_t i = 0; i < elements; ++i) {
-    float expected = (dataA[i] > scalarValue) ? 1.0f : 0.0f;
-    ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
+    uint32_t expected = (dataA[i] > scalarValue) ? 1u : 0u;
+    ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
   }
 }
 

@@ -1,0 +1,18 @@
+%VEC_DTYPE_OUTPUT% binaryCmpOp(%VEC_DTYPE_INPUT% a, %VEC_DTYPE_INPUT% b) {
+    switch (op_enum) {
+        case OP_BINARY_EQUAL:
+            return (%VEC_DTYPE_OUTPUT%)(a == b);
+        case OP_BINARY_NOT_EQUAL:
+            return (%VEC_DTYPE_OUTPUT%)(a != b);
+        case OP_BINARY_LESS:
+            return (%VEC_DTYPE_OUTPUT%)(a < b);
+        case OP_BINARY_LESS_EQUAL:
+            return (%VEC_DTYPE_OUTPUT%)(a <= b);
+        case OP_BINARY_GREATER:
+            return (%VEC_DTYPE_OUTPUT%)(a > b);
+        case OP_BINARY_GREATER_EQUAL:
+            return (%VEC_DTYPE_OUTPUT%)(a >= b);
+        default:
+            return (%VEC_DTYPE_OUTPUT%)(0);
+    }
+}

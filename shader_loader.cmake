@@ -117,15 +117,29 @@ function(generate_shader_source)
     set(ALL_BINARIES "")
     set(FUNC_NAMES "")
     set(FUNC_DTYPE_STRS "")
+    set(FUNC_SLOTS_STRS "")
 
     foreach(ENTRY ${SHADER_FUNCTION_DTYPES})
-        # Parse "FunctionName|Dtype1,Dtype2,..."
+        # Parse "FunctionName|Dtypes|hash" or "FunctionName|Dtypes|hash|slots:s1,s2"
         string(REPLACE "|" ";" PARTS "${ENTRY}")
         list(GET PARTS 0 FUNC_NAME)
         list(GET PARTS 1 DTYPES_CSV)
 
+        # Check for optional 4th field (slots:...)
+        # Use NONE sentinel for legacy (CMake lists cannot hold empty strings)
+        list(LENGTH PARTS NUM_PARTS)
+        set(SLOTS_STR "NONE")
+        if(NUM_PARTS GREATER 3)
+            list(GET PARTS 3 SLOTS_FIELD)
+            string(REGEX MATCH "^slots:(.*)" _M "${SLOTS_FIELD}")
+            if(_M)
+                set(SLOTS_STR "${CMAKE_MATCH_1}")
+            endif()
+        endif()
+
         list(APPEND FUNC_NAMES ${FUNC_NAME})
         list(APPEND FUNC_DTYPE_STRS "${DTYPES_CSV}")
+        list(APPEND FUNC_SLOTS_STRS "${SLOTS_STR}")
 
         # Add expected binary outputs
         string(REPLACE "," ";" DTYPE_LIST "${DTYPES_CSV}")
@@ -144,17 +158,20 @@ function(generate_shader_source)
     # Convert lists to strings for the script (use | as separator)
     string(REPLACE ";" "|" FUNC_NAMES_STR "${FUNC_NAMES}")
     string(REPLACE ";" "|" FUNC_DTYPE_STRS_STR "${FUNC_DTYPE_STRS}")
+    string(REPLACE ";" "|" FUNC_SLOTS_STRS_STR "${FUNC_SLOTS_STRS}")
 
     file(WRITE ${GENERATOR_SCRIPT} "
 # Generated script to embed shader SPIR-V into C++ source
 set(FUNC_NAMES_STR \"${FUNC_NAMES_STR}\")
 set(FUNC_DTYPE_STRS_STR \"${FUNC_DTYPE_STRS_STR}\")
+set(FUNC_SLOTS_STRS_STR \"${FUNC_SLOTS_STRS_STR}\")
 set(SHADER_BINARY_DIR \"${SHADER_BINARY_DIR}\")
 set(OUTPUT_FILE \"${SHADERS_SOURCE_FILE}\")
 
 # Convert back to lists
 string(REPLACE \"|\" \";\" FUNC_NAMES \"\${FUNC_NAMES_STR}\")
 string(REPLACE \"|\" \";\" FUNC_DTYPE_STRS \"\${FUNC_DTYPE_STRS_STR}\")
+string(REPLACE \"|\" \";\" FUNC_SLOTS_STRS \"\${FUNC_SLOTS_STRS_STR}\")
 
 # Write header
 file(WRITE \${OUTPUT_FILE} \"
@@ -172,38 +189,100 @@ if(NUM_FUNCS GREATER 0)
     foreach(IDX RANGE \${LAST_INDEX})
         list(GET FUNC_NAMES \${IDX} FUNC_NAME)
         list(GET FUNC_DTYPE_STRS \${IDX} DTYPES_CSV)
+        list(GET FUNC_SLOTS_STRS \${IDX} SLOTS_STR)
 
         # Parse per-function dtype list
         string(REPLACE \",\" \";\" DTYPE_LIST \"\${DTYPES_CSV}\")
 
-        message(STATUS \"  Generating compiled\${FUNC_NAME} with dtypes: \${DTYPES_CSV}\")
+        if(NOT \"\${SLOTS_STR}\" STREQUAL \"\")
+            # =========================================================
+            # Multi-slot: generate function with one DataType param per slot
+            # =========================================================
+            string(REPLACE \",\" \";\" SLOT_LIST \"\${SLOTS_STR}\")
+            list(LENGTH SLOT_LIST SLOT_COUNT)
 
-        file(APPEND \${OUTPUT_FILE} \"std::optional<std::vector<uint32_t>> compiled\${FUNC_NAME}(const DataType datatype) {
+            # Build parameter list: \"const DataType input, const DataType output\"
+            set(PARAMS \"\")
+            foreach(SLOT \${SLOT_LIST})
+                if(NOT \"\${PARAMS}\" STREQUAL \"\")
+                    string(APPEND PARAMS \", \")
+                endif()
+                string(APPEND PARAMS \"const DataType \${SLOT}\")
+            endforeach()
+
+            message(STATUS \"  Generating compiled\${FUNC_NAME}(\${PARAMS}) [multi-slot]\")
+
+            file(APPEND \${OUTPUT_FILE} \"std::optional<std::vector<uint32_t>> compiled\${FUNC_NAME}(\${PARAMS}) {
+\")
+
+            # Each dtype entry is a compound suffix like Float32_UInt32
+            foreach(COMBO_SUFFIX \${DTYPE_LIST})
+                set(BINARY \${SHADER_BINARY_DIR}/\${FUNC_NAME}_\${COMBO_SUFFIX}.spv)
+                if(EXISTS \${BINARY})
+                    # Split compound suffix into per-slot dtypes
+                    string(REPLACE \"_\" \";\" COMBO_DTYPES \"\${COMBO_SUFFIX}\")
+
+                    # Build if-condition: \"input == DataType::Float32 && output == DataType::UInt32\"
+                    set(COND \"\")
+                    set(SLOT_IDX 0)
+                    foreach(SLOT \${SLOT_LIST})
+                        list(GET COMBO_DTYPES \${SLOT_IDX} SLOT_DTYPE)
+                        if(NOT \"\${COND}\" STREQUAL \"\")
+                            string(APPEND COND \" && \")
+                        endif()
+                        string(APPEND COND \"\${SLOT} == DataType::\${SLOT_DTYPE}\")
+                        math(EXPR SLOT_IDX \"\${SLOT_IDX} + 1\")
+                    endforeach()
+
+                    file(READ \${BINARY} SPIRV_HEX HEX)
+                    string(REGEX REPLACE \"([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])\" \"0x\\\\4\\\\3\\\\2\\\\1,\" SPIRV_DATA \"\${SPIRV_HEX}\")
+
+                    file(APPEND \${OUTPUT_FILE} \"    if (\${COND})
+        return {{\${SPIRV_DATA}}};
+\")
+                    message(STATUS \"    - \${COMBO_SUFFIX}: embedded\")
+                else()
+                    message(STATUS \"    - \${COMBO_SUFFIX}: SKIPPED (binary not found)\")
+                endif()
+            endforeach()
+
+            file(APPEND \${OUTPUT_FILE} \"    return std::nullopt;
+}
+
+\")
+        else()
+            # =========================================================
+            # Legacy single-dtype: switch on one DataType parameter
+            # =========================================================
+            message(STATUS \"  Generating compiled\${FUNC_NAME} with dtypes: \${DTYPES_CSV}\")
+
+            file(APPEND \${OUTPUT_FILE} \"std::optional<std::vector<uint32_t>> compiled\${FUNC_NAME}(const DataType datatype) {
     switch (datatype) {
 \")
 
-        foreach(DTYPE \${DTYPE_LIST})
-            set(BINARY \${SHADER_BINARY_DIR}/\${FUNC_NAME}_\${DTYPE}.spv)
-            if(EXISTS \${BINARY})
-                # Read binary SPIR-V and convert to C-style uint32_t hex array
-                file(READ \${BINARY} SPIRV_HEX HEX)
-                # Convert little-endian bytes to uint32_t hex values
-                string(REGEX REPLACE \"([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])\" \"0x\\\\4\\\\3\\\\2\\\\1,\" SPIRV_DATA \"\${SPIRV_HEX}\")
-                file(APPEND \${OUTPUT_FILE} \"    case DataType::\${DTYPE}:
+            foreach(DTYPE \${DTYPE_LIST})
+                set(BINARY \${SHADER_BINARY_DIR}/\${FUNC_NAME}_\${DTYPE}.spv)
+                if(EXISTS \${BINARY})
+                    # Read binary SPIR-V and convert to C-style uint32_t hex array
+                    file(READ \${BINARY} SPIRV_HEX HEX)
+                    # Convert little-endian bytes to uint32_t hex values
+                    string(REGEX REPLACE \"([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])([0-9a-f][0-9a-f])\" \"0x\\\\4\\\\3\\\\2\\\\1,\" SPIRV_DATA \"\${SPIRV_HEX}\")
+                    file(APPEND \${OUTPUT_FILE} \"    case DataType::\${DTYPE}:
         return {{\${SPIRV_DATA}}};
 \")
-                message(STATUS \"    - \${DTYPE}: embedded\")
-            else()
-                message(STATUS \"    - \${DTYPE}: SKIPPED (binary not found)\")
-            endif()
-        endforeach()
+                    message(STATUS \"    - \${DTYPE}: embedded\")
+                else()
+                    message(STATUS \"    - \${DTYPE}: SKIPPED (binary not found)\")
+                endif()
+            endforeach()
 
-        file(APPEND \${OUTPUT_FILE} \"    default:
+            file(APPEND \${OUTPUT_FILE} \"    default:
         return std::nullopt;
     }
 }
 
 \")
+        endif()
     endforeach()
 endif()
 

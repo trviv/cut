@@ -1,11 +1,10 @@
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES_INPUT%
-%DTYPE_DEFINES_OUTPUT%
 
 // Specialization constants
-[[vk::constant_id(0)]] const uint dtype_vec_size = %DTYPE_SIZE_OUTPUT%;
-[[vk::constant_id(1)]] const uint op_enum = OP_BINARY_ADD;
+[[vk::constant_id(0)]] const uint dtype_vec_size = %DTYPE_SIZE_INPUT%;
+[[vk::constant_id(1)]] const uint op_enum = OP_BINARY_EQUAL;
 
 // Push constants
 struct PushConstants {
@@ -18,7 +17,7 @@ struct PushConstants {
 [[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> dataB;
 [[vk::binding(2, 0)]] RWStructuredBuffer<%VEC_DTYPE_OUTPUT%> dataOut;
 
-#include "BinaryOps.shaderh"
+#include "BinaryCmpOps.shaderh"
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -28,8 +27,8 @@ void main(uint3 DTid : SV_DispatchThreadID) {
         return;
     }
 
-    %VEC_DTYPE_OUTPUT% a = (%VEC_DTYPE_OUTPUT%)dataA[index];
-    %VEC_DTYPE_OUTPUT% s = (%VEC_DTYPE_OUTPUT%)((%VEC_DTYPE_INPUT%)(dataB[0]));
+    %VEC_DTYPE_INPUT% a = dataA[index];
+    %VEC_DTYPE_INPUT% s = (%VEC_DTYPE_INPUT%)(dataB[0]);
 
-    dataOut[index] = binaryOp(a, s);
+    dataOut[index] = binaryCmpOp(a, s);
 }
