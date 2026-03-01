@@ -220,7 +220,9 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
 
   runtime_->flush();
   std::cout << "Model loaded successfully. Buffers: " << runtime_->bufferCount()
-            << "\n";
+            << "  GPU memory: "
+            << (runtime_->activeBufferMemoryBytes() / (1024.0 * 1024.0))
+            << " MB\n";
 
   // Generate HTML architecture report next to the model file.
   {
@@ -586,7 +588,8 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
 }
 
 void LlamaModel::buildGraphTemplates() {
-  executor_ = std::make_unique<cut::graph::GraphExecutor>(*ops_);
+  executor_ =
+      std::make_unique<cut::graph::GraphExecutor>(*ops_, runtime_->store());
 
   layerGraphs_.resize(config_.n_layers);
   for (uint32_t i = 0; i < config_.n_layers; ++i) {

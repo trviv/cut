@@ -119,6 +119,7 @@ set(LIB_HEADERS
     runtime/graph/GraphBuilder.h
     runtime/graph/GraphOptimizer.h
     runtime/graph/GraphExecutor.h
+    runtime/graph/MemoryPlanner.h
 )
 
 # Source files
@@ -161,6 +162,7 @@ set(LIB_SOURCES
     runtime/graph/GraphBuilder.cpp
     runtime/graph/GraphOptimizer.cpp
     runtime/graph/GraphExecutor.cpp
+    runtime/graph/MemoryPlanner.cpp
 )
 
 if (OPENL_CL_WITH_VULKAN)

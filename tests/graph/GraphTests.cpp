@@ -320,7 +320,7 @@ TEST_F(GraphTest, ExecutorBinaryOp) {
   auto graph = builder.build();
 
   // Execute
-  GraphExecutor executor(runtime_.ops());
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
   auto results = executor.execute(*graph);
   ASSERT_EQ(results.size(), 1u);
 
@@ -343,7 +343,7 @@ TEST_F(GraphTest, ExecutorUnaryOp) {
   builder.markOutput(sq);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops());
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
   auto results = executor.execute(*graph);
 
   std::vector<float> output(4);
@@ -369,7 +369,7 @@ TEST_F(GraphTest, ExecutorMatMul) {
   builder.markOutput(mm);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops());
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
   auto results = executor.execute(*graph);
 
   std::vector<float> output(4);
@@ -391,7 +391,7 @@ TEST_F(GraphTest, ExecutorReshape) {
   builder.markOutput(r);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops());
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
   auto results = executor.execute(*graph);
 
   // Verify shape via reading back all elements
@@ -413,7 +413,7 @@ TEST_F(GraphTest, ExecutorVecScalarOp) {
   builder.markOutput(scaled);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops());
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
   auto results = executor.execute(*graph);
 
   std::vector<float> output(4);
@@ -435,7 +435,7 @@ TEST_F(GraphTest, ExecutorTranspose) {
   builder.markOutput(t);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops());
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
   auto results = executor.execute(*graph);
 
   std::vector<float> output(6);
@@ -460,7 +460,7 @@ TEST_F(GraphTest, ExecutorReduce) {
   builder.markOutput(sum);
   auto graph = builder.build();
 
-  GraphExecutor executor(runtime_.ops());
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
   auto results = executor.execute(*graph);
 
   float output = 0.0f;
@@ -505,7 +505,7 @@ TEST_F(GraphTest, OptimizedExecutionMatchesEager) {
   auto optimizer = GraphOptimizer::createDefault();
   optimizer.optimize(*graph);
 
-  GraphExecutor executor(ops);
+  GraphExecutor executor(ops, runtime_.store());
   auto results = executor.execute(*graph);
 
   std::vector<float> graphResult(4);
@@ -531,7 +531,7 @@ TEST_F(GraphTest, MultiOutputGraph) {
 
   EXPECT_EQ(graph->outputs().size(), 2u);
 
-  GraphExecutor executor(runtime_.ops());
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
   auto results = executor.execute(*graph);
   ASSERT_EQ(results.size(), 2u);
 
@@ -682,6 +682,164 @@ TEST_F(GraphTest, AutoFlushTranspose) {
   EXPECT_NEAR(output[3], 5.0f, 1e-5f);
   EXPECT_NEAR(output[4], 3.0f, 1e-5f);
   EXPECT_NEAR(output[5], 6.0f, 1e-5f);
+}
+
+// ============================================================================
+// MemoryPlanner Tests
+// ============================================================================
+
+TEST_F(GraphTest, MemoryPlannerNoTransients) {
+  // All nodes are inputs or outputs — planner (run by executor) does nothing
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, data.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, data.data());
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  builder.markOutput(sum);
+  auto graph = builder.build();
+
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> output(4);
+  runtime_.copyFromTensor(results[0], output.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(output[i], 2.0f * data[i]);
+  }
+}
+
+TEST_F(GraphTest, MemoryPlannerLinearChain) {
+  // input → add → sin → neg → cos → output
+  // 3 transient nodes (add, sin, neg). In a linear chain, a producer overlaps
+  // with its immediate consumer but NOT with nodes 2+ steps away.
+  // So add and neg can share memory via arena allocation.
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {0.5f, 0.5f, 0.5f, 0.5f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto s = builder.ops().unaryOp(UnarySin, sum);
+  auto n = builder.ops().unaryOp(UnaryNeg, s);
+  auto result = builder.ops().unaryOp(UnaryCos, n);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> output(4);
+  runtime_.copyFromTensor(results[0], output.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    float expected = std::cos(-std::sin(aData[i] + bData[i]));
+    EXPECT_NEAR(output[i], expected, 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, MemoryPlannerDiamond) {
+  // input → sin, input → cos, (sin, cos) → add → output
+  // sin and cos are both transient but overlap in lifetime
+  std::vector<float> data = {0.5f, 1.0f, 1.5f, 2.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, data.data());
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto s = builder.ops().unaryOp(UnarySin, va);
+  auto c = builder.ops().unaryOp(UnaryCos, va);
+  auto sum = builder.ops().binaryOp(BinaryAdd, s, c);
+  builder.markOutput(sum);
+  auto graph = builder.build();
+
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> output(4);
+  runtime_.copyFromTensor(results[0], output.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(output[i], std::sin(data[i]) + std::cos(data[i]), 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, MemoryPlannerSequentialReuse) {
+  // input → A → B → C → output
+  // A and C have non-overlapping lifetimes, so they can share memory
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, data.data());
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto opA = builder.ops().unaryOp(UnarySin, va);   // transient
+  auto opB = builder.ops().unaryOp(UnaryCos, opA);  // transient
+  auto opC = builder.ops().unaryOp(UnarySqrt, opB); // transient
+  auto opD = builder.ops().unaryOp(UnaryNeg, opC);  // output
+  builder.markOutput(opD);
+  auto graph = builder.build();
+
+  GraphExecutor executor(runtime_.ops(), runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> output(4);
+  runtime_.copyFromTensor(results[0], output.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    float expected = -std::sqrt(std::cos(std::sin(data[i])));
+    EXPECT_NEAR(output[i], expected, 1e-4f);
+  }
+}
+
+TEST_F(GraphTest, MemoryPlannerWithOptimizer) {
+  // Full pipeline: optimize → execute (which plans memory internally)
+  std::vector<float> xData(8);
+  std::vector<float> wData(8 * 4);
+  for (int i = 0; i < 8; ++i)
+    xData[i] = static_cast<float>(i + 1) * 0.1f;
+  for (int i = 0; i < 32; ++i)
+    wData[i] = static_cast<float>(i + 1) * 0.01f;
+
+  auto x = runtime_.createTensor({8}, DataType::Float32, xData.data());
+  auto w = runtime_.createTensor({8, 4}, DataType::Float32, wData.data());
+
+  // Eager reference
+  auto &ops = runtime_.ops();
+  auto eager_x2d = ops.reshape(x, {1, 8});
+  auto eager_mm = ops.matmul(eager_x2d, w);
+  auto eager_act = ops.unaryOp(UnarySilu, eager_mm);
+  auto eager_out = ops.reshape(eager_act, {4});
+  std::vector<float> eagerResult(4);
+  runtime_.copyFromTensor(eager_out, eagerResult.data(), 4 * sizeof(float));
+
+  // Graph with optimize + execute (planner runs inside executor)
+  GraphBuilder builder(runtime_);
+  auto vx = builder.input(x);
+  auto vw = builder.input(w, true);
+  auto vx2d = builder.ops().reshape(vx, {1, 8});
+  auto vmm = builder.ops().matmul(vx2d, vw);
+  auto vact = builder.ops().unaryOp(UnarySilu, vmm);
+  auto vout = builder.ops().reshape(vact, {4});
+  builder.markOutput(vout);
+
+  auto graph = builder.build();
+  auto optimizer = GraphOptimizer::createDefault();
+  optimizer.optimize(*graph);
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphResult(4);
+  runtime_.copyFromTensor(results[0], graphResult.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(graphResult[i], eagerResult[i], 1e-5f);
+  }
 }
 
 } // namespace

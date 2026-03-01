@@ -83,6 +83,11 @@ int main(int argc, char *argv[]) {
               << " tokens (repeat_penalty=" << repeat_penalty << ")...\n";
     auto tokens = model.generate(prompt, max_new_tokens, repeat_penalty);
 
+    std::cout << "\nBuffers after generation: " << runtime.bufferCount()
+              << "  GPU memory: "
+              << (runtime.activeBufferMemoryBytes() / (1024.0 * 1024.0))
+              << " MB\n";
+
     std::cout << "\nGenerated token IDs: [";
     for (size_t i = 0; i < tokens.size(); ++i) {
       if (i > 0)

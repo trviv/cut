@@ -583,6 +583,15 @@ size_t VulkanCompute::bufferCount() const {
   return containers_->bufferContainer.size();
 }
 
+size_t VulkanCompute::activeBufferMemoryBytes() const {
+  return containers_->bufferContainer.activeMemoryBytes();
+}
+
+size_t VulkanCompute::bufferOffsetAlignment() const {
+  return std::max(static_cast<VkDeviceSize>(16),
+                  deviceProperties_.limits.minStorageBufferOffsetAlignment);
+}
+
 // Debug callback for validation layer messages
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,

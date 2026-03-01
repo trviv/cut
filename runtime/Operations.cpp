@@ -69,7 +69,7 @@ void Operations::flush() {
   // causing the executor to write results into the replacement node's buffer
   // rather than the placeholder the user holds.  Optimization is applied by
   // GraphBuilder::build() where outputs are explicitly marked.
-  graph::GraphExecutor executor(*this);
+  graph::GraphExecutor executor(*this, *store_);
   executor.execute(*graph_);
 
   // Replace with a fresh graph to release OpNode buffer references.

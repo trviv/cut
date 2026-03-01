@@ -61,6 +61,12 @@ public:
   /// Returns the number of active (in-use) buffers.
   size_t bufferCount() const override;
 
+  /// Returns total GPU memory actively allocated for buffers (excludes views).
+  size_t activeBufferMemoryBytes() const override;
+
+  /// Returns the minimum byte alignment for buffer view offsets.
+  size_t bufferOffsetAlignment() const override;
+
   /// Constructs a VulkanCompute instance with the given Vulkan instance and
   /// configuration.
   VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,

@@ -1,4 +1,5 @@
 #include "GraphExecutor.h"
+#include "MemoryPlanner.h"
 #include "OpNode.h"
 #include "Operations.h"
 
@@ -7,9 +8,14 @@
 namespace cut {
 namespace graph {
 
-GraphExecutor::GraphExecutor(Operations &ops) : ops_(&ops) {}
+GraphExecutor::GraphExecutor(Operations &ops, TensorStore &store)
+    : ops_(&ops), store_(&store) {}
 
 std::vector<Tensor> GraphExecutor::execute(Graph &graph) {
+  // Plan transient tensor memory before execution
+  MemoryPlanner planner(*store_);
+  planner.plan(graph);
+
   tensorMap_.clear();
   tensorMap_.resize(graph.size());
 

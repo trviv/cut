@@ -150,6 +150,11 @@ public:
   size_t bufferCount() const;
 
   /**
+   * Returns total GPU memory actively allocated for buffers (excludes views).
+   */
+  size_t activeBufferMemoryBytes() const;
+
+  /**
    * Flushes any pending GPU commands.
    * Submits and waits for all batched operations to complete.
    */

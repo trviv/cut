@@ -77,6 +77,13 @@ size_t Runtime::bufferCount() const {
   return interface_->bufferCount();
 }
 
+size_t Runtime::activeBufferMemoryBytes() const {
+  if (!interface_) {
+    return 0;
+  }
+  return interface_->activeBufferMemoryBytes();
+}
+
 void Runtime::flush() {
   if (operations_) {
     operations_->flush();

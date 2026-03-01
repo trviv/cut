@@ -121,6 +121,17 @@ public:
   virtual size_t bufferCount() const = 0;
 
   /**
+   * Returns total GPU memory actively allocated for buffers (excludes views).
+   */
+  virtual size_t activeBufferMemoryBytes() const { return 0; }
+
+  /**
+   * Returns the minimum byte alignment required for buffer view offsets.
+   * Defaults to 256 (safe upper bound for most devices).
+   */
+  virtual size_t bufferOffsetAlignment() const { return 256; }
+
+  /**
    * Encodes a compute dispatch to the active command buffer.
    * If no command buffer is currently recording, one will be created.
    * @param dispatch The compute dispatch object to encode (moved).

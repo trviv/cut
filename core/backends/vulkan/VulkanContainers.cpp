@@ -77,6 +77,8 @@ void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
     return;
   }
 
+  activeMemoryBytes_ -= buffer.size();
+
 #if CUT_USE_VMA
   if (buffer.data != nullptr) {
     vmaUnmapMemory(allocator_, buffer.allocation);

@@ -46,6 +46,9 @@ public:
   /// Releases all temporary buffers back to the pool.
   void releaseTempBuffers();
 
+  /// Returns the minimum byte alignment for buffer view offsets.
+  size_t offsetAlignment() const { return iface_->bufferOffsetAlignment(); }
+
 private:
   ComputeInterface *iface_;
 

@@ -34,6 +34,9 @@ public:
       : VulkanContainerBase(device) {}
 
   ComputeHandle create(VulkanBufferStruct &&structData) {
+    if (!structData.isView_) {
+      activeMemoryBytes_ += structData.size();
+    }
     return ComputeDataContainer::create(std::move(structData));
   }
 
@@ -42,8 +45,13 @@ public:
     return ComputeDataContainer::get(handle);
   }
 
+  /// Returns total GPU memory actively allocated for buffers (excludes views).
+  size_t activeMemoryBytes() const { return activeMemoryBytes_; }
+
 private:
   IF_VMA_ENABLED_THEN(VmaAllocator allocator_);
+
+  size_t activeMemoryBytes_ = 0;
 
   /// Destroys a buffer and frees its associated GPU memory.
   void destroyAPIObject(const ComputeHandle &handle) override;

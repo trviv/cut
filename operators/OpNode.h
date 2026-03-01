@@ -119,6 +119,9 @@ public:
     inputs_ = newInputs;
   }
 
+  /// Rebinds the output tensor handle for memory planning.
+  void rebindOutput(const Tensor &newOutput) { output_ = newOutput; }
+
   // ==========================================================================
   // Classification — queried once during graph construction to populate
   // GraphNode metadata. Not used during optimization or execution.
