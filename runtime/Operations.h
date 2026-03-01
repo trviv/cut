@@ -198,8 +198,10 @@ public:
 
   // ===== Type conversion =====
 
-  /// Eagerly casts a tensor to a different dtype via GPU dispatch.
+  /// Casts a tensor to a different dtype via a graph-recorded CastOpNode.
   /// Returns the input unchanged if it already has the target dtype.
+  /// Results are cached per graph: casting the same tensor to the same dtype
+  /// multiple times returns the same output tensor (no redundant graph nodes).
   Tensor cast(const Tensor &input, DataType targetDtype);
 
   // ===== Sort (in-place) =====
@@ -241,6 +243,14 @@ private:
   // Graph state — Operations always records to graph_.
   std::unique_ptr<graph::Graph> graph_;
 
+  // Cast deduplication cache — cleared whenever the graph is reset.
+  struct CastCacheEntry {
+    Tensor input;
+    DataType targetDtype;
+    Tensor output;
+  };
+  std::vector<CastCacheEntry> castCache_;
+
   std::vector<uint32_t> getShape(const Tensor &h) const;
   DataType getDtype(const Tensor &h) const;
 
@@ -250,6 +260,11 @@ private:
   uint32_t toNodeId(const Tensor &t);
 
   Tensor recordOrEncode(std::unique_ptr<OpNode> node);
+
+  /// Checks resolveInputDtypes() and inserts casts for mismatched inputs.
+  /// Returns the (possibly cast) inputs. Uses castCache_ for deduplication.
+  std::vector<Tensor> resolveAndCastInputs(const OpNode &node,
+                                           const std::vector<Tensor> &inputs);
 };
 
 } // namespace cut

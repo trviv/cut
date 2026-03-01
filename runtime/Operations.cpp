@@ -75,11 +75,13 @@ void Operations::flush() {
 
   // Replace with a fresh graph to release OpNode buffer references.
   graph_ = std::make_unique<graph::Graph>();
+  castCache_.clear();
 }
 
 std::unique_ptr<graph::Graph> Operations::takeGraph() {
   auto result = std::move(graph_);
   graph_ = std::make_unique<graph::Graph>();
+  castCache_.clear();
   return result;
 }
 
@@ -90,6 +92,7 @@ void Operations::markGraphOutput(const Tensor &t) {
 void Operations::ensureFreshGraph() {
   if (graph_->isExecuted()) {
     graph_ = std::make_unique<graph::Graph>();
+    castCache_.clear();
   }
 }
 
@@ -184,6 +187,9 @@ Tensor Operations::matmul(const Tensor &a,
                           const Tensor &b,
                           std::optional<uint32_t> spec) {
   auto node = std::make_unique<MatMulOpNode>(*store_, a, b, spec);
+  auto inputs = resolveAndCastInputs(*node, {a, b});
+  if (inputs[0] != a || inputs[1] != b)
+    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], inputs[1], spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -615,6 +621,10 @@ Tensor Operations::conv1d(const Tensor &input,
                           std::optional<uint32_t> spec) {
   auto node = std::make_unique<Conv1DOpNode>(*store_, input, weight, stride,
                                              padding, spec);
+  auto inputs = resolveAndCastInputs(*node, {input, weight});
+  if (inputs[0] != input || inputs[1] != weight)
+    node = std::make_unique<Conv1DOpNode>(*store_, inputs[0], inputs[1], stride,
+                                          padding, spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -627,6 +637,10 @@ Tensor Operations::conv2d(const Tensor &input,
                           std::optional<uint32_t> spec) {
   auto node = std::make_unique<Conv2DOpNode>(*store_, input, weight, strideH,
                                              strideW, padH, padW, spec);
+  auto inputs = resolveAndCastInputs(*node, {input, weight});
+  if (inputs[0] != input || inputs[1] != weight)
+    node = std::make_unique<Conv2DOpNode>(*store_, inputs[0], inputs[1],
+                                          strideH, strideW, padH, padW, spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -847,15 +861,45 @@ Tensor Operations::expand(const Tensor &a,
 }
 
 // =========================================================================
+// Dtype resolution helper
+// =========================================================================
+
+std::vector<Tensor>
+Operations::resolveAndCastInputs(const OpNode &node,
+                                 const std::vector<Tensor> &inputs) {
+  std::vector<DataType> actual;
+  for (const auto &t : inputs)
+    actual.push_back(getDtype(t));
+
+  auto resolved = node.resolveInputDtypes(actual);
+  if (resolved == actual)
+    return inputs;
+
+  std::vector<Tensor> result;
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    result.push_back(resolved[i] != actual[i] ? cast(inputs[i], resolved[i])
+                                              : inputs[i]);
+  }
+  return result;
+}
+
+// =========================================================================
 // Type conversion
 // =========================================================================
 
 Tensor Operations::cast(const Tensor &input, DataType targetDtype) {
   if (getDtype(input) == targetDtype)
     return input;
+
+  // Return cached result if we already cast this tensor in the current graph
+  for (const auto &entry : castCache_) {
+    if (entry.input == input && entry.targetDtype == targetDtype)
+      return entry.output;
+  }
+
   auto node = std::make_unique<CastOpNode>(*store_, input, targetDtype);
-  Tensor output = node->output();
-  dispatch(std::move(node));
+  Tensor output = recordOrEncode(std::move(node));
+  castCache_.push_back({input, targetDtype, output});
   return output;
 }
 

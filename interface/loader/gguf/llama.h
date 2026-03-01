@@ -153,6 +153,12 @@ private:
   cut::ComputeHandle
   uploadMatrix(const float *data, uint32_t rows, uint32_t cols);
 
+  // Helper: upload 2D weight in native precision (F16 stays F16, etc.)
+  cut::ComputeHandle uploadWeight(const GGUFReader &reader,
+                                  const std::string &name,
+                                  uint32_t rows,
+                                  uint32_t cols);
+
   // RMS normalization: returns normalized tensor
   cut::ComputeHandle rmsNorm(const cut::ComputeHandle &x,
                              const cut::ComputeHandle &weight);

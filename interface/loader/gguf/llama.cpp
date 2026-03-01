@@ -27,6 +27,24 @@ LlamaModel::uploadMatrix(const float *data, uint32_t rows, uint32_t cols) {
   return runtime_->createTensor(shape, cut::DataType::Float32, data);
 }
 
+cut::ComputeHandle LlamaModel::uploadWeight(const GGUFReader &reader,
+                                            const std::string &name,
+                                            uint32_t rows,
+                                            uint32_t cols) {
+  const auto &info = reader.get_tensor_info(name);
+  std::vector<uint32_t> shape = {rows, cols};
+
+  if (info.type == GGMLType::F16) {
+    // Upload Float16 weights directly — no conversion needed.
+    auto raw = reader.read_tensor_raw(name);
+    return runtime_->createTensor(shape, cut::DataType::Float16, raw.data());
+  }
+
+  // All other types (F32, BF16, quantized): dequantize to Float32.
+  auto data = reader.read_tensor_f32(name);
+  return runtime_->createTensor(shape, cut::DataType::Float32, data.data());
+}
+
 // ============================================================================
 // Loading
 // ============================================================================
@@ -121,36 +139,34 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
     // first). Data in memory is [rows, cols] row-major, i.e. [out_features,
     // in_features]. We need [in_features, out_features] for matmul(input[1,in],
     // W[in,out]), so we upload as [rows, cols] and transpose.
+    // Weights are uploaded in native precision (e.g. Float16 stays Float16);
+    // the graph will insert casts if an operator needs a different dtype.
     {
-      auto data = reader.read_tensor_f32(blk + "attn_q.weight");
       const auto &info = reader.get_tensor_info(blk + "attn_q.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadMatrix(data.data(), rows, cols);
+      auto gpu = uploadWeight(reader, blk + "attn_q.weight", rows, cols);
       layer.wq = ops_->transpose(gpu);
     }
     {
-      auto data = reader.read_tensor_f32(blk + "attn_k.weight");
       const auto &info = reader.get_tensor_info(blk + "attn_k.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadMatrix(data.data(), rows, cols);
+      auto gpu = uploadWeight(reader, blk + "attn_k.weight", rows, cols);
       layer.wk = ops_->transpose(gpu);
     }
     {
-      auto data = reader.read_tensor_f32(blk + "attn_v.weight");
       const auto &info = reader.get_tensor_info(blk + "attn_v.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadMatrix(data.data(), rows, cols);
+      auto gpu = uploadWeight(reader, blk + "attn_v.weight", rows, cols);
       layer.wv = ops_->transpose(gpu);
     }
     {
-      auto data = reader.read_tensor_f32(blk + "attn_output.weight");
       const auto &info = reader.get_tensor_info(blk + "attn_output.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadMatrix(data.data(), rows, cols);
+      auto gpu = uploadWeight(reader, blk + "attn_output.weight", rows, cols);
       layer.wo = ops_->transpose(gpu);
     }
 
@@ -160,29 +176,26 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       layer.ffn_norm = uploadVector(data);
     }
 
-    // FFN weights (same transpose treatment)
+    // FFN weights (same transpose treatment, native precision)
     {
-      auto data = reader.read_tensor_f32(blk + "ffn_gate.weight");
       const auto &info = reader.get_tensor_info(blk + "ffn_gate.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadMatrix(data.data(), rows, cols);
+      auto gpu = uploadWeight(reader, blk + "ffn_gate.weight", rows, cols);
       layer.w_gate = ops_->transpose(gpu);
     }
     {
-      auto data = reader.read_tensor_f32(blk + "ffn_up.weight");
       const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadMatrix(data.data(), rows, cols);
+      auto gpu = uploadWeight(reader, blk + "ffn_up.weight", rows, cols);
       layer.w_up = ops_->transpose(gpu);
     }
     {
-      auto data = reader.read_tensor_f32(blk + "ffn_down.weight");
       const auto &info = reader.get_tensor_info(blk + "ffn_down.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadMatrix(data.data(), rows, cols);
+      auto gpu = uploadWeight(reader, blk + "ffn_down.weight", rows, cols);
       layer.w_down = ops_->transpose(gpu);
     }
   }
@@ -196,11 +209,10 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
 
   // Output weight (LM head)
   if (reader.has_tensor("output.weight")) {
-    auto data = reader.read_tensor_f32("output.weight");
     const auto &info = reader.get_tensor_info("output.weight");
     uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
     uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-    auto gpu = uploadMatrix(data.data(), rows, cols);
+    auto gpu = uploadWeight(reader, "output.weight", rows, cols);
     output_weight_ = ops_->transpose(gpu);
   } else {
     // Some models tie embeddings — use token_embd.weight transposed
@@ -626,16 +638,6 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   std::vector<float> embd_vec(embd_row, embd_row + dim);
   auto hidden = uploadVector(embd_vec);
 
-  // Debug: trace where hidden state converges
-  static int fwdDbgCount = 0;
-  if (fwdDbgCount < 3) {
-    float dbg[4];
-    runtime_->copyFromTensor(hidden, dbg, 4 * sizeof(float));
-    std::cerr << "  [fwd " << fwdDbgCount << "] tok=" << token_id
-              << " pos=" << pos << " emb=[" << dbg[0] << " " << dbg[1] << " "
-              << dbg[2] << " " << dbg[3] << "]\n";
-  }
-
   // 2. Transformer layers
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
     auto &l = layers_[i];
@@ -671,20 +673,12 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
     hidden = ffn_result[0];
   }
 
-  // Debug: hidden state after all layers
-  if (fwdDbgCount < 3) {
-    float dbg[4];
-    runtime_->copyFromTensor(hidden, dbg, 4 * sizeof(float));
-    std::cerr << "  [fwd " << fwdDbgCount << "] after 30 layers=[" << dbg[0]
-              << " " << dbg[1] << " " << dbg[2] << " " << dbg[3] << "]\n";
-    ++fwdDbgCount;
-  }
-
   // 3. Final RMS norm (CPU sync point — stays as direct ops)
   hidden = rmsNorm(hidden, output_norm_);
 
   // 4. LM head logits (graph template)
   auto logit_result = executeGraph(logitsGraph_, {hidden});
+
   return logit_result[0];
 }
 

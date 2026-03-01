@@ -38,6 +38,17 @@ DataType MatMulOpNode::outputDtype() const {
   return DataType::Float32;
 }
 
+size_t MatMulOpNode::shaderKey() const {
+  // Base OpNode::shaderKey() uses shaderDtype() (= dtypeA_) for ALL input
+  // slots, so matmul(F32, F16) and matmul(F32, F32) produce the same cache
+  // key.  Override to encode dtypeA_ and dtypeB_ in distinct slots.
+  size_t key = static_cast<size_t>(op_);
+  key |= (static_cast<size_t>(dtypeA_) & 0xF) << 16;
+  key |= (static_cast<size_t>(dtypeB_) & 0xF) << 20;
+  key |= static_cast<size_t>(spec_.value_or(0)) << 48;
+  return key;
+}
+
 std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
   return getCompiledMatMul(*spec_, dtypeA_, dtypeB_, dtypeA_);
 }
