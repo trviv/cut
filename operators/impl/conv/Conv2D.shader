@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 struct PushConstants {
     uint batchSize;       // N
@@ -17,11 +17,11 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> input_data;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> input_data;
 
-[[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE%> weight_data;
+[[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> weight_data;
 
-[[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> output_data;
+[[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_INPUT%> output_data;
 
 [numthreads(16, 16, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -42,7 +42,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
 
     if (w_out >= W_out || n >= pc.batchSize) return;
 
-    %SCALAR_DTYPE% sum = (%SCALAR_DTYPE%)(0);
+    %SCALAR_DTYPE_INPUT% sum = (%SCALAR_DTYPE_INPUT%)(0);
 
     for (uint ci = 0; ci < pc.C_in; ci++) {
         for (uint kh = 0; kh < pc.kH; kh++) {

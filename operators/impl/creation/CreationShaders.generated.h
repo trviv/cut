@@ -7,8 +7,8 @@
 
 namespace cut {
 
-std::optional<std::vector<uint32_t>> compiledFill(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>> compiledFillUint(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>> compiledArange(DataType datatype = DataType::Float32);
+std::optional<std::vector<uint32_t>> compiledFill(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledFillUint(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledArange(DataType input, DataType output);
 
 } // namespace cut

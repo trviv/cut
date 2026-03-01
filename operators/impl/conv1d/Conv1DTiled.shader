@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // Tiled Conv1D: loads input segment + halo into shared memory
 // Dispatch: x = tiles along L_out, y = N * C_out
@@ -11,13 +11,13 @@
 
 #include "Conv1DCommon.shaderh"
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> input_data;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> input_data;
 
-[[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE%> weight_data;
+[[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> weight_data;
 
-[[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> output_data;
+[[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_INPUT%> output_data;
 
-groupshared %SCALAR_DTYPE% sharedInput[TILE_SIZE + MAX_KL - 1];
+groupshared %SCALAR_DTYPE_INPUT% sharedInput[TILE_SIZE + MAX_KL - 1];
 
 [numthreads(TILE_SIZE, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
@@ -33,7 +33,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
 
     bool active = (l_out < L_out);
 
-    %SCALAR_DTYPE% sum = (%SCALAR_DTYPE%)(0);
+    %SCALAR_DTYPE_INPUT% sum = (%SCALAR_DTYPE_INPUT%)(0);
 
     // Process one input channel at a time using shared memory
     for (uint ci = 0; ci < pc.C_in; ci++) {
@@ -43,7 +43,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
         // Cooperatively load input segment + halo into shared memory
         for (uint s = GTid.x; s < sharedLen; s += TILE_SIZE) {
             int il = baseL + int(s);
-            %SCALAR_DTYPE% val = (%SCALAR_DTYPE%)(0);
+            %SCALAR_DTYPE_INPUT% val = (%SCALAR_DTYPE_INPUT%)(0);
             if (il >= 0 && il < int(pc.L_in)) {
                 uint in_idx = n * pc.C_in * inAlignedL + ci * inAlignedL + uint(il);
                 val = input_data[in_idx];

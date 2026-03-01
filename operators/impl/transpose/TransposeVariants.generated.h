@@ -27,11 +27,11 @@ inline constexpr TransposeVariantInfo kTransposeVariants[kTransposeVariantCount]
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
-std::optional<std::vector<uint32_t>> compiledTransposeNaive(DataType datatype);
-std::optional<std::vector<uint32_t>> compiledTransposeTiled16(DataType datatype);
-std::optional<std::vector<uint32_t>> compiledTransposeTiled32(DataType datatype);
+std::optional<std::vector<uint32_t>> compiledTransposeNaive(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledTransposeTiled16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledTransposeTiled32(DataType input, DataType output);
 
-using CompiledTransposeFn = std::optional<std::vector<uint32_t>> (*)(DataType);
+using CompiledTransposeFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
 inline const CompiledTransposeFn kTransposeCompiledFns[kTransposeVariantCount] = {
     compiledTransposeNaive,
@@ -41,10 +41,10 @@ inline const CompiledTransposeFn kTransposeCompiledFns[kTransposeVariantCount] =
 
 /// Returns compiled SPIR-V for a transpose variant by index.
 inline std::optional<std::vector<uint32_t>>
-getCompiledTranspose(int variantIndex, DataType datatype = DataType::Float32) {
+getCompiledTranspose(int variantIndex, DataType input = DataType::Float32, DataType output = DataType::Float32) {
     if (variantIndex < 0 || variantIndex >= kTransposeVariantCount)
         return std::nullopt;
-    return kTransposeCompiledFns[variantIndex](datatype);
+    return kTransposeCompiledFns[variantIndex](input, output);
 }
 
 /// Returns the number of transpose variants.

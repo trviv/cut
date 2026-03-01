@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 #define WG_SIZE 256
 #define RADIX 16

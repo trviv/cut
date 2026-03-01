@@ -1,12 +1,12 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 #include "Pool2DCommon.shaderh"
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> input_data;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> input_data;
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<%VEC_DTYPE%> output_data;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%VEC_DTYPE_INPUT%> output_data;
 
 [numthreads(16, 16, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -27,7 +27,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     if (w_out4 >= outAlignedW4 || n >= pc.N) return;
 
     uint baseW = w_out4 * 4;
-    %VEC_DTYPE% sums = (%VEC_DTYPE%)(0);
+    %VEC_DTYPE_INPUT% sums = (%VEC_DTYPE_INPUT%)(0);
     uint4 counts = uint4(0, 0, 0, 0);
 
     for (uint kh = 0; kh < pc.kernelH; kh++) {
@@ -52,10 +52,10 @@ void main(uint3 DTid : SV_DispatchThreadID) {
         }
     }
 
-    %VEC_DTYPE% result = (%VEC_DTYPE%)(0);
+    %VEC_DTYPE_INPUT% result = (%VEC_DTYPE_INPUT%)(0);
     for (uint i = 0; i < 4; i++) {
         if (counts[i] > 0u) {
-            result[i] = sums[i] / (%SCALAR_DTYPE%)(counts[i]);
+            result[i] = sums[i] / (%SCALAR_DTYPE_INPUT%)(counts[i]);
         }
     }
 

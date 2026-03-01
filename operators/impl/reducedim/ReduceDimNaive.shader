@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // Specialization constants
 [[vk::constant_id(1)]] const uint op_enum = OP_REDUCE_SUM;
@@ -14,9 +14,9 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> dataIn;
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataOut;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_INPUT%> dataOut;
 
 #include "ReduceDimCommon.shaderh"
 
@@ -32,7 +32,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     uint outer = outIdx / pc.innerSize;
     uint inner = outIdx % pc.innerSize;
 
-    %SCALAR_DTYPE% val = identity();
+    %SCALAR_DTYPE_INPUT% val = identity();
     for (uint r = 0; r < pc.reduceSize; r++) {
         uint inIdx = outer * pc.inOuterStride + r * pc.inReduceStride + inner;
         val = reduceOp(val, dataIn[inIdx]);

@@ -40,7 +40,7 @@ DataType MaxPool2DOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> MaxPool2DOpNode::shader() const {
-  return getCompiledMaxPool2D(*spec_, dtype_);
+  return getCompiledMaxPool2D(*spec_, dtype_, dtype_);
 }
 
 std::vector<uint32_t> MaxPool2DOpNode::outputShape() const {

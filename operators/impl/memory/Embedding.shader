@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 struct PushConstants {
     uint numIndices;
@@ -12,10 +12,10 @@ struct PushConstants {
 [[vk::binding(0, 0)]] StructuredBuffer<uint> indices;
 
 // Weight table: [num_embeddings, embDim]
-[[vk::binding(1, 0)]] StructuredBuffer<%VEC_DTYPE%> weight_data;
+[[vk::binding(1, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT%> weight_data;
 
 // Output: [numIndices, embDim]
-[[vk::binding(2, 0)]] RWStructuredBuffer<%VEC_DTYPE%> output_data;
+[[vk::binding(2, 0)]] RWStructuredBuffer<%VEC_DTYPE_INPUT%> output_data;
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {

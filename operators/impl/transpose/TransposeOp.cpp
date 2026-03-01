@@ -29,7 +29,7 @@ DataType TransposeOpNode::outputDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> TransposeOpNode::shader() const {
-  return getCompiledTranspose(*spec_, dtype_);
+  return getCompiledTranspose(*spec_, dtype_, dtype_);
 }
 
 std::vector<uint32_t> TransposeOpNode::outputShape() const {

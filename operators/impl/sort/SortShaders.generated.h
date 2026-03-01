@@ -7,10 +7,10 @@
 
 namespace cut {
 
-std::optional<std::vector<uint32_t>> compiledBitonicStep(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>> compiledBitonicPadInit(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>> compiledBitonicCopyBack(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>> compiledRadixHistogram(DataType datatype = DataType::Float32);
-std::optional<std::vector<uint32_t>> compiledRadixScatter(DataType datatype = DataType::Float32);
+std::optional<std::vector<uint32_t>> compiledBitonicStep(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledBitonicPadInit(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledBitonicCopyBack(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledRadixHistogram(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledRadixScatter(DataType input, DataType output);
 
 } // namespace cut

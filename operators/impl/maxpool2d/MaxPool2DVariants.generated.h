@@ -26,10 +26,10 @@ inline constexpr MaxPool2DVariantInfo kMaxPool2DVariants[kMaxPool2DVariantCount]
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
-std::optional<std::vector<uint32_t>> compiledMaxPool2DNaive(DataType datatype);
-std::optional<std::vector<uint32_t>> compiledMaxPool2DTiled(DataType datatype);
+std::optional<std::vector<uint32_t>> compiledMaxPool2DNaive(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledMaxPool2DTiled(DataType input, DataType output);
 
-using CompiledMaxPool2DFn = std::optional<std::vector<uint32_t>> (*)(DataType);
+using CompiledMaxPool2DFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
 inline const CompiledMaxPool2DFn kMaxPool2DCompiledFns[kMaxPool2DVariantCount] = {
     compiledMaxPool2DNaive,
@@ -38,10 +38,10 @@ inline const CompiledMaxPool2DFn kMaxPool2DCompiledFns[kMaxPool2DVariantCount] =
 
 /// Returns compiled SPIR-V for a maxpool2d variant by index.
 inline std::optional<std::vector<uint32_t>>
-getCompiledMaxPool2D(int variantIndex, DataType datatype = DataType::Float32) {
+getCompiledMaxPool2D(int variantIndex, DataType input = DataType::Float32, DataType output = DataType::Float32) {
     if (variantIndex < 0 || variantIndex >= kMaxPool2DVariantCount)
         return std::nullopt;
-    return kMaxPool2DCompiledFns[variantIndex](datatype);
+    return kMaxPool2DCompiledFns[variantIndex](input, output);
 }
 
 /// Returns the number of maxpool2d variants.

@@ -47,11 +47,11 @@ DataType GlobalReduceOpNode::shaderDtype() const {
 std::optional<std::vector<uint32_t>> GlobalReduceOpNode::shader() const {
   std::optional<std::vector<uint32_t>> compiled;
   if (op_ == ReduceArgmax || op_ == ReduceArgmin) {
-    compiled = compiledReduceArg(dtype_);
+    compiled = compiledReduceArg(dtype_, dtype_);
   } else if (op_ == Norm) {
-    compiled = compiledNorm(dtype_);
+    compiled = compiledNorm(dtype_, dtype_);
   } else {
-    compiled = compiledReduce(dtype_);
+    compiled = compiledReduce(dtype_, dtype_);
   }
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
@@ -144,7 +144,7 @@ DataType NormOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> NormOpNode::shader() const {
-  auto compiled = compiledNorm(dtype_);
+  auto compiled = compiledNorm(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
@@ -198,7 +198,7 @@ DataType DotOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> DotOpNode::shader() const {
-  auto compiled = compiledDot(dtype_);
+  auto compiled = compiledDot(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
@@ -268,7 +268,7 @@ DataType CumOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> CumOpNode::shader() const {
-  auto compiled = compiledCumOp(dtype_);
+  auto compiled = compiledCumOp(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));

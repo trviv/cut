@@ -24,7 +24,7 @@ DataType FillOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> FillOpNode::shader() const {
-  auto compiled = compiledFill(dtype_);
+  auto compiled = compiledFill(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
@@ -66,7 +66,7 @@ DataType ArangeOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> ArangeOpNode::shader() const {
-  auto compiled = compiledArange(dtype_);
+  auto compiled = compiledArange(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));

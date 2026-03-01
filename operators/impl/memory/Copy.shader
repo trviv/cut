@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 struct PushConstants {
     uint srcAlignedInner;
@@ -11,8 +11,8 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
-[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataOut;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> dataIn;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_INPUT%> dataOut;
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {

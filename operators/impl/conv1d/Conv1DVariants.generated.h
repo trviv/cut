@@ -26,10 +26,10 @@ inline constexpr Conv1DVariantInfo kConv1DVariants[kConv1DVariantCount] = {
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
-std::optional<std::vector<uint32_t>> compiledConv1DNaive(DataType datatype);
-std::optional<std::vector<uint32_t>> compiledConv1DTiled(DataType datatype);
+std::optional<std::vector<uint32_t>> compiledConv1DNaive(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledConv1DTiled(DataType input, DataType output);
 
-using CompiledConv1DFn = std::optional<std::vector<uint32_t>> (*)(DataType);
+using CompiledConv1DFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
 inline const CompiledConv1DFn kConv1DCompiledFns[kConv1DVariantCount] = {
     compiledConv1DNaive,
@@ -38,10 +38,10 @@ inline const CompiledConv1DFn kConv1DCompiledFns[kConv1DVariantCount] = {
 
 /// Returns compiled SPIR-V for a conv1d variant by index.
 inline std::optional<std::vector<uint32_t>>
-getCompiledConv1D(int variantIndex, DataType datatype = DataType::Float32) {
+getCompiledConv1D(int variantIndex, DataType input = DataType::Float32, DataType output = DataType::Float32) {
     if (variantIndex < 0 || variantIndex >= kConv1DVariantCount)
         return std::nullopt;
-    return kConv1DCompiledFns[variantIndex](datatype);
+    return kConv1DCompiledFns[variantIndex](input, output);
 }
 
 /// Returns the number of conv1d variants.

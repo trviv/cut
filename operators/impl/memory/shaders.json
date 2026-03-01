@@ -5,42 +5,50 @@
     {
       "name": "Copy",
       "description": "Copy buffer",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "Pad",
       "description": "Pad tensor",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "Embedding",
       "description": "Embedding lookup",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "Expand",
       "description": "Broadcast-expand tensor along size-1 dimensions",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     }
   ]
 }

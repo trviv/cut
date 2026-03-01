@@ -1,17 +1,17 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 [[vk::constant_id(0)]] const uint dtype_vec_size = 4;
 
 struct PushConstants {
     uint numElements;
-    %SCALAR_DTYPE% start;
-    %SCALAR_DTYPE% step;
+    %SCALAR_DTYPE_INPUT% start;
+    %SCALAR_DTYPE_INPUT% step;
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<%VEC_DTYPE%> dataOut;
+[[vk::binding(0, 0)]] RWStructuredBuffer<%VEC_DTYPE_INPUT%> dataOut;
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -22,9 +22,9 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     }
 
     // Generate 4 consecutive values
-    %VEC_DTYPE% result;
+    %VEC_DTYPE_INPUT% result;
     for (uint i = 0; i < dtype_vec_size && (baseIdx + i) < pc.numElements; i++) {
-        result[i] = pc.start + (%SCALAR_DTYPE%)(baseIdx + i) * pc.step;
+        result[i] = pc.start + (%SCALAR_DTYPE_INPUT%)(baseIdx + i) * pc.step;
     }
     dataOut[index] = result;
 }

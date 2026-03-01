@@ -26,10 +26,10 @@ inline constexpr ReduceDimVariantInfo kReduceDimVariants[kReduceDimVariantCount]
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
-std::optional<std::vector<uint32_t>> compiledReduceDimNaive(DataType datatype);
-std::optional<std::vector<uint32_t>> compiledReduceDimShared(DataType datatype);
+std::optional<std::vector<uint32_t>> compiledReduceDimNaive(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledReduceDimShared(DataType input, DataType output);
 
-using CompiledReduceDimFn = std::optional<std::vector<uint32_t>> (*)(DataType);
+using CompiledReduceDimFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
 inline const CompiledReduceDimFn kReduceDimCompiledFns[kReduceDimVariantCount] = {
     compiledReduceDimNaive,
@@ -38,10 +38,10 @@ inline const CompiledReduceDimFn kReduceDimCompiledFns[kReduceDimVariantCount] =
 
 /// Returns compiled SPIR-V for a reducedim variant by index.
 inline std::optional<std::vector<uint32_t>>
-getCompiledReduceDim(int variantIndex, DataType datatype = DataType::Float32) {
+getCompiledReduceDim(int variantIndex, DataType input = DataType::Float32, DataType output = DataType::Float32) {
     if (variantIndex < 0 || variantIndex >= kReduceDimVariantCount)
         return std::nullopt;
-    return kReduceDimCompiledFns[variantIndex](datatype);
+    return kReduceDimCompiledFns[variantIndex](input, output);
 }
 
 /// Returns the number of reducedim variants.

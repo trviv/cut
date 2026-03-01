@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 struct PushConstants {
     uint N;
@@ -16,9 +16,9 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> input_data;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> input_data;
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<%VEC_DTYPE%> output_data;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%VEC_DTYPE_INPUT%> output_data;
 
 [numthreads(16, 16, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -39,7 +39,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     if (w_out4 >= outAlignedW4 || n >= pc.N) return;
 
     uint baseW = w_out4 * 4;
-    %VEC_DTYPE% maxVals = (%VEC_DTYPE%)((%SCALAR_DTYPE%)(-1.0e38));
+    %VEC_DTYPE_INPUT% maxVals = (%VEC_DTYPE_INPUT%)((%SCALAR_DTYPE_INPUT%)(-1.0e38));
 
     for (uint kh = 0; kh < pc.kernelH; kh++) {
         int h_in = int(h_out * pc.strideH + kh) - int(pc.padH);
@@ -64,7 +64,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
 
     // Zero out padding positions
     for (uint i = 0; i < 4; i++) {
-        if (baseW + i >= W_out) maxVals[i] = (%SCALAR_DTYPE%)(0);
+        if (baseW + i >= W_out) maxVals[i] = (%SCALAR_DTYPE_INPUT%)(0);
     }
 
     uint out_idx = n * pc.C * H_out * outAlignedW4

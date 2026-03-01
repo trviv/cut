@@ -34,7 +34,7 @@ DataType CopyOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> CopyOpNode::shader() const {
-  auto compiled = compiledCopy(dtype_);
+  auto compiled = compiledCopy(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
@@ -94,7 +94,7 @@ DataType EmbeddingOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> EmbeddingOpNode::shader() const {
-  auto compiled = compiledEmbedding(dtype_);
+  auto compiled = compiledEmbedding(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
@@ -174,7 +174,7 @@ DataType PadOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> PadOpNode::shader() const {
-  auto compiled = compiledPad(dtype_);
+  auto compiled = compiledPad(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
@@ -248,7 +248,7 @@ DataType ExpandOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> ExpandOpNode::shader() const {
-  auto compiled = compiledExpand(dtype_);
+  auto compiled = compiledExpand(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));

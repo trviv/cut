@@ -15,12 +15,14 @@
         16
       ],
       "description": "Naive (no shared mem)",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "Tiled16",
@@ -37,12 +39,14 @@
         16
       ],
       "description": "SharedMem 16x16",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "Tiled32",
@@ -59,12 +63,14 @@
         32
       ],
       "description": "SharedMem 32x32",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     }
   ]
 }

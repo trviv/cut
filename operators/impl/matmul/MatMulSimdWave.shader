@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // SIMD group matmul: WR=%WR%, WC=%WC%, TM=%TM%, TN=%TN%
 // 32 threads = 1 SIMD wave, no shared memory, data exchange via WaveReadLaneAt
@@ -22,10 +22,10 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     uint blockColStart = Gid.x * (WC * TN);
 
     // Each thread computes a TM x TN sub-tile of output
-    %SCALAR_DTYPE% acc[TM][TN];
+    %SCALAR_DTYPE_INPUT% acc[TM][TN];
     [unroll] for (uint m = 0; m < TM; m++)
         [unroll] for (uint n = 0; n < TN; n++)
-            acc[m][n] = (%SCALAR_DTYPE%)(0);
+            acc[m][n] = (%SCALAR_DTYPE_INPUT%)(0);
 
     uint numKTiles = (pc.K + WC - 1) / WC;
 
@@ -33,7 +33,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
         uint kBase = kt * WC;
 
         // Each thread loads TM values from A at its unique K offset (kBase + wc)
-        %SCALAR_DTYPE% a_reg[TM];
+        %SCALAR_DTYPE_INPUT% a_reg[TM];
         [unroll] for (uint m = 0; m < TM; m++) {
             uint aRow = blockRowStart + wr * TM + m;
             uint aCol = kBase + wc;
@@ -42,23 +42,23 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
 
         // Each thread loads TN values from B at K offset (kBase + wr)
         // Only threads with wr < WC have valid K indices
-        %SCALAR_DTYPE% b_reg[TN];
+        %SCALAR_DTYPE_INPUT% b_reg[TN];
         [unroll] for (uint n = 0; n < TN; n++) {
             uint bRow = kBase + wr;
             uint bCol = blockColStart + wc * TN + n;
-            b_reg[n] = (wr < WC) ? loadB(bRow, bCol) : (%SCALAR_DTYPE%)(0);
+            b_reg[n] = (wr < WC) ? loadB(bRow, bCol) : (%SCALAR_DTYPE_INPUT%)(0);
         }
 
         // Inner loop: broadcast A and B across the wave using WaveReadLaneAt
         [unroll] for (uint kk = 0; kk < WC; kk++) {
             // Broadcast A from the thread that has wc == kk (same wave row)
-            %SCALAR_DTYPE% a_k[TM];
+            %SCALAR_DTYPE_INPUT% a_k[TM];
             [unroll] for (uint m = 0; m < TM; m++) {
                 a_k[m] = WaveReadLaneAt(a_reg[m], wr * WC + kk);
             }
 
             // Broadcast B from the thread that has wr == kk (same wave col)
-            %SCALAR_DTYPE% b_k[TN];
+            %SCALAR_DTYPE_INPUT% b_k[TN];
             [unroll] for (uint n = 0; n < TN; n++) {
                 b_k[n] = WaveReadLaneAt(b_reg[n], kk * WC + wc);
             }

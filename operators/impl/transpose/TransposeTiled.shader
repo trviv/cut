@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // Shared memory tiled transpose: TILE_SIZE=%TILE_SIZE%
 // Both reads and writes are coalesced; +1 padding avoids bank conflicts.
@@ -9,11 +9,11 @@
 
 #include "TransposeCommon.shaderh"
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> dataIn;
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataOut;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_INPUT%> dataOut;
 
-groupshared %SCALAR_DTYPE% tile[TILE_SIZE][TILE_SIZE + 1];
+groupshared %SCALAR_DTYPE_INPUT% tile[TILE_SIZE][TILE_SIZE + 1];
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
@@ -24,7 +24,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     if (inRow < pc.M && inCol < pc.N) {
         tile[GTid.y][GTid.x] = dataIn[inRow * pc.strideIn + inCol];
     } else {
-        tile[GTid.y][GTid.x] = (%SCALAR_DTYPE%)(0);
+        tile[GTid.y][GTid.x] = (%SCALAR_DTYPE_INPUT%)(0);
     }
 
     GroupMemoryBarrierWithGroupSync();

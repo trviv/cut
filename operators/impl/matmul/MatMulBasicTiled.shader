@@ -1,13 +1,13 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 #define TILE_SIZE 16
 
 #include "MatMulCommon.shaderh"
 
-groupshared %SCALAR_DTYPE% tileA[TILE_SIZE][TILE_SIZE];
-groupshared %SCALAR_DTYPE% tileB[TILE_SIZE][TILE_SIZE];
+groupshared %SCALAR_DTYPE_INPUT% tileA[TILE_SIZE][TILE_SIZE];
+groupshared %SCALAR_DTYPE_INPUT% tileB[TILE_SIZE][TILE_SIZE];
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID) {
@@ -16,7 +16,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID) {
     uint localRow = GTid.y;
     uint localCol = GTid.x;
 
-    %SCALAR_DTYPE% sum = (%SCALAR_DTYPE%)(0);
+    %SCALAR_DTYPE_INPUT% sum = (%SCALAR_DTYPE_INPUT%)(0);
 
     uint numTiles = (pc.K + TILE_SIZE - 1) / TILE_SIZE;
     for (uint t = 0; t < numTiles; t++) {

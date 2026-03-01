@@ -7,6 +7,6 @@
 
 namespace cut {
 
-std::optional<std::vector<uint32_t>> compiledUnary(DataType datatype = DataType::Float32);
+std::optional<std::vector<uint32_t>> compiledUnary(DataType input, DataType output);
 
 } // namespace cut

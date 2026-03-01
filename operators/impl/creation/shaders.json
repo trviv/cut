@@ -5,32 +5,38 @@
     {
       "name": "Fill",
       "description": "Fill tensor with typed value",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "FillUint",
       "description": "Fill tensor with uint value",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "Arange",
       "description": "Arange / linspace",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     }
   ]
 }

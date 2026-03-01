@@ -5,42 +5,50 @@
     {
       "name": "ScanPerWg",
       "description": "Per-workgroup scan",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "ScanPartialSums",
       "description": "Scan partial sums",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "ScanPropagate",
       "description": "Scan propagation",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "ScanUint",
       "description": "Scan for uint data",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     }
   ]
 }

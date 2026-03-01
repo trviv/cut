@@ -5,82 +5,98 @@
     {
       "name": "Reduce",
       "description": "Full reduction",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "ReduceArg",
       "description": "Argmax/Argmin reduction",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "ReduceDimArg",
       "description": "Dim argmax/argmin reduction",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "PartialReduce",
       "description": "Partial reduction",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "FinalReduce",
       "description": "Final reduction",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "CumOp",
       "description": "Cumulative operations",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "Norm",
       "description": "Normalization",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     },
     {
       "name": "Dot",
       "description": "Dot product",
-      "dtypes": [
-        "Float32",
-        "Float16",
-        "Int32",
-        "UInt32"
-      ]
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     }
   ]
 }

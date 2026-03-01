@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // Specialization constants
 [[vk::constant_id(1)]] const uint op_enum = OP_REDUCE_SUM;
@@ -12,11 +12,11 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> dataIn;
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataOut;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_INPUT%> dataOut;
 
-groupshared %SCALAR_DTYPE% sharedData[256];
+groupshared %SCALAR_DTYPE_INPUT% sharedData[256];
 
 #include "ReduceCommon.shaderh"
 
@@ -25,7 +25,7 @@ void main(uint3 GTid : SV_GroupThreadID) {
     uint tid = GTid.x;
 
     // Each thread reduces multiple elements via strided loop
-    %SCALAR_DTYPE% localVal = identity();
+    %SCALAR_DTYPE_INPUT% localVal = identity();
     for (uint i = tid; i < pc.numElements; i += 256) {
         uint row = i / pc.actualInner;
         uint col = i % pc.actualInner;
@@ -45,10 +45,10 @@ void main(uint3 GTid : SV_GroupThreadID) {
 
     // Single workgroup: write result directly
     if (tid == 0) {
-        %SCALAR_DTYPE% result = sharedData[0];
+        %SCALAR_DTYPE_INPUT% result = sharedData[0];
         // For mean, divide by total element count
         if (op_enum == OP_REDUCE_MEAN) {
-            result = result / (%SCALAR_DTYPE%)(pc.numElements);
+            result = result / (%SCALAR_DTYPE_INPUT%)(pc.numElements);
         }
         dataOut[0] = result;
     }

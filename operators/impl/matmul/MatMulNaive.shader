@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // Naive matrix multiplication: no tiling, no shared memory.
 // Each thread computes one output element by looping over the full K dimension.
@@ -15,7 +15,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
 
     if (row >= pc.M || col >= pc.N) return;
 
-    %SCALAR_DTYPE% sum = (%SCALAR_DTYPE%)(0);
+    %SCALAR_DTYPE_INPUT% sum = (%SCALAR_DTYPE_INPUT%)(0);
     for (uint k = 0; k < pc.K; k++) {
         uint idxA = row * pc.strideA + k;
         uint idxB = k * pc.strideB + col;

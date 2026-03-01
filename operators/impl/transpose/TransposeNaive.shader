@@ -1,12 +1,12 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 #include "TransposeCommon.shaderh"
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> dataIn;
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<%VEC_DTYPE%> dataOut;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%VEC_DTYPE_INPUT%> dataOut;
 
 [numthreads(16, 16, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -19,7 +19,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     uint baseRow = row4 * 4;
 
     // Read 4 elements from consecutive input rows, same column
-    %VEC_DTYPE% result = (%VEC_DTYPE%)(0);
+    %VEC_DTYPE_INPUT% result = (%VEC_DTYPE_INPUT%)(0);
     if (baseRow < pc.M)     result[0] = dataIn[baseRow * pc.strideIn + col];
     if (baseRow + 1 < pc.M) result[1] = dataIn[(baseRow + 1) * pc.strideIn + col];
     if (baseRow + 2 < pc.M) result[2] = dataIn[(baseRow + 2) * pc.strideIn + col];

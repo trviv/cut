@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // Shared memory parallel reduction along a dimension
 // WG_SIZE=%WG_SIZE% threads cooperatively reduce one output element
@@ -19,11 +19,11 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> dataIn;
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataOut;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_INPUT%> dataOut;
 
-groupshared %SCALAR_DTYPE% sharedData[WG_SIZE];
+groupshared %SCALAR_DTYPE_INPUT% sharedData[WG_SIZE];
 
 #include "ReduceDimCommon.shaderh"
 
@@ -41,7 +41,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     uint inner = outIdx % pc.innerSize;
 
     // Phase 1: Each thread accumulates a strided portion of the reduce dimension
-    %SCALAR_DTYPE% val = identity();
+    %SCALAR_DTYPE_INPUT% val = identity();
     for (uint r = tid; r < pc.reduceSize; r += WG_SIZE) {
         uint inIdx = outer * pc.inOuterStride + r * pc.inReduceStride + inner;
         val = reduceOp(val, dataIn[inIdx]);

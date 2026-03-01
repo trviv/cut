@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // Register-tiled matrix multiplication: each thread computes a TM x TN block
 // of the output using only registers (local variables). No shared memory.
@@ -17,15 +17,15 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     uint baseCol = DTid.x * TN;
 
     // Accumulator registers for TM x TN output block
-    %SCALAR_DTYPE% acc[TM][TN];
+    %SCALAR_DTYPE_INPUT% acc[TM][TN];
     [unroll] for (uint m = 0; m < TM; m++)
         [unroll] for (uint n = 0; n < TN; n++)
-            acc[m][n] = (%SCALAR_DTYPE%)(0);
+            acc[m][n] = (%SCALAR_DTYPE_INPUT%)(0);
 
     // Loop over K dimension, loading A row values and B col values into registers
     for (uint k = 0; k < pc.K; k++) {
-        %SCALAR_DTYPE% a[TM];
-        %SCALAR_DTYPE% b[TN];
+        %SCALAR_DTYPE_INPUT% a[TM];
+        %SCALAR_DTYPE_INPUT% b[TN];
 
         [unroll] for (uint m = 0; m < TM; m++)
             a[m] = loadA(baseRow + m, k);

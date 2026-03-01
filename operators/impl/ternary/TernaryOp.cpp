@@ -27,7 +27,7 @@ DataType TernaryClampOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> TernaryClampOpNode::shader() const {
-  auto compiled = compiledTernaryClamp(dtype_);
+  auto compiled = compiledTernaryClamp(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
@@ -82,7 +82,7 @@ DataType TernarySelectOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> TernarySelectOpNode::shader() const {
-  auto compiled = compiledTernarySelect(dtype_);
+  auto compiled = compiledTernarySelect(dtype_, dtype_);
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
     patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));

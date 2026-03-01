@@ -46,7 +46,7 @@ DataType Conv2DOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> Conv2DOpNode::shader() const {
-  return getCompiledConv2D(*spec_, dtype_);
+  return getCompiledConv2D(*spec_, dtype_, dtype_);
 }
 
 std::vector<uint32_t> Conv2DOpNode::outputShape() const {

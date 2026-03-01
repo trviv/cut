@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // Specialization constants
 [[vk::constant_id(1)]] const uint op_enum = OP_CUMSUM;
@@ -14,9 +14,9 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> dataIn;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> dataIn;
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> dataOut;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_INPUT%> dataOut;
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -30,11 +30,11 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     uint outer = outIdx / pc.innerSize;
     uint inner = outIdx % pc.innerSize;
 
-    %SCALAR_DTYPE% acc;
+    %SCALAR_DTYPE_INPUT% acc;
     if (op_enum == OP_CUMSUM) {
-        acc = (%SCALAR_DTYPE%)(0);
+        acc = (%SCALAR_DTYPE_INPUT%)(0);
     } else {
-        acc = (%SCALAR_DTYPE%)(1);
+        acc = (%SCALAR_DTYPE_INPUT%)(1);
     }
 
     for (uint r = 0; r < pc.reduceSize; r++) {

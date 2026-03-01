@@ -40,7 +40,7 @@ DataType AvgPool2DOpNode::shaderDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> AvgPool2DOpNode::shader() const {
-  return getCompiledAvgPool2D(*spec_, dtype_);
+  return getCompiledAvgPool2D(*spec_, dtype_, dtype_);
 }
 
 std::vector<uint32_t> AvgPool2DOpNode::outputShape() const {

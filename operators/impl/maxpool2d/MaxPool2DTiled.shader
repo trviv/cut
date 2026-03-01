@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES%
+%DTYPE_DEFINES_INPUT%
 
 // Tiled MaxPool2D: loads input tile + halo into shared memory
 // Dispatch: x = tiles along W_out, y = tiles along H_out, z = N * C
@@ -17,11 +17,11 @@
 
 #include "Pool2DCommon.shaderh"
 
-[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE%> input_data;
+[[vk::binding(0, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> input_data;
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE%> output_data;
+[[vk::binding(1, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_INPUT%> output_data;
 
-groupshared %SCALAR_DTYPE% sharedInput[SHARED_H][SHARED_W];
+groupshared %SCALAR_DTYPE_INPUT% sharedInput[SHARED_H][SHARED_W];
 
 [numthreads(TILE_W, TILE_H, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
@@ -50,10 +50,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
         for (uint sw = GTid.x; sw < sharedW; sw += TILE_W) {
             int ih = baseH + int(sh);
             int iw = baseW + int(sw);
-#ifdef DTYPE_IS_FLOAT
-            %SCALAR_DTYPE% val = (%SCALAR_DTYPE%)(-1.0e38);
+#ifdef DTYPE_INPUT_IS_FLOAT
+            %SCALAR_DTYPE_INPUT% val = (%SCALAR_DTYPE_INPUT%)(-1.0e38);
 #else
-            %SCALAR_DTYPE% val = (%SCALAR_DTYPE%)(-2147483648);
+            %SCALAR_DTYPE_INPUT% val = (%SCALAR_DTYPE_INPUT%)(-2147483648);
 #endif
             if (ih >= 0 && ih < int(pc.H_in) && iw >= 0 && iw < int(pc.W_in)) {
                 uint in_idx = n * pc.C * pc.H_in * inAlignedW
@@ -75,10 +75,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID, uint3
     uint localH = GTid.y * pc.strideH;
     uint localW = GTid.x * pc.strideW;
 
-#ifdef DTYPE_IS_FLOAT
-    %SCALAR_DTYPE% maxVal = (%SCALAR_DTYPE%)(-1.0e38);
+#ifdef DTYPE_INPUT_IS_FLOAT
+    %SCALAR_DTYPE_INPUT% maxVal = (%SCALAR_DTYPE_INPUT%)(-1.0e38);
 #else
-    %SCALAR_DTYPE% maxVal = (%SCALAR_DTYPE%)(-2147483648);
+    %SCALAR_DTYPE_INPUT% maxVal = (%SCALAR_DTYPE_INPUT%)(-2147483648);
 #endif
 
     for (uint kh = 0; kh < pc.kernelH; kh++) {

@@ -38,7 +38,7 @@ DataType MatMulOpNode::outputDtype() const {
 }
 
 std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
-  return getCompiledMatMul(*spec_, dtype_);
+  return getCompiledMatMul(*spec_, dtype_, dtype_);
 }
 
 std::vector<uint32_t> MatMulOpNode::outputShape() const {

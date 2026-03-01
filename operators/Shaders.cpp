@@ -57,72 +57,73 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
   } else if (shader >= BinaryAdd && shader <= BinaryLogaddexp2) {
     compiled = compiledBinaryVecScalar(datatype, datatype);
   } else if (shader >= UnaryNeg && shader <= UnaryIsInf) {
-    compiled = compiledUnary(datatype);
+    compiled = compiledUnary(datatype, datatype);
   } else if (shader >= UnaryRelu6 && shader <= UnaryIsFinite) {
-    compiled = compiledUnary(datatype);
+    compiled = compiledUnary(datatype, datatype);
   } else if (shader >= ReduceSum && shader <= ReduceAll) {
-    compiled = compiledReduce(datatype);
+    compiled = compiledReduce(datatype, datatype);
   } else if (shader == NormDim) {
-    compiled = getCompiledReduceDim(0, datatype); // Naive variant for NormDim
+    compiled = getCompiledReduceDim(0, datatype,
+                                    datatype); // Naive variant for NormDim
   } else if (shader == ReduceArgmax || shader == ReduceArgmin) {
-    compiled = compiledReduceArg(datatype);
+    compiled = compiledReduceArg(datatype, datatype);
   } else if (shader == CumSum || shader == CumProd) {
-    compiled = compiledCumOp(datatype);
+    compiled = compiledCumOp(datatype, datatype);
   } else if (shader == Dot) {
-    compiled = compiledDot(datatype);
+    compiled = compiledDot(datatype, datatype);
   } else if (shader == TernaryClamp) {
-    compiled = compiledTernaryClamp(datatype);
+    compiled = compiledTernaryClamp(datatype, datatype);
   } else if (shader == TernarySelect) {
-    compiled = compiledTernarySelect(datatype);
+    compiled = compiledTernarySelect(datatype, datatype);
   } else if (shader == Norm) {
-    compiled = compiledNorm(datatype);
+    compiled = compiledNorm(datatype, datatype);
   } else if (shader == Arange || shader == Linspace) {
-    compiled = compiledArange(datatype);
+    compiled = compiledArange(datatype, datatype);
   } else if (shader == Zeros || shader == Ones || shader == Full) {
-    compiled = compiledFill(datatype);
+    compiled = compiledFill(datatype, datatype);
   } else if (shader == Copy) {
-    compiled = compiledCopy(datatype);
+    compiled = compiledCopy(datatype, datatype);
   } else if (shader == Embedding) {
-    compiled = compiledEmbedding(datatype);
+    compiled = compiledEmbedding(datatype, datatype);
   } else if (shader == Pad) {
-    compiled = compiledPad(datatype);
+    compiled = compiledPad(datatype, datatype);
   } else if (shader == Expand) {
-    compiled = compiledExpand(datatype);
+    compiled = compiledExpand(datatype, datatype);
   } else if (shader == InternalPartialReduce) {
-    compiled = compiledPartialReduce(datatype);
+    compiled = compiledPartialReduce(datatype, datatype);
   } else if (shader == InternalFinalReduce) {
-    compiled = compiledFinalReduce(datatype);
+    compiled = compiledFinalReduce(datatype, datatype);
   } else if (shader >= InternalScanPerWg && shader <= InternalScanUint) {
     switch (shader) {
     case InternalScanPerWg:
-      compiled = compiledScanPerWg(datatype);
+      compiled = compiledScanPerWg(datatype, datatype);
       break;
     case InternalScanPartialSums:
-      compiled = compiledScanPartialSums(datatype);
+      compiled = compiledScanPartialSums(datatype, datatype);
       break;
     case InternalScanPropagate:
-      compiled = compiledScanPropagate(datatype);
+      compiled = compiledScanPropagate(datatype, datatype);
       break;
     case InternalBitonicStep:
-      compiled = compiledBitonicStep(datatype);
+      compiled = compiledBitonicStep(datatype, datatype);
       break;
     case InternalBitonicPadInit:
-      compiled = compiledBitonicPadInit(datatype);
+      compiled = compiledBitonicPadInit(datatype, datatype);
       break;
     case InternalBitonicCopyBack:
-      compiled = compiledBitonicCopyBack(datatype);
+      compiled = compiledBitonicCopyBack(datatype, datatype);
       break;
     case InternalRadixHistogram:
-      compiled = compiledRadixHistogram(datatype);
+      compiled = compiledRadixHistogram(datatype, datatype);
       break;
     case InternalRadixScatter:
-      compiled = compiledRadixScatter(datatype);
+      compiled = compiledRadixScatter(datatype, datatype);
       break;
     case InternalFillUint:
-      compiled = compiledFillUint(datatype);
+      compiled = compiledFillUint(datatype, datatype);
       break;
     case InternalScanUint:
-      compiled = compiledScanUint(datatype);
+      compiled = compiledScanUint(datatype, datatype);
       break;
     default:
       break;
@@ -145,11 +146,12 @@ std::vector<uint32_t> getDimReduceShader(const OperatorEnum reduceOp,
                                          std::optional<uint32_t> variant) {
   std::optional<std::vector<uint32_t>> compiled;
   if (reduceOp == ReduceArgmax || reduceOp == ReduceArgmin) {
-    compiled = compiledReduceDimArg(datatype);
+    compiled = compiledReduceDimArg(datatype, datatype);
   } else if (variant.has_value()) {
-    compiled = getCompiledReduceDim(variant.value(), datatype);
+    compiled = getCompiledReduceDim(variant.value(), datatype, datatype);
   } else {
-    compiled = getCompiledReduceDim(0, datatype); // Naive variant as fallback
+    compiled = getCompiledReduceDim(0, datatype,
+                                    datatype); // Naive variant as fallback
   }
   if (!compiled.has_value()) {
     throw std::runtime_error("Unsupported dtype for dim reduce shader");

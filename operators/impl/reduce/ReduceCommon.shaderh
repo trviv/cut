@@ -6,37 +6,37 @@
 #define REDUCE_OP_VAR op_enum
 #endif
 
-%SCALAR_DTYPE% identity() {
+%SCALAR_DTYPE_INPUT% identity() {
     switch (REDUCE_OP_VAR) {
         case OP_REDUCE_SUM:
         case OP_REDUCE_MEAN:
         case OP_REDUCE_ANY:
-            return (%SCALAR_DTYPE%)(0);
+            return (%SCALAR_DTYPE_INPUT%)(0);
         case OP_REDUCE_PROD:
         case OP_REDUCE_ALL:
-            return (%SCALAR_DTYPE%)(1);
+            return (%SCALAR_DTYPE_INPUT%)(1);
         case OP_REDUCE_MIN:
-#ifdef DTYPE_IS_FLOAT
+#ifdef DTYPE_INPUT_IS_FLOAT
             return 3.402823466e+38;
-#elif defined(DTYPE_IS_UINT)
+#elif defined(DTYPE_INPUT_IS_UINT)
             return 4294967295u;
 #else
             return 2147483647;
 #endif
         case OP_REDUCE_MAX:
-#ifdef DTYPE_IS_FLOAT
+#ifdef DTYPE_INPUT_IS_FLOAT
             return -3.402823466e+38;
-#elif defined(DTYPE_IS_UINT)
+#elif defined(DTYPE_INPUT_IS_UINT)
             return 0u;
 #else
             return -2147483648;
 #endif
         default:
-            return (%SCALAR_DTYPE%)(0);
+            return (%SCALAR_DTYPE_INPUT%)(0);
     }
 }
 
-%SCALAR_DTYPE% reduceOp(%SCALAR_DTYPE% a, %SCALAR_DTYPE% b) {
+%SCALAR_DTYPE_INPUT% reduceOp(%SCALAR_DTYPE_INPUT% a, %SCALAR_DTYPE_INPUT% b) {
     switch (REDUCE_OP_VAR) {
         case OP_REDUCE_SUM:
         case OP_REDUCE_MEAN:
@@ -48,13 +48,13 @@
         case OP_REDUCE_MAX:
             return max(a, b);
         case OP_REDUCE_ANY:
-#ifdef DTYPE_IS_FLOAT
+#ifdef DTYPE_INPUT_IS_FLOAT
             return (a != 0.0 || b != 0.0) ? 1.0 : 0.0;
 #else
             return (a != 0 || b != 0) ? 1 : 0;
 #endif
         case OP_REDUCE_ALL:
-#ifdef DTYPE_IS_FLOAT
+#ifdef DTYPE_INPUT_IS_FLOAT
             return (a != 0.0 && b != 0.0) ? 1.0 : 0.0;
 #else
             return (a != 0 && b != 0) ? 1 : 0;

@@ -26,10 +26,10 @@ inline constexpr AvgPool2DVariantInfo kAvgPool2DVariants[kAvgPool2DVariantCount]
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
-std::optional<std::vector<uint32_t>> compiledAvgPool2DNaive(DataType datatype);
-std::optional<std::vector<uint32_t>> compiledAvgPool2DTiled(DataType datatype);
+std::optional<std::vector<uint32_t>> compiledAvgPool2DNaive(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledAvgPool2DTiled(DataType input, DataType output);
 
-using CompiledAvgPool2DFn = std::optional<std::vector<uint32_t>> (*)(DataType);
+using CompiledAvgPool2DFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
 inline const CompiledAvgPool2DFn kAvgPool2DCompiledFns[kAvgPool2DVariantCount] = {
     compiledAvgPool2DNaive,
@@ -38,10 +38,10 @@ inline const CompiledAvgPool2DFn kAvgPool2DCompiledFns[kAvgPool2DVariantCount] =
 
 /// Returns compiled SPIR-V for a avgpool2d variant by index.
 inline std::optional<std::vector<uint32_t>>
-getCompiledAvgPool2D(int variantIndex, DataType datatype = DataType::Float32) {
+getCompiledAvgPool2D(int variantIndex, DataType input = DataType::Float32, DataType output = DataType::Float32) {
     if (variantIndex < 0 || variantIndex >= kAvgPool2DVariantCount)
         return std::nullopt;
-    return kAvgPool2DCompiledFns[variantIndex](datatype);
+    return kAvgPool2DCompiledFns[variantIndex](input, output);
 }
 
 /// Returns the number of avgpool2d variants.
