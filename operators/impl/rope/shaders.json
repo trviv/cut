@@ -1,0 +1,15 @@
+{
+  "type": "variants",
+  "cpp_prefix": "",
+  "variants": [
+    {
+      "name": "RoPE",
+      "description": "Rotary Position Embedding",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    }
+  ]
+}

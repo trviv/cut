@@ -4,9 +4,7 @@
 #include "Runtime.h"
 #include "model_report.h"
 
-#include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <iostream>
 #include <stdexcept>
 
@@ -220,8 +218,14 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
     output_weight_ = ops_->transpose(gpu);
   }
 
-  // Initialize KV caches
+  // Initialize KV caches with pre-allocated GPU buffers
   kv_caches_.resize(config_.n_layers);
+  for (auto &cache : kv_caches_) {
+    cache.k_cache = runtime_->createTensorEmpty(
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
+    cache.v_cache = runtime_->createTensorEmpty(
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
+  }
 
   // Precompute RoPE tables
   precomputeRoPE();
@@ -269,8 +273,8 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
 
 void LlamaModel::precomputeRoPE() {
   uint32_t half_dim = config_.head_dim / 2;
-  rope_cos_.resize(config_.max_seq_len * half_dim);
-  rope_sin_.resize(config_.max_seq_len * half_dim);
+  std::vector<float> cos_table(config_.max_seq_len * half_dim);
+  std::vector<float> sin_table(config_.max_seq_len * half_dim);
 
   for (uint32_t pos = 0; pos < config_.max_seq_len; ++pos) {
     for (uint32_t i = 0; i < half_dim; ++i) {
@@ -278,10 +282,18 @@ void LlamaModel::precomputeRoPE() {
           1.0f / std::pow(config_.rope_freq_base,
                           static_cast<float>(2 * i) / config_.head_dim);
       float angle = static_cast<float>(pos) * freq;
-      rope_cos_[pos * half_dim + i] = std::cos(angle);
-      rope_sin_[pos * half_dim + i] = std::sin(angle);
+      cos_table[pos * half_dim + i] = std::cos(angle);
+      sin_table[pos * half_dim + i] = std::sin(angle);
     }
   }
+
+  // Upload as 1D GPU tensors (shader indexes linearly: pos * halfDim + i)
+  rope_cos_gpu_ =
+      runtime_->createTensor({config_.max_seq_len * half_dim},
+                             cut::DataType::Float32, cos_table.data());
+  rope_sin_gpu_ =
+      runtime_->createTensor({config_.max_seq_len * half_dim},
+                             cut::DataType::Float32, sin_table.data());
 }
 
 // ============================================================================
@@ -316,30 +328,9 @@ cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
 cut::ComputeHandle LlamaModel::applyRoPE(const cut::ComputeHandle &x,
                                          int pos,
                                          uint32_t n_heads_for_rope) {
-  // x is 1D [n_heads_for_rope * head_dim]
-  // Read back to CPU
-  uint32_t total = n_heads_for_rope * config_.head_dim;
-  std::vector<float> xdata(total);
-  runtime_->copyFromTensor(x, xdata.data(), total * sizeof(float));
-
-  uint32_t half_dim = config_.head_dim / 2;
-
-  // Apply rotation to each head
-  for (uint32_t h = 0; h < n_heads_for_rope; ++h) {
-    float *head_ptr = xdata.data() + h * config_.head_dim;
-    for (uint32_t i = 0; i < half_dim; ++i) {
-      float cos_val = rope_cos_[pos * half_dim + i];
-      float sin_val = rope_sin_[pos * half_dim + i];
-
-      float x0 = head_ptr[i];
-      float x1 = head_ptr[i + half_dim];
-
-      head_ptr[i] = x0 * cos_val - x1 * sin_val;
-      head_ptr[i + half_dim] = x0 * sin_val + x1 * cos_val;
-    }
-  }
-
-  return uploadVector(xdata);
+  // x is 1D [n_heads_for_rope * head_dim] — apply RoPE entirely on GPU
+  return ops_->applyRoPE(x, rope_cos_gpu_, rope_sin_gpu_,
+                         static_cast<uint32_t>(pos), config_.head_dim);
 }
 
 // ============================================================================
@@ -352,77 +343,16 @@ cut::ComputeHandle LlamaModel::attention(const cut::ComputeHandle &q,
                                          int layer,
                                          int pos) {
   auto &cache = kv_caches_[layer];
-  uint32_t head_dim = config_.head_dim;
-  uint32_t n_heads = config_.n_heads;
-  uint32_t kv_dim = config_.kv_dim;
-  uint32_t n_rep = config_.n_rep;
+  uint32_t upos = static_cast<uint32_t>(pos);
 
-  // Read K, V for current position back to CPU and append to cache
-  std::vector<float> k_data(kv_dim);
-  std::vector<float> v_data(kv_dim);
-  runtime_->copyFromTensor(k, k_data.data(), kv_dim * sizeof(float));
-  runtime_->copyFromTensor(v, v_data.data(), kv_dim * sizeof(float));
+  // Write K and V into GPU cache at current position (immediate dispatch)
+  ops_->cacheWrite(cache.k_cache, k, upos);
+  ops_->cacheWrite(cache.v_cache, v, upos);
+  cache.seq_len = upos + 1;
 
-  cache.k_cache.insert(cache.k_cache.end(), k_data.begin(), k_data.end());
-  cache.v_cache.insert(cache.v_cache.end(), v_data.begin(), v_data.end());
-  cache.seq_len = static_cast<uint32_t>(pos) + 1;
-
-  uint32_t seq_len = cache.seq_len;
-
-  // Read Q back to CPU for per-head processing
-  std::vector<float> q_data(n_heads * head_dim);
-  runtime_->copyFromTensor(q, q_data.data(),
-                           n_heads * head_dim * sizeof(float));
-
-  // Output buffer for all heads concatenated
-  std::vector<float> output(n_heads * head_dim, 0.0f);
-
-  float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
-
-  // Process each head
-  for (uint32_t h = 0; h < n_heads; ++h) {
-    uint32_t kv_h = h / n_rep; // KV head index for GQA
-
-    // Q for this head: [head_dim]
-    float *q_head = q_data.data() + h * head_dim;
-
-    // Compute attention scores on CPU for simplicity
-    std::vector<float> scores(seq_len);
-    for (uint32_t t = 0; t < seq_len; ++t) {
-      float dot = 0.0f;
-      const float *k_t = cache.k_cache.data() + t * kv_dim + kv_h * head_dim;
-      for (uint32_t d = 0; d < head_dim; ++d) {
-        dot += q_head[d] * k_t[d];
-      }
-      scores[t] = dot * scale;
-    }
-
-    // Softmax on CPU
-    float max_score = scores[0];
-    for (uint32_t t = 1; t < seq_len; ++t) {
-      if (scores[t] > max_score)
-        max_score = scores[t];
-    }
-    float exp_sum = 0.0f;
-    for (uint32_t t = 0; t < seq_len; ++t) {
-      scores[t] = std::exp(scores[t] - max_score);
-      exp_sum += scores[t];
-    }
-    for (uint32_t t = 0; t < seq_len; ++t) {
-      scores[t] /= exp_sum;
-    }
-
-    // Weighted sum of V
-    float *out_head = output.data() + h * head_dim;
-    for (uint32_t t = 0; t < seq_len; ++t) {
-      const float *v_t = cache.v_cache.data() + t * kv_dim + kv_h * head_dim;
-      for (uint32_t d = 0; d < head_dim; ++d) {
-        out_head[d] += scores[t] * v_t[d];
-      }
-    }
-  }
-
-  return uploadVector(output);
+  // Compute attention entirely on GPU
+  return ops_->attention(q, cache.k_cache, cache.v_cache, config_.n_heads,
+                         config_.n_kv_heads, config_.head_dim, cache.seq_len);
 }
 
 // ============================================================================
@@ -642,7 +572,6 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
     auto &lg = layerGraphs_[i];
 
     // --- Attention block ---
-    // RMS norm (CPU sync point — stays as direct ops)
     auto normed = rmsNorm(hidden, l.attn_norm);
 
     // QKV projection (graph template)
@@ -651,11 +580,11 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
     auto k = qkv[1]; // [kv_dim]
     auto v = qkv[2]; // [kv_dim]
 
-    // Apply RoPE (CPU sync point — stays as direct ops)
+    // Apply RoPE (GPU)
     q = applyRoPE(q, pos, config_.n_heads);
     k = applyRoPE(k, pos, config_.n_kv_heads);
 
-    // Attention with KV cache (CPU sync point — stays as direct ops)
+    // Attention with GPU KV cache
     auto attn_out = attention(q, k, v, i, pos);
 
     // Output projection + residual (graph template)
@@ -663,7 +592,6 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
     hidden = attn_result[0];
 
     // --- FFN block ---
-    // RMS norm (CPU sync point — stays as direct ops)
     auto normed_ffn = rmsNorm(hidden, l.ffn_norm);
 
     // FFN + residual (graph template)
@@ -671,7 +599,7 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
     hidden = ffn_result[0];
   }
 
-  // 3. Final RMS norm (CPU sync point — stays as direct ops)
+  // 3. Final RMS norm
   hidden = rmsNorm(hidden, output_norm_);
 
   // 4. LM head logits (graph template)
@@ -896,8 +824,11 @@ std::string LlamaModel::detokenize(const std::vector<int> &tokens) const {
 
 void LlamaModel::resetCache() {
   for (auto &cache : kv_caches_) {
-    cache.k_cache.clear();
-    cache.v_cache.clear();
+    // Re-allocate fresh GPU cache buffers
+    cache.k_cache = runtime_->createTensorEmpty(
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
+    cache.v_cache = runtime_->createTensorEmpty(
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
     cache.seq_len = 0;
   }
 }

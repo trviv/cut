@@ -20,6 +20,9 @@
 #include "impl/transpose/TransposeOp.h"
 #include "impl/unary/UnaryOp.h"
 
+#include "impl/attention/AttentionOp.h"
+#include "impl/rope/RoPEOp.h"
+
 #include <algorithm>
 #include <cstring>
 #include <stdexcept>
@@ -846,6 +849,45 @@ Tensor Operations::pad(const Tensor &input,
                        std::optional<uint32_t> spec) {
   auto node = std::make_unique<PadOpNode>(
       *store_, input, std::vector<uint32_t>(padWidths), value, spec);
+  return recordOrEncode(std::move(node));
+}
+
+// =========================================================================
+// RoPE
+// =========================================================================
+
+Tensor Operations::applyRoPE(const Tensor &x,
+                             const Tensor &cosTable,
+                             const Tensor &sinTable,
+                             uint32_t pos,
+                             uint32_t headDim,
+                             std::optional<uint32_t> spec) {
+  auto node = std::make_unique<RoPEOpNode>(*store_, x, cosTable, sinTable, pos,
+                                           headDim, spec);
+  return recordOrEncode(std::move(node));
+}
+
+// =========================================================================
+// Attention
+// =========================================================================
+
+void Operations::cacheWrite(const Tensor &cache,
+                            const Tensor &newData,
+                            uint32_t pos) {
+  auto node = std::make_unique<CacheWriteOpNode>(*store_, newData, cache, pos);
+  dispatch(std::move(node));
+}
+
+Tensor Operations::attention(const Tensor &q,
+                             const Tensor &kCache,
+                             const Tensor &vCache,
+                             uint32_t nHeads,
+                             uint32_t nKvHeads,
+                             uint32_t headDim,
+                             uint32_t seqLen,
+                             std::optional<uint32_t> spec) {
+  auto node = std::make_unique<AttentionOpNode>(
+      *store_, q, kCache, vCache, nHeads, nKvHeads, headDim, seqLen, spec);
   return recordOrEncode(std::move(node));
 }
 

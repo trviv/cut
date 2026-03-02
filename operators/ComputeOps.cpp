@@ -338,6 +338,16 @@ const char *operatorName(OperatorEnum op) {
   case Expand:
     return "Expand";
 
+  // RoPE operations
+  case RoPE:
+    return "RoPE";
+
+  // Attention operations
+  case CacheWrite:
+    return "CacheWrite";
+  case Attention:
+    return "Attention";
+
   default:
     return "Unknown";
   }

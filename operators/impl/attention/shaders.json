@@ -1,0 +1,24 @@
+{
+  "type": "variants",
+  "cpp_prefix": "",
+  "variants": [
+    {
+      "name": "CacheWrite",
+      "description": "Write vector at row position in 2D cache buffer",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "Attention",
+      "description": "Scaled dot-product attention with GQA support",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    }
+  ]
+}

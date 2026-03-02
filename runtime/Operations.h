@@ -183,6 +183,31 @@ public:
                    const Tensor &weight,
                    std::optional<uint32_t> spec = {});
 
+  // ===== RoPE =====
+
+  Tensor applyRoPE(const Tensor &x,
+                   const Tensor &cosTable,
+                   const Tensor &sinTable,
+                   uint32_t pos,
+                   uint32_t headDim,
+                   std::optional<uint32_t> spec = {});
+
+  // ===== Attention =====
+
+  /// Write a 1D vector into a specific row of a 2D cache buffer (in-place).
+  /// Dispatched immediately (not graph-recorded).
+  void cacheWrite(const Tensor &cache, const Tensor &newData, uint32_t pos);
+
+  /// Scaled dot-product attention with GQA support.
+  Tensor attention(const Tensor &q,
+                   const Tensor &kCache,
+                   const Tensor &vCache,
+                   uint32_t nHeads,
+                   uint32_t nKvHeads,
+                   uint32_t headDim,
+                   uint32_t seqLen,
+                   std::optional<uint32_t> spec = {});
+
   // ===== Expand (broadcast) =====
 
   Tensor expand(const Tensor &a,

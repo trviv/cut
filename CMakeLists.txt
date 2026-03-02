@@ -103,6 +103,8 @@ set(LIB_HEADERS
     operators/impl/creation/CreationOp.h
     operators/impl/matmul/MatMulOp.h
     operators/impl/maxpool2d/MaxPool2DOp.h
+    operators/impl/rope/RoPEOp.h
+    operators/impl/attention/AttentionOp.h
     operators/impl/memory/MemoryOp.h
     operators/impl/reduce/ReduceOp.h
     operators/impl/reducedim/ReduceDimOp.h
@@ -147,6 +149,8 @@ set(LIB_SOURCES
     operators/impl/creation/CreationOp.cpp
     operators/impl/matmul/MatMulOp.cpp
     operators/impl/maxpool2d/MaxPool2DOp.cpp
+    operators/impl/rope/RoPEOp.cpp
+    operators/impl/attention/AttentionOp.cpp
     operators/impl/memory/MemoryOp.cpp
     operators/impl/reduce/ReduceOp.cpp
     operators/impl/reducedim/ReduceDimOp.cpp

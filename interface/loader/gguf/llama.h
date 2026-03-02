@@ -57,12 +57,11 @@ struct LlamaLayer {
   cut::ComputeHandle w_down;
 };
 
-/// Per-layer KV cache stored on CPU.
+/// Per-layer KV cache stored on GPU.
 struct KVCache {
-  // Each vector stores [position * kv_dim] floats (all KV heads concatenated)
-  std::vector<float> k_cache;
-  std::vector<float> v_cache;
-  uint32_t seq_len = 0; // Number of cached positions
+  cut::ComputeHandle k_cache; // [max_seq_len, kv_dim] on GPU
+  cut::ComputeHandle v_cache; // [max_seq_len, kv_dim] on GPU
+  uint32_t seq_len = 0;       // Number of cached positions
 };
 
 /// A pre-built, optimized computation graph with handles to rebindable inputs.
@@ -137,9 +136,9 @@ private:
   // KV cache (per layer)
   std::vector<KVCache> kv_caches_;
 
-  // Precomputed RoPE cos/sin tables [max_seq_len, head_dim/2]
-  std::vector<float> rope_cos_;
-  std::vector<float> rope_sin_;
+  // Precomputed RoPE cos/sin tables [max_seq_len * head_dim/2] on GPU
+  cut::ComputeHandle rope_cos_gpu_;
+  cut::ComputeHandle rope_sin_gpu_;
 
   // Vocabulary from GGUF metadata (token_id -> text)
   std::vector<std::string> vocab_;
@@ -162,11 +161,11 @@ private:
   cut::ComputeHandle rmsNorm(const cut::ComputeHandle &x,
                              const cut::ComputeHandle &weight);
 
-  // Apply RoPE to Q or K vector on CPU, returns new GPU handle
+  // Apply RoPE on GPU using precomputed cos/sin tables
   cut::ComputeHandle
   applyRoPE(const cut::ComputeHandle &x, int pos, uint32_t n_heads_for_rope);
 
-  // Single-head or grouped attention computation
+  // Attention on GPU using KV cache
   cut::ComputeHandle attention(const cut::ComputeHandle &q,
                                const cut::ComputeHandle &k,
                                const cut::ComputeHandle &v,
