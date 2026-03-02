@@ -295,15 +295,14 @@ cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
   // 1. Square elements
   auto x_sq = ops_->unaryOp(cut::UnarySquare, x);
 
-  // 2. Sum and compute scale on CPU
+  // 2. Compute scale entirely on GPU: rsqrt(sum(x^2) / dim + eps)
   auto sumTensor = ops_->reduce(cut::ReduceSum, x_sq);
-  float sum = 0.0f;
-  runtime_->copyFromTensor(sumTensor, &sum, sizeof(float));
+  auto mean = ops_->binaryOp(cut::BinaryDiv, sumTensor,
+                             static_cast<float>(config_.dim));
+  auto meanPlusEps = ops_->binaryOp(cut::BinaryAdd, mean, config_.norm_eps);
+  auto scale = ops_->unaryOp(cut::UnaryRsqrt, meanPlusEps);
 
-  float scale = 1.0f / std::sqrt(sum / static_cast<float>(config_.dim) +
-                                 config_.norm_eps);
-
-  // 3. Scale x
+  // 3. Scale x by rsqrt factor
   auto normalized = ops_->binaryOp(cut::BinaryMul, x, scale);
 
   // 4. Multiply by weight
@@ -701,25 +700,32 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
   //     if logit > 0: logit /= repeat_penalty
   //     if logit < 0: logit *= repeat_penalty
   auto sample = [&](const cut::ComputeHandle &logits) -> int {
+    // When no repetition penalty is needed, use GPU argmax directly
+    // to avoid copying the entire logits vector back to CPU.
+    if (repeat_penalty == 1.0f || tokens.empty()) {
+      auto argmaxTensor = ops_->reduce(cut::ReduceArgmax, logits);
+      float best = 0.0f;
+      runtime_->copyFromTensor(argmaxTensor, &best, sizeof(float));
+      return static_cast<int>(best);
+    }
+
+    // With repetition penalty: copy logits to CPU, apply penalty, argmax
     std::vector<float> allLogits(vocabSize);
     runtime_->copyFromTensor(logits, allLogits.data(),
                              vocabSize * sizeof(float));
 
-    // Apply repetition penalty
-    if (repeat_penalty != 1.0f) {
-      size_t start = 0;
-      if (repeat_last_n > 0 &&
-          tokens.size() > static_cast<size_t>(repeat_last_n)) {
-        start = tokens.size() - static_cast<size_t>(repeat_last_n);
-      }
-      for (size_t i = start; i < tokens.size(); ++i) {
-        int tid = tokens[i];
-        if (tid >= 0 && static_cast<uint32_t>(tid) < vocabSize) {
-          if (allLogits[tid] > 0.0f) {
-            allLogits[tid] /= repeat_penalty;
-          } else {
-            allLogits[tid] *= repeat_penalty;
-          }
+    size_t start = 0;
+    if (repeat_last_n > 0 &&
+        tokens.size() > static_cast<size_t>(repeat_last_n)) {
+      start = tokens.size() - static_cast<size_t>(repeat_last_n);
+    }
+    for (size_t i = start; i < tokens.size(); ++i) {
+      int tid = tokens[i];
+      if (tid >= 0 && static_cast<uint32_t>(tid) < vocabSize) {
+        if (allLogits[tid] > 0.0f) {
+          allLogits[tid] /= repeat_penalty;
+        } else {
+          allLogits[tid] *= repeat_penalty;
         }
       }
     }
