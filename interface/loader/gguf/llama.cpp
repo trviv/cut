@@ -27,12 +27,11 @@ LlamaModel::uploadMatrix(const float *data, uint32_t rows, uint32_t cols) {
   return runtime_->createTensor(shape, cut::DataType::Float32, data);
 }
 
-cut::ComputeHandle LlamaModel::uploadWeight(const GGUFReader &reader,
-                                            const std::string &name,
-                                            uint32_t rows,
-                                            uint32_t cols) {
+cut::ComputeHandle
+LlamaModel::uploadWeight(const GGUFReader &reader,
+                         const std::string &name,
+                         const std::vector<uint32_t> &shape) {
   const auto &info = reader.get_tensor_info(name);
-  std::vector<uint32_t> shape = {rows, cols};
 
   if (info.type == GGMLType::F16) {
     // Upload Float16 weights directly — no conversion needed.
@@ -145,28 +144,28 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       const auto &info = reader.get_tensor_info(blk + "attn_q.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "attn_q.weight", rows, cols);
+      auto gpu = uploadWeight(reader, blk + "attn_q.weight", {rows, cols});
       layer.wq = ops_->transpose(gpu);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "attn_k.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "attn_k.weight", rows, cols);
+      auto gpu = uploadWeight(reader, blk + "attn_k.weight", {rows, cols});
       layer.wk = ops_->transpose(gpu);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "attn_v.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "attn_v.weight", rows, cols);
+      auto gpu = uploadWeight(reader, blk + "attn_v.weight", {rows, cols});
       layer.wv = ops_->transpose(gpu);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "attn_output.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "attn_output.weight", rows, cols);
+      auto gpu = uploadWeight(reader, blk + "attn_output.weight", {rows, cols});
       layer.wo = ops_->transpose(gpu);
     }
 
@@ -181,21 +180,21 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       const auto &info = reader.get_tensor_info(blk + "ffn_gate.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "ffn_gate.weight", rows, cols);
+      auto gpu = uploadWeight(reader, blk + "ffn_gate.weight", {rows, cols});
       layer.w_gate = ops_->transpose(gpu);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "ffn_up.weight", rows, cols);
+      auto gpu = uploadWeight(reader, blk + "ffn_up.weight", {rows, cols});
       layer.w_up = ops_->transpose(gpu);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "ffn_down.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "ffn_down.weight", rows, cols);
+      auto gpu = uploadWeight(reader, blk + "ffn_down.weight", {rows, cols});
       layer.w_down = ops_->transpose(gpu);
     }
   }
@@ -212,7 +211,7 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
     const auto &info = reader.get_tensor_info("output.weight");
     uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
     uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-    auto gpu = uploadWeight(reader, "output.weight", rows, cols);
+    auto gpu = uploadWeight(reader, "output.weight", {rows, cols});
     output_weight_ = ops_->transpose(gpu);
   } else {
     // Some models tie embeddings — use token_embd.weight transposed
