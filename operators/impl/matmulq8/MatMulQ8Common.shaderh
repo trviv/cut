@@ -1,0 +1,49 @@
+struct PushConstants {
+    uint M;           // rows of A / rows of output
+    uint K;           // cols of A / cols of B_original (inner dimension)
+    uint N;           // rows of B_original / cols of output
+    uint strideA;     // padded K for A (multiple of 4)
+    uint strideBK;    // padded K for B_original (in int8 bytes, multiple of 4)
+    uint strideC;     // padded N for output C (multiple of 4)
+    uint scaleStride; // padded (K/32) for scales (multiple of 4)
+};
+[[vk::push_constant]] PushConstants pc;
+
+// A: activations [M, K] — standard float/half access via vec4
+[[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT1%> dataA;
+
+// B: packed int8 weights [N, K] stored as uint (4 int8 values per uint32)
+// Stored in original (non-transposed) GGUF layout.
+[[vk::binding(1, 0)]] StructuredBuffer<uint> packedB;
+
+// B scales: float16 scales [N, K/32], one scale per 32-element block
+[[vk::binding(2, 0)]] StructuredBuffer<half4> scalesB;
+
+// C: output [M, N]
+[[vk::binding(3, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_OUTPUT%> dataC;
+
+%SCALAR_DTYPE_INPUT1% loadA(uint row, uint col) {
+    if (row >= pc.M || col >= pc.K) return (%SCALAR_DTYPE_INPUT1%)(0);
+    uint idx = row * pc.strideA + col;
+    return dataA[idx >> 2][idx & 3];
+}
+
+// Transposed access with inline Q8_0 dequantization.
+// Logical: B_transposed[k][n] = B_original[n][k] * scale[n][k/32]
+float loadB(uint k, uint n) {
+    if (k >= pc.K || n >= pc.N) return 0.0f;
+
+    // Read int8 value from B_original[n][k]
+    uint byteIdx = n * pc.strideBK + k;
+    uint packed = packedB[byteIdx >> 2];
+    uint shift = (byteIdx & 3u) * 8u;
+    uint rawByte = (packed >> shift) & 0xFFu;
+    // Sign-extend from 8-bit to 32-bit
+    int val = (int)((int)(rawByte << 24) >> 24);
+
+    // Read per-block scale from scalesB[n][k/32]
+    uint scaleIdx = n * pc.scaleStride + (k >> 5);
+    float scale = float(scalesB[scaleIdx >> 2][scaleIdx & 3]);
+
+    return float(val) * scale;
+}

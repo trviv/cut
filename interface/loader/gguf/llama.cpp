@@ -4,6 +4,8 @@
 #include "Runtime.h"
 #include "model_report.h"
 
+#include <algorithm>
+#include <climits>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -40,6 +42,45 @@ LlamaModel::uploadWeight(const GGUFReader &reader,
   // All other types (F32, BF16, quantized): dequantize to Float32.
   auto data = reader.read_tensor_f32(name);
   return runtime_->createTensor(shape, cut::DataType::Float32, data.data());
+}
+
+WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
+                                                    const std::string &name,
+                                                    uint32_t rows,
+                                                    uint32_t cols) {
+  const auto &info = reader.get_tensor_info(name);
+  WeightHandle wh;
+
+  if (info.type == GGMLType::Q8_0) {
+    // Upload Q8_0 weights as separated Int8 values + F16 scales.
+    // Stored in original GGUF [rows, cols] layout (non-transposed);
+    // the matmulQ8 shader does transposed access internally.
+    auto q8 = reader.read_tensor_q8_separated(name);
+    wh.qValues = runtime_->createTensor({rows, cols}, cut::DataType::Int8,
+                                        q8.values.data());
+    uint32_t scalesCols = cols / 32;
+    wh.qScales = runtime_->createTensor(
+        {rows, scalesCols}, cut::DataType::Float16, q8.scales.data());
+    wh.qCols = cols;
+    return wh;
+  }
+
+  // Non-quantized: upload + transpose as before
+  auto gpu = uploadWeight(reader, name, {rows, cols});
+  wh.handle = ops_->transpose(gpu);
+  return wh;
+}
+
+cut::Tensor LlamaModel::graphWeight(cut::graph::GraphBuilder &builder,
+                                    const WeightHandle &wh,
+                                    const cut::Tensor &activation) {
+  if (wh.isQuantized()) {
+    auto vValues = builder.input(wh.qValues, /*isConstant=*/true);
+    auto vScales = builder.input(wh.qScales, /*isConstant=*/true);
+    return builder.ops().matmulQ8(activation, vValues, vScales, wh.qCols);
+  }
+  auto vW = builder.input(wh.handle, /*isConstant=*/true);
+  return builder.ops().matmul(activation, vW);
 }
 
 // ============================================================================
@@ -118,6 +159,41 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
     scores_ = meta.get_as<std::vector<float>>("tokenizer.ggml.scores");
   }
 
+  // Tokenizer model type: "llama" (SentencePiece) or "gpt2" (BPE)
+  tokenizerModel_ = meta.get_as<std::string>("tokenizer.ggml.model", "llama");
+  bos_token_id_ =
+      static_cast<int>(meta.get_as<uint32_t>("tokenizer.ggml.bos_token_id", 1));
+  eos_token_id_ =
+      static_cast<int>(meta.get_as<uint32_t>("tokenizer.ggml.eos_token_id", 2));
+  addBosToken_ = meta.get_as<bool>("tokenizer.ggml.add_bos_token", true);
+
+  if (meta.has("tokenizer.ggml.merges")) {
+    merges_ = meta.get_as<std::vector<std::string>>("tokenizer.ggml.merges");
+    for (size_t i = 0; i < merges_.size(); ++i) {
+      mergePriority_[merges_[i]] = static_cast<int>(i);
+    }
+  }
+
+  if (tokenizerModel_ == "gpt2") {
+    buildGPT2ByteEncoder();
+  }
+
+  // Collect special tokens (e.g. <|im_start|>, <s>, </s>) for literal matching
+  for (size_t i = 0; i < vocab_.size(); ++i) {
+    const auto &tok = vocab_[i];
+    if (tok.size() >= 3 && tok.front() == '<' && tok.back() == '>') {
+      specialTokens_.push_back({tok, static_cast<int>(i)});
+    }
+  }
+  std::sort(specialTokens_.begin(), specialTokens_.end(),
+            [](const auto &a, const auto &b) {
+              return a.first.size() > b.first.size();
+            });
+
+  std::cout << "Tokenizer: model=" << tokenizerModel_
+            << " vocab=" << vocab_.size() << " merges=" << merges_.size()
+            << " bos=" << bos_token_id_ << " eos=" << eos_token_id_ << "\n";
+
   // Load layers
   layers_.resize(config_.n_layers);
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
@@ -133,38 +209,36 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
     }
 
     // Attention weights — GGUF/GGML dimensions are [cols, rows] (innermost
-    // first). Data in memory is [rows, cols] row-major, i.e. [out_features,
-    // in_features]. We need [in_features, out_features] for matmul(input[1,in],
-    // W[in,out]), so we upload as [rows, cols] and transpose.
-    // Weights are uploaded in native precision (e.g. Float16 stays Float16);
-    // the graph will insert casts if an operator needs a different dtype.
+    // first). For non-quantized: upload as [rows, cols] and transpose on GPU.
+    // For Q8_0: upload separated Int8 values + F16 scales (no transpose;
+    // the matmulQ8 shader does transposed access internally).
     {
       const auto &info = reader.get_tensor_info(blk + "attn_q.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "attn_q.weight", {rows, cols});
-      layer.wq = ops_->transpose(gpu);
+      layer.wq =
+          uploadWeightMaybeQuantized(reader, blk + "attn_q.weight", rows, cols);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "attn_k.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "attn_k.weight", {rows, cols});
-      layer.wk = ops_->transpose(gpu);
+      layer.wk =
+          uploadWeightMaybeQuantized(reader, blk + "attn_k.weight", rows, cols);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "attn_v.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "attn_v.weight", {rows, cols});
-      layer.wv = ops_->transpose(gpu);
+      layer.wv =
+          uploadWeightMaybeQuantized(reader, blk + "attn_v.weight", rows, cols);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "attn_output.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "attn_output.weight", {rows, cols});
-      layer.wo = ops_->transpose(gpu);
+      layer.wo = uploadWeightMaybeQuantized(reader, blk + "attn_output.weight",
+                                            rows, cols);
     }
 
     // FFN norm
@@ -173,27 +247,27 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       layer.ffn_norm = uploadVector(data);
     }
 
-    // FFN weights (same transpose treatment, native precision)
+    // FFN weights
     {
       const auto &info = reader.get_tensor_info(blk + "ffn_gate.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "ffn_gate.weight", {rows, cols});
-      layer.w_gate = ops_->transpose(gpu);
+      layer.w_gate = uploadWeightMaybeQuantized(reader, blk + "ffn_gate.weight",
+                                                rows, cols);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "ffn_up.weight", {rows, cols});
-      layer.w_up = ops_->transpose(gpu);
+      layer.w_up =
+          uploadWeightMaybeQuantized(reader, blk + "ffn_up.weight", rows, cols);
     }
     {
       const auto &info = reader.get_tensor_info(blk + "ffn_down.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      auto gpu = uploadWeight(reader, blk + "ffn_down.weight", {rows, cols});
-      layer.w_down = ops_->transpose(gpu);
+      layer.w_down = uploadWeightMaybeQuantized(reader, blk + "ffn_down.weight",
+                                                rows, cols);
     }
   }
   std::cout << "  Loaded all " << config_.n_layers << " layers.     \n";
@@ -209,13 +283,13 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
     const auto &info = reader.get_tensor_info("output.weight");
     uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
     uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-    auto gpu = uploadWeight(reader, "output.weight", {rows, cols});
-    output_weight_ = ops_->transpose(gpu);
+    output_weight_ =
+        uploadWeightMaybeQuantized(reader, "output.weight", rows, cols);
   } else {
     // Some models tie embeddings — use token_embd.weight transposed
     auto gpu =
         uploadMatrix(token_embd_data_.data(), config_.vocab_size, config_.dim);
-    output_weight_ = ops_->transpose(gpu);
+    output_weight_.handle = ops_->transpose(gpu);
   }
 
   // Initialize KV caches with pre-allocated GPU buffers
@@ -366,27 +440,22 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   // Dynamic input: normed [dim] — use attn_norm as shape placeholder
   auto vNormed = builder.input(layer.attn_norm, /*isConstant=*/false);
 
-  // Constant inputs: weight matrices
-  auto vWq = builder.input(layer.wq, /*isConstant=*/true);
-  auto vWk = builder.input(layer.wk, /*isConstant=*/true);
-  auto vWv = builder.input(layer.wv, /*isConstant=*/true);
-
   auto normed_2d = builder.ops().reshape(vNormed, {1, dim});
 
-  auto q = builder.ops().matmul(normed_2d, vWq);
+  auto q = graphWeight(builder, layer.wq, normed_2d);
   // Identity reshape (optimizer: IdentityReshapePass eliminates)
   auto q_id = builder.ops().reshape(q, {1, dim});
   // Reshape chain with above (optimizer: ReshapeChainPass collapses)
   auto q_flat = builder.ops().reshape(
       q_id, {static_cast<int32_t>(config_.n_heads * config_.head_dim)});
 
-  auto k = builder.ops().matmul(normed_2d, vWk);
+  auto k = graphWeight(builder, layer.wk, normed_2d);
   auto k_id =
       builder.ops().reshape(k, {1, static_cast<int32_t>(config_.kv_dim)});
   auto k_flat =
       builder.ops().reshape(k_id, {static_cast<int32_t>(config_.kv_dim)});
 
-  auto v = builder.ops().matmul(normed_2d, vWv);
+  auto v = graphWeight(builder, layer.wv, normed_2d);
   auto v_id =
       builder.ops().reshape(v, {1, static_cast<int32_t>(config_.kv_dim)});
   auto v_flat =
@@ -420,11 +489,10 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   // Using the same handle for both would cause the residual add to read from
   // the wrong input (attn_out instead of hidden).
   auto vAttnOut = builder.input(layer.attn_norm, /*isConstant=*/false);
-  auto vWo = builder.input(layer.wo, /*isConstant=*/true);
   auto vHidden = builder.input(layer.ffn_norm, /*isConstant=*/false);
 
   auto attn_2d = builder.ops().reshape(vAttnOut, {1, dim});
-  auto proj = builder.ops().matmul(attn_2d, vWo);
+  auto proj = graphWeight(builder, layer.wo, attn_2d);
   // Identity reshape (optimizer: IdentityReshapePass eliminates)
   auto proj_id = builder.ops().reshape(proj, {1, dim});
   // Reshape chain (optimizer: ReshapeChainPass collapses)
@@ -454,26 +522,23 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   // Dynamic inputs — each must use a DIFFERENT placeholder tensor so that
   // Operations can distinguish them during graph construction.
   auto vNormed = builder.input(layer.ffn_norm, /*isConstant=*/false);
-  auto vWGate = builder.input(layer.w_gate, /*isConstant=*/true);
-  auto vWUp = builder.input(layer.w_up, /*isConstant=*/true);
-  auto vWDown = builder.input(layer.w_down, /*isConstant=*/true);
   auto vHidden = builder.input(layer.attn_norm, /*isConstant=*/false);
 
   auto x_2d = builder.ops().reshape(vNormed, {1, dim});
 
   int32_t ffn = static_cast<int32_t>(config_.ffn_dim);
 
-  auto gate = builder.ops().matmul(x_2d, vWGate);
+  auto gate = graphWeight(builder, layer.w_gate, x_2d);
   // Identity reshape (optimizer: IdentityReshapePass eliminates)
   auto gate_id = builder.ops().reshape(gate, {1, ffn});
-  auto up = builder.ops().matmul(x_2d, vWUp);
+  auto up = graphWeight(builder, layer.w_up, x_2d);
   // Identity reshape (optimizer: IdentityReshapePass eliminates)
   auto up_id = builder.ops().reshape(up, {1, ffn});
 
   auto gate_silu = builder.ops().unaryOp(cut::UnarySilu, gate_id);
   auto gate_up = builder.ops().binaryOp(cut::BinaryMul, gate_silu, up_id);
 
-  auto out = builder.ops().matmul(gate_up, vWDown);
+  auto out = graphWeight(builder, layer.w_down, gate_up);
   // Identity reshape + reshape chain (optimizer eliminates both)
   auto out_id = builder.ops().reshape(out, {1, dim});
   auto out_1d = builder.ops().reshape(out_id, {dim});
@@ -502,10 +567,9 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
 
   // Dynamic input — use output_norm_ as shape placeholder for {dim}
   auto vHidden = builder.input(output_norm_, /*isConstant=*/false);
-  auto vOutWeight = builder.input(output_weight_, /*isConstant=*/true);
 
   auto hidden_2d = builder.ops().reshape(vHidden, {1, dim});
-  auto logits_raw = builder.ops().matmul(hidden_2d, vOutWeight);
+  auto logits_raw = graphWeight(builder, output_weight_, hidden_2d);
 
   // Dead code: identity reshape (optimizer: IdentityReshapePass + DeadCodePass)
   builder.ops().reshape(logits_raw,
@@ -681,8 +745,18 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
   tokens.push_back(next_token);
   std::cout << "Generated token: " << next_token << "\n";
 
+  auto isStopToken = [&](int tok) {
+    if (tok == eos_token_id_)
+      return true;
+    for (int st : stopTokenIds_) {
+      if (tok == st)
+        return true;
+    }
+    return false;
+  };
+
   // Stop on EOS from first sampled token
-  if (next_token == 2) {
+  if (isStopToken(next_token)) {
     return tokens;
   }
 
@@ -696,8 +770,7 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
 
     std::cout << "Generated token: " << next_token << "\n";
 
-    // Stop on EOS (token 2 is common EOS for LLaMA)
-    if (next_token == 2) {
+    if (isStopToken(next_token)) {
       break;
     }
   }
@@ -706,7 +779,7 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
 }
 
 // ============================================================================
-// Tokenization (SentencePiece BPE)
+// Tokenization
 // ============================================================================
 
 // Advance past one UTF-8 character, returning byte count (1-4).
@@ -721,8 +794,17 @@ static int utf8_len(uint8_t lead) {
 }
 
 std::vector<int> LlamaModel::tokenize(const std::string &text) const {
-  if (vocab_.empty() || scores_.empty()) {
+  if (vocab_.empty()) {
     throw std::runtime_error("Tokenizer data not loaded from GGUF");
+  }
+
+  // Dispatch based on tokenizer model type
+  if (tokenizerModel_ == "gpt2") {
+    return tokenizeBPE(text);
+  }
+
+  if (scores_.empty()) {
+    throw std::runtime_error("SentencePiece scores not loaded from GGUF");
   }
 
   // SentencePiece convention: replace spaces with U+2581 (▁) and prepend one
@@ -786,9 +868,11 @@ std::vector<int> LlamaModel::tokenize(const std::string &text) const {
     symbols.erase(symbols.begin() + best_idx + 1);
   }
 
-  // Convert symbols to token IDs, prepending BOS (token 1)
+  // Convert symbols to token IDs
   std::vector<int> ids;
-  ids.push_back(1); // BOS
+  if (addBosToken_) {
+    ids.push_back(bos_token_id_);
+  }
   for (const auto &sym : symbols) {
     auto it = token_to_id_.find(sym);
     if (it != token_to_id_.end()) {
@@ -800,12 +884,256 @@ std::vector<int> LlamaModel::tokenize(const std::string &text) const {
   return ids;
 }
 
+// ============================================================================
+// GPT-2 BPE Tokenization
+// ============================================================================
+
+// Encode a unicode codepoint as UTF-8 and append to string.
+static void appendCodepointUTF8(std::string &out, uint32_t cp) {
+  if (cp < 0x80) {
+    out += static_cast<char>(cp);
+  } else if (cp < 0x800) {
+    out += static_cast<char>(0xC0 | (cp >> 6));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+  } else if (cp < 0x10000) {
+    out += static_cast<char>(0xE0 | (cp >> 12));
+    out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+  } else {
+    out += static_cast<char>(0xF0 | (cp >> 18));
+    out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+    out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+  }
+}
+
+// Build GPT-2 byte ↔ unicode mapping tables.
+// Each byte (0-255) maps to a unique unicode codepoint:
+//   printable ASCII + some Latin-1 → identity,
+//   all others → U+0100+.
+void LlamaModel::buildGPT2ByteEncoder() {
+  std::vector<bool> identity(256, false);
+  for (int i = 33; i <= 126; ++i)
+    identity[i] = true;
+  for (int i = 161; i <= 172; ++i)
+    identity[i] = true;
+  for (int i = 174; i <= 255; ++i)
+    identity[i] = true;
+
+  int n = 0;
+  for (int i = 0; i < 256; ++i) {
+    uint32_t cp = identity[i] ? static_cast<uint32_t>(i) : (256 + n++);
+    std::string utf8;
+    appendCodepointUTF8(utf8, cp);
+    byteToUnicode_[i] = utf8;
+    unicodeToByte_[utf8] = static_cast<uint8_t>(i);
+  }
+}
+
+// Simple GPT-2-style pre-tokenizer: splits text at word boundaries.
+// Each word keeps its leading space. Punctuation is grouped separately.
+static std::vector<std::string> pretokenizeGPT2(const std::string &text) {
+  std::vector<std::string> result;
+  size_t i = 0;
+  while (i < text.size()) {
+    std::string token;
+
+    // Check for contraction suffix: 's 't 're 've 'm 'll 'd
+    if (text[i] == '\'') {
+      token += '\'';
+      i++;
+      if (i < text.size()) {
+        char c = text[i];
+        if (c == 's' || c == 't' || c == 'm' || c == 'd') {
+          token += c;
+          i++;
+        } else if (i + 1 < text.size()) {
+          std::string pair(text, i, 2);
+          if (pair == "re" || pair == "ve" || pair == "ll") {
+            token += pair;
+            i += 2;
+          }
+        }
+      }
+      result.push_back(token);
+      continue;
+    }
+
+    // Optional leading space
+    if (text[i] == ' ') {
+      token += ' ';
+      i++;
+      if (i >= text.size()) {
+        result.push_back(token);
+        break;
+      }
+    }
+
+    unsigned char c = static_cast<unsigned char>(text[i]);
+    if (std::isalpha(c)) {
+      // Collect letters
+      while (i < text.size() &&
+             std::isalpha(static_cast<unsigned char>(text[i]))) {
+        token += text[i++];
+      }
+    } else if (std::isdigit(c)) {
+      // Collect digits
+      while (i < text.size() &&
+             std::isdigit(static_cast<unsigned char>(text[i]))) {
+        token += text[i++];
+      }
+    } else if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+      // Whitespace (wasn't consumed as leading space above)
+      while (i < text.size() && (text[i] == ' ' || text[i] == '\t' ||
+                                 text[i] == '\n' || text[i] == '\r')) {
+        token += text[i++];
+      }
+    } else {
+      // Other (punctuation, non-ASCII bytes)
+      while (i < text.size()) {
+        unsigned char ch = static_cast<unsigned char>(text[i]);
+        if (std::isalpha(ch) || std::isdigit(ch) || ch == ' ' || ch == '\t' ||
+            ch == '\n' || ch == '\r' || ch == '\'') {
+          break;
+        }
+        token += text[i++];
+      }
+    }
+
+    if (!token.empty()) {
+      result.push_back(token);
+    }
+  }
+  return result;
+}
+
+// Encode a text segment (no special tokens) using GPT-2 byte-level BPE.
+void LlamaModel::encodeBPESegment(const std::string &segment,
+                                  std::vector<int> &ids) const {
+  auto pretokens = pretokenizeGPT2(segment);
+
+  for (const auto &pt : pretokens) {
+    // Convert each byte to its GPT-2 unicode character
+    std::string converted;
+    for (unsigned char c : pt) {
+      converted += byteToUnicode_[c];
+    }
+
+    // Split into individual UTF-8 characters
+    std::vector<std::string> symbols;
+    for (size_t i = 0; i < converted.size();) {
+      int len = utf8_len(static_cast<uint8_t>(converted[i]));
+      if (i + len > converted.size())
+        len = 1;
+      symbols.push_back(converted.substr(i, len));
+      i += len;
+    }
+
+    // BPE merge loop — find the pair with highest priority
+    // (lowest rank in mergePriority_) and merge it, repeat.
+    while (symbols.size() >= 2) {
+      int bestRank = INT_MAX;
+      size_t bestIdx = SIZE_MAX;
+      for (size_t j = 0; j + 1 < symbols.size(); ++j) {
+        std::string pair = symbols[j] + " " + symbols[j + 1];
+        auto it = mergePriority_.find(pair);
+        if (it != mergePriority_.end() && it->second < bestRank) {
+          bestRank = it->second;
+          bestIdx = j;
+        }
+      }
+      if (bestIdx == SIZE_MAX)
+        break;
+      symbols[bestIdx] += symbols[bestIdx + 1];
+      symbols.erase(symbols.begin() + bestIdx + 1);
+    }
+
+    // Convert symbols to token IDs
+    for (const auto &sym : symbols) {
+      auto it = token_to_id_.find(sym);
+      if (it != token_to_id_.end()) {
+        ids.push_back(it->second);
+      }
+    }
+  }
+}
+
+std::vector<int> LlamaModel::tokenizeBPE(const std::string &text) const {
+  std::vector<int> ids;
+  if (addBosToken_) {
+    ids.push_back(bos_token_id_);
+  }
+
+  // Split text on special token boundaries (e.g. <|im_start|>, <|im_end|>).
+  // Special tokens are matched literally and emitted as single token IDs.
+  // Text between special tokens is encoded with GPT-2 byte-level BPE.
+  size_t pos = 0;
+  while (pos < text.size()) {
+    // Check if a special token starts at this position
+    bool found = false;
+    for (const auto &[tok_str, tok_id] : specialTokens_) {
+      if (text.compare(pos, tok_str.size(), tok_str) == 0) {
+        ids.push_back(tok_id);
+        pos += tok_str.size();
+        found = true;
+        break;
+      }
+    }
+    if (found)
+      continue;
+
+    // Find the next special token (or end of text)
+    size_t next = text.size();
+    for (const auto &[tok_str, tok_id] : specialTokens_) {
+      size_t f = text.find(tok_str, pos);
+      if (f != std::string::npos && f < next) {
+        next = f;
+      }
+    }
+
+    // Encode the non-special segment with BPE
+    if (next > pos) {
+      encodeBPESegment(text.substr(pos, next - pos), ids);
+    }
+    pos = next;
+  }
+
+  return ids;
+}
+
 std::string LlamaModel::detokenize(const std::vector<int> &tokens) const {
+  if (tokenizerModel_ == "gpt2") {
+    // GPT-2 BPE: vocab entries use byte-to-unicode encoding.
+    // Decode each token's UTF-8 characters back to original bytes.
+    std::string result;
+    for (int id : tokens) {
+      if (id == bos_token_id_ || id == eos_token_id_)
+        continue;
+      if (id < 0 || static_cast<size_t>(id) >= vocab_.size())
+        continue;
+      const auto &piece = vocab_[id];
+      for (size_t i = 0; i < piece.size();) {
+        int len = utf8_len(static_cast<uint8_t>(piece[i]));
+        if (i + len > piece.size())
+          len = 1;
+        std::string ch = piece.substr(i, len);
+        auto it = unicodeToByte_.find(ch);
+        if (it != unicodeToByte_.end()) {
+          result += static_cast<char>(it->second);
+        } else {
+          result += ch;
+        }
+        i += len;
+      }
+    }
+    return result;
+  }
+
+  // SentencePiece: replace U+2581 (▁) with space
   std::string result;
   for (int id : tokens) {
     if (id >= 0 && static_cast<size_t>(id) < vocab_.size()) {
       const auto &piece = vocab_[id];
-      // SentencePiece uses \xe2\x96\x81 (U+2581) as the space marker
       for (size_t i = 0; i < piece.size();) {
         if (i + 2 < piece.size() && static_cast<uint8_t>(piece[i]) == 0xe2 &&
             static_cast<uint8_t>(piece[i + 1]) == 0x96 &&

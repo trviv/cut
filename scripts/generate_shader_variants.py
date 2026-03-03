@@ -51,6 +51,7 @@ DTYPE_DEFS = {
     "Float16": {"vec": "half4",  "scalar": "half",  "size": "4"},
     "Int32":   {"vec": "int4",   "scalar": "int",   "size": "4"},
     "UInt32":  {"vec": "uint4",  "scalar": "uint",  "size": "4"},
+    "Int8":    {"vec": "int4",   "scalar": "int",   "size": "1"},
 }
 
 # Mapping from dtype name to per-slot define lines.
@@ -61,6 +62,7 @@ _SLOT_DEFINE_TEMPLATES = {
                  "#define DTYPE_{SLOT}_IS_HALF 1"],
     "Int32":   ["#define DTYPE_{SLOT}_IS_INT 1"],
     "UInt32":  ["#define DTYPE_{SLOT}_IS_UINT 1"],
+    "Int8":    ["#define DTYPE_{SLOT}_IS_INT8 1"],
 }
 
 

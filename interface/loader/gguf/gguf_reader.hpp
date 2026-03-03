@@ -51,6 +51,17 @@ public:
   // Read tensor and dequantize to float32
   std::vector<float> read_tensor_f32(const std::string &name) const;
 
+  // Q8_0 separated data: int8 values and f16 scales stored separately
+  struct Q8SeparatedData {
+    std::vector<int8_t> values;   // raw int8 values [rows * cols]
+    std::vector<uint16_t> scales; // raw f16 scale bits [rows * (cols/32)]
+    uint32_t rows;
+    uint32_t cols;
+  };
+
+  // Read Q8_0 tensor and separate into int8 values and f16 scales
+  Q8SeparatedData read_tensor_q8_separated(const std::string &name) const;
+
   // Get tensor names
   std::vector<std::string> get_tensor_names() const;
 

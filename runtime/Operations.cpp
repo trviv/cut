@@ -10,6 +10,7 @@
 #include "impl/conv1d/Conv1DOp.h"
 #include "impl/conv2d/Conv2DOp.h"
 #include "impl/matmul/MatMulOp.h"
+#include "impl/matmulq8/MatMulQ8Op.h"
 #include "impl/maxpool2d/MaxPool2DOp.h"
 #include "impl/memory/MemoryOp.h"
 #include "impl/reduce/ReduceOp.h"
@@ -193,6 +194,20 @@ Tensor Operations::matmul(const Tensor &a,
   auto inputs = resolveAndCastInputs(*node, {a, b});
   if (inputs[0] != a || inputs[1] != b)
     node = std::make_unique<MatMulOpNode>(*store_, inputs[0], inputs[1], spec);
+  return recordOrEncode(std::move(node));
+}
+
+Tensor Operations::matmulQ8(const Tensor &a,
+                            const Tensor &packedB,
+                            const Tensor &scales,
+                            uint32_t bCols,
+                            std::optional<uint32_t> spec) {
+  auto node = std::make_unique<MatMulQ8OpNode>(*store_, a, packedB, scales,
+                                               bCols, spec);
+  auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
+  if (inputs[0] != a)
+    node = std::make_unique<MatMulQ8OpNode>(*store_, inputs[0], packedB, scales,
+                                            bCols, spec);
   return recordOrEncode(std::move(node));
 }
 

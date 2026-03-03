@@ -348,6 +348,10 @@ const char *operatorName(OperatorEnum op) {
   case Attention:
     return "Attention";
 
+  // Quantized matmul
+  case MatMulQ8:
+    return "MatMulQ8";
+
   default:
     return "Unknown";
   }

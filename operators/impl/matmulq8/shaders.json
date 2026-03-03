@@ -1,0 +1,30 @@
+{
+  "type": "variants",
+  "cpp_prefix": "MatMulQ8",
+  "default_variant": "T16R4x4",
+  "variants": [
+    {
+      "name": "T16R4x4",
+      "template": "MatMulQ8TiledReg",
+      "defines": {
+        "TILE_SIZE": 16,
+        "TM": 4,
+        "TN": 4
+      },
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        64,
+        64
+      ],
+      "description": "Q8 T16 R4x4",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "output": "Float32"}
+        ]
+      }
+    }
+  ]
+}

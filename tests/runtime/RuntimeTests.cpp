@@ -4,6 +4,7 @@
 #include "impl/conv1d/Conv1DVariants.generated.h"
 #include "impl/conv2d/Conv2DVariants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
+#include "impl/matmulq8/MatMulQ8Variants.generated.h"
 #include "impl/maxpool2d/MaxPool2DVariants.generated.h"
 #include "impl/reducedim/ReduceDimVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
@@ -4343,6 +4344,151 @@ TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
 
     for (uint32_t i = 0; i < N * N; ++i) {
       ASSERT_NEAR(output[i], dataA[i], 1e-5f) << "Mismatch at index " << i;
+    }
+  }
+}
+
+// ============================================================================
+// MatMulQ8 Tests
+// ============================================================================
+
+// Helper: convert float to float16 bits (IEEE 754 half-precision)
+static uint16_t f32_to_f16(float value) {
+  uint32_t f32;
+  std::memcpy(&f32, &value, sizeof(f32));
+  uint32_t sign = (f32 >> 16) & 0x8000;
+  int32_t exponent = ((f32 >> 23) & 0xFF) - 127 + 15;
+  uint32_t mantissa = (f32 >> 13) & 0x03FF;
+  if (exponent <= 0) {
+    return static_cast<uint16_t>(sign); // flush to zero
+  }
+  if (exponent >= 31) {
+    return static_cast<uint16_t>(sign | 0x7C00); // infinity
+  }
+  return static_cast<uint16_t>(sign | (exponent << 10) | mantissa);
+}
+
+TEST_F(MatrixOpsTest, MatMulQ8_Simple) {
+  // Test matmulQ8 with known data: A[M,K] * B[N,K]^T = C[M,N]
+  // B stored as Int8 [N,K], scales as Float16 [N,K/32]
+  // With scale=1.0, dequantized B values equal the int8 values.
+  const uint32_t M = 1, K = 32, N = 2;
+  const uint32_t blocksPerRow = K / 32; // = 1
+
+  // Activation A[1, 32]: all ones
+  std::vector<float> dataA(M * K, 1.0f);
+
+  // Weight B[2, 32] as Int8: row 0 = all 1s, row 1 = all 2s
+  std::vector<int8_t> dataB(N * K);
+  for (uint32_t i = 0; i < K; ++i) {
+    dataB[0 * K + i] = 1; // row 0
+    dataB[1 * K + i] = 2; // row 1
+  }
+
+  // Scales [2, 1] as Float16: all 1.0
+  uint16_t f16_one = f32_to_f16(1.0f);
+  std::vector<uint16_t> scales(N * blocksPerRow, f16_one);
+
+  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = runtime_->createTensor({N, K}, DataType::Int8, dataB.data());
+  auto bufS = runtime_->createTensor({N, blocksPerRow}, DataType::Float16,
+                                     scales.data());
+
+  auto bufC = runtime_->ops().matmulQ8(bufA, bufB, bufS, K);
+
+  std::vector<float> output(M * N);
+  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
+
+  // Expected: C[0][0] = sum(1.0 * 1 * 1.0) = 32.0
+  //           C[0][1] = sum(1.0 * 2 * 1.0) = 64.0
+  ASSERT_NEAR(output[0], 32.0f, 1e-3f) << "C[0][0] mismatch";
+  ASSERT_NEAR(output[1], 64.0f, 1e-3f) << "C[0][1] mismatch";
+}
+
+TEST_F(MatrixOpsTest, MatMulQ8_WithScales) {
+  // Test that scales are applied correctly
+  const uint32_t M = 1, K = 64, N = 2;
+  const uint32_t blocksPerRow = K / 32; // = 2
+
+  // A[1, 64]: all ones
+  std::vector<float> dataA(M * K, 1.0f);
+
+  // B[2, 64] as Int8: all 4s
+  std::vector<int8_t> dataB(N * K, 4);
+
+  // Scales [2, 2]: row0 = {0.5, 1.0}, row1 = {2.0, 0.25}
+  std::vector<uint16_t> scales = {
+      f32_to_f16(0.5f),
+      f32_to_f16(1.0f), // row 0 scales
+      f32_to_f16(2.0f),
+      f32_to_f16(0.25f) // row 1 scales
+  };
+
+  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = runtime_->createTensor({N, K}, DataType::Int8, dataB.data());
+  auto bufS = runtime_->createTensor({N, blocksPerRow}, DataType::Float16,
+                                     scales.data());
+
+  auto bufC = runtime_->ops().matmulQ8(bufA, bufB, bufS, K);
+
+  std::vector<float> output(M * N);
+  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
+
+  // C[0][0] = sum_k(1.0 * 4 * scale[0][k/32])
+  //         = 32 * (4 * 0.5) + 32 * (4 * 1.0) = 64 + 128 = 192
+  // C[0][1] = 32 * (4 * 2.0) + 32 * (4 * 0.25) = 256 + 32 = 288
+  ASSERT_NEAR(output[0], 192.0f, 1.0f) << "C[0][0] mismatch";
+  ASSERT_NEAR(output[1], 288.0f, 1.0f) << "C[0][1] mismatch";
+}
+
+TEST_F(MatrixOpsTest, MatMulQ8_VsRegularMatMul) {
+  // Compare matmulQ8 output against regular matmul with manually
+  // dequantized weights to verify correctness end-to-end.
+  const uint32_t M = 2, K = 64, N = 4;
+  const uint32_t blocksPerRow = K / 32;
+
+  auto dataA = generateTestData<float>(M * K, 42);
+
+  // Generate int8 weight values in range [-10, 10]
+  std::vector<int8_t> dataB(N * K);
+  for (size_t i = 0; i < dataB.size(); ++i) {
+    dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
+  }
+
+  // Generate scale values: small positive floats
+  std::vector<float> scaleFloats(N * blocksPerRow);
+  for (size_t i = 0; i < scaleFloats.size(); ++i) {
+    scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
+  }
+  std::vector<uint16_t> scaleF16(scaleFloats.size());
+  for (size_t i = 0; i < scaleFloats.size(); ++i) {
+    scaleF16[i] = f32_to_f16(scaleFloats[i]);
+  }
+
+  // Run matmulQ8 on GPU
+  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = runtime_->createTensor({N, K}, DataType::Int8, dataB.data());
+  auto bufS = runtime_->createTensor({N, blocksPerRow}, DataType::Float16,
+                                     scaleF16.data());
+  auto bufC = runtime_->ops().matmulQ8(bufA, bufB, bufS, K);
+
+  std::vector<float> gpuOutput(M * N);
+  runtime_->copyFromTensor(bufC, gpuOutput.data(), M * N * sizeof(float));
+
+  // CPU reference: dequantize B then matmul
+  // C[m][n] = sum_k(A[m][k] * B[n][k] * scale[n][k/32])
+  for (uint32_t m = 0; m < M; ++m) {
+    for (uint32_t n = 0; n < N; ++n) {
+      float expected = 0.0f;
+      for (uint32_t k = 0; k < K; ++k) {
+        float a = dataA[m * K + k];
+        float b = static_cast<float>(dataB[n * K + k]);
+        float s = scaleFloats[n * blocksPerRow + k / 32];
+        expected += a * b * s;
+      }
+      ASSERT_NEAR(gpuOutput[m * N + n], expected,
+                  std::abs(expected) * 0.01f + 0.1f)
+          << "Mismatch at C[" << m << "][" << n << "]";
     }
   }
 }

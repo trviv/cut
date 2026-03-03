@@ -12,6 +12,7 @@
 #define DTYPE_HALF 1
 #define DTYPE_UINT 2
 #define DTYPE_INT 3
+#define DTYPE_INT8 4
 
 // =============================================================================
 // Binary operations (0-32) - unified for all binary variants
@@ -302,5 +303,11 @@
 
 #define OP_CACHE_WRITE 360
 #define OP_ATTENTION 361
+
+// =============================================================================
+// Quantized matmul operations (371)
+// =============================================================================
+
+#define OP_MATMUL_Q8 371
 
 #endif // COMPUTE_OPS_SHARED

@@ -309,6 +309,12 @@ enum OperatorEnum {
 
   CacheWrite = OP_CACHE_WRITE,
   Attention = OP_ATTENTION,
+
+  // ===========================================================================
+  // Quantized matmul operations (371)
+  // ===========================================================================
+
+  MatMulQ8 = OP_MATMUL_Q8,
 };
 
 /**

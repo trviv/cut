@@ -37,24 +37,33 @@ struct LlamaConfig {
   uint32_t max_seq_len = 2048;
 };
 
+/// Weight handle that supports both plain and quantized storage.
+struct WeightHandle {
+  cut::ComputeHandle handle;  // plain weight (pre-transposed F16/F32)
+  cut::ComputeHandle qValues; // Int8 values (non-transposed) [N, K]
+  cut::ComputeHandle qScales; // F16 scales (non-transposed) [N, K/32]
+  uint32_t qCols = 0;         // original K dimension (0 = not quantized)
+  bool isQuantized() const { return qCols > 0; }
+};
+
 /// Per-layer weight handles stored on GPU.
 struct LlamaLayer {
   // Attention norm
   cut::ComputeHandle attn_norm;
 
-  // Attention weights (stored transposed: [in, out] for matmul)
-  cut::ComputeHandle wq;
-  cut::ComputeHandle wk;
-  cut::ComputeHandle wv;
-  cut::ComputeHandle wo;
+  // Attention weights
+  WeightHandle wq;
+  WeightHandle wk;
+  WeightHandle wv;
+  WeightHandle wo;
 
   // FFN norm
   cut::ComputeHandle ffn_norm;
 
-  // FFN weights (stored transposed: [in, out] for matmul)
-  cut::ComputeHandle w_gate;
-  cut::ComputeHandle w_up;
-  cut::ComputeHandle w_down;
+  // FFN weights
+  WeightHandle w_gate;
+  WeightHandle w_up;
+  WeightHandle w_down;
 };
 
 /// Per-layer KV cache stored on GPU.
@@ -122,6 +131,17 @@ public:
   /// Access config.
   const LlamaConfig &config() const { return config_; }
 
+  /// Look up a token string in the vocabulary, returns -1 if not found.
+  int tokenId(const std::string &token) const {
+    auto it = token_to_id_.find(token);
+    return it != token_to_id_.end() ? it->second : -1;
+  }
+
+  int eosTokenId() const { return eos_token_id_; }
+
+  /// Add extra stop token IDs (in addition to eos_token_id_).
+  void addStopToken(int token_id) { stopTokenIds_.push_back(token_id); }
+
 private:
   LlamaConfig config_;
   cut::Runtime *runtime_ = nullptr;
@@ -131,7 +151,7 @@ private:
   std::vector<float> token_embd_data_; // [vocab_size, dim] kept on CPU
   std::vector<LlamaLayer> layers_;
   cut::ComputeHandle output_norm_;
-  cut::ComputeHandle output_weight_; // LM head [dim, vocab_size]
+  WeightHandle output_weight_; // LM head [dim, vocab_size]
 
   // KV cache (per layer)
   std::vector<KVCache> kv_caches_;
@@ -145,6 +165,28 @@ private:
   std::vector<float> scores_;
   std::unordered_map<std::string, int> token_to_id_;
 
+  // Tokenizer type and BPE merge data
+  std::string tokenizerModel_; // "llama" (SPM) or "gpt2" (BPE)
+  std::vector<std::string> merges_;
+  std::unordered_map<std::string, int> mergePriority_; // "a b" -> rank
+  int bos_token_id_ = 1;
+  bool addBosToken_ = true;
+  int eos_token_id_ = 2;
+  std::vector<int> stopTokenIds_;
+
+  // Special tokens (e.g. <|im_start|>) sorted longest-first for matching
+  std::vector<std::pair<std::string, int>> specialTokens_;
+
+  // GPT-2 byte-level encoding tables (built when tokenizerModel_ == "gpt2")
+  std::string byteToUnicode_[256];                         // byte → UTF-8 char
+  std::unordered_map<std::string, uint8_t> unicodeToByte_; // reverse mapping
+
+  // GPT-2 BPE tokenization (used when tokenizerModel_ == "gpt2")
+  std::vector<int> tokenizeBPE(const std::string &text) const;
+  void encodeBPESegment(const std::string &segment,
+                        std::vector<int> &ids) const;
+  void buildGPT2ByteEncoder();
+
   // Helper: upload 1D float vector to GPU
   cut::ComputeHandle uploadVector(const std::vector<float> &data);
 
@@ -156,6 +198,17 @@ private:
   cut::ComputeHandle uploadWeight(const GGUFReader &reader,
                                   const std::string &name,
                                   const std::vector<uint32_t> &shape);
+
+  // Helper: upload weight, using Q8 separated path if Q8_0
+  WeightHandle uploadWeightMaybeQuantized(const GGUFReader &reader,
+                                          const std::string &name,
+                                          uint32_t rows,
+                                          uint32_t cols);
+
+  // Helper: perform matmul in graph using either plain or Q8 path
+  cut::Tensor graphWeight(cut::graph::GraphBuilder &builder,
+                          const WeightHandle &wh,
+                          const cut::Tensor &activation);
 
   // RMS normalization: returns normalized tensor
   cut::ComputeHandle rmsNorm(const cut::ComputeHandle &x,

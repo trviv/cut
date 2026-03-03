@@ -101,7 +101,7 @@ std::optional<std::vector<uint32_t>> BinaryOpNode::shader() const {
     compiled = compiledBinaryVecScalarCmp(dtype_, outputDtype_);
     break;
   case BinaryOpVariant::VecScalarBuf:
-    compiled = compiledBinaryVecScalarBuf(dtype_, outputDtype_);
+    compiled = compiledBinaryVecScalarBuf(dtype_, dtype_, outputDtype_);
     break;
   case BinaryOpVariant::VecScalarBufCmp:
     compiled = compiledBinaryVecScalarBufCmp(dtype_, outputDtype_);

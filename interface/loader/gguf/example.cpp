@@ -58,13 +58,21 @@ int main(int argc, char *argv[]) {
       prompt_text = argv[3];
     }
 
-    std::cout << "Prompt: \"" << prompt_text << "\"\n";
-    std::vector<int> prompt;
-    try {
-      prompt = model.tokenize(prompt_text);
-    } catch (std::exception &) {
-      prompt = {1};
+    // For instruct/chat models, wrap in ChatML template if special tokens
+    // exist.
+    int im_start = model.tokenId("<|im_start|>");
+    int im_end = model.tokenId("<|im_end|>");
+    std::string tokenizer_input = prompt_text;
+    if (im_start >= 0 && im_end >= 0) {
+      tokenizer_input = "<|im_start|>user\n" + prompt_text +
+                        "<|im_end|>\n<|im_start|>assistant\n";
+      model.addStopToken(im_end);
+      std::cout << "Using ChatML template (im_start=" << im_start
+                << " im_end=" << im_end << ").\n";
     }
+
+    std::cout << "Prompt: \"" << prompt_text << "\"\n";
+    std::vector<int> prompt = model.tokenize(tokenizer_input);
 
     std::cout << "Prompt token IDs: [";
     for (size_t i = 0; i < prompt.size(); ++i) {

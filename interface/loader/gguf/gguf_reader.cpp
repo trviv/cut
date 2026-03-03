@@ -366,6 +366,63 @@ std::vector<float> GGUFReader::read_tensor_f32(const std::string &name) const {
   return result;
 }
 
+GGUFReader::Q8SeparatedData
+GGUFReader::read_tensor_q8_separated(const std::string &name) const {
+  auto it = tensors_.find(name);
+  if (it == tensors_.end()) {
+    throw GGUFReaderError("Tensor not found: " + name);
+  }
+
+  const auto &info = it->second;
+  if (info.type != GGMLType::Q8_0) {
+    throw GGUFReaderError("Tensor is not Q8_0: " + name);
+  }
+  if (info.dimensions.size() != 2) {
+    throw GGUFReaderError("Q8 separation requires 2D tensor: " + name);
+  }
+
+  // GGML convention: dimensions[0] = innermost (cols), dimensions[1] = rows
+  uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
+  uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
+
+  if (cols % 32 != 0) {
+    throw GGUFReaderError("Q8_0 innermost dimension must be multiple of 32: " +
+                          name);
+  }
+
+  uint32_t blocks_per_row = cols / 32;
+  size_t total_blocks = static_cast<size_t>(rows) * blocks_per_row;
+
+  auto raw_data = read_tensor_raw(name);
+
+  Q8SeparatedData result;
+  result.rows = rows;
+  result.cols = cols;
+  result.values.resize(static_cast<size_t>(rows) * cols);
+  result.scales.resize(total_blocks);
+
+  // Q8_0 block layout: 2 bytes (f16 scale) + 32 bytes (int8 values) = 34 bytes
+  constexpr size_t block_bytes = 34;
+  const uint8_t *src = raw_data.data();
+
+  for (size_t block = 0; block < total_blocks; ++block) {
+    const uint8_t *block_ptr = src + block * block_bytes;
+
+    // Extract f16 scale (first 2 bytes)
+    uint16_t scale_bits;
+    std::memcpy(&scale_bits, block_ptr, sizeof(scale_bits));
+    result.scales[block] = scale_bits;
+
+    // Extract 32 int8 values (next 32 bytes)
+    size_t row = block / blocks_per_row;
+    size_t block_in_row = block % blocks_per_row;
+    size_t val_offset = row * cols + block_in_row * 32;
+    std::memcpy(&result.values[val_offset], block_ptr + 2, 32);
+  }
+
+  return result;
+}
+
 std::vector<std::string> GGUFReader::get_tensor_names() const {
   std::vector<std::string> names;
   names.reserve(tensors_.size());

@@ -90,6 +90,7 @@ enum class DataType {
   Float16, ///< 16-bit floating point (half).
   UInt32,  ///< 32-bit unsigned integer.
   Int32,   ///< 32-bit signed integer.
+  Int8,    ///< 8-bit signed integer (for quantized weights).
 };
 
 /**
@@ -107,6 +108,8 @@ inline constexpr size_t dataTypeSize(DataType dtype) {
     return 4;
   case DataType::Int32:
     return 4;
+  case DataType::Int8:
+    return 1;
   }
   return 0; // Unreachable, but silences compiler warning
 }
@@ -126,14 +129,18 @@ inline constexpr const char *dataTypeName(DataType dtype) {
     return "UInt32";
   case DataType::Int32:
     return "Int32";
+  case DataType::Int8:
+    return "Int8";
   }
   return "Unknown";
 }
 
-/// Widens a floating-point type to the next higher precision.
-/// Float16 → Float32. All others unchanged.
+/// Widens a type to the next higher precision.
+/// Float16 → Float32, Int8 → Float32. All others unchanged.
 inline constexpr DataType widenPrecision(DataType dt) {
-  return dt == DataType::Float16 ? DataType::Float32 : dt;
+  if (dt == DataType::Float16 || dt == DataType::Int8)
+    return DataType::Float32;
+  return dt;
 }
 
 /**

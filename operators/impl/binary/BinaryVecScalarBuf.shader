@@ -1,6 +1,6 @@
 #include "ComputeOpsShared.h"
 
-%DTYPE_DEFINES_INPUT%
+%DTYPE_DEFINES_INPUT1%
 %DTYPE_DEFINES_OUTPUT%
 
 // Specialization constants

@@ -12,6 +12,7 @@
 #include "impl/conv1d/Conv1DVariants.generated.h"
 #include "impl/conv2d/Conv2DVariants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
+#include "impl/matmulq8/MatMulQ8Variants.generated.h"
 #include "impl/maxpool2d/MaxPool2DVariants.generated.h"
 #include "impl/reducedim/ReduceDimVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
