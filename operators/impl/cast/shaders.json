@@ -12,7 +12,9 @@
           {"input": "Int32", "output": "Float32"},
           {"input": "UInt32", "output": "Float32"},
           {"input": "Float32", "output": "Int32"},
-          {"input": "Float32", "output": "UInt32"}
+          {"input": "Float32", "output": "UInt32"},
+          {"input": "Int8", "output": "Float16"},
+          {"input": "Int8", "output": "Float32"}
         ]
       }
     }

@@ -98,50 +98,18 @@ enum class DataType {
  * @param dtype The data type.
  * @return Size in bytes.
  */
-inline constexpr size_t dataTypeSize(DataType dtype) {
-  switch (dtype) {
-  case DataType::Float32:
-    return 4;
-  case DataType::Float16:
-    return 2;
-  case DataType::UInt32:
-    return 4;
-  case DataType::Int32:
-    return 4;
-  case DataType::Int8:
-    return 1;
-  }
-  return 0; // Unreachable, but silences compiler warning
-}
+size_t dataTypeSize(DataType dtype);
 
 /**
  * Returns a string name for a given DataType.
  * @param dtype The data type.
  * @return String representation of the data type.
  */
-inline constexpr const char *dataTypeName(DataType dtype) {
-  switch (dtype) {
-  case DataType::Float32:
-    return "Float32";
-  case DataType::Float16:
-    return "Float16";
-  case DataType::UInt32:
-    return "UInt32";
-  case DataType::Int32:
-    return "Int32";
-  case DataType::Int8:
-    return "Int8";
-  }
-  return "Unknown";
-}
+const char *dataTypeName(DataType dtype);
 
 /// Widens a type to the next higher precision.
 /// Float16 → Float32, Int8 → Float32. All others unchanged.
-inline constexpr DataType widenPrecision(DataType dt) {
-  if (dt == DataType::Float16 || dt == DataType::Int8)
-    return DataType::Float32;
-  return dt;
-}
+DataType widenPrecision(DataType dt);
 
 /**
  * A lightweight wrapper for referencing raw data with size information.

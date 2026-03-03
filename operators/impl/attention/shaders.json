@@ -7,7 +7,8 @@
       "description": "Write vector at row position in 2D cache buffer",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"}
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Int8", "output": "Int8"}
         ]
       }
     },
@@ -16,7 +17,8 @@
       "description": "Scaled dot-product attention with GQA support",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"}
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Int8", "output": "Int8"}
         ]
       }
     }

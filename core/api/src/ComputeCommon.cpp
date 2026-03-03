@@ -49,6 +49,44 @@ void logErr(const char *format, ...) {
   throw std::runtime_error(msg);
 }
 
+size_t dataTypeSize(DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return 4;
+  case DataType::Float16:
+    return 2;
+  case DataType::UInt32:
+    return 4;
+  case DataType::Int32:
+    return 4;
+  case DataType::Int8:
+    return 1;
+  }
+  return 0; // Unreachable, but silences compiler warning
+}
+
+const char *dataTypeName(DataType dtype) {
+  switch (dtype) {
+  case DataType::Float32:
+    return "Float32";
+  case DataType::Float16:
+    return "Float16";
+  case DataType::UInt32:
+    return "UInt32";
+  case DataType::Int32:
+    return "Int32";
+  case DataType::Int8:
+    return "Int8";
+  }
+  return "Unknown";
+}
+
+DataType widenPrecision(DataType dt) {
+  if (dt == DataType::Float16 || dt == DataType::Int8)
+    return DataType::Float32;
+  return dt;
+}
+
 std::vector<char> readShaderFile(const std::string &filename) {
   std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
