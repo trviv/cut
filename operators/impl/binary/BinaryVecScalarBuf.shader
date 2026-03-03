@@ -14,8 +14,8 @@ struct PushConstants {
 [[vk::push_constant]] PushConstants pc;
 
 // Storage buffers
-[[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT%> dataA;
-[[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT%> dataB;
+[[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT1%> dataA;
+[[vk::binding(1, 0)]] StructuredBuffer<%SCALAR_DTYPE_INPUT2%> dataB;
 [[vk::binding(2, 0)]] RWStructuredBuffer<%VEC_DTYPE_OUTPUT%> dataOut;
 
 #include "BinaryOps.shaderh"
@@ -29,7 +29,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     }
 
     %VEC_DTYPE_OUTPUT% a = (%VEC_DTYPE_OUTPUT%)dataA[index];
-    %VEC_DTYPE_OUTPUT% s = (%VEC_DTYPE_OUTPUT%)((%VEC_DTYPE_INPUT%)(dataB[0]));
+    %VEC_DTYPE_OUTPUT% s = (%VEC_DTYPE_OUTPUT%)((%VEC_DTYPE_INPUT1%)(dataB[0]));
 
     dataOut[index] = binaryOp(a, s);
 }

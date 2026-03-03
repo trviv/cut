@@ -459,6 +459,26 @@ void generateModelReport(const GGUFReader &reader,
   std::string arch = meta.architecture();
   std::string modelName = meta.name();
 
+  // Look up representative tensor types for dtype annotations.
+  auto tensorType = [&](const std::string &name) -> std::string {
+    auto it = tensors.find(name);
+    if (it != tensors.end())
+      return get_type_name(it->second.type);
+    return "F32";
+  };
+  std::string embType = tensorType("token_embd.weight");
+  std::string attnNormType = tensorType("blk.0.attn_norm.weight");
+  std::string wqType = tensorType("blk.0.attn_q.weight");
+  std::string wkType = tensorType("blk.0.attn_k.weight");
+  std::string wvType = tensorType("blk.0.attn_v.weight");
+  std::string woType = tensorType("blk.0.attn_output.weight");
+  std::string ffnNormType = tensorType("blk.0.ffn_norm.weight");
+  std::string wgType = tensorType("blk.0.ffn_gate.weight");
+  std::string wuType = tensorType("blk.0.ffn_up.weight");
+  std::string wdType = tensorType("blk.0.ffn_down.weight");
+  std::string outNormType = tensorType("output_norm.weight");
+  std::string outType = tensorType("output.weight");
+
   std::ofstream out(output_path);
   if (!out.is_open()) {
     std::cerr << "Warning: could not write model report to " << output_path
@@ -532,6 +552,12 @@ void generateModelReport(const GGUFReader &reader,
     letter-spacing: 0.05em; color: var(--dim); margin-bottom: 4px; padding: 4px 10px;
     background: var(--surface); border: 1px solid var(--border); border-radius: 6px; display: inline-block; }
   .graph-compare .graph-label.optimized { color: var(--green); }
+  .graphs-side-by-side { display: flex; gap: 24px; align-items: flex-start; }
+  .graphs-side-by-side > div { flex: 1; min-width: 0; }
+  .graphs-side-by-side > div > .arch-container { overflow-x: auto; }
+  .graphs-side-by-side h3 { font-size: 1.1rem; color: var(--accent); margin: 0 0 4px; border-bottom: none; }
+  .graphs-side-by-side .tensor-count { margin-top: 0; }
+  .graphs-side-by-side .arch-svg { width: 100%; height: auto; }
 </style>
 </head>
 <body>
@@ -567,7 +593,10 @@ void generateModelReport(const GGUFReader &reader,
       << config.norm_eps << R"(</div></div>
 </div>
 
-<h2>Architecture Graph</h2>
+<h2>Architecture Comparison</h2>
+<div class="graphs-side-by-side">
+<div>
+<h3>Architecture Graph</h3>
 <p class="tensor-count">Single transformer block shown. Repeated )"
       << config.n_layers << R"( times.</p>
 <div class="arch-container">
@@ -647,8 +676,9 @@ void generateModelReport(const GGUFReader &reader,
   std::ostringstream svg;
 
   int svgH = startY + 22 * gapY + 20; // will be enough
-  svg << "<svg class=\"arch-svg\" width=\"" << svgW << "\" height=\"" << svgH
-      << "\" xmlns=\"http://www.w3.org/2000/svg\">\n";
+  svg << "<svg class=\"arch-svg\" width=\"" << svgW
+      << "\" height=\"__ARCH_H__\" viewBox=\"0 0 " << svgW
+      << " __ARCH_H__\" xmlns=\"http://www.w3.org/2000/svg\">\n";
   svg << "<defs>\n";
   svg << "  <marker id=\"arrowhead\" markerWidth=\"8\" markerHeight=\"6\" "
          "refX=\"8\" refY=\"3\" orient=\"auto\">\n";
@@ -680,13 +710,13 @@ void generateModelReport(const GGUFReader &reader,
 
   emitArrow(svg, cx, prevY, cx, y, false, "token_id (int)", "-> lookup.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "Embedding", wFill,
-           "[" + vocabStr + ", " + dimStr + "]", "CPU lookup");
+           "[" + vocabStr + ", " + dimStr + "] " + embType, "CPU lookup");
   prevY = y + nodeH;
   y += gapY;
 
   // ---- Layer box ----
   int layerBoxY = y - 8;
-  emitArrow(svg, cx, prevY, cx, y, false, "hidden [" + dimStr + "]",
+  emitArrow(svg, cx, prevY, cx, y, false, "hidden [" + dimStr + "] F32",
             "lookup.out -> UnarySquare.in[0]");
   int residX = cx + colSpacing + 30; // residual bypass column
 
@@ -695,7 +725,8 @@ void generateModelReport(const GGUFReader &reader,
   int residStartY = y + nodeH / 2;
 
   emitNode(svg, nx, y, nodeW, nodeH, "RMS Norm", opFill,
-           "attn_norm [" + dimStr + "]", "Square > Sum > Scale > Mul");
+           "attn_norm [" + dimStr + "] " + attnNormType,
+           "Square > Sum > Scale > Mul");
   prevY = y + nodeH;
   y += gapY;
 
@@ -704,27 +735,30 @@ void generateModelReport(const GGUFReader &reader,
   int kx = cx - nodeW / 2;
   int vx = cx + colSpacing - nodeW / 2;
 
-  emitArrow(svg, cx, prevY, qx + nodeW / 2, y, false, "normed [" + dimStr + "]",
-            "VecVecMul.out -> transpose.in[0]", -1);
-  emitArrow(svg, cx, prevY, kx + nodeW / 2, y, false, "normed [" + dimStr + "]",
-            "VecVecMul.out -> transpose.in[0]");
-  emitArrow(svg, cx, prevY, vx + nodeW / 2, y, false, "normed [" + dimStr + "]",
-            "VecVecMul.out -> transpose.in[0]");
+  emitArrow(svg, cx, prevY, qx + nodeW / 2, y, false,
+            "normed [" + dimStr + "] F32", "VecVecMul.out -> transpose.in[0]",
+            -1);
+  emitArrow(svg, cx, prevY, kx + nodeW / 2, y, false,
+            "normed [" + dimStr + "] F32", "VecVecMul.out -> transpose.in[0]");
+  emitArrow(svg, cx, prevY, vx + nodeW / 2, y, false,
+            "normed [" + dimStr + "] F32", "VecVecMul.out -> transpose.in[0]");
 
   emitNode(svg, qx, y, nodeW, nodeH, "Q Projection", wFill,
-           "[" + dimStr + ", " + dimStr + "]", "transpose > matmul");
+           "[" + dimStr + ", " + dimStr + "] " + wqType, "transpose > matmul");
   emitNode(svg, kx, y, nodeW, nodeH, "K Projection", wFill,
-           "[" + dimStr + ", " + kvDimStr + "]", "transpose > matmul");
+           "[" + dimStr + ", " + kvDimStr + "] " + wkType,
+           "transpose > matmul");
   emitNode(svg, vx, y, nodeW, nodeH, "V Projection", wFill,
-           "[" + dimStr + ", " + kvDimStr + "]", "transpose > matmul");
+           "[" + dimStr + ", " + kvDimStr + "] " + wvType,
+           "transpose > matmul");
   int qkvY = y + nodeH;
   y += gapY;
 
   // RoPE on Q and K
   emitArrow(svg, qx + nodeW / 2, qkvY, qx + nodeW / 2, y, false,
-            "q [" + dimStr + "]", "matmul.out -> rotation.in[0]");
+            "q [" + dimStr + "] F32", "matmul.out -> rotation.in[0]");
   emitArrow(svg, kx + nodeW / 2, qkvY, kx + nodeW / 2, y, false,
-            "k [" + kvDimStr + "]", "matmul.out -> rotation.in[0]");
+            "k [" + kvDimStr + "] F32", "matmul.out -> rotation.in[0]");
 
   emitNode(svg, qx, y, nodeW, nodeH, "RoPE (Q)", opFill, "", "CPU rotation");
   emitNode(svg, kx, y, nodeW, nodeH, "RoPE (K)", opFill, "", "CPU rotation");
@@ -733,11 +767,13 @@ void generateModelReport(const GGUFReader &reader,
   y += gapY;
 
   // Attention
-  emitArrow(svg, qx + nodeW / 2, ropeY, cx, y, false, "q_rot [" + dimStr + "]",
-            "rotation.out -> dot.in[0] (query)", -1);
+  emitArrow(svg, qx + nodeW / 2, ropeY, cx, y, false,
+            "q_rot [" + dimStr + "] F32", "rotation.out -> dot.in[0] (query)",
+            -1);
   emitArrow(svg, kx + nodeW / 2, ropeY, cx, y, false,
-            "k_rot [" + kvDimStr + "]", "rotation.out -> dot.in[1] (key)", -1);
-  emitArrow(svg, vx + nodeW / 2, qkvY, cx, y, false, "v [" + kvDimStr + "]",
+            "k_rot [" + kvDimStr + "] F32", "rotation.out -> dot.in[1] (key)",
+            -1);
+  emitArrow(svg, vx + nodeW / 2, qkvY, cx, y, false, "v [" + kvDimStr + "] F32",
             "matmul.out -> sum.in[1] (value)");
 
   emitNode(svg, nx, y, nodeW, nodeH, "Attention", opFill, "scaled dot-product",
@@ -746,15 +782,16 @@ void generateModelReport(const GGUFReader &reader,
   y += gapY;
 
   // Output projection
-  emitArrow(svg, cx, prevY, cx, y, false, "attn_out [" + dimStr + "]",
+  emitArrow(svg, cx, prevY, cx, y, false, "attn_out [" + dimStr + "] F32",
             "concat.out -> transpose.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "O Projection", wFill,
-           "wo [" + dimStr + ", " + dimStr + "]", "transpose > matmul");
+           "wo [" + dimStr + ", " + dimStr + "] " + woType,
+           "transpose > matmul");
   prevY = y + nodeH;
   y += gapY;
 
   // Residual add
-  emitArrow(svg, cx, prevY, cx, y, false, "proj [" + dimStr + "]",
+  emitArrow(svg, cx, prevY, cx, y, false, "proj [" + dimStr + "] F32",
             "matmul.out -> VecVecAdd.in[1]");
   // Draw residual bypass line
   svg << "<polyline points=\"" << (cx + nodeW / 2 + 4) << "," << residStartY
@@ -765,7 +802,7 @@ void generateModelReport(const GGUFReader &reader,
   svg << "<text x=\"" << (residX + 6) << "\" y=\""
       << ((residStartY + y + nodeH / 2) / 2 - 1)
       << "\" font-size=\"8\" fill=\"#0969da\">hidden [" << dimStr
-      << "] (residual)</text>\n";
+      << "] F32 (residual)</text>\n";
   svg << "<text x=\"" << (residX + 6) << "\" y=\""
       << ((residStartY + y + nodeH / 2) / 2 + 9)
       << "\" font-size=\"7\" fill=\"#bf8700\">-> VecVecAdd.in[0]</text>\n";
@@ -778,10 +815,11 @@ void generateModelReport(const GGUFReader &reader,
   // -- FFN block --
   int ffnResidStartY = y + nodeH / 2;
 
-  emitArrow(svg, cx, prevY, cx, y, false, "hidden [" + dimStr + "]",
+  emitArrow(svg, cx, prevY, cx, y, false, "hidden [" + dimStr + "] F32",
             "VecVecAdd.out -> UnarySquare.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "RMS Norm", opFill,
-           "ffn_norm [" + dimStr + "]", "Square > Sum > Scale > Mul");
+           "ffn_norm [" + dimStr + "] " + ffnNormType,
+           "Square > Sum > Scale > Mul");
   prevY = y + nodeH;
   y += gapY;
 
@@ -790,46 +828,50 @@ void generateModelReport(const GGUFReader &reader,
   int upX = cx + colSpacing / 2 - nodeW / 2;
 
   emitArrow(svg, cx, prevY, gateX + nodeW / 2, y, false,
-            "normed [" + dimStr + "]", "VecVecMul.out -> transpose.in[0]", -1);
+            "normed [" + dimStr + "] F32", "VecVecMul.out -> transpose.in[0]",
+            -1);
   emitArrow(svg, cx, prevY, upX + nodeW / 2, y, false,
-            "normed [" + dimStr + "]", "VecVecMul.out -> transpose.in[0]");
+            "normed [" + dimStr + "] F32", "VecVecMul.out -> transpose.in[0]");
 
   emitNode(svg, gateX, y, nodeW, nodeH, "Gate Proj", wFill,
-           "[" + dimStr + ", " + ffnDimStr + "]", "transpose > matmul");
+           "[" + dimStr + ", " + ffnDimStr + "] " + wgType,
+           "transpose > matmul");
   emitNode(svg, upX, y, nodeW, nodeH, "Up Proj", wFill,
-           "[" + dimStr + ", " + ffnDimStr + "]", "transpose > matmul");
+           "[" + dimStr + ", " + ffnDimStr + "] " + wuType,
+           "transpose > matmul");
   int gateUpY = y + nodeH;
   y += gapY;
 
   // SiLU on gate
   emitArrow(svg, gateX + nodeW / 2, gateUpY, gateX + nodeW / 2, y, false,
-            "gate [" + ffnDimStr + "]", "matmul.out -> UnarySilu.in[0]");
-  emitNode(svg, gateX, y, nodeW, nodeH, "SiLU", opFill, "[" + ffnDimStr + "]",
-           "UnarySilu");
+            "gate [" + ffnDimStr + "] F32", "matmul.out -> UnarySilu.in[0]");
+  emitNode(svg, gateX, y, nodeW, nodeH, "SiLU", opFill,
+           "[" + ffnDimStr + "] F32", "UnarySilu");
   int siluY = y + nodeH;
   y += gapY;
 
   // Multiply gate * up
   emitArrow(svg, gateX + nodeW / 2, siluY, cx, y, false,
-            "silu(gate) [" + ffnDimStr + "]",
+            "silu(gate) [" + ffnDimStr + "] F32",
             "UnarySilu.out -> VecVecMul.in[0]", -1);
   emitArrow(svg, upX + nodeW / 2, gateUpY, cx, y, false,
-            "up [" + ffnDimStr + "]", "matmul.out -> VecVecMul.in[1]");
-  emitNode(svg, nx, y, nodeW, nodeH, "Multiply", opFill, "[" + ffnDimStr + "]",
-           "VecVecMul");
+            "up [" + ffnDimStr + "] F32", "matmul.out -> VecVecMul.in[1]");
+  emitNode(svg, nx, y, nodeW, nodeH, "Multiply", opFill,
+           "[" + ffnDimStr + "] F32", "VecVecMul");
   prevY = y + nodeH;
   y += gapY;
 
   // Down projection
-  emitArrow(svg, cx, prevY, cx, y, false, "gate_up [" + ffnDimStr + "]",
+  emitArrow(svg, cx, prevY, cx, y, false, "gate_up [" + ffnDimStr + "] F32",
             "VecVecMul.out -> transpose.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "Down Proj", wFill,
-           "w_down [" + ffnDimStr + ", " + dimStr + "]", "transpose > matmul");
+           "w_down [" + ffnDimStr + ", " + dimStr + "] " + wdType,
+           "transpose > matmul");
   prevY = y + nodeH;
   y += gapY;
 
   // Residual add
-  emitArrow(svg, cx, prevY, cx, y, false, "down [" + dimStr + "]",
+  emitArrow(svg, cx, prevY, cx, y, false, "down [" + dimStr + "] F32",
             "matmul.out -> VecVecAdd.in[1]");
   svg << "<polyline points=\"" << (cx + nodeW / 2 + 4) << "," << ffnResidStartY
       << " " << residX << "," << ffnResidStartY << " " << residX << ","
@@ -839,7 +881,7 @@ void generateModelReport(const GGUFReader &reader,
   svg << "<text x=\"" << (residX + 6) << "\" y=\""
       << ((ffnResidStartY + y + nodeH / 2) / 2 - 1)
       << "\" font-size=\"8\" fill=\"#0969da\">hidden [" << dimStr
-      << "] (residual)</text>\n";
+      << "] F32 (residual)</text>\n";
   svg << "<text x=\"" << (residX + 6) << "\" y=\""
       << ((ffnResidStartY + y + nodeH / 2) / 2 + 9)
       << "\" font-size=\"7\" fill=\"#bf8700\">-> VecVecAdd.in[0]</text>\n";
@@ -860,43 +902,47 @@ void generateModelReport(const GGUFReader &reader,
       << "\">x" << config.n_layers << " layers</text>\n";
 
   // ---- Output ----
-  emitArrow(svg, cx, prevY, cx, y, false, "hidden [" + dimStr + "]",
+  emitArrow(svg, cx, prevY, cx, y, false, "hidden [" + dimStr + "] F32",
             "VecVecAdd.out -> UnarySquare.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "RMS Norm", opFill,
-           "output_norm [" + dimStr + "]", "Square > Sum > Scale > Mul");
+           "output_norm [" + dimStr + "] " + outNormType,
+           "Square > Sum > Scale > Mul");
   prevY = y + nodeH;
   y += gapY;
 
-  emitArrow(svg, cx, prevY, cx, y, false, "normed [" + dimStr + "]",
+  emitArrow(svg, cx, prevY, cx, y, false, "normed [" + dimStr + "] F32",
             "VecVecMul.out -> transpose.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "LM Head", wFill,
-           "output [" + dimStr + ", " + vocabStr + "]", "transpose > matmul");
+           "output [" + dimStr + ", " + vocabStr + "] " + outType,
+           "transpose > matmul");
   prevY = y + nodeH;
   y += gapY;
 
-  emitArrow(svg, cx, prevY, cx, y, false, "logits [" + vocabStr + "]",
+  emitArrow(svg, cx, prevY, cx, y, false, "logits [" + vocabStr + "] F32",
             "matmul.out -> ReduceArgmax.in[0]");
   emitNode(svg, nx, y, nodeW, nodeH, "Logits", "#f0f4ff",
-           "[1, " + vocabStr + "]", "ReduceArgmax");
+           "[1, " + vocabStr + "] F32", "ReduceArgmax");
 
   svg << "</svg>\n";
 
-  // Patch actual SVG height
+  // Patch actual SVG height (replace __ARCH_H__ placeholder)
   int actualH = y + nodeH + 20;
   std::string svgStr = svg.str();
   {
-    std::string placeholder = "height=\"" + std::to_string(svgH) + "\"";
-    std::string replacement = "height=\"" + std::to_string(actualH) + "\"";
-    auto pos = svgStr.find(placeholder);
-    if (pos != std::string::npos) {
-      svgStr.replace(pos, placeholder.size(), replacement);
+    std::string ph = "__ARCH_H__";
+    std::string rp = std::to_string(actualH);
+    size_t p = 0;
+    while ((p = svgStr.find(ph, p)) != std::string::npos) {
+      svgStr.replace(p, ph.size(), rp);
+      p += rp.size();
     }
   }
 
   out << svgStr;
   out << R"(</div>
-
-<h2>CUT Operator Graph</h2>
+</div>
+<div>
+<h3>CUT Operator Graph</h3>
 <p class="tensor-count">Individual CUT operator nodes with tensor flow. Dotted boxes = GGUF-level operations.</p>
 <div class="arch-container">
 )";
@@ -916,8 +962,9 @@ void generateModelReport(const GGUFReader &reader,
     std::ostringstream op;
     int oSvgH = 3800;
 
-    op << "<svg class=\"arch-svg\" width=\"" << oSvgW << "\" height=\"" << oSvgH
-       << "\" xmlns=\"http://www.w3.org/2000/svg\">\n";
+    op << "<svg class=\"arch-svg\" width=\"" << oSvgW
+       << "\" height=\"__CUT_H__\" viewBox=\"0 0 " << oSvgW
+       << " __CUT_H__\" xmlns=\"http://www.w3.org/2000/svg\">\n";
     op << "<defs>\n";
     op << "  <marker id=\"op-arrow\" markerWidth=\"8\" markerHeight=\"6\" "
           "refX=\"8\" refY=\"3\" orient=\"auto\">\n";
@@ -975,19 +1022,19 @@ void generateModelReport(const GGUFReader &reader,
 
     // == RMS Norm (attn) ==
     boxY = oY - 8;
-    opEdge(oCx, oPrev, oCx, oY, "hidden [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "hidden [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "UnarySquare", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "x^2 [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "x^2 [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "ReduceSum", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "scalar");
+    opEdge(oCx, oPrev, oCx, oY, "scalar F32");
     opNode(onx, oY, oW, oH, "VecScalarMul", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "normed [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "normed [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "VecVecMul", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -998,18 +1045,21 @@ void generateModelReport(const GGUFReader &reader,
     int qCol = oCx - oCol, kCol = oCx, vCol = oCx + oCol;
     int qnx = qCol - oW / 2, knx = kCol - oW / 2, vnx = vCol - oW / 2;
 
-    opEdge(oCx, oPrev, qCol, oY, "normed [" + dimStr + "]", -1);
-    opEdge(oCx, oPrev, kCol, oY, "normed [" + dimStr + "]");
-    opEdge(oCx, oPrev, vCol, oY, "normed [" + dimStr + "]");
+    opEdge(oCx, oPrev, qCol, oY, "normed [" + dimStr + "] F32", -1);
+    opEdge(oCx, oPrev, kCol, oY, "normed [" + dimStr + "] F32");
+    opEdge(oCx, oPrev, vCol, oY, "normed [" + dimStr + "] F32");
     opNode(qnx, oY, oW, oH, "transpose (Wq)", gpuFill);
     opNode(knx, oY, oW, oH, "transpose (Wk)", gpuFill);
     opNode(vnx, oY, oW, oH, "transpose (Wv)", gpuFill);
     int tY = oY + oH;
     oY += oGap;
 
-    opEdge(qCol, tY, qCol, oY, "Wq^T [" + dimStr + "," + dimStr + "]");
-    opEdge(kCol, tY, kCol, oY, "Wk^T [" + dimStr + "," + kvDimStr + "]");
-    opEdge(vCol, tY, vCol, oY, "Wv^T [" + dimStr + "," + kvDimStr + "]");
+    opEdge(qCol, tY, qCol, oY,
+           "Wq^T [" + dimStr + "," + dimStr + "] " + wqType);
+    opEdge(kCol, tY, kCol, oY,
+           "Wk^T [" + dimStr + "," + kvDimStr + "] " + wkType);
+    opEdge(vCol, tY, vCol, oY,
+           "Wv^T [" + dimStr + "," + kvDimStr + "] " + wvType);
     opNode(qnx, oY, oW, oH, "matmul (Q)", gpuFill);
     opNode(knx, oY, oW, oH, "matmul (K)", gpuFill);
     opNode(vnx, oY, oW, oH, "matmul (V)", gpuFill);
@@ -1021,8 +1071,8 @@ void generateModelReport(const GGUFReader &reader,
 
     // == RoPE ==
     boxY = oY - 8;
-    opEdge(qCol, mqkvY, qCol, oY, "q [" + dimStr + "]");
-    opEdge(kCol, mqkvY, kCol, oY, "k [" + kvDimStr + "]");
+    opEdge(qCol, mqkvY, qCol, oY, "q [" + dimStr + "] F32");
+    opEdge(kCol, mqkvY, kCol, oY, "k [" + kvDimStr + "] F32");
     opNode(qnx, oY, oW, oH, "RoPE rotate", cpuFill);
     opNode(knx, oY, oW, oH, "RoPE rotate", cpuFill);
     int ropeEnd = oY + oH;
@@ -1032,24 +1082,24 @@ void generateModelReport(const GGUFReader &reader,
 
     // == Attention ==
     boxY = oY - 8;
-    opEdge(qCol, ropeEnd, oCx, oY, "q_rot [" + dimStr + "]", -1);
-    opEdge(kCol, ropeEnd, oCx, oY, "k_rot [" + kvDimStr + "]", -1);
-    opEdge(vCol, mqkvY, vCol, oY, "v [" + kvDimStr + "]");
+    opEdge(qCol, ropeEnd, oCx, oY, "q_rot [" + dimStr + "] F32", -1);
+    opEdge(kCol, ropeEnd, oCx, oY, "k_rot [" + kvDimStr + "] F32", -1);
+    opEdge(vCol, mqkvY, vCol, oY, "v [" + kvDimStr + "] F32");
 
     opNode(onx, oY, oW, oH, "dot (per head)", cpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "scores [seq]");
+    opEdge(oCx, oPrev, oCx, oY, "scores [seq] F32");
     opNode(onx, oY, oW, oH, "softmax", cpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "weights [seq]");
+    opEdge(oCx, oPrev, oCx, oY, "weights [seq] F32");
     opEdge(vCol, boxY + oH / 2 + 8, oCx + oW / 2, oY + oH / 2, "");
     opNode(onx, oY, oW, oH, "weighted sum", cpuFill);
     oPrev = oY + oH;
     oY += oGap;
     std::string hdStr = std::to_string(config.head_dim);
-    opEdge(oCx, oPrev, oCx, oY, "head_out [" + hdStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "head_out [" + hdStr + "] F32");
     opNode(onx, oY, oW, oH, "concat heads", cpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1057,11 +1107,12 @@ void generateModelReport(const GGUFReader &reader,
 
     // == O Projection ==
     boxY = oY - 8;
-    opEdge(oCx, oPrev, oCx, oY, "attn_out [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "attn_out [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "transpose (Wo)", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "Wo^T [" + dimStr + "," + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY,
+           "Wo^T [" + dimStr + "," + dimStr + "] " + woType);
     opNode(onx, oY, oW, oH, "matmul (O)", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1069,7 +1120,7 @@ void generateModelReport(const GGUFReader &reader,
 
     // == Residual Add (attn) ==
     boxY = oY - 8;
-    opEdge(oCx, oPrev, oCx, oY, "proj [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "proj [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "VecVecAdd", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1077,19 +1128,19 @@ void generateModelReport(const GGUFReader &reader,
 
     // == RMS Norm (ffn) ==
     boxY = oY - 8;
-    opEdge(oCx, oPrev, oCx, oY, "hidden [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "hidden [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "UnarySquare", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "x^2 [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "x^2 [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "ReduceSum", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "scalar");
+    opEdge(oCx, oPrev, oCx, oY, "scalar F32");
     opNode(onx, oY, oW, oH, "VecScalarMul", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "normed [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "normed [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "VecVecMul", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1100,14 +1151,16 @@ void generateModelReport(const GGUFReader &reader,
     int gCol = oCx - oCol / 2, uCol = oCx + oCol / 2;
     int gnx = gCol - oW / 2, unx = uCol - oW / 2;
 
-    opEdge(oCx, oPrev, gCol, oY, "normed [" + dimStr + "]", -1);
-    opEdge(oCx, oPrev, uCol, oY, "normed [" + dimStr + "]");
+    opEdge(oCx, oPrev, gCol, oY, "normed [" + dimStr + "] F32", -1);
+    opEdge(oCx, oPrev, uCol, oY, "normed [" + dimStr + "] F32");
     opNode(gnx, oY, oW, oH, "transpose (Wg)", gpuFill);
     opNode(unx, oY, oW, oH, "transpose (Wu)", gpuFill);
     tY = oY + oH;
     oY += oGap;
-    opEdge(gCol, tY, gCol, oY, "Wg^T [" + dimStr + "," + ffnDimStr + "]");
-    opEdge(uCol, tY, uCol, oY, "Wu^T [" + dimStr + "," + ffnDimStr + "]");
+    opEdge(gCol, tY, gCol, oY,
+           "Wg^T [" + dimStr + "," + ffnDimStr + "] " + wgType);
+    opEdge(uCol, tY, uCol, oY,
+           "Wu^T [" + dimStr + "," + ffnDimStr + "] " + wuType);
     opNode(gnx, oY, oW, oH, "matmul (gate)", gpuFill);
     opNode(unx, oY, oW, oH, "matmul (up)", gpuFill);
     int gateMatY = oY + oH;
@@ -1117,7 +1170,7 @@ void generateModelReport(const GGUFReader &reader,
 
     // == SiLU ==
     boxY = oY - 8;
-    opEdge(gCol, gateMatY, gCol, oY, "gate [" + ffnDimStr + "]");
+    opEdge(gCol, gateMatY, gCol, oY, "gate [" + ffnDimStr + "] F32");
     opNode(gnx, oY, oW, oH, "UnarySilu", gpuFill);
     int siluEnd = oY + oH;
     oY += oGap;
@@ -1125,8 +1178,8 @@ void generateModelReport(const GGUFReader &reader,
 
     // == Multiply ==
     boxY = oY - 8;
-    opEdge(gCol, siluEnd, oCx, oY, "silu(gate) [" + ffnDimStr + "]", -1);
-    opEdge(uCol, gateMatY, oCx, oY, "up [" + ffnDimStr + "]");
+    opEdge(gCol, siluEnd, oCx, oY, "silu(gate) [" + ffnDimStr + "] F32", -1);
+    opEdge(uCol, gateMatY, oCx, oY, "up [" + ffnDimStr + "] F32");
     opNode(onx, oY, oW, oH, "VecVecMul", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1134,11 +1187,12 @@ void generateModelReport(const GGUFReader &reader,
 
     // == Down Projection ==
     boxY = oY - 8;
-    opEdge(oCx, oPrev, oCx, oY, "gate_up [" + ffnDimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "gate_up [" + ffnDimStr + "] F32");
     opNode(onx, oY, oW, oH, "transpose (Wd)", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "Wd^T [" + ffnDimStr + "," + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY,
+           "Wd^T [" + ffnDimStr + "," + dimStr + "] " + wdType);
     opNode(onx, oY, oW, oH, "matmul (down)", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1146,7 +1200,7 @@ void generateModelReport(const GGUFReader &reader,
 
     // == Residual Add (ffn) ==
     boxY = oY - 8;
-    opEdge(oCx, oPrev, oCx, oY, "down [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "down [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "VecVecAdd", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1154,19 +1208,19 @@ void generateModelReport(const GGUFReader &reader,
 
     // == RMS Norm (output) ==
     boxY = oY - 8;
-    opEdge(oCx, oPrev, oCx, oY, "hidden [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "hidden [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "UnarySquare", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "x^2 [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "x^2 [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "ReduceSum", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "scalar");
+    opEdge(oCx, oPrev, oCx, oY, "scalar F32");
     opNode(onx, oY, oW, oH, "VecScalarMul", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "normed [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "normed [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "VecVecMul", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1174,11 +1228,12 @@ void generateModelReport(const GGUFReader &reader,
 
     // == LM Head ==
     boxY = oY - 8;
-    opEdge(oCx, oPrev, oCx, oY, "normed [" + dimStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "normed [" + dimStr + "] F32");
     opNode(onx, oY, oW, oH, "transpose (W_out)", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
-    opEdge(oCx, oPrev, oCx, oY, "W_out^T [" + dimStr + "," + vocabStr + "]");
+    opEdge(oCx, oPrev, oCx, oY,
+           "W_out^T [" + dimStr + "," + vocabStr + "] " + outType);
     opNode(onx, oY, oW, oH, "matmul (head)", gpuFill);
     oPrev = oY + oH;
     oY += oGap;
@@ -1186,27 +1241,31 @@ void generateModelReport(const GGUFReader &reader,
 
     // == ReduceArgmax ==
     boxY = oY - 8;
-    opEdge(oCx, oPrev, oCx, oY, "logits [" + vocabStr + "]");
+    opEdge(oCx, oPrev, oCx, oY, "logits [" + vocabStr + "] F32");
     opNode(onx, oY, oW, oH, "ReduceArgmax", gpuFill);
     oY += oGap;
     ggufBox(onx - 10, boxY, oW + 20, oGap - 6, "Logits");
 
     op << "</svg>\n";
 
-    // Patch SVG height
+    // Patch SVG height (replace __CUT_H__ placeholder)
     int oActualH = oY + 10;
     std::string opStr = op.str();
     {
-      std::string ph = "height=\"" + std::to_string(oSvgH) + "\"";
-      std::string rp = "height=\"" + std::to_string(oActualH) + "\"";
-      auto p = opStr.find(ph);
-      if (p != std::string::npos)
-        opStr.replace(p, ph.size(), rp);
+      std::string ph = "__CUT_H__";
+      std::string rp = std::to_string(oActualH);
+      size_t pp = 0;
+      while ((pp = opStr.find(ph, pp)) != std::string::npos) {
+        opStr.replace(pp, ph.size(), rp);
+        pp += rp.size();
+      }
     }
     out << opStr;
   }
 
   out << R"(</div>
+</div>
+</div>
 
 <h2>CUT Operator Mapping</h2>
 <p class="tensor-count">How each GGUF tensor maps to CUT GPU operators during inference.</p>
