@@ -29,7 +29,7 @@ CopyOpNode::CopyOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(dstShape_, dtype_);
 }
 
-DataType CopyOpNode::shaderDtype() const {
+DataType CopyOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -89,7 +89,7 @@ EmbeddingOpNode::EmbeddingOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), DataType::Float32);
 }
 
-DataType EmbeddingOpNode::shaderDtype() const {
+DataType EmbeddingOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -169,7 +169,7 @@ PadOpNode::PadOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType PadOpNode::shaderDtype() const {
+DataType PadOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -243,7 +243,7 @@ ExpandOpNode::ExpandOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outShape_, dtype_);
 }
 
-DataType ExpandOpNode::shaderDtype() const {
+DataType ExpandOpNode::outputDtype() const {
   return dtype_;
 }
 

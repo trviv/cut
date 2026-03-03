@@ -34,7 +34,7 @@ Conv1DOpNode::Conv1DOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType Conv1DOpNode::shaderDtype() const {
+DataType Conv1DOpNode::outputDtype() const {
   return dtype_;
 }
 

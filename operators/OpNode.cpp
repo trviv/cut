@@ -34,7 +34,7 @@ size_t actualElementCount(const std::vector<uint32_t> &shape) {
 // ============================================================================
 
 std::optional<std::vector<uint32_t>> OpNode::shader() const {
-  return getShader(op_, shaderDtype());
+  return getShader(op_, outputDtype());
 }
 
 std::vector<DataType>
@@ -44,7 +44,7 @@ OpNode::resolveInputDtypes(const std::vector<DataType> &inputDtypes) const {
 
 size_t OpNode::shaderKey() const {
   size_t key = static_cast<size_t>(op_);
-  size_t dtype = static_cast<size_t>(shaderDtype()) & 0xF;
+  size_t dtype = static_cast<size_t>(outputDtype()) & 0xF;
   for (size_t i = 0; i < inputs_.size() && i < 8; ++i) {
     key |= dtype << (16 + i * 4);
   }
@@ -100,7 +100,7 @@ InternalOpNode::InternalOpNode(OperatorEnum op,
   inputs_ = std::move(inputs);
 }
 
-DataType InternalOpNode::shaderDtype() const {
+DataType InternalOpNode::outputDtype() const {
   return dtype_;
 }
 

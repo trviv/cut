@@ -35,7 +35,7 @@ MaxPool2DOpNode::MaxPool2DOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType MaxPool2DOpNode::shaderDtype() const {
+DataType MaxPool2DOpNode::outputDtype() const {
   return dtype_;
 }
 

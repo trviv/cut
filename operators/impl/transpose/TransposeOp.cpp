@@ -20,10 +20,6 @@ TransposeOpNode::TransposeOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType TransposeOpNode::shaderDtype() const {
-  return dtype_;
-}
-
 DataType TransposeOpNode::outputDtype() const {
   return dtype_;
 }

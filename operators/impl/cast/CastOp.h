@@ -11,7 +11,6 @@ public:
              DataType targetDtype,
              std::optional<uint32_t> spec = {});
 
-  DataType shaderDtype() const override;
   DataType outputDtype() const override;
   size_t shaderKey() const override;
   std::optional<std::vector<uint32_t>> shader() const override;

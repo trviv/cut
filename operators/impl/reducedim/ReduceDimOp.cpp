@@ -55,7 +55,7 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType DimReduceOpNode::shaderDtype() const {
+DataType DimReduceOpNode::outputDtype() const {
   return dtype_;
 }
 

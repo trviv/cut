@@ -29,7 +29,7 @@ CacheWriteOpNode::CacheWriteOpNode(TensorStore &store,
   output_ = cache;
 }
 
-DataType CacheWriteOpNode::shaderDtype() const {
+DataType CacheWriteOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -88,7 +88,7 @@ AttentionOpNode::AttentionOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outShape_, dtype_);
 }
 
-DataType AttentionOpNode::shaderDtype() const {
+DataType AttentionOpNode::outputDtype() const {
   return dtype_;
 }
 

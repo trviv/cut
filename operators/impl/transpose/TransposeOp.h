@@ -15,7 +15,6 @@ public:
     return LogicalOpType::Transpose;
   }
 
-  DataType shaderDtype() const override;
   DataType outputDtype() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
   std::vector<uint32_t> outputShape() const override;

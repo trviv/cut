@@ -13,7 +13,7 @@ public:
 
   LogicalOpType logicalType() const override { return LogicalOpType::Reshape; }
 
-  DataType shaderDtype() const override;
+  DataType outputDtype() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -34,7 +34,7 @@ public:
                   const Tensor &weight,
                   std::optional<uint32_t> spec = {});
 
-  DataType shaderDtype() const override;
+  DataType outputDtype() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -55,7 +55,7 @@ public:
             float value,
             std::optional<uint32_t> spec = {});
 
-  DataType shaderDtype() const override;
+  DataType outputDtype() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
@@ -86,7 +86,7 @@ public:
                const std::vector<uint32_t> &targetShape,
                std::optional<uint32_t> spec = {});
 
-  DataType shaderDtype() const override;
+  DataType outputDtype() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;

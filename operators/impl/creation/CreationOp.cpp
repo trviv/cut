@@ -19,7 +19,7 @@ FillOpNode::FillOpNode(OperatorEnum op,
     fillValue_ = 1.0f;
 }
 
-DataType FillOpNode::shaderDtype() const {
+DataType FillOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -61,7 +61,7 @@ ArangeOpNode::ArangeOpNode(OperatorEnum op,
     : OpNode(op, store, spec), shape_(std::move(shape)), dtype_(dtype),
       start_(start), step_(step), numElements_(alignedElementCount(shape_)) {}
 
-DataType ArangeOpNode::shaderDtype() const {
+DataType ArangeOpNode::outputDtype() const {
   return dtype_;
 }
 

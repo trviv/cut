@@ -22,7 +22,7 @@ TernaryClampOpNode::TernaryClampOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType TernaryClampOpNode::shaderDtype() const {
+DataType TernaryClampOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -77,7 +77,7 @@ TernarySelectOpNode::TernarySelectOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType TernarySelectOpNode::shaderDtype() const {
+DataType TernarySelectOpNode::outputDtype() const {
   return dtype_;
 }
 

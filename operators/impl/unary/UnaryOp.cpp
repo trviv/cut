@@ -17,7 +17,7 @@ UnaryOpNode::UnaryOpNode(OperatorEnum op,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType UnaryOpNode::shaderDtype() const {
+DataType UnaryOpNode::outputDtype() const {
   return dtype_;
 }
 

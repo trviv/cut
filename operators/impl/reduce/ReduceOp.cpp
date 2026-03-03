@@ -40,7 +40,7 @@ GlobalReduceOpNode::GlobalReduceOpNode(OperatorEnum op,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType GlobalReduceOpNode::shaderDtype() const {
+DataType GlobalReduceOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -139,7 +139,7 @@ NormOpNode::NormOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType NormOpNode::shaderDtype() const {
+DataType NormOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -193,7 +193,7 @@ DotOpNode::DotOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), DataType::Float32);
 }
 
-DataType DotOpNode::shaderDtype() const {
+DataType DotOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -263,7 +263,7 @@ CumOpNode::CumOpNode(OperatorEnum op,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType CumOpNode::shaderDtype() const {
+DataType CumOpNode::outputDtype() const {
   return dtype_;
 }
 

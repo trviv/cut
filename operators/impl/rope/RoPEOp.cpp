@@ -23,7 +23,7 @@ RoPEOpNode::RoPEOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outShape_, dtype_);
 }
 
-DataType RoPEOpNode::shaderDtype() const {
+DataType RoPEOpNode::outputDtype() const {
   return dtype_;
 }
 

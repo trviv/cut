@@ -31,17 +31,14 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType MatMulOpNode::shaderDtype() const {
-  return dtypeA_;
-}
 DataType MatMulOpNode::outputDtype() const {
   return DataType::Float32;
 }
 
 size_t MatMulOpNode::shaderKey() const {
-  // Base OpNode::shaderKey() uses shaderDtype() (= dtypeA_) for ALL input
-  // slots, so matmul(F32, F16) and matmul(F32, F32) produce the same cache
-  // key.  Override to encode dtypeA_ and dtypeB_ in distinct slots.
+  // Base OpNode::shaderKey() uses outputDtype() for ALL input slots, so
+  // matmul(F32, F16) and matmul(F32, F32) produce the same cache key.
+  // Override to encode dtypeA_ and dtypeB_ in distinct slots.
   size_t key = static_cast<size_t>(op_);
   key |= (static_cast<size_t>(dtypeA_) & 0xF) << 16;
   key |= (static_cast<size_t>(dtypeB_) & 0xF) << 20;

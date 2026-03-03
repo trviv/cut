@@ -74,11 +74,8 @@ public:
   /// Returns the input tensor handles.
   const std::vector<Tensor> &inputs() const { return inputs_; }
 
-  /// Returns the DataType for shader dtype selection.
-  virtual DataType shaderDtype() const = 0;
-
   /// Returns SPIR-V bytecode for this node's shader.
-  /// Default calls getShader(op_, shaderDtype()). Override for variant ops
+  /// Default calls getShader(op_, outputDtype()). Override for variant ops
   /// (MatMul, Transpose, etc.) and dim-reduce ops.
   virtual std::optional<std::vector<uint32_t>> shader() const;
 
@@ -90,8 +87,8 @@ public:
   /// Returns the computed output shape.
   virtual std::vector<uint32_t> outputShape() const = 0;
 
-  /// Returns the output dtype (defaults to shaderDtype()).
-  virtual DataType outputDtype() const { return shaderDtype(); }
+  /// Returns the output dtype.
+  virtual DataType outputDtype() const = 0;
 
   /// Given the dtypes of input tensors, returns the dtypes this operator
   /// actually requires. If an input dtype is unsupported (e.g. Float16 when
@@ -186,7 +183,7 @@ public:
                  std::vector<uint8_t> pushConstants,
                  bool barrierAfter = false);
 
-  DataType shaderDtype() const override;
+  DataType outputDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
@@ -214,7 +211,6 @@ public:
   LogicalOpType logicalType() const override { return LogicalOpType::Input; }
   std::string displayName() const override;
 
-  DataType shaderDtype() const override { return dtype_; }
   std::vector<uint32_t> outputShape() const override { return shape_; }
   DataType outputDtype() const override { return dtype_; }
   ThreadSize dispatchSize() const override { return {0, 0, 0}; }
@@ -248,7 +244,6 @@ public:
 
   std::string displayName() const override { return name_; }
 
-  DataType shaderDtype() const override { return dtype_; }
   std::vector<uint32_t> outputShape() const override { return shape_; }
   DataType outputDtype() const override { return dtype_; }
   ThreadSize dispatchSize() const override { return {0, 0, 0}; }

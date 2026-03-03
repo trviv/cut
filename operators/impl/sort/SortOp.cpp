@@ -32,7 +32,7 @@ BitonicSortOpNode::BitonicSortOpNode(TensorStore &store,
   inputs_ = {keys, vals};
 }
 
-DataType BitonicSortOpNode::shaderDtype() const {
+DataType BitonicSortOpNode::outputDtype() const {
   return dtype_;
 }
 
@@ -117,7 +117,7 @@ RadixSortOpNode::RadixSortOpNode(TensorStore &store,
   inputs_ = {keys, vals};
 }
 
-DataType RadixSortOpNode::shaderDtype() const {
+DataType RadixSortOpNode::outputDtype() const {
   return dtype_;
 }
 

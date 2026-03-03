@@ -20,10 +20,6 @@ CastOpNode::CastOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(shape_, dstDtype_);
 }
 
-DataType CastOpNode::shaderDtype() const {
-  return srcDtype_;
-}
-
 DataType CastOpNode::outputDtype() const {
   return dstDtype_;
 }

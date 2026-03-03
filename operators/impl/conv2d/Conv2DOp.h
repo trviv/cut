@@ -16,7 +16,7 @@ public:
                uint32_t padW,
                std::optional<uint32_t> spec = {});
 
-  DataType shaderDtype() const override;
+  DataType outputDtype() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;

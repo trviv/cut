@@ -11,7 +11,7 @@ public:
                    const Tensor &a,
                    std::optional<uint32_t> spec = {});
 
-  DataType shaderDtype() const override;
+  DataType outputDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   bool isMultiPass() const override;
   size_t executionSize() const override;

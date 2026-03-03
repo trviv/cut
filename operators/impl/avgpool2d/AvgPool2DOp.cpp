@@ -35,7 +35,7 @@ AvgPool2DOpNode::AvgPool2DOpNode(TensorStore &store,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType AvgPool2DOpNode::shaderDtype() const {
+DataType AvgPool2DOpNode::outputDtype() const {
   return dtype_;
 }
 

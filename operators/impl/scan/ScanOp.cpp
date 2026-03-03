@@ -15,7 +15,7 @@ PrefixScanOpNode::PrefixScanOpNode(OperatorEnum op,
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType PrefixScanOpNode::shaderDtype() const {
+DataType PrefixScanOpNode::outputDtype() const {
   return dtype_;
 }
 
