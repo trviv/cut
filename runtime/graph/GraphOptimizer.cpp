@@ -30,6 +30,7 @@ void GraphOptimizer::optimize(Graph &graph) {
 GraphOptimizer GraphOptimizer::createDefault() {
   GraphOptimizer opt;
   opt.addPass(std::make_unique<IdentityReshapePass>());
+  opt.addPass(std::make_unique<NoOpReshapePass>());
   opt.addPass(std::make_unique<ReshapeChainPass>());
   opt.addPass(std::make_unique<TransposeCancelPass>());
   opt.addPass(std::make_unique<DeadCodePass>());
@@ -93,6 +94,52 @@ bool ReshapeChainPass::run(Graph &graph) {
     n.inputIds[0] = inputNode.inputIds[0];
     graph.recomputeRefCounts();
     changed = true;
+  }
+
+  return changed;
+}
+
+// ============================================================================
+// NoOpReshapePass
+// ============================================================================
+
+bool NoOpReshapePass::run(Graph &graph) {
+  bool changed = false;
+
+  for (uint32_t i = 0; i < graph.size(); ++i) {
+    auto &n = graph.nodes()[i];
+    if (!n.op || n.isRemoved)
+      continue;
+    if (n.logicalType != LogicalOpType::Reshape)
+      continue;
+    if (n.inputIds.empty())
+      continue;
+
+    uint32_t inputId = n.inputIds[0];
+    const auto &inputNode = graph.node(inputId);
+
+    auto srcShape = inputNode.op->outputShape();
+    auto dstShape = n.op->outputShape();
+
+    // IdentityReshapePass already handles identical shapes
+    if (srcShape == dstShape)
+      continue;
+
+    uint32_t srcInner = srcShape.empty() ? 1 : srcShape.back();
+    uint32_t dstInner = dstShape.empty() ? 1 : dstShape.back();
+
+    // The copy shader maps element gid to:
+    //   offset = (gid / inner) * alignedInner + (gid % inner)
+    // This is identity when:
+    //   1) srcInner == dstInner  (same decomposition and stride), or
+    //   2) both inners are multiples of 4 (no padding, offset == gid)
+    bool sameInner = (srcInner == dstInner);
+    bool bothAligned = (srcInner % 4 == 0) && (dstInner % 4 == 0);
+
+    if (sameInner || bothAligned) {
+      graph.replaceAllUses(i, inputId);
+      changed = true;
+    }
   }
 
   return changed;

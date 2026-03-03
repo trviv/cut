@@ -1367,7 +1367,7 @@ void generateModelReport(const GGUFReader &reader,
   // -----------------------------------------------------------------------
   if (!optimizedGraphs.empty()) {
     out << R"(<h2>Computation Graphs &mdash; Before &amp; After Optimization</h2>
-<p class="tensor-count">Graph templates (layer 0 representative) shown before and after optimization passes: IdentityReshape, ReshapeChain, TransposeCancel, DeadCode.</p>
+<p class="tensor-count">Graph templates (layer 0 representative) shown before and after optimization passes: IdentityReshape, NoOpReshape, ReshapeChain, TransposeCancel, DeadCode.</p>
 )";
     for (size_t gi = 0; gi < optimizedGraphs.size(); ++gi) {
       const auto &ng = optimizedGraphs[gi];

@@ -82,7 +82,9 @@ const char *dataTypeName(DataType dtype) {
 }
 
 DataType widenPrecision(DataType dt) {
-  if (dt == DataType::Float16 || dt == DataType::Int8)
+  if (dt == DataType::Int8)
+    return DataType::Float16;
+  if (dt == DataType::Float16)
     return DataType::Float32;
   return dt;
 }

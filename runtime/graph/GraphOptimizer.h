@@ -64,6 +64,15 @@ public:
   bool run(Graph &graph) override;
 };
 
+/// Eliminates reshape nodes whose memory layout is identical to their input.
+/// Covers cases where shapes differ but innermost dimensions share the same
+/// alignment (e.g. [576] → [1,576]), making the GPU copy a no-op.
+class NoOpReshapePass : public GraphPass {
+public:
+  const char *name() const override { return "NoOpReshape"; }
+  bool run(Graph &graph) override;
+};
+
 /// Removes nodes with refCount == 0 that are not graph outputs.
 /// Runs in reverse topological order so removals cascade.
 class DeadCodePass : public GraphPass {
