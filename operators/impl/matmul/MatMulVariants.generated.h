@@ -17,7 +17,7 @@ struct MatMulVariantInfo {
     const char* description;
 };
 
-inline constexpr int kMatMulVariantCount = 12;
+inline constexpr int kMatMulVariantCount = 13;
 inline constexpr int kMatMulDefaultVariant = 6;
 
 inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
@@ -33,6 +33,7 @@ inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
     {"MatMulSimdR4x4", 32, 1, 32, 16, "SIMD R4x4 (32x16)"},
     {"MatMulSimdR4x8", 32, 1, 32, 32, "SIMD R4x8 (32x32)"},
     {"MatMulSimdR8x8", 32, 1, 64, 32, "SIMD R8x8 (64x32)"},
+    {"MatMulSiLUT16R4x4", 16, 16, 64, 64, "SiLU T16 R4x4 (8KB)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
@@ -48,6 +49,7 @@ std::optional<std::vector<uint32_t>> compiledMatMulT32R2x2(DataType input1, Data
 std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x8(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulSimdR8x8(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulSiLUT16R4x4(DataType input1, DataType input2, DataType output);
 
 using CompiledMatMulFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType, DataType);
 
@@ -64,6 +66,7 @@ inline const CompiledMatMulFn kMatMulCompiledFns[kMatMulVariantCount] = {
     compiledMatMulSimdR4x4,
     compiledMatMulSimdR4x8,
     compiledMatMulSimdR8x8,
+    compiledMatMulSiLUT16R4x4,
 };
 
 /// Returns compiled SPIR-V for a matmul variant by index.

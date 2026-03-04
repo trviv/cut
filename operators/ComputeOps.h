@@ -273,11 +273,14 @@ enum OperatorEnum {
   AvgPool2D = OP_AVG_POOL2D,
 
   // ===========================================================================
-  // Normalization operations (310-311)
+  // Normalization operations (310-314)
   // ===========================================================================
 
   LayerNorm = OP_LAYER_NORM,
   BatchNorm = OP_BATCH_NORM,
+  RMSNorm = OP_RMS_NORM,
+  ExtendedRMSNorm = OP_EXTENDED_RMS_NORM,
+  MatMulSiLU = OP_MATMUL_SILU,
 
   // ===========================================================================
   // Embedding operations (320)

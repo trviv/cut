@@ -137,7 +137,10 @@ InputOpNode::InputOpNode(const Tensor &gpuHandle,
                          DataType dtype,
                          bool isConstant)
     : OpNode(static_cast<OperatorEnum>(0)), gpuHandle_(gpuHandle),
-      shape_(shape), dtype_(dtype), isConstant_(isConstant) {}
+      shape_(shape), dtype_(dtype), isConstant_(isConstant) {
+  // Set output_ so that fusion passes can access it via output()
+  output_ = gpuHandle_;
+}
 
 std::string InputOpNode::displayName() const {
   return "Input";

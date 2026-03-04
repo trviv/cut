@@ -78,6 +78,7 @@ struct GraphTemplate {
   std::unique_ptr<cut::graph::Graph> graph;
   cut::graph::Graph preOptGraph; // snapshot before optimization passes
   std::vector<uint32_t> dynamicInputIds;
+  std::vector<cut::graph::PassStats> stats; // optimization statistics
 };
 
 /// Pre-built graph templates for one transformer layer.

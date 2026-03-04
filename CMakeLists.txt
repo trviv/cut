@@ -102,11 +102,14 @@ set(LIB_HEADERS
     operators/impl/conv2d/Conv2DOp.h
     operators/impl/creation/CreationOp.h
     operators/impl/matmul/MatMulOp.h
+    operators/impl/matmul/MatMulSiLUOp.h
     operators/impl/maxpool2d/MaxPool2DOp.h
     operators/impl/rope/RoPEOp.h
     operators/impl/attention/AttentionOp.h
     operators/impl/memory/MemoryOp.h
     operators/impl/reduce/ReduceOp.h
+    operators/impl/rmsnorm/RMSNormOp.h
+    operators/impl/rmsnorm/ExtendedRMSNormOp.h
     operators/impl/reducedim/ReduceDimOp.h
     operators/impl/scan/ScanOp.h
     operators/impl/sort/SortOp.h
@@ -148,12 +151,15 @@ set(LIB_SOURCES
     operators/impl/conv2d/Conv2DOp.cpp
     operators/impl/creation/CreationOp.cpp
     operators/impl/matmul/MatMulOp.cpp
+    operators/impl/matmul/MatMulSiLUOp.cpp
     operators/impl/matmulq8/MatMulQ8Op.cpp
     operators/impl/maxpool2d/MaxPool2DOp.cpp
     operators/impl/rope/RoPEOp.cpp
     operators/impl/attention/AttentionOp.cpp
     operators/impl/memory/MemoryOp.cpp
     operators/impl/reduce/ReduceOp.cpp
+    operators/impl/rmsnorm/RMSNormOp.cpp
+    operators/impl/rmsnorm/ExtendedRMSNormOp.cpp
     operators/impl/reducedim/ReduceDimOp.cpp
     operators/impl/scan/ScanOp.cpp
     operators/impl/sort/SortOp.cpp

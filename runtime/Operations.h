@@ -57,6 +57,13 @@ public:
                   uint32_t bCols,
                   std::optional<uint32_t> spec = {});
 
+  /// Fused matrix multiplication with SiLU activation: silu(A * B)
+  /// where silu(x) = x / (1 + exp(-x))
+  /// Saves GPU dispatch overhead vs separate matmul + silu operations.
+  Tensor matmulSiLU(const Tensor &a,
+                    const Tensor &b,
+                    std::optional<uint32_t> spec = {});
+
   Tensor transpose(const Tensor &a, std::optional<uint32_t> spec = {});
 
   Tensor
@@ -183,6 +190,17 @@ public:
                    const Tensor *weight = nullptr,
                    const Tensor *bias = nullptr,
                    float eps = 1e-5f);
+
+  Tensor rmsNorm(const Tensor &x,
+                 const Tensor &weight,
+                 float eps = 1e-5f,
+                 std::optional<uint32_t> spec = {});
+
+  Tensor extendedRmsNorm(const Tensor &residual_base,
+                         const Tensor &delta,
+                         const Tensor &weight,
+                         float eps = 1e-5f,
+                         std::optional<uint32_t> spec = {});
 
   // ===== Embedding ops =====
 

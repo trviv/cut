@@ -267,11 +267,14 @@
 #define OP_AVG_POOL2D 303
 
 // =============================================================================
-// Normalization operations (310-311)
+// Normalization operations (310-314)
 // =============================================================================
 
 #define OP_LAYER_NORM 310
 #define OP_BATCH_NORM 311
+#define OP_RMS_NORM 312
+#define OP_EXTENDED_RMS_NORM 313
+#define OP_MATMUL_SILU 314
 
 // =============================================================================
 // Embedding operations (320)

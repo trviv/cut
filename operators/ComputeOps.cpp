@@ -235,6 +235,8 @@ const char *operatorName(OperatorEnum op) {
   // Matrix operations
   case MatMul:
     return "MatMul";
+  case MatMulSiLU:
+    return "MatMulSiLU";
   case Transpose:
     return "Transpose";
   case Dot:
@@ -325,6 +327,10 @@ const char *operatorName(OperatorEnum op) {
     return "LayerNorm";
   case BatchNorm:
     return "BatchNorm";
+  case RMSNorm:
+    return "RMSNorm";
+  case ExtendedRMSNorm:
+    return "ExtendedRMSNorm";
 
   // Embedding operations
   case Embedding:

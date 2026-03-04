@@ -8,6 +8,7 @@
 #include <climits>
 #include <cmath>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 
 namespace gguf {
@@ -342,15 +343,15 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
     if (!layerGraphs_.empty()) {
       auto &lg = layerGraphs_[0];
       graphs.push_back({"QKV Projection", &lg.qkvProjection.preOptGraph,
-                        lg.qkvProjection.graph.get()});
-      graphs.push_back({"Attention Output + Residual",
-                        &lg.attnOutputResidual.preOptGraph,
-                        lg.attnOutputResidual.graph.get()});
+                        lg.qkvProjection.graph.get(), &lg.qkvProjection.stats});
+      graphs.push_back(
+          {"Attention Output + Residual", &lg.attnOutputResidual.preOptGraph,
+           lg.attnOutputResidual.graph.get(), &lg.attnOutputResidual.stats});
       graphs.push_back({"FFN + Residual", &lg.ffnResidual.preOptGraph,
-                        lg.ffnResidual.graph.get()});
+                        lg.ffnResidual.graph.get(), &lg.ffnResidual.stats});
     }
-    graphs.push_back(
-        {"Logits", &logitsGraph_.preOptGraph, logitsGraph_.graph.get()});
+    graphs.push_back({"Logits", &logitsGraph_.preOptGraph,
+                      logitsGraph_.graph.get(), &logitsGraph_.stats});
     generateModelReport(reader, config_, reportPath, graphs);
   }
 }
@@ -488,7 +489,8 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   tpl.dynamicInputIds = {graph->nodeId(vNormed)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*graph);
+  optimizer.optimize(*graph, runtime_->store());
+  tpl.stats = optimizer.stats();
   tpl.graph = std::move(graph);
   return tpl;
 }
@@ -524,7 +526,8 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   tpl.dynamicInputIds = {graph->nodeId(vAttnOut), graph->nodeId(vHidden)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*graph);
+  optimizer.optimize(*graph, runtime_->store());
+  tpl.stats = optimizer.stats();
   tpl.graph = std::move(graph);
   return tpl;
 }
@@ -570,7 +573,8 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   tpl.dynamicInputIds = {graph->nodeId(vNormed), graph->nodeId(vHidden)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*graph);
+  optimizer.optimize(*graph, runtime_->store());
+  tpl.stats = optimizer.stats();
   tpl.graph = std::move(graph);
   return tpl;
 }
@@ -600,7 +604,8 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
   tpl.dynamicInputIds = {graph->nodeId(vHidden)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*graph);
+  optimizer.optimize(*graph, runtime_->store());
+  tpl.stats = optimizer.stats();
   tpl.graph = std::move(graph);
   return tpl;
 }
@@ -609,17 +614,72 @@ void LlamaModel::buildGraphTemplates() {
   executor_ =
       std::make_unique<cut::graph::GraphExecutor>(*ops_, runtime_->store());
 
-  layerGraphs_.resize(config_.n_layers);
-  for (uint32_t i = 0; i < config_.n_layers; ++i) {
-    layerGraphs_[i].qkvProjection = buildQKVProjectionGraph(layers_[i]);
-    layerGraphs_[i].attnOutputResidual =
-        buildAttnOutputResidualGraph(layers_[i]);
-    layerGraphs_[i].ffnResidual = buildFFNResidualGraph(layers_[i]);
+  // Collect optimization statistics across all graph templates
+  std::map<std::string, int> totalOptimizations;
+
+  // Build layer 0 graphs and collect stats (representative)
+  if (config_.n_layers > 0) {
+    layerGraphs_.resize(config_.n_layers);
+
+    auto qkvTpl = buildQKVProjectionGraph(layers_[0]);
+    for (const auto &stat : qkvTpl.stats) {
+      totalOptimizations[stat.name] += stat.runCount;
+    }
+    layerGraphs_[0].qkvProjection = std::move(qkvTpl);
+
+    auto attnTpl = buildAttnOutputResidualGraph(layers_[0]);
+    for (const auto &stat : attnTpl.stats) {
+      totalOptimizations[stat.name] += stat.runCount;
+    }
+    layerGraphs_[0].attnOutputResidual = std::move(attnTpl);
+
+    auto ffnTpl = buildFFNResidualGraph(layers_[0]);
+    for (const auto &stat : ffnTpl.stats) {
+      totalOptimizations[stat.name] += stat.runCount;
+    }
+    layerGraphs_[0].ffnResidual = std::move(ffnTpl);
+
+    // Build remaining layers (reuse same patterns, multiply stats)
+    for (uint32_t i = 1; i < config_.n_layers; ++i) {
+      layerGraphs_[i].qkvProjection = buildQKVProjectionGraph(layers_[i]);
+      layerGraphs_[i].attnOutputResidual =
+          buildAttnOutputResidualGraph(layers_[i]);
+      layerGraphs_[i].ffnResidual = buildFFNResidualGraph(layers_[i]);
+    }
+
+    // Multiply layer 0 stats by n_layers - 1 to account for other layers
+    if (config_.n_layers > 1) {
+      for (auto &[name, count] : totalOptimizations) {
+        count *= config_.n_layers;
+      }
+    }
   }
+
+  // Build logits graph
   logitsGraph_ = buildLogitsGraph();
+  for (const auto &stat : logitsGraph_.stats) {
+    totalOptimizations[stat.name] += stat.runCount;
+  }
 
   std::cout << "Built and optimized " << (config_.n_layers * 3 + 1)
             << " graph templates.\n";
+
+  // Print optimization summary
+  std::cout << "\nOptimization summary:\n";
+  int totalPasses = 0;
+  for (const auto &[name, count] : totalOptimizations) {
+    if (count > 0) {
+      std::cout << "  " << name << ": " << count << " optimizations\n";
+      totalPasses += count;
+    }
+  }
+  if (totalPasses == 0) {
+    std::cout << "  No optimizations applied (graphs already optimal)\n";
+  } else {
+    std::cout << "  Total: " << totalPasses
+              << " optimizations across all graphs\n";
+  }
+  std::cout << "\n";
 }
 
 std::vector<cut::Tensor> LlamaModel::executeGraph(

@@ -1,0 +1,33 @@
+{
+  "type": "variants",
+  "cpp_prefix": "RMSNorm",
+  "default_variant": "RMSNorm",
+  "variants": [
+    {
+      "name": "RMSNorm",
+      "template": "RMSNorm",
+      "wg": [256, 1],
+      "eff_tile": [1, 1],
+      "description": "Fused RMS normalization",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "ExtendedRMSNorm",
+      "template": "ExtendedRMSNorm",
+      "wg": [256, 1],
+      "eff_tile": [1, 1],
+      "description": "Fused residual + RMS normalization",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
+        ]
+      }
+    }
+  ]
+}

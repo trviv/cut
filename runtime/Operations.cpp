@@ -10,11 +10,14 @@
 #include "impl/conv1d/Conv1DOp.h"
 #include "impl/conv2d/Conv2DOp.h"
 #include "impl/matmul/MatMulOp.h"
+#include "impl/matmul/MatMulSiLUOp.h"
 #include "impl/matmulq8/MatMulQ8Op.h"
 #include "impl/maxpool2d/MaxPool2DOp.h"
 #include "impl/memory/MemoryOp.h"
 #include "impl/reduce/ReduceOp.h"
 #include "impl/reducedim/ReduceDimOp.h"
+#include "impl/rmsnorm/ExtendedRMSNormOp.h"
+#include "impl/rmsnorm/RMSNormOp.h"
 #include "impl/scan/ScanOp.h"
 #include "impl/sort/SortOp.h"
 #include "impl/ternary/TernaryOp.h"
@@ -208,6 +211,17 @@ Tensor Operations::matmulQ8(const Tensor &a,
   if (inputs[0] != a)
     node = std::make_unique<MatMulQ8OpNode>(*store_, inputs[0], packedB, scales,
                                             bCols, spec);
+  return recordOrEncode(std::move(node));
+}
+
+Tensor Operations::matmulSiLU(const Tensor &a,
+                              const Tensor &b,
+                              std::optional<uint32_t> spec) {
+  auto node = std::make_unique<MatMulSiLUOpNode>(*store_, a, b, spec);
+  auto inputs = resolveAndCastInputs(*node, {a, b});
+  if (inputs[0] != a || inputs[1] != b)
+    node =
+        std::make_unique<MatMulSiLUOpNode>(*store_, inputs[0], inputs[1], spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -841,6 +855,24 @@ Tensor Operations::batchNorm(const Tensor &input,
   // Reshape back to original shape
   std::vector<int32_t> origShape(shape.begin(), shape.end());
   return reshape(result, origShape);
+}
+
+Tensor Operations::rmsNorm(const Tensor &x,
+                           const Tensor &weight,
+                           float eps,
+                           std::optional<uint32_t> spec) {
+  auto node = std::make_unique<RMSNormOpNode>(*store_, x, weight, eps, spec);
+  return recordOrEncode(std::move(node));
+}
+
+Tensor Operations::extendedRmsNorm(const Tensor &residual_base,
+                                   const Tensor &delta,
+                                   const Tensor &weight,
+                                   float eps,
+                                   std::optional<uint32_t> spec) {
+  auto node = std::make_unique<ExtendedRMSNormOpNode>(*store_, residual_base,
+                                                      delta, weight, eps, spec);
+  return recordOrEncode(std::move(node));
 }
 
 // =========================================================================

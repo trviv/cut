@@ -202,7 +202,7 @@ TEST_F(GraphTest, IdentityReshapeElimination) {
   EXPECT_EQ(graph->size(), 2u);
 
   IdentityReshapePass pass;
-  bool changed = pass.run(*graph);
+  bool changed = pass.run(*graph, runtime_.store());
   EXPECT_TRUE(changed);
 
   // Output should now point to the input node
@@ -226,7 +226,7 @@ TEST_F(GraphTest, ReshapeChainElimination) {
   EXPECT_EQ(graph->size(), 3u);
 
   ReshapeChainPass chainPass;
-  chainPass.run(*graph);
+  chainPass.run(*graph, runtime_.store());
 
   // r2 should now point directly to va's output (skip r1)
   EXPECT_EQ(graph->node(r2Id).inputIds[0], vaId);
@@ -245,7 +245,7 @@ TEST_F(GraphTest, TransposeCancelElimination) {
   uint32_t vaId = graph->nodeId(va);
 
   TransposeCancelPass pass;
-  bool changed = pass.run(*graph);
+  bool changed = pass.run(*graph, runtime_.store());
   EXPECT_TRUE(changed);
 
   // Output should now point to the original input
@@ -265,7 +265,7 @@ TEST_F(GraphTest, DeadCodeElimination) {
   EXPECT_EQ(graph->size(), 3u);
 
   DeadCodePass pass;
-  bool changed = pass.run(*graph);
+  bool changed = pass.run(*graph, runtime_.store());
   EXPECT_TRUE(changed);
 
   // The dead node should be marked as removed
@@ -293,7 +293,7 @@ TEST_F(GraphTest, FullOptimizationPipeline) {
   size_t origSize = graph->size();
 
   auto optimizer = GraphOptimizer::createDefault();
-  optimizer.optimize(*graph);
+  optimizer.optimize(*graph, runtime_.store());
 
   // The topological order should only contain non-removed nodes
   auto order = graph->topologicalOrder();
@@ -503,7 +503,7 @@ TEST_F(GraphTest, OptimizedExecutionMatchesEager) {
 
   auto graph = builder.build();
   auto optimizer = GraphOptimizer::createDefault();
-  optimizer.optimize(*graph);
+  optimizer.optimize(*graph, runtime_.store());
 
   GraphExecutor executor(ops, runtime_.store());
   auto results = executor.execute(*graph);
@@ -829,7 +829,7 @@ TEST_F(GraphTest, MemoryPlannerWithOptimizer) {
 
   auto graph = builder.build();
   auto optimizer = GraphOptimizer::createDefault();
-  optimizer.optimize(*graph);
+  optimizer.optimize(*graph, runtime_.store());
 
   GraphExecutor executor(ops, runtime_.store());
   auto results = executor.execute(*graph);

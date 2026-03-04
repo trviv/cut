@@ -283,8 +283,16 @@ static std::string chooseFillColor(const cut::graph::GraphNode &n) {
   if (n.logicalType == LT::Transpose)
     return "#f0f4ff";
 
-  // Use display name for finer-grained colouring
+  // Highlight fused operations with distinct colors
   const std::string &name = n.displayName;
+  if (name == "MatMulSiLU")
+    return "#fde047"; // bright yellow - fused MatMul+SiLU
+  if (name == "RMSNorm")
+    return "#a78bfa"; // purple - fused RMS normalization
+  if (name == "ExtendedRMSNorm")
+    return "#c084fc"; // bright purple - fused residual+RMS norm
+
+  // Regular operations
   if (name == "MatMul")
     return "#dbeafe";
   if (name.find("Reduce") != std::string::npos)
@@ -1367,13 +1375,42 @@ void generateModelReport(const GGUFReader &reader,
   // -----------------------------------------------------------------------
   if (!optimizedGraphs.empty()) {
     out << R"(<h2>Computation Graphs &mdash; Before &amp; After Optimization</h2>
-<p class="tensor-count">Graph templates (layer 0 representative) shown before and after optimization passes: IdentityReshape, NoOpReshape, ReshapeChain, TransposeCancel, DeadCode.</p>
+<p class="tensor-count">Graph templates (layer 0 representative) shown before and after optimization passes.<br>
+<strong>Fusion passes:</strong> ExtendedRMSNormFusion, RMSNormFusion, MatMulSiLUFusion<br>
+<strong>Structural passes:</strong> IdentityReshape, NoOpReshape, ReshapeChain, TransposeCancel, DeadCode</p>
 )";
     for (size_t gi = 0; gi < optimizedGraphs.size(); ++gi) {
       const auto &ng = optimizedGraphs[gi];
       out << "<h3 style=\"color: var(--accent); margin: 24px 0 8px; "
              "font-size: 1.1rem;\">"
           << htmlEscape(ng.name) << "</h3>\n";
+
+      // Show optimization statistics for this graph
+      if (ng.stats && !ng.stats->empty()) {
+        out << "<div style=\"background: #f6f8fa; border: 1px solid #d0d7de; "
+               "border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; "
+               "font-size: 0.85rem;\">\n";
+        out << "<strong style=\"color: var(--accent);\">Optimizations "
+               "applied:</strong> ";
+        bool first = true;
+        int totalOpts = 0;
+        for (const auto &stat : *ng.stats) {
+          if (stat.runCount > 0) {
+            totalOpts += stat.runCount;
+            if (!first)
+              out << ", ";
+            out << "<span style=\"color: var(--green);\">" << stat.name << " ("
+                << stat.runCount << ")</span>";
+            first = false;
+          }
+        }
+        if (totalOpts == 0) {
+          out << "<span style=\"color: var(--dim);\">None (graph already "
+                 "optimal)</span>";
+        }
+        out << "</div>\n";
+      }
+
       out << "<div class=\"graph-compare\">\n";
 
       // Pre-optimization graph (left)

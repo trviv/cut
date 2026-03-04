@@ -314,6 +314,31 @@
           {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
+    },
+    {
+      "name": "SiLUT16R4x4",
+      "template": "MatMulSiLU",
+      "defines": {
+        "TILE_SIZE": 16,
+        "TM": 4,
+        "TN": 4
+      },
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        64,
+        64
+      ],
+      "description": "SiLU T16 R4x4 (8KB)",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Float32", "input2": "Float16", "output": "Float32"}
+        ]
+      }
     }
   ]
 }
