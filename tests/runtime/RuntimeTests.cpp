@@ -4369,30 +4369,30 @@ static uint16_t f32_to_f16(float value) {
 }
 
 TEST_F(MatrixOpsTest, MatMulQ8_Simple) {
-  // Test matmulQ8 with known data: A[M,K] * B[N,K]^T = C[M,N]
-  // B stored as Int8 [N,K], scales as Float16 [N,K/32]
+  // Test matmulQ8 with known data: A[M,K] * B[K,N] = C[M,N]
+  // B stored as Int8 [K,N], scales as Float16 [K/32,N]
   // With scale=1.0, dequantized B values equal the int8 values.
   const uint32_t M = 1, K = 32, N = 2;
-  const uint32_t blocksPerRow = K / 32; // = 1
+  const uint32_t blocksK = K / 32; // = 1
 
   // Activation A[1, 32]: all ones
   std::vector<float> dataA(M * K, 1.0f);
 
-  // Weight B[2, 32] as Int8: row 0 = all 1s, row 1 = all 2s
-  std::vector<int8_t> dataB(N * K);
-  for (uint32_t i = 0; i < K; ++i) {
-    dataB[0 * K + i] = 1; // row 0
-    dataB[1 * K + i] = 2; // row 1
+  // Weight B[32, 2] as Int8: col 0 = all 1s, col 1 = all 2s
+  std::vector<int8_t> dataB(K * N);
+  for (uint32_t k = 0; k < K; ++k) {
+    dataB[k * N + 0] = 1; // col 0
+    dataB[k * N + 1] = 2; // col 1
   }
 
-  // Scales [2, 1] as Float16: all 1.0
+  // Scales [1, 2] as Float16: all 1.0
   uint16_t f16_one = f32_to_f16(1.0f);
-  std::vector<uint16_t> scales(N * blocksPerRow, f16_one);
+  std::vector<uint16_t> scales(blocksK * N, f16_one);
 
   auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB = runtime_->createTensor({N, K}, DataType::Int8, dataB.data());
-  auto bufS = runtime_->createTensor({N, blocksPerRow}, DataType::Float16,
-                                     scales.data());
+  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS =
+      runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
 
   auto bufC = runtime_->ops().matmulQ8(bufA, bufB, bufS, K);
 
@@ -4408,33 +4408,35 @@ TEST_F(MatrixOpsTest, MatMulQ8_Simple) {
 TEST_F(MatrixOpsTest, MatMulQ8_WithScales) {
   // Test that scales are applied correctly
   const uint32_t M = 1, K = 64, N = 2;
-  const uint32_t blocksPerRow = K / 32; // = 2
+  const uint32_t blocksK = K / 32; // = 2
 
   // A[1, 64]: all ones
   std::vector<float> dataA(M * K, 1.0f);
 
-  // B[2, 64] as Int8: all 4s
-  std::vector<int8_t> dataB(N * K, 4);
+  // B[64, 2] as Int8: all 4s
+  std::vector<int8_t> dataB(K * N, 4);
 
-  // Scales [2, 2]: row0 = {0.5, 1.0}, row1 = {2.0, 0.25}
+  // Scales [2, 2] as [K/32, N]: transposed from original [N, K/32]
+  // Original: n=0 → {0.5, 1.0}, n=1 → {2.0, 0.25}
+  // Transposed [K/32=2, N=2]: row0={0.5, 2.0}, row1={1.0, 0.25}
   std::vector<uint16_t> scales = {
       f32_to_f16(0.5f),
-      f32_to_f16(1.0f), // row 0 scales
-      f32_to_f16(2.0f),
-      f32_to_f16(0.25f) // row 1 scales
+      f32_to_f16(2.0f), // block 0 scales for n=0, n=1
+      f32_to_f16(1.0f),
+      f32_to_f16(0.25f) // block 1 scales for n=0, n=1
   };
 
   auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB = runtime_->createTensor({N, K}, DataType::Int8, dataB.data());
-  auto bufS = runtime_->createTensor({N, blocksPerRow}, DataType::Float16,
-                                     scales.data());
+  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS =
+      runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
 
   auto bufC = runtime_->ops().matmulQ8(bufA, bufB, bufS, K);
 
   std::vector<float> output(M * N);
   runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
 
-  // C[0][0] = sum_k(1.0 * 4 * scale[0][k/32])
+  // C[0][0] = sum_k(1.0 * 4 * scale[k/32][0])
   //         = 32 * (4 * 0.5) + 32 * (4 * 1.0) = 64 + 128 = 192
   // C[0][1] = 32 * (4 * 2.0) + 32 * (4 * 0.25) = 256 + 32 = 288
   ASSERT_NEAR(output[0], 192.0f, 1.0f) << "C[0][0] mismatch";
@@ -4449,14 +4451,15 @@ TEST_F(MatrixOpsTest, MatMulQ8_VsRegularMatMul) {
 
   auto dataA = generateTestData<float>(M * K, 42);
 
-  // Generate int8 weight values in range [-10, 10]
-  std::vector<int8_t> dataB(N * K);
+  // Generate int8 weight values in range [-10, 10] in [K, N] layout
+  // (transposed at load time, matching regular matmul convention)
+  std::vector<int8_t> dataB(K * N);
   for (size_t i = 0; i < dataB.size(); ++i) {
     dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
   }
 
-  // Generate scale values: small positive floats
-  std::vector<float> scaleFloats(N * blocksPerRow);
+  // Generate scale values in [blocksPerRow, N] layout: small positive floats
+  std::vector<float> scaleFloats(blocksPerRow * N);
   for (size_t i = 0; i < scaleFloats.size(); ++i) {
     scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
   }
@@ -4465,10 +4468,10 @@ TEST_F(MatrixOpsTest, MatMulQ8_VsRegularMatMul) {
     scaleF16[i] = f32_to_f16(scaleFloats[i]);
   }
 
-  // Run matmulQ8 on GPU
+  // Run matmulQ8 on GPU — B is [K, N], scales are [blocksPerRow, N]
   auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB = runtime_->createTensor({N, K}, DataType::Int8, dataB.data());
-  auto bufS = runtime_->createTensor({N, blocksPerRow}, DataType::Float16,
+  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16,
                                      scaleF16.data());
   auto bufC = runtime_->ops().matmulQ8(bufA, bufB, bufS, K);
 
@@ -4476,14 +4479,15 @@ TEST_F(MatrixOpsTest, MatMulQ8_VsRegularMatMul) {
   runtime_->copyFromTensor(bufC, gpuOutput.data(), M * N * sizeof(float));
 
   // CPU reference: dequantize B then matmul
-  // C[m][n] = sum_k(A[m][k] * B[n][k] * scale[n][k/32])
+  // B is [K, N], scales are [K/32, N]
+  // C[m][n] = sum_k(A[m][k] * B[k][n] * scale[k/32][n])
   for (uint32_t m = 0; m < M; ++m) {
     for (uint32_t n = 0; n < N; ++n) {
       float expected = 0.0f;
       for (uint32_t k = 0; k < K; ++k) {
         float a = dataA[m * K + k];
-        float b = static_cast<float>(dataB[n * K + k]);
-        float s = scaleFloats[n * blocksPerRow + k / 32];
+        float b = static_cast<float>(dataB[k * N + n]);
+        float s = scaleFloats[(k / 32) * N + n];
         expected += a * b * s;
       }
       ASSERT_NEAR(gpuOutput[m * N + n], expected,

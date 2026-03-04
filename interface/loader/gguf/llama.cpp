@@ -52,15 +52,29 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
   WeightHandle wh;
 
   if (info.type == GGMLType::Q8_0) {
-    // Upload Q8_0 weights as separated Int8 values + F16 scales.
-    // Stored in original GGUF [rows, cols] layout (non-transposed);
-    // the matmulQ8 shader does transposed access internally.
+    // Upload Q8_0 weights as separated Int8 values + F16 scales,
+    // transposed from GGUF [rows=N, cols=K] to [K, N] to match the
+    // regular matmul layout convention (B is [K, N]).
     auto q8 = reader.read_tensor_q8_separated(name);
-    wh.qValues = runtime_->createTensor({rows, cols}, cut::DataType::Int8,
-                                        q8.values.data());
-    uint32_t scalesCols = cols / 32;
-    wh.qScales = runtime_->createTensor(
-        {rows, scalesCols}, cut::DataType::Float16, q8.scales.data());
+    uint32_t N = rows, K = cols;
+    uint32_t blocksK = K / 32;
+
+    // CPU-transpose int8 values from [N, K] to [K, N]
+    std::vector<int8_t> tValues(K * N);
+    for (uint32_t n = 0; n < N; ++n)
+      for (uint32_t k = 0; k < K; ++k)
+        tValues[k * N + n] = q8.values[n * K + k];
+
+    // CPU-transpose f16 scales from [N, K/32] to [K/32, N]
+    std::vector<uint16_t> tScales(blocksK * N);
+    for (uint32_t n = 0; n < N; ++n)
+      for (uint32_t b = 0; b < blocksK; ++b)
+        tScales[b * N + n] = q8.scales[n * blocksK + b];
+
+    wh.qValues =
+        runtime_->createTensor({K, N}, cut::DataType::Int8, tValues.data());
+    wh.qScales = runtime_->createTensor({blocksK, N}, cut::DataType::Float16,
+                                        tScales.data());
     wh.qCols = cols;
     return wh;
   }
@@ -210,8 +224,8 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
 
     // Attention weights — GGUF/GGML dimensions are [cols, rows] (innermost
     // first). For non-quantized: upload as [rows, cols] and transpose on GPU.
-    // For Q8_0: upload separated Int8 values + F16 scales (no transpose;
-    // the matmulQ8 shader does transposed access internally).
+    // For Q8_0: CPU-transpose separated Int8 values + F16 scales to [K, N]
+    // to match the regular matmul layout convention.
     {
       const auto &info = reader.get_tensor_info(blk + "attn_q.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);

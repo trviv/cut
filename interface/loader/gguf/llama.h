@@ -40,8 +40,8 @@ struct LlamaConfig {
 /// Weight handle that supports both plain and quantized storage.
 struct WeightHandle {
   cut::ComputeHandle handle;  // plain weight (pre-transposed F16/F32)
-  cut::ComputeHandle qValues; // Int8 values (non-transposed) [N, K]
-  cut::ComputeHandle qScales; // F16 scales (non-transposed) [N, K/32]
+  cut::ComputeHandle qValues; // Int8 values (transposed) [K, N]
+  cut::ComputeHandle qScales; // F16 scales (transposed) [K/32, N]
   uint32_t qCols = 0;         // original K dimension (0 = not quantized)
   bool isQuantized() const { return qCols > 0; }
 };

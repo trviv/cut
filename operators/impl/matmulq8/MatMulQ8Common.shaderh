@@ -1,22 +1,22 @@
 struct PushConstants {
     uint M;           // rows of A / rows of output
-    uint K;           // cols of A / cols of B_original (inner dimension)
-    uint N;           // rows of B_original / cols of output
+    uint K;           // cols of A / rows of B (inner dimension)
+    uint N;           // cols of B / cols of output
     uint strideA;     // padded K for A (multiple of 4)
-    uint strideBK;    // padded K for B_original (in int8 bytes, multiple of 4)
+    uint strideBN;    // padded N for B [K, N] (in int8 bytes, multiple of 4)
     uint strideC;     // padded N for output C (multiple of 4)
-    uint scaleStride; // padded (K/32) for scales (multiple of 4)
+    uint scaleStride; // padded N for scales [K/32, N] (multiple of 4)
 };
 [[vk::push_constant]] PushConstants pc;
 
 // A: activations [M, K] — standard float/half access via vec4
 [[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT1%> dataA;
 
-// B: packed int8 weights [N, K] stored as uint (4 int8 values per uint32)
-// Stored in original (non-transposed) GGUF layout.
+// B: packed int8 weights [K, N] stored as uint (4 int8 values per uint32)
+// Transposed at load time to match matmul layout convention.
 [[vk::binding(1, 0)]] StructuredBuffer<uint> packedB;
 
-// B scales: float16 scales [N, K/32], one scale per 32-element block
+// B scales: float16 scales [K/32, N], one scale per 32-element block
 [[vk::binding(2, 0)]] StructuredBuffer<half4> scalesB;
 
 // C: output [M, N]
@@ -28,21 +28,21 @@ struct PushConstants {
     return dataA[idx >> 2][idx & 3];
 }
 
-// Transposed access with inline Q8_0 dequantization.
-// Logical: B_transposed[k][n] = B_original[n][k] * scale[n][k/32]
+// Sequential access with inline Q8_0 dequantization.
+// B[k][n] = int8_values[k][n] * scale[k/32][n]
 float loadB(uint k, uint n) {
     if (k >= pc.K || n >= pc.N) return 0.0f;
 
-    // Read int8 value from B_original[n][k]
-    uint byteIdx = n * pc.strideBK + k;
+    // Read int8 value from B[k][n]
+    uint byteIdx = k * pc.strideBN + n;
     uint packed = packedB[byteIdx >> 2];
     uint shift = (byteIdx & 3u) * 8u;
     uint rawByte = (packed >> shift) & 0xFFu;
     // Sign-extend from 8-bit to 32-bit
     int val = (int)((int)(rawByte << 24) >> 24);
 
-    // Read per-block scale from scalesB[n][k/32]
-    uint scaleIdx = n * pc.scaleStride + (k >> 5);
+    // Read per-block scale from scalesB[k/32][n]
+    uint scaleIdx = (k >> 5) * pc.scaleStride + n;
     float scale = float(scalesB[scaleIdx >> 2][scaleIdx & 3]);
 
     return float(val) * scale;

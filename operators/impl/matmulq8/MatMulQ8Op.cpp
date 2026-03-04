@@ -27,11 +27,11 @@ MatMulQ8OpNode::MatMulQ8OpNode(TensorStore &store,
 
   M_ = shapeA[0];
   K_ = shapeA[1];
-  N_ = shapePB[0]; // B_original is [N, K] in GGUF layout
+  N_ = shapePB[1]; // B is [K, N] (transposed at load time)
 
-  // Validate: bCols should match K
-  if (bCols != K_) {
-    throw std::runtime_error("matmulQ8: bCols (" + std::to_string(bCols) +
+  // Validate: first dim of B should match K
+  if (shapePB[0] != K_) {
+    throw std::runtime_error("matmulQ8: B rows (" + std::to_string(shapePB[0]) +
                              ") must match A cols (" + std::to_string(K_) +
                              ")");
   }
@@ -69,13 +69,12 @@ ThreadSize MatMulQ8OpNode::dispatchSize() const {
 
 std::vector<uint8_t> MatMulQ8OpNode::pushConstants() const {
   uint32_t strideA = (K_ + 3) & ~3u;
-  uint32_t strideBK = (K_ + 3) & ~3u;
+  uint32_t strideBN = (N_ + 3) & ~3u; // B is [K, N], inner dim is N
   uint32_t strideC = (N_ + 3) & ~3u;
-  uint32_t blocksPerRow = (K_ + 31) / 32;
-  uint32_t scaleStride = (blocksPerRow + 3) & ~3u;
+  uint32_t scaleStride = (N_ + 3) & ~3u; // scales [K/32, N], inner dim is N
   struct PushConstants {
-    uint32_t M, K, N, strideA, strideBK, strideC, scaleStride;
-  } pc{M_, K_, N_, strideA, strideBK, strideC, scaleStride};
+    uint32_t M, K, N, strideA, strideBN, strideC, scaleStride;
+  } pc{M_, K_, N_, strideA, strideBN, strideC, scaleStride};
   return toBytes(pc);
 }
 

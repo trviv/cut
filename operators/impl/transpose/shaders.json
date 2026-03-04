@@ -20,7 +20,8 @@
           {"input": "Float32", "output": "Float32"},
           {"input": "Float16", "output": "Float16"},
           {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input": "UInt32", "output": "UInt32"},
+          {"input": "Int8", "output": "Int8"}
         ]
       }
     },
@@ -44,7 +45,8 @@
           {"input": "Float32", "output": "Float32"},
           {"input": "Float16", "output": "Float16"},
           {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input": "UInt32", "output": "UInt32"},
+          {"input": "Int8", "output": "Int8"}
         ]
       }
     },
@@ -68,7 +70,8 @@
           {"input": "Float32", "output": "Float32"},
           {"input": "Float16", "output": "Float16"},
           {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {"input": "UInt32", "output": "UInt32"},
+          {"input": "Int8", "output": "Int8"}
         ]
       }
     }
