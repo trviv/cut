@@ -36,6 +36,7 @@ public:
 
 private:
   DataType dtypeA_;
+  DataType dtypeScales_;
   uint32_t M_, K_, N_;
 };
 

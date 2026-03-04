@@ -1,6 +1,7 @@
 #include "ComputeOpsShared.h"
 
 %DTYPE_DEFINES_INPUT1%
+%DTYPE_DEFINES_SCALES%
 %DTYPE_DEFINES_OUTPUT%
 
 // Q8_0 dequant matmul with register blocking: TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%

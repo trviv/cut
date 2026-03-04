@@ -25,9 +25,9 @@ inline constexpr MatMulQ8VariantInfo kMatMulQ8Variants[kMatMulQ8VariantCount] = 
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
-std::optional<std::vector<uint32_t>> compiledMatMulQ8T16R4x4(DataType input1, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulQ8T16R4x4(DataType input1, DataType scales, DataType output);
 
-using CompiledMatMulQ8Fn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
+using CompiledMatMulQ8Fn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType, DataType);
 
 inline const CompiledMatMulQ8Fn kMatMulQ8CompiledFns[kMatMulQ8VariantCount] = {
     compiledMatMulQ8T16R4x4,
@@ -35,10 +35,10 @@ inline const CompiledMatMulQ8Fn kMatMulQ8CompiledFns[kMatMulQ8VariantCount] = {
 
 /// Returns compiled SPIR-V for a matmulq8 variant by index.
 inline std::optional<std::vector<uint32_t>>
-getCompiledMatMulQ8(int variantIndex, DataType input1 = DataType::Float32, DataType output = DataType::Float32) {
+getCompiledMatMulQ8(int variantIndex, DataType input1 = DataType::Float32, DataType scales = DataType::Float32, DataType output = DataType::Float32) {
     if (variantIndex < 0 || variantIndex >= kMatMulQ8VariantCount)
         return std::nullopt;
-    return kMatMulQ8CompiledFns[variantIndex](input1, output);
+    return kMatMulQ8CompiledFns[variantIndex](input1, scales, output);
 }
 
 /// Returns the number of matmulq8 variants.

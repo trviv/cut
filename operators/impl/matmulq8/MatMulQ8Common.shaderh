@@ -16,8 +16,8 @@ struct PushConstants {
 // Transposed at load time to match matmul layout convention.
 [[vk::binding(1, 0)]] StructuredBuffer<uint> packedB;
 
-// B scales: float16 scales [K/32, N], one scale per 32-element block
-[[vk::binding(2, 0)]] StructuredBuffer<half4> scalesB;
+// B scales: [K/32, N], one scale per 32-element block
+[[vk::binding(2, 0)]] StructuredBuffer<%VEC_DTYPE_SCALES%> scalesB;
 
 // C: output [M, N]
 [[vk::binding(3, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_OUTPUT%> dataC;
@@ -43,7 +43,14 @@ float loadB(uint k, uint n) {
 
     // Read per-block scale from scalesB[k/32][n]
     uint scaleIdx = (k >> 5) * pc.scaleStride + n;
+#ifdef DTYPE_SCALES_IS_INT8
+    int packedScale = scalesB[scaleIdx >> 4][(scaleIdx >> 2) & 3];
+    uint scaleShift = (scaleIdx & 3u) * 8u;
+    uint scaleByte = (uint(packedScale) >> scaleShift) & 0xFFu;
+    float scale = float((int)((int)(scaleByte << 24) >> 24));
+#else
     float scale = float(scalesB[scaleIdx >> 2][scaleIdx & 3]);
+#endif
 
     return float(val) * scale;
 }

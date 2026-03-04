@@ -20,6 +20,7 @@ MatMulQ8OpNode::MatMulQ8OpNode(TensorStore &store,
   const auto shapeSB = bufScalesB.getShape();
 
   dtypeA_ = bufA.getDtype();
+  dtypeScales_ = bufScalesB.getDtype();
 
   if (shapeA.size() != 2 || shapePB.size() != 2 || shapeSB.size() != 2) {
     throw std::runtime_error("matmulQ8 requires 2D matrices");
@@ -48,12 +49,13 @@ DataType MatMulQ8OpNode::outputDtype() const {
 size_t MatMulQ8OpNode::shaderKey() const {
   size_t key = static_cast<size_t>(op_);
   key |= (static_cast<size_t>(dtypeA_) & 0xF) << 16;
+  key |= (static_cast<size_t>(dtypeScales_) & 0xF) << 20;
   key |= static_cast<size_t>(spec_.value_or(0)) << 48;
   return key;
 }
 
 std::optional<std::vector<uint32_t>> MatMulQ8OpNode::shader() const {
-  return getCompiledMatMulQ8(*spec_, dtypeA_, DataType::Float32);
+  return getCompiledMatMulQ8(*spec_, dtypeA_, dtypeScales_, DataType::Float32);
 }
 
 std::vector<uint32_t> MatMulQ8OpNode::outputShape() const {
