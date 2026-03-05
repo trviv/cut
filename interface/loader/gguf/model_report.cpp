@@ -1,10 +1,8 @@
 #include "model_report.h"
-#include "OpNode.h"
 
-#include <ComputeCommon.h>
+#include <graph/GraphReport.h>
 
 #include <algorithm>
-#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -254,236 +252,10 @@ static OpMapping mapTensorToOps(const std::string &name,
   return {"", "", "", ""};
 }
 
-// =========================================================================
-// Optimized-graph SVG rendering helpers
-// =========================================================================
-
-static std::string dtypeToString(cut::DataType dtype) {
-  const char *name = cut::dataTypeName(dtype);
-  return name ? name : "Unknown";
-}
-
-static std::string nodeDetailStr(const cut::graph::GraphNode &gn) {
-  auto *stub = dynamic_cast<const cut::StubOpNode *>(gn.op.get());
-  if (stub)
-    return stub->detail();
-  return "";
-}
-
-static std::string formatShape(const std::vector<uint32_t> &shape) {
-  std::string s = "[";
-  for (size_t i = 0; i < shape.size(); ++i) {
-    if (i > 0)
-      s += ", ";
-    s += std::to_string(shape[i]);
-  }
-  s += "]";
-  return s;
-}
-
-static std::string chooseFillColor(const cut::graph::GraphNode &n) {
-  using LT = cut::LogicalOpType;
-  if (n.isInput)
-    return "#e0e7ff";
-  if (n.logicalType == LT::Reshape)
-    return "#f3f4f6";
-  if (n.logicalType == LT::Transpose)
-    return "#f0f4ff";
-
-  // Highlight fused operations with distinct colors
-  const std::string &name = n.displayName;
-  if (name == "MatMulSiLU")
-    return "#fde047"; // bright yellow - fused MatMul+SiLU
-  if (name == "RMSNorm")
-    return "#a78bfa"; // purple - fused RMS normalization
-  if (name == "ExtendedRMSNorm")
-    return "#c084fc"; // bright purple - fused residual+RMS norm
-
-  // Regular operations
-  if (name == "MatMul")
-    return "#dbeafe";
-  if (name.find("Reduce") != std::string::npos)
-    return "#fef3c7";
-  if (name.find("Binary") != std::string::npos ||
-      name.find("Unary") != std::string::npos ||
-      name.find("VecScalar") != std::string::npos)
-    return "#dcfce7";
-  return "#f0f4ff";
-}
-
-static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
-                                           const std::string &graphId) {
-  auto order = graph.topologicalOrder();
-  if (order.empty())
-    return "";
-
-  const auto &nodes = graph.nodes();
-
-  // Compute level (depth) for each node.
-  std::vector<int> level(nodes.size(), 0);
-  for (uint32_t idx : order) {
-    const auto &n = nodes[idx];
-    int maxInputLevel = -1;
-    for (uint32_t inpId : n.inputIds) {
-      if (inpId < nodes.size() && nodes[inpId].op && !nodes[inpId].isRemoved) {
-        maxInputLevel = std::max(maxInputLevel, level[inpId]);
-      }
-    }
-    level[idx] = maxInputLevel + 1;
-  }
-
-  // Group nodes by level.
-  int maxLevel = 0;
-  for (uint32_t idx : order)
-    maxLevel = std::max(maxLevel, level[idx]);
-
-  std::vector<std::vector<uint32_t>> levelNodes(maxLevel + 1);
-  for (uint32_t idx : order)
-    levelNodes[level[idx]].push_back(idx);
-
-  // Layout constants.
-  constexpr int nodeW = 150;
-  constexpr int nodeH = 52;
-  constexpr int hGap = 40;
-  constexpr int vGap = 60;
-  constexpr int padX = 60;
-  constexpr int padY = 30;
-
-  int maxNodesInLevel = 0;
-  for (auto &lv : levelNodes)
-    maxNodesInLevel = std::max(maxNodesInLevel, static_cast<int>(lv.size()));
-
-  int svgW = padX * 2 + maxNodesInLevel * nodeW + (maxNodesInLevel - 1) * hGap;
-  if (svgW < 500)
-    svgW = 500;
-  int svgH = padY * 2 + (maxLevel + 1) * nodeH + maxLevel * vGap;
-
-  // Compute node positions.
-  struct NodePos {
-    int x = 0, y = 0;
-  };
-  std::vector<NodePos> pos(nodes.size());
-
-  for (int lv = 0; lv <= maxLevel; ++lv) {
-    auto &ln = levelNodes[lv];
-    int totalW = static_cast<int>(ln.size()) * nodeW +
-                 (static_cast<int>(ln.size()) - 1) * hGap;
-    int startX = (svgW - totalW) / 2;
-    int ny = padY + lv * (nodeH + vGap);
-    for (size_t i = 0; i < ln.size(); ++i) {
-      pos[ln[i]] = {startX + static_cast<int>(i) * (nodeW + hGap), ny};
-    }
-  }
-
-  // Build SVG.
-  std::ostringstream svg;
-  std::string markerId = "opt-arrow-" + graphId;
-
-  svg << "<svg class=\"arch-svg\" width=\"" << svgW << "\" height=\"" << svgH
-      << "\" xmlns=\"http://www.w3.org/2000/svg\">\n";
-  svg << "<defs><marker id=\"" << markerId
-      << "\" markerWidth=\"8\" markerHeight=\"6\" "
-         "refX=\"8\" refY=\"3\" orient=\"auto\">"
-         "<polygon points=\"0 0, 8 3, 0 6\" fill=\"#d0d7de\"/>"
-         "</marker></defs>\n";
-
-  // Draw edges (behind nodes) with datatype labels.
-  for (uint32_t idx : order) {
-    const auto &n = nodes[idx];
-    for (size_t inputIdx = 0; inputIdx < n.inputIds.size(); ++inputIdx) {
-      uint32_t inpId = n.inputIds[inputIdx];
-      if (inpId < nodes.size() && nodes[inpId].op && !nodes[inpId].isRemoved) {
-        int x1 = pos[inpId].x + nodeW / 2;
-        int y1 = pos[inpId].y + nodeH;
-        int x2 = pos[idx].x + nodeW / 2;
-        int y2 = pos[idx].y;
-        svg << "<line x1=\"" << x1 << "\" y1=\"" << y1 << "\" x2=\"" << x2
-            << "\" y2=\"" << y2
-            << "\" stroke=\"#b0b8c1\" stroke-width=\"1.5\" "
-               "marker-end=\"url(#"
-            << markerId << ")\"/>\n";
-
-        // Add datatype label on the edge
-        auto dtype = nodes[inpId].op->outputDtype();
-        std::string dtypeStr = dtypeToString(dtype);
-        int mx = (x1 + x2) / 2;
-        int my = (y1 + y2) / 2;
-
-        // Determine label position offset based on whether edges are vertical
-        // or diagonal
-        int offsetX = (x1 != x2) ? ((x1 < x2) ? 6 : -6) : 6;
-        std::string anchor =
-            (x1 < x2) ? "start" : ((x1 > x2) ? "end" : "start");
-
-        // Show input index and datatype for ops with multiple inputs
-        std::string label;
-        if (n.inputIds.size() > 1) {
-          label = "in[" + std::to_string(inputIdx) + "]: " + dtypeStr;
-        } else {
-          label = dtypeStr;
-        }
-
-        svg << "<text x=\"" << (mx + offsetX) << "\" y=\"" << (my + 3)
-            << "\" font-size=\"7\" fill=\"#0e7c86\" text-anchor=\"" << anchor
-            << "\" font-family=\"'SF Mono', 'Fira Code', monospace\">"
-            << htmlEscape(label) << "</text>\n";
-      }
-    }
-  }
-
-  // Draw nodes.
-  for (uint32_t idx : order) {
-    const auto &n = nodes[idx];
-    int x = pos[idx].x, ny = pos[idx].y;
-
-    std::string fill = chooseFillColor(n);
-    std::string stroke = n.isOutput ? "#0969da" : "#d0d7de";
-    int strokeW = n.isOutput ? 2 : 1;
-
-    svg << "<g class=\"node\"><rect x=\"" << x << "\" y=\"" << ny
-        << "\" width=\"" << nodeW << "\" height=\"" << nodeH << "\" fill=\""
-        << fill << "\" stroke=\"" << stroke << "\" stroke-width=\"" << strokeW
-        << "\" rx=\"6\" ry=\"6\"/>";
-
-    std::string label = n.displayName;
-    std::string detail = nodeDetailStr(n);
-
-    int labelY = detail.empty() ? (ny + nodeH / 2 + 4) : (ny + nodeH / 2 - 4);
-    svg << "<text x=\"" << (x + nodeW / 2) << "\" y=\"" << labelY
-        << "\" text-anchor=\"middle\" font-size=\"11\" fill=\"#1f2328\" "
-           "font-weight=\"600\" "
-           "font-family=\"-apple-system, sans-serif\">"
-        << htmlEscape(label) << "</text>";
-
-    if (!detail.empty()) {
-      svg << "<text x=\"" << (x + nodeW / 2) << "\" y=\""
-          << (ny + nodeH / 2 + 9)
-          << "\" text-anchor=\"middle\" font-size=\"8\" fill=\"#bf8700\" "
-             "font-family=\"-apple-system, sans-serif\">"
-          << htmlEscape(detail) << "</text>";
-    }
-
-    // Shape annotation to the right of the node.
-    auto shape = n.op->outputShape();
-    if (!shape.empty()) {
-      svg << "<text x=\"" << (x + nodeW + 5) << "\" y=\""
-          << (ny + nodeH / 2 + 4)
-          << "\" font-size=\"8\" fill=\"#0e7c86\" "
-             "font-family=\"'SF Mono', 'Fira Code', monospace\">"
-          << htmlEscape(formatShape(shape)) << "</text>";
-    }
-
-    svg << "</g>\n";
-  }
-
-  svg << "</svg>\n";
-  return svg.str();
-}
-
 void generateModelReport(const GGUFReader &reader,
                          const LlamaConfig &config,
                          const std::string &output_path,
-                         const std::vector<NamedGraph> &optimizedGraphs) {
+                         const std::vector<cut::graph::NamedGraph> &optimizedGraphs) {
   const auto &meta = reader.metadata();
   const auto &tensors = reader.tensors();
 
@@ -1450,8 +1222,8 @@ void generateModelReport(const GGUFReader &reader,
       out << "<div>\n";
       out << "<span class=\"graph-label\">Before Optimization</span>\n";
       out << "<div class=\"arch-container\">\n";
-      out << renderOptimizedGraphSVG(*ng.preOptGraph,
-                                     "pre" + std::to_string(gi));
+      out << cut::graph::renderGraphSVG(*ng.preOptGraph,
+                                        "pre" + std::to_string(gi));
       out << "</div></div>\n";
 
       // Post-optimization graph (right)
@@ -1459,8 +1231,8 @@ void generateModelReport(const GGUFReader &reader,
       out << "<span class=\"graph-label optimized\">After "
              "Optimization</span>\n";
       out << "<div class=\"arch-container\">\n";
-      out << renderOptimizedGraphSVG(*ng.postOptGraph,
-                                     "post" + std::to_string(gi));
+      out << cut::graph::renderGraphSVG(*ng.postOptGraph,
+                                        "post" + std::to_string(gi));
       out << "</div></div>\n";
 
       out << "</div>\n"; // .graph-compare

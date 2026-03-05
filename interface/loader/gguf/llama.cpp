@@ -339,7 +339,7 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
 
     // Collect optimized graph templates for the report (layer 0 as
     // representative).
-    std::vector<NamedGraph> graphs;
+    std::vector<cut::graph::NamedGraph> graphs;
     if (!layerGraphs_.empty()) {
       auto &lg = layerGraphs_[0];
       graphs.push_back({"QKV Projection", &lg.qkvProjection.preOptGraph,
