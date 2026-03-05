@@ -57,6 +57,11 @@ struct LlamaLayer {
   WeightHandle wv;
   WeightHandle wo;
 
+  // Attention biases (optional, used by Qwen2 etc.)
+  cut::ComputeHandle bq; // [dim] or empty
+  cut::ComputeHandle bk; // [kv_dim] or empty
+  cut::ComputeHandle bv; // [kv_dim] or empty
+
   // FFN norm
   cut::ComputeHandle ffn_norm;
 

@@ -256,6 +256,20 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
                                             rows, cols);
     }
 
+    // Attention biases (optional, e.g. Qwen2)
+    if (reader.has_tensor(blk + "attn_q.bias")) {
+      auto data = reader.read_tensor_f32(blk + "attn_q.bias");
+      layer.bq = uploadVector(data);
+    }
+    if (reader.has_tensor(blk + "attn_k.bias")) {
+      auto data = reader.read_tensor_f32(blk + "attn_k.bias");
+      layer.bk = uploadVector(data);
+    }
+    if (reader.has_tensor(blk + "attn_v.bias")) {
+      auto data = reader.read_tensor_f32(blk + "attn_v.bias");
+      layer.bv = uploadVector(data);
+    }
+
     // FFN norm
     {
       auto data = reader.read_tensor_f32(blk + "ffn_norm.weight");
@@ -463,18 +477,31 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   // Reshape chain with above (optimizer: ReshapeChainPass collapses)
   auto q_flat = builder.ops().reshape(
       q_id, {static_cast<int32_t>(config_.n_heads * config_.head_dim)});
+  // Add bias if present (e.g. Qwen2)
+  if (layer.bq) {
+    auto vBq = builder.input(layer.bq, /*isConstant=*/true);
+    q_flat = builder.ops().binaryOp(cut::BinaryAdd, q_flat, vBq);
+  }
 
   auto k = graphWeight(builder, layer.wk, normed_2d);
   auto k_id =
       builder.ops().reshape(k, {1, static_cast<int32_t>(config_.kv_dim)});
   auto k_flat =
       builder.ops().reshape(k_id, {static_cast<int32_t>(config_.kv_dim)});
+  if (layer.bk) {
+    auto vBk = builder.input(layer.bk, /*isConstant=*/true);
+    k_flat = builder.ops().binaryOp(cut::BinaryAdd, k_flat, vBk);
+  }
 
   auto v = graphWeight(builder, layer.wv, normed_2d);
   auto v_id =
       builder.ops().reshape(v, {1, static_cast<int32_t>(config_.kv_dim)});
   auto v_flat =
       builder.ops().reshape(v_id, {static_cast<int32_t>(config_.kv_dim)});
+  if (layer.bv) {
+    auto vBv = builder.input(layer.bv, /*isConstant=*/true);
+    v_flat = builder.ops().binaryOp(cut::BinaryAdd, v_flat, vBv);
+  }
 
   // Dead code: result never used (optimizer: DeadCodePass removes)
   builder.ops().transpose(q);

@@ -59,11 +59,18 @@ int main(int argc, char *argv[]) {
     }
 
     // For instruct/chat models, wrap in ChatML template if special tokens
-    // exist.
+    // exist. Skip if --no-chat flag is passed as any argument.
+    bool noChat = false;
+    for (int i = 1; i < argc; ++i) {
+      if (std::string(argv[i]) == "--no-chat") {
+        noChat = true;
+      }
+    }
+
     int im_start = model.tokenId("<|im_start|>");
     int im_end = model.tokenId("<|im_end|>");
     std::string tokenizer_input = prompt_text;
-    if (im_start >= 0 && im_end >= 0) {
+    if (!noChat && im_start >= 0 && im_end >= 0) {
       tokenizer_input = "<|im_start|>user\n" + prompt_text +
                         "<|im_end|>\n<|im_start|>assistant\n";
       model.addStopToken(im_end);

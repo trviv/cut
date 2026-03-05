@@ -2,8 +2,10 @@
 #include "impl/conv1d/Conv1DVariants.generated.h"
 #include "impl/conv2d/Conv2DVariants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
+#include "impl/matmulq8/MatMulQ8Variants.generated.h"
 #include "impl/maxpool2d/MaxPool2DVariants.generated.h"
 #include "impl/reducedim/ReduceDimVariants.generated.h"
+#include "impl/rmsnorm/RMSNormVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
@@ -14,6 +16,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <numeric>
@@ -43,6 +46,19 @@ static std::vector<float> randomPositiveFloats(size_t n, unsigned seed = 42) {
   for (auto &v : data)
     v = dist(rng);
   return data;
+}
+
+static uint16_t f32_to_f16(float value) {
+  uint32_t f32;
+  std::memcpy(&f32, &value, sizeof(f32));
+  uint32_t sign = (f32 >> 16) & 0x8000;
+  int32_t exponent = ((f32 >> 23) & 0xFF) - 127 + 15;
+  uint32_t mantissa = (f32 >> 13) & 0x03FF;
+  if (exponent <= 0)
+    return static_cast<uint16_t>(sign);
+  if (exponent >= 31)
+    return static_cast<uint16_t>(sign | 0x7C00);
+  return static_cast<uint16_t>(sign | (exponent << 10) | mantissa);
 }
 
 struct TimingResult {
@@ -106,6 +122,22 @@ static void printHeaderWithGflops() {
             << std::endl;
 }
 
+static void printSingleHeader() {
+  std::cout << std::left << std::setw(28) << "Operation" << " | "
+            << std::setw(10) << "Mean (ms)" << " | " << std::setw(10)
+            << "Min (ms)" << " | " << std::setw(10) << "Std (ms)" << std::endl;
+  std::cout << std::string(28, '-') << "-+-" << std::string(10, '-') << "-+-"
+            << std::string(10, '-') << "-+-" << std::string(10, '-')
+            << std::endl;
+}
+
+static void printSingleRow(const char *desc, const TimingResult &r) {
+  std::cout << std::left << std::setw(28) << desc << " | " << std::right
+            << std::fixed << std::setprecision(3) << std::setw(10) << r.mean_ms
+            << " | " << std::setw(10) << r.min_ms << " | " << std::setw(10)
+            << r.std_ms << std::endl;
+}
+
 // ============================================================================
 // MatMul helpers
 // ============================================================================
@@ -167,6 +199,10 @@ static void benchmarkMatMul(Runtime &runtime, int warmup, int iterations) {
 
     bool allCorrect = true;
     for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      // Skip fused-activation variants — they don't match plain matmul
+      if (std::string(kMatMulVariants[vi].name).find("SiLU") !=
+          std::string::npos)
+        continue;
       auto bufA =
           runtime.createTensor({tc.M, tc.K}, DataType::Float32, hostA.data());
       auto bufB =
@@ -194,6 +230,9 @@ static void benchmarkMatMul(Runtime &runtime, int warmup, int iterations) {
     double naiveMean = 0.0;
 
     for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      if (std::string(kMatMulVariants[vi].name).find("SiLU") !=
+          std::string::npos)
+        continue;
       auto r = time_op(
           [&]() {
             auto bufA = runtime.createTensor({tc.M, tc.K}, DataType::Float32,
@@ -217,6 +256,117 @@ static void benchmarkMatMul(Runtime &runtime, int warmup, int iterations) {
                 << std::setw(9) << std::setprecision(2) << speedup << "x"
                 << std::endl;
     }
+  }
+}
+
+// ============================================================================
+// MatMulQ8 Benchmark
+// ============================================================================
+
+static void benchmarkMatMulQ8(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nMatMulQ8 Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  struct TestCase {
+    uint32_t M, K, N;
+    std::string name;
+  };
+  std::vector<TestCase> testCases = {
+      {1, 256, 256, "1x256x256"},           {1, 768, 768, "1x768x768"},
+      {1, 2048, 2048, "1x2048x2048"},       {4, 2048, 2048, "4x2048x2048"},
+      {32, 2048, 2048, "32x2048x2048"},     {512, 512, 512, "512x512x512"},
+      {1024, 1024, 1024, "1024x1024x1024"},
+  };
+
+  for (const auto &tc : testCases) {
+    std::cout << "\n=== MatMulQ8 " << tc.name << " ===" << std::endl;
+
+    auto hostA = randomFloats(tc.M * tc.K, 42);
+
+    // Generate int8 weight data B[K, N]
+    std::mt19937 rng(123);
+    std::uniform_int_distribution<int> intDist(-64, 64);
+    std::vector<int8_t> hostB(tc.K * tc.N);
+    for (auto &v : hostB)
+      v = static_cast<int8_t>(intDist(rng));
+
+    // Generate f16 scales [K/32, N]
+    uint32_t blocksK = tc.K / 32;
+    std::vector<uint16_t> hostScales(blocksK * tc.N);
+    for (auto &v : hostScales)
+      v = f32_to_f16(1.0f);
+
+    double flops = 2.0 * tc.M * tc.K * tc.N;
+    printSingleHeader();
+
+    for (int vi = 0; vi < kMatMulQ8VariantCount; ++vi) {
+      auto r = time_op(
+          [&]() {
+            auto bufA = runtime.createTensor({tc.M, tc.K}, DataType::Float32,
+                                             hostA.data());
+            auto bufB = runtime.createTensor({tc.K, tc.N}, DataType::Int8,
+                                             hostB.data());
+            auto bufS = runtime.createTensor({blocksK, tc.N}, DataType::Float16,
+                                             hostScales.data());
+            runtime.ops().matmulQ8(bufA, bufB, bufS, tc.K, vi);
+            runtime.flush();
+          },
+          warmup, iterations);
+
+      double gflops = flops / (r.mean_ms * 1e6);
+      std::cout << std::left << std::setw(28)
+                << kMatMulQ8Variants[vi].description << " | " << std::right
+                << std::fixed << std::setprecision(3) << std::setw(10)
+                << r.mean_ms << " | " << std::setw(10) << r.min_ms << " | "
+                << std::setw(10) << r.std_ms << "  (" << std::setprecision(1)
+                << gflops << " GFLOPS)" << std::endl;
+    }
+  }
+}
+
+// ============================================================================
+// MatMulSiLU Benchmark
+// ============================================================================
+
+static void benchmarkMatMulSiLU(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nMatMulSiLU Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  struct TestCase {
+    uint32_t M, K, N;
+    std::string name;
+  };
+  std::vector<TestCase> testCases = {
+      {1, 768, 768, "1x768x768"},           {1, 2048, 2048, "1x2048x2048"},
+      {4, 2048, 2048, "4x2048x2048"},       {512, 512, 512, "512x512x512"},
+      {1024, 1024, 1024, "1024x1024x1024"},
+  };
+
+  for (const auto &tc : testCases) {
+    std::cout << "\n=== MatMulSiLU " << tc.name << " ===" << std::endl;
+    auto hostA = randomFloats(tc.M * tc.K, 42);
+    auto hostB = randomFloats(tc.K * tc.N, 123);
+
+    double flops = 2.0 * tc.M * tc.K * tc.N;
+    printSingleHeader();
+
+    auto r = time_op(
+        [&]() {
+          auto bufA = runtime.createTensor({tc.M, tc.K}, DataType::Float32,
+                                           hostA.data());
+          auto bufB = runtime.createTensor({tc.K, tc.N}, DataType::Float32,
+                                           hostB.data());
+          runtime.ops().matmulSiLU(bufA, bufB);
+          runtime.flush();
+        },
+        warmup, iterations);
+
+    double gflops = flops / (r.mean_ms * 1e6);
+    std::cout << std::left << std::setw(28) << "MatMulSiLU (fused)"
+              << " | " << std::right << std::fixed << std::setprecision(3)
+              << std::setw(10) << r.mean_ms << " | " << std::setw(10)
+              << r.min_ms << " | " << std::setw(10) << r.std_ms << "  ("
+              << std::setprecision(1) << gflops << " GFLOPS)" << std::endl;
   }
 }
 
@@ -285,6 +435,36 @@ static void benchmarkTranspose(Runtime &runtime, int warmup, int iterations) {
         naiveMean = r.mean_ms;
       printRow(kTransposeVariants[vi].description, r, naiveMean);
     }
+  }
+}
+
+// ============================================================================
+// Dot Product Benchmark
+// ============================================================================
+
+static void benchmarkDot(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nDot Product Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  std::vector<uint32_t> sizes = {256, 1024, 4096, 16384, 65536, 262144};
+
+  printSingleHeader();
+  for (auto sz : sizes) {
+    auto hostA = randomFloats(sz, 42);
+    auto hostB = randomFloats(sz, 123);
+
+    std::string desc = "dot N=" + std::to_string(sz);
+    auto r = time_op(
+        [&]() {
+          auto bufA =
+              runtime.createTensor({sz}, DataType::Float32, hostA.data());
+          auto bufB =
+              runtime.createTensor({sz}, DataType::Float32, hostB.data());
+          runtime.ops().dot(bufA, bufB);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow(desc.c_str(), r);
   }
 }
 
@@ -510,6 +690,435 @@ static void benchmarkReduceDim(Runtime &runtime, int warmup, int iterations) {
 }
 
 // ============================================================================
+// Unary Ops Benchmark
+// ============================================================================
+
+static void benchmarkUnaryOps(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nUnary Ops Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  struct UnaryCase {
+    OperatorEnum op;
+    const char *name;
+  };
+  std::vector<UnaryCase> ops = {
+      {UnaryRelu, "Relu"},
+      {UnarySigmoid, "Sigmoid"},
+      {UnaryGelu, "Gelu"},
+      {UnarySilu, "SiLU"},
+      {UnaryTanh, "Tanh"},
+      {UnaryExp, "Exp"},
+      {UnarySqrt, "Sqrt"},
+      {UnaryAbs, "Abs"},
+      {UnaryNeg, "Neg"},
+      {UnaryLog, "Log"},
+      {UnaryReciprocal, "Reciprocal"},
+  };
+
+  std::vector<uint32_t> sizes = {4096, 65536, 1048576};
+
+  for (auto sz : sizes) {
+    std::cout << "\n=== Unary N=" << sz << " ===" << std::endl;
+    auto host = randomPositiveFloats(sz, 42);
+
+    printSingleHeader();
+    for (const auto &uc : ops) {
+      auto r = time_op(
+          [&]() {
+            auto buf =
+                runtime.createTensor({sz}, DataType::Float32, host.data());
+            runtime.ops().unaryOp(uc.op, buf);
+            runtime.flush();
+          },
+          warmup, iterations);
+      printSingleRow(uc.name, r);
+    }
+  }
+}
+
+// ============================================================================
+// Binary Ops Benchmark
+// ============================================================================
+
+static void benchmarkBinaryOps(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nBinary Ops Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  struct BinaryCase {
+    OperatorEnum op;
+    const char *name;
+  };
+  std::vector<BinaryCase> ops = {
+      {BinaryAdd, "Add"}, {BinarySub, "Sub"}, {BinaryMul, "Mul"},
+      {BinaryDiv, "Div"}, {BinaryMax, "Max"}, {BinaryMin, "Min"},
+  };
+
+  std::vector<uint32_t> sizes = {4096, 65536, 1048576};
+
+  for (auto sz : sizes) {
+    std::cout << "\n=== Binary N=" << sz << " ===" << std::endl;
+    auto hostA = randomFloats(sz, 42);
+    auto hostB = randomPositiveFloats(sz, 123);
+
+    printSingleHeader();
+    for (const auto &bc : ops) {
+      auto r = time_op(
+          [&]() {
+            auto bufA =
+                runtime.createTensor({sz}, DataType::Float32, hostA.data());
+            auto bufB =
+                runtime.createTensor({sz}, DataType::Float32, hostB.data());
+            runtime.ops().binaryOp(bc.op, bufA, bufB);
+            runtime.flush();
+          },
+          warmup, iterations);
+      printSingleRow(bc.name, r);
+    }
+  }
+}
+
+// ============================================================================
+// Softmax Benchmark
+// ============================================================================
+
+static void benchmarkSoftmax(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nSoftmax Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  struct TestCase {
+    std::vector<uint32_t> shape;
+    int dim;
+    std::string name;
+  };
+  std::vector<TestCase> cases = {
+      {{32, 128}, 1, "[32,128] dim=1"},
+      {{32, 1024}, 1, "[32,1024] dim=1"},
+      {{128, 512}, 1, "[128,512] dim=1"},
+      {{4, 32, 256}, 2, "[4,32,256] dim=2"},
+  };
+
+  for (const auto &tc : cases) {
+    std::cout << "\n=== Softmax " << tc.name << " ===" << std::endl;
+    size_t total = 1;
+    for (auto d : tc.shape)
+      total *= d;
+    auto host = randomFloats(total, 42);
+
+    printSingleHeader();
+
+    auto rSoftmax = time_op(
+        [&]() {
+          auto buf =
+              runtime.createTensor(tc.shape, DataType::Float32, host.data());
+          runtime.ops().softmax(buf, tc.dim);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("Softmax", rSoftmax);
+
+    auto rLogSoftmax = time_op(
+        [&]() {
+          auto buf =
+              runtime.createTensor(tc.shape, DataType::Float32, host.data());
+          runtime.ops().logSoftmax(buf, tc.dim);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("LogSoftmax", rLogSoftmax);
+  }
+}
+
+// ============================================================================
+// LayerNorm Benchmark
+// ============================================================================
+
+static void benchmarkLayerNorm(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nLayerNorm Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  struct TestCase {
+    uint32_t batch, features;
+    std::string name;
+  };
+  std::vector<TestCase> cases = {
+      {32, 128, "32x128"},   {32, 512, "32x512"}, {32, 2048, "32x2048"},
+      {128, 768, "128x768"}, {1, 4096, "1x4096"},
+  };
+
+  for (const auto &tc : cases) {
+    std::cout << "\n=== LayerNorm " << tc.name << " ===" << std::endl;
+    auto hostIn = randomFloats(tc.batch * tc.features, 42);
+    auto hostW = randomPositiveFloats(tc.features, 123);
+    auto hostB = randomFloats(tc.features, 456);
+
+    printSingleHeader();
+
+    auto rNoAffine = time_op(
+        [&]() {
+          auto bufIn = runtime.createTensor({tc.batch, tc.features},
+                                            DataType::Float32, hostIn.data());
+          runtime.ops().layerNorm(bufIn, {tc.features});
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("LayerNorm (no affine)", rNoAffine);
+
+    auto rAffine = time_op(
+        [&]() {
+          auto bufIn = runtime.createTensor({tc.batch, tc.features},
+                                            DataType::Float32, hostIn.data());
+          auto bufW = runtime.createTensor({tc.features}, DataType::Float32,
+                                           hostW.data());
+          auto bufB = runtime.createTensor({tc.features}, DataType::Float32,
+                                           hostB.data());
+          runtime.ops().layerNorm(bufIn, {tc.features}, &bufW, &bufB);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("LayerNorm (affine)", rAffine);
+  }
+}
+
+// ============================================================================
+// RMSNorm Benchmark
+// ============================================================================
+
+static void benchmarkRMSNorm(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nRMSNorm Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  struct TestCase {
+    uint32_t batch, features;
+    std::string name;
+  };
+  std::vector<TestCase> cases = {
+      {1, 576, "1x576"},     {1, 2048, "1x2048"},   {32, 768, "32x768"},
+      {32, 2048, "32x2048"}, {128, 768, "128x768"},
+  };
+
+  for (const auto &tc : cases) {
+    std::cout << "\n=== RMSNorm " << tc.name << " ===" << std::endl;
+    auto hostIn = randomFloats(tc.batch * tc.features, 42);
+    auto hostW = randomPositiveFloats(tc.features, 123);
+    auto hostDelta = randomFloats(tc.batch * tc.features, 456);
+
+    printSingleHeader();
+
+    // RMSNorm variant
+    auto rRms = time_op(
+        [&]() {
+          auto bufIn = runtime.createTensor({tc.batch, tc.features},
+                                            DataType::Float32, hostIn.data());
+          auto bufW = runtime.createTensor({tc.features}, DataType::Float32,
+                                           hostW.data());
+          runtime.ops().rmsNorm(bufIn, bufW);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("RMSNorm", rRms);
+
+    // ExtendedRMSNorm variant (residual + RMSNorm)
+    auto rExt = time_op(
+        [&]() {
+          auto bufIn = runtime.createTensor({tc.batch, tc.features},
+                                            DataType::Float32, hostIn.data());
+          auto bufDelta = runtime.createTensor(
+              {tc.batch, tc.features}, DataType::Float32, hostDelta.data());
+          auto bufW = runtime.createTensor({tc.features}, DataType::Float32,
+                                           hostW.data());
+          runtime.ops().extendedRmsNorm(bufIn, bufDelta, bufW);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("ExtendedRMSNorm", rExt);
+  }
+}
+
+// ============================================================================
+// Embedding Benchmark
+// ============================================================================
+
+static void benchmarkEmbedding(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nEmbedding Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  struct TestCase {
+    uint32_t seqLen, vocabSize, embedDim;
+    std::string name;
+  };
+  std::vector<TestCase> cases = {
+      {1, 32000, 768, "1x32000x768"},
+      {32, 32000, 768, "32x32000x768"},
+      {128, 50257, 768, "128x50257x768"},
+      {1, 49152, 2048, "1x49152x2048"},
+  };
+
+  for (const auto &tc : cases) {
+    std::cout << "\n=== Embedding " << tc.name << " ===" << std::endl;
+
+    // Generate random indices in [0, vocabSize)
+    std::mt19937 rng(42);
+    std::uniform_int_distribution<uint32_t> dist(0, tc.vocabSize - 1);
+    std::vector<uint32_t> indices(tc.seqLen);
+    for (auto &v : indices)
+      v = dist(rng);
+    auto weights = randomFloats(tc.vocabSize * tc.embedDim, 123);
+
+    printSingleHeader();
+
+    auto r = time_op(
+        [&]() {
+          auto bufIdx = runtime.createTensor({tc.seqLen}, DataType::UInt32,
+                                             indices.data());
+          auto bufW = runtime.createTensor({tc.vocabSize, tc.embedDim},
+                                           DataType::Float32, weights.data());
+          runtime.ops().embedding(bufIdx, bufW);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("Embedding", r);
+  }
+}
+
+// ============================================================================
+// Sort Benchmark
+// ============================================================================
+
+static void benchmarkSort(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nSort Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  // Sort requires power-of-2 sizes for bitonic sort
+  std::vector<uint32_t> sizes = {256, 1024, 4096, 16384, 65536};
+
+  printSingleHeader();
+  for (auto sz : sizes) {
+    auto hostKeys = randomFloats(sz, 42);
+    std::vector<uint32_t> hostVals(sz);
+    std::iota(hostVals.begin(), hostVals.end(), 0u);
+
+    std::string descBitonic = "BitonicSort N=" + std::to_string(sz);
+    auto rBitonic = time_op(
+        [&]() {
+          auto bufKeys =
+              runtime.createTensor({sz}, DataType::Float32, hostKeys.data());
+          auto bufVals =
+              runtime.createTensor({sz}, DataType::UInt32, hostVals.data());
+          runtime.ops().sortBitonic(bufKeys, bufVals);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow(descBitonic.c_str(), rBitonic);
+
+    std::string descRadix = "RadixSort N=" + std::to_string(sz);
+    auto rRadix = time_op(
+        [&]() {
+          auto bufKeys =
+              runtime.createTensor({sz}, DataType::Float32, hostKeys.data());
+          auto bufVals =
+              runtime.createTensor({sz}, DataType::UInt32, hostVals.data());
+          runtime.ops().sortRadix(bufKeys, bufVals);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow(descRadix.c_str(), rRadix);
+  }
+}
+
+// ============================================================================
+// Cast Benchmark
+// ============================================================================
+
+static void benchmarkCast(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nCast Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  std::vector<uint32_t> sizes = {4096, 65536, 1048576};
+
+  for (auto sz : sizes) {
+    std::cout << "\n=== Cast N=" << sz << " ===" << std::endl;
+    auto hostF32 = randomFloats(sz, 42);
+
+    // Convert to f16 for the reverse cast test
+    std::vector<uint16_t> hostF16(sz);
+    for (size_t i = 0; i < sz; ++i)
+      hostF16[i] = f32_to_f16(hostF32[i]);
+
+    printSingleHeader();
+
+    auto rF32toF16 = time_op(
+        [&]() {
+          auto buf =
+              runtime.createTensor({sz}, DataType::Float32, hostF32.data());
+          runtime.ops().cast(buf, DataType::Float16);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("Float32 -> Float16", rF32toF16);
+
+    auto rF16toF32 = time_op(
+        [&]() {
+          auto buf =
+              runtime.createTensor({sz}, DataType::Float16, hostF16.data());
+          runtime.ops().cast(buf, DataType::Float32);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("Float16 -> Float32", rF16toF32);
+  }
+}
+
+// ============================================================================
+// Attention Benchmark
+// ============================================================================
+
+static void benchmarkAttention(Runtime &runtime, int warmup, int iterations) {
+  std::cout << "\n\nAttention Benchmark" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+
+  struct TestCase {
+    uint32_t nHeads, nKvHeads, headDim, seqLen;
+    std::string name;
+  };
+  std::vector<TestCase> cases = {
+      {9, 3, 64, 32, "h=9 kv=3 d=64 s=32"},
+      {9, 3, 64, 128, "h=9 kv=3 d=64 s=128"},
+      {9, 3, 64, 512, "h=9 kv=3 d=64 s=512"},
+      {32, 8, 64, 128, "h=32 kv=8 d=64 s=128"},
+      {32, 8, 128, 128, "h=32 kv=8 d=128 s=128"},
+  };
+
+  for (const auto &tc : cases) {
+    std::cout << "\n=== Attention " << tc.name << " ===" << std::endl;
+
+    uint32_t qSize = tc.nHeads * tc.headDim;
+    uint32_t kvRows = tc.seqLen;
+    uint32_t kvCols = tc.nKvHeads * tc.headDim;
+
+    auto hostQ = randomFloats(qSize, 42);
+    auto hostK = randomFloats(kvRows * kvCols, 123);
+    auto hostV = randomFloats(kvRows * kvCols, 456);
+
+    printSingleHeader();
+
+    auto r = time_op(
+        [&]() {
+          auto bufQ =
+              runtime.createTensor({qSize}, DataType::Float32, hostQ.data());
+          auto bufK = runtime.createTensor({kvRows, kvCols}, DataType::Float32,
+                                           hostK.data());
+          auto bufV = runtime.createTensor({kvRows, kvCols}, DataType::Float32,
+                                           hostV.data());
+          runtime.ops().attention(bufQ, bufK, bufV, tc.nHeads, tc.nKvHeads,
+                                  tc.headDim, tc.seqLen);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow("Attention", r);
+  }
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -519,18 +1128,33 @@ int main() {
 
   const int warmup = 3, iterations = 10;
 
-  std::cout << "All-Ops Shader Variant Benchmark" << std::endl;
+  std::cout << "All-Ops Benchmark" << std::endl;
   std::cout << "Warmup: " << warmup << " iterations, Timed: " << iterations
             << " iterations" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
 
+  // Multi-variant operators
   benchmarkMatMul(runtime, warmup, iterations);
+  benchmarkMatMulQ8(runtime, warmup, iterations);
+  benchmarkMatMulSiLU(runtime, warmup, iterations);
   benchmarkTranspose(runtime, warmup, iterations);
   benchmarkConv1D(runtime, warmup, iterations);
   benchmarkConv2D(runtime, warmup, iterations);
   benchmarkMaxPool2D(runtime, warmup, iterations);
   benchmarkAvgPool2D(runtime, warmup, iterations);
   benchmarkReduceDim(runtime, warmup, iterations);
+
+  // Single-implementation operators
+  benchmarkDot(runtime, warmup, iterations);
+  benchmarkUnaryOps(runtime, warmup, iterations);
+  benchmarkBinaryOps(runtime, warmup, iterations);
+  benchmarkSoftmax(runtime, warmup, iterations);
+  benchmarkLayerNorm(runtime, warmup, iterations);
+  benchmarkRMSNorm(runtime, warmup, iterations);
+  benchmarkEmbedding(runtime, warmup, iterations);
+  benchmarkSort(runtime, warmup, iterations);
+  benchmarkCast(runtime, warmup, iterations);
+  benchmarkAttention(runtime, warmup, iterations);
 
   std::cout << "\n" << std::string(80, '=') << std::endl;
   std::cout << "All benchmarks complete." << std::endl;
