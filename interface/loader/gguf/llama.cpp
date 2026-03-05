@@ -1224,6 +1224,10 @@ std::string LlamaModel::detokenize(const std::vector<int> &tokens) const {
   return result;
 }
 
+void LlamaModel::setProfilingEnabled(bool enabled) {
+  ops_->setProfilingEnabled(enabled);
+}
+
 void LlamaModel::resetCache() {
   for (auto &cache : kv_caches_) {
     // Re-allocate fresh GPU cache buffers

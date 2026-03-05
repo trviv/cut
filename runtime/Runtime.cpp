@@ -159,6 +159,12 @@ void Runtime::copyFromTensor(Tensor handle,
                                      false, true);
 }
 
+void Runtime::setProfilingEnabled(bool enabled) {
+  if (interface_) {
+    interface_->setProfilingEnabled(enabled);
+  }
+}
+
 // =========================================================================
 // Operator Dispatch
 // =========================================================================

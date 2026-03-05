@@ -4,10 +4,16 @@
 
 namespace cut {
 
+void ComputeInterface::setProfilingEnabled(bool enabled) {
+  profilingEnabled_ = enabled;
+}
+
 void ComputeInterface::encode(ComputeDispatch &&dispatch) {
   if (!activeCommandBuffer_) {
     activeCommandBuffer_ = commandBufferContainer_->createCommandBuffer();
-    commandBufferContainer_->get(activeCommandBuffer_)->begin();
+    auto *cb = commandBufferContainer_->get(activeCommandBuffer_);
+    cb->begin();
+    cb->setProfilingEnabled(profilingEnabled_);
   }
 
   commandBufferContainer_->get(activeCommandBuffer_)

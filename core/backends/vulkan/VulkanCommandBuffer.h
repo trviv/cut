@@ -69,6 +69,11 @@ private:
 
   /// Pipeline handles created during end().
   std::vector<ComputeHandle> pipelineHandles_;
+
+  /// GPU timestamp profiling state.
+  VkQueryPool queryPool_ = VK_NULL_HANDLE;
+  uint32_t queryCount_ = 0;
+  std::vector<std::string> dispatchLabels_;
 };
 
 } // namespace cut

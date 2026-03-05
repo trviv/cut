@@ -143,6 +143,10 @@ public:
   /// Add extra stop token IDs (in addition to eos_token_id_).
   void addStopToken(int token_id) { stopTokenIds_.push_back(token_id); }
 
+  /// Enable or disable per-dispatch GPU profiling.
+  /// When enabled, each graph execution logs per-operation GPU timing.
+  void setProfilingEnabled(bool enabled);
+
 private:
   LlamaConfig config_;
   cut::Runtime *runtime_ = nullptr;

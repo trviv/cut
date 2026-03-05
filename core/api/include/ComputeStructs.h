@@ -385,11 +385,18 @@ public:
   /// Sorts the bindings by their binding index.
   void sortBindings();
 
+  /// Sets a human-readable label for profiling.
+  void setLabel(std::string label) { label_ = std::move(label); }
+
+  /// Returns the label for this dispatch.
+  const std::string &label() const { return label_; }
+
 private:
   ThreadSize wgSize_;                    ///< Workgroup dimensions.
   ComputeHandle shader_;                 ///< Bound shader handle.
   std::vector<ComputeBinding> bindings_; ///< All bindings (handles and data).
   bool isBarrier_ = false; ///< True if this is a barrier-only dispatch.
+  std::string label_;      ///< Human-readable label for profiling.
 };
 
 /**
@@ -437,9 +444,17 @@ public:
    */
   virtual void wait() = 0;
 
+  /// Enables or disables per-dispatch GPU profiling for this command buffer.
+  void setProfilingEnabled(bool enabled) { profilingEnabled_ = enabled; }
+
+  /// Returns true if GPU profiling is enabled.
+  bool isProfilingEnabled() const { return profilingEnabled_; }
+
 protected:
   /// Returns the list of encoded compute dispatches.
   const std::vector<ComputeDispatch> &dispatches() { return dispatches_; }
+
+  bool profilingEnabled_ = false; ///< Per-dispatch GPU profiling flag.
 
 private:
   std::vector<ComputeDispatch> dispatches_; ///< List of compute dispatches.

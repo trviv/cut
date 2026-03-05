@@ -374,6 +374,27 @@ void VulkanCommandBuffer::end() {
     const auto &vkPipelines =
         containers_.pipelineContainer.getPipelines(pipelineHandles_);
 
+    // GPU timestamp profiling: create query pool and collect labels
+    if (isProfilingEnabled() && containers_.timestampPeriod > 0.0f) {
+      queryCount_ = 0;
+      dispatchLabels_.clear();
+      for (const auto &d : dispatches()) {
+        if (!d.isBarrier()) {
+          queryCount_++;
+          dispatchLabels_.push_back(d.label());
+        }
+      }
+      if (queryCount_ > 0) {
+        VkQueryPoolCreateInfo queryPoolInfo{};
+        queryPoolInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        queryPoolInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+        queryPoolInfo.queryCount = queryCount_ * 2;
+        VK_CHECK(
+            vkCreateQueryPool(device_, &queryPoolInfo, nullptr, &queryPool_));
+        vkCmdResetQueryPool(commandBuffer_, queryPool_, 0, queryCount_ * 2);
+      }
+    }
+
     // Record commands: bind pipelines, descriptor sets, push constants, and
     // dispatch
     [[maybe_unused]] Clock::time_point recordCommandsStart, recordCommandsEnd;
@@ -445,7 +466,21 @@ void VulkanCommandBuffer::end() {
       const uint32_t dispatchY = (wgSize.y + scaleY - 1) / scaleY;
       const uint32_t dispatchZ = (wgSize.z + scaleZ - 1) / scaleZ;
 
+      // GPU timestamp: write start
+      if (queryPool_ != VK_NULL_HANDLE) {
+        vkCmdWriteTimestamp(commandBuffer_,
+                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, queryPool_,
+                            dispatchIndex * 2);
+      }
+
       vkCmdDispatch(commandBuffer_, dispatchX, dispatchY, dispatchZ);
+
+      // GPU timestamp: write end
+      if (queryPool_ != VK_NULL_HANDLE) {
+        vkCmdWriteTimestamp(commandBuffer_,
+                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, queryPool_,
+                            dispatchIndex * 2 + 1);
+      }
 
       ++dispatchIndex;
     }
@@ -523,6 +558,38 @@ void VulkanCommandBuffer::wait() {
   // Wait for the fence to be signaled (command buffer execution complete)
   VK_CHECK(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX));
   submitted_ = false;
+
+  // Read back GPU timestamp results and log per-dispatch timing
+  if (queryPool_ != VK_NULL_HANDLE && queryCount_ > 0) {
+    std::vector<uint64_t> timestamps(queryCount_ * 2);
+    VkResult result = vkGetQueryPoolResults(
+        device_, queryPool_, 0, queryCount_ * 2,
+        timestamps.size() * sizeof(uint64_t), timestamps.data(),
+        sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+
+    if (result == VK_SUCCESS) {
+      const float periodNs = containers_.timestampPeriod;
+      double totalUs = 0.0;
+      logMsg("[GPU Profile] %-30s %10s", "Operation", "Time");
+      logMsg("[GPU Profile] %-30s %10s", "------------------------------",
+             "----------");
+      for (uint32_t i = 0; i < queryCount_; ++i) {
+        double durationUs =
+            static_cast<double>(timestamps[i * 2 + 1] - timestamps[i * 2]) *
+            periodNs / 1000.0;
+        totalUs += durationUs;
+        const char *label =
+            i < dispatchLabels_.size() ? dispatchLabels_[i].c_str() : "?";
+        logMsg("[GPU Profile] %-30s %9.1f us", label, durationUs);
+      }
+      logMsg("[GPU Profile] %-30s %9.1f us", "TOTAL", totalUs);
+    }
+
+    vkDestroyQueryPool(device_, queryPool_, nullptr);
+    queryPool_ = VK_NULL_HANDLE;
+    queryCount_ = 0;
+    dispatchLabels_.clear();
+  }
 }
 
 } // namespace cut

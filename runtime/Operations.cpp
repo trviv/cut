@@ -140,6 +140,10 @@ Tensor Operations::recordOrEncode(std::unique_ptr<OpNode> node) {
   return output;
 }
 
+void Operations::setProfilingEnabled(bool enabled) {
+  runtime_->setProfilingEnabled(enabled);
+}
+
 void Operations::dispatch(std::unique_ptr<OpNode> node) {
   flush();
   runtime_->dispatch(std::move(node));

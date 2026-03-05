@@ -132,6 +132,13 @@ public:
   virtual size_t bufferOffsetAlignment() const { return 256; }
 
   /**
+   * Enables or disables per-dispatch GPU profiling.
+   * When enabled, command buffers will record hardware timestamps around each
+   * dispatch and log per-operation timing after execution completes.
+   */
+  void setProfilingEnabled(bool enabled);
+
+  /**
    * Encodes a compute dispatch to the active command buffer.
    * If no command buffer is currently recording, one will be created.
    * @param dispatch The compute dispatch object to encode (moved).
@@ -202,6 +209,8 @@ private:
 
   ///< Currently recording command buffer handle.
   ComputeHandle activeCommandBuffer_;
+
+  bool profilingEnabled_ = false; ///< Per-dispatch GPU profiling flag.
 };
 
 } // namespace cut

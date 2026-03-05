@@ -173,6 +173,13 @@ public:
   TensorStore &store();
 
   /**
+   * Enables or disables per-dispatch GPU profiling.
+   * When enabled, hardware timestamps are recorded around each dispatch
+   * and per-operation timing is logged after execution completes.
+   */
+  void setProfilingEnabled(bool enabled);
+
+  /**
    * Dispatches a compute operator using an OpNode.
    * The OpNode provides all operator-level information.
    */

@@ -73,6 +73,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 
   // Create containers with device
   containers_ = std::make_unique<VulkanContainers>(device_);
+  containers_->timestampPeriod = deviceProperties_.limits.timestampPeriod;
 
   // Vma dependent initializations
   IF_VMA_ENABLED_THEN(containers_->bufferContainer.setAllocator(allocator_));

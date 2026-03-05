@@ -305,6 +305,8 @@ struct VulkanContainers {
   VulkanPipelineContainer pipelineContainer;
   VulkanBufferContainer bufferContainer;
   VulkanShaderContainer shaderContainer;
+
+  float timestampPeriod = 0.0f; ///< Nanoseconds per GPU timestamp tick.
 };
 
 /// Vulkan implementation of CommandBufferContainer.

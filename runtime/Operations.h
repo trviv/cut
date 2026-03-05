@@ -264,6 +264,11 @@ public:
                  const Tensor &vals,
                  std::optional<uint32_t> spec = {});
 
+  // ===== Profiling =====
+
+  /// Enables or disables per-dispatch GPU profiling.
+  void setProfilingEnabled(bool enabled);
+
   // ===== Direct dispatch =====
 
   void dispatch(std::unique_ptr<OpNode> node);

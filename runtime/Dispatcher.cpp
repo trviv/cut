@@ -33,6 +33,7 @@ bool Dispatcher::encode(OpNode &node) {
       Tensor shader = getOrCreateShader(*subOp);
       auto bindings = subOp->bindings();
       ComputeDispatch dispatch(shader, subOp->dispatchSize(), bindings);
+      dispatch.setLabel(subOp->displayName());
       iface_->encode(std::move(dispatch));
       if (subOp->needsBarrierAfter()) {
         encodeBarrier();
@@ -46,6 +47,7 @@ bool Dispatcher::encode(OpNode &node) {
   Tensor shader = getOrCreateShader(node);
   auto bindings = node.bindings();
   ComputeDispatch dispatch(shader, node.dispatchSize(), bindings);
+  dispatch.setLabel(node.displayName());
   iface_->encode(std::move(dispatch));
   return true;
 }
