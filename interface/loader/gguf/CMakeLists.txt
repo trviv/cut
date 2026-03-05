@@ -46,3 +46,24 @@ if(BUILD_GGUF_EXAMPLE)
         MODELS_DIR="${CMAKE_SOURCE_DIR}/models"
     )
 endif()
+
+# Optional: Build HTTP server executable
+option(BUILD_GGUF_SERVER "Build GGUF HTTP server" ON)
+if(BUILD_GGUF_SERVER)
+    include(FetchContent)
+    FetchContent_Declare(httplib
+        URL https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.18.3.tar.gz
+    )
+    FetchContent_Declare(nlohmann_json
+        URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    )
+    FetchContent_MakeAvailable(httplib nlohmann_json)
+
+    add_executable(gguf_server server.cpp)
+    target_link_libraries(gguf_server PRIVATE gguf_loader httplib::httplib nlohmann_json::nlohmann_json)
+    target_compile_definitions(gguf_server PRIVATE
+        MODELS_DIR="${CMAKE_SOURCE_DIR}/models"
+    )
+    find_package(Threads REQUIRED)
+    target_link_libraries(gguf_server PRIVATE Threads::Threads)
+endif()
