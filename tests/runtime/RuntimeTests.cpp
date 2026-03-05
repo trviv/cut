@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <random>
@@ -4347,6 +4348,77 @@ TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
 
     for (uint32_t i = 0; i < N * N; ++i) {
       ASSERT_NEAR(output[i], dataA[i], 1e-5f) << "Mismatch at index " << i;
+    }
+  }
+}
+
+// ============================================================================
+// MatMul Benchmark
+// ============================================================================
+
+TEST_F(MatrixOpsTest, MatMulBenchmark) {
+  struct BenchCase {
+    uint32_t M, K, N;
+  };
+  std::array<BenchCase, 8> cases = {
+      {{512, 512, 512},
+       {1024, 1024, 1024},
+       {2048, 2048, 2048},
+       // LLM inference shapes (small M, large K/N)
+       {1, 768, 768},
+       {1, 2048, 2048},
+       {4, 2048, 2048},
+       {32, 2048, 2048},
+       // Tall-skinny
+       {2048, 2048, 128}}};
+
+  constexpr int kWarmup = 2;
+  constexpr int kIters = 10;
+
+  using Clock = std::chrono::high_resolution_clock;
+
+  for (const auto &tc : cases) {
+    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
+    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
+
+    double flops = 2.0 * tc.M * tc.K * tc.N;
+
+    printf("\n  MatMul %ux%u x %ux%u  (%d iters)\n", tc.M, tc.K, tc.K, tc.N,
+           kIters);
+    printf("  %-35s %10s %10s\n", "Variant", "Avg(us)", "GFLOPS");
+    printf("  %-35s %10s %10s\n", "-----------------------------------",
+           "----------", "----------");
+
+    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      const char *name = getMatMulVariantName(vi);
+      if (std::string(name).find("SiLU") != std::string::npos)
+        continue;
+
+      auto bufA =
+          runtime_->createTensor({tc.M, tc.K}, DataType::Float32, dataA.data());
+      auto bufB =
+          runtime_->createTensor({tc.K, tc.N}, DataType::Float32, dataB.data());
+
+      // Warmup
+      for (int w = 0; w < kWarmup; ++w) {
+        runtime_->ops().matmul(bufA, bufB, vi);
+        runtime_->flush();
+      }
+
+      // Timed iterations
+      auto start = Clock::now();
+      for (int i = 0; i < kIters; ++i) {
+        runtime_->ops().matmul(bufA, bufB, vi);
+        runtime_->flush();
+      }
+      auto end = Clock::now();
+
+      double totalUs =
+          std::chrono::duration<double, std::micro>(end - start).count();
+      double avgUs = totalUs / kIters;
+      double gflops = flops / (avgUs * 1e3);
+
+      printf("  %-35s %10.1f %10.2f\n", name, avgUs, gflops);
     }
   }
 }

@@ -79,19 +79,20 @@ std::vector<DataType> MatMulOpNode::resolveInputDtypes(
   if (getCompiledMatMul(*spec_, dtA, dtB, dtA).has_value())
     return {dtA, dtB};
 
-  // Try widening both to higher precision
   DataType wA = widenPrecision(dtA);
   DataType wB = widenPrecision(dtB);
-  if (getCompiledMatMul(*spec_, wA, wB, wA).has_value())
-    return {wA, wB};
 
   // Try mixed: keep A, widen B
-  if (getCompiledMatMul(*spec_, dtA, wB, dtA).has_value())
+  if (getCompiledMatMul(*spec_, dtA, wB, wB).has_value())
     return {dtA, wB};
 
   // Try mixed: widen A, keep B
   if (getCompiledMatMul(*spec_, wA, dtB, wA).has_value())
     return {wA, dtB};
+
+  // Try widening both to higher precision
+  if (getCompiledMatMul(*spec_, wA, wB, wA).has_value())
+    return {wA, wB};
 
   // Fallback: both Float32
   return {DataType::Float32, DataType::Float32};

@@ -4,10 +4,14 @@
 %DTYPE_DEFINES_INPUT2%
 %DTYPE_DEFINES_OUTPUT%
 
-// Fused tiled matmul with SiLU activation: silu(A * B)
-// where silu(x) = x / (1 + exp(-x)) = x * sigmoid(x)
-// Tiling parameters: TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%
-// Optimizations: shared memory padding, K-unroll by 4 with mad(), bounds check hoisting
+// Tiled matmul with vec4 cooperative global memory loads
+// TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%
+// Optimization: threads cooperatively load full vec4s from global memory
+// instead of extracting individual scalars. Reduces global load instructions
+// from TM+TN per thread to 2 vec4 loads per thread (for T16R4x4).
+// Requires: TILE_SIZE * TM * TILE_SIZE / 4 == TILE_SIZE^2 (threads)
+//           TILE_SIZE * TILE_SIZE * TN / 4 == TILE_SIZE^2 (threads)
+//           i.e. TM == 4 and TN == 4
 
 #define TILE_SIZE %TILE_SIZE%
 #define TM %TM%
@@ -15,19 +19,14 @@
 
 #include "MatMulCommon.shaderh"
 
-// +1 padding on inner dimension to avoid shared memory bank conflicts
 groupshared %SCALAR_DTYPE_INPUT1% tileA[TILE_SIZE * TM][TILE_SIZE + 1];
 groupshared %SCALAR_DTYPE_INPUT2% tileB[TILE_SIZE][TILE_SIZE * TN + 1];
-
-// SiLU activation: x / (1 + exp(-x)) = x * sigmoid(x)
-%SCALAR_DTYPE_OUTPUT% silu(%SCALAR_DTYPE_OUTPUT% x) {
-    return x / ((%SCALAR_DTYPE_OUTPUT%)(1.0) + exp(-x));
-}
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     uint localRow = GTid.y;
     uint localCol = GTid.x;
+    uint tid = localRow * TILE_SIZE + localCol;
 
     uint blockRowStart = Gid.y * TILE_SIZE * TM;
     uint blockColStart = Gid.x * TILE_SIZE * TN;
@@ -43,19 +42,38 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     bool fullM = (blockRowStart + TILE_SIZE * TM <= pc.M);
     bool fullN = (blockColStart + TILE_SIZE * TN <= pc.N);
 
+    // Vec4 cooperative load mappings (precomputed)
+    // tileA: [TILE_SIZE*TM][TILE_SIZE] = 64x16 = 1024 scalars = 256 vec4s
+    uint tileA_row = tid / (TILE_SIZE / 4);   // tid / 4, range 0..63
+    uint tileA_v4  = tid % (TILE_SIZE / 4);   // tid % 4, range 0..3
+    uint tileA_col = tileA_v4 * 4;            // 0, 4, 8, 12
+
+    // tileB: [TILE_SIZE][TILE_SIZE*TN] = 16x64 = 1024 scalars = 256 vec4s
+    uint tileB_row = tid / (TILE_SIZE * TN / 4);  // tid / 16, range 0..15
+    uint tileB_v4  = tid % (TILE_SIZE * TN / 4);  // tid % 16, range 0..15
+    uint tileB_col = tileB_v4 * 4;                // 0, 4, 8, ..., 60
+
     if (fullM && fullN) {
-        // Fast path: interior workgroup — skip bounds checks on loads and output
         for (uint t = 0; t < fullKTiles; t++) {
             uint tileKStart = t * TILE_SIZE;
 
-            [unroll] for (uint m = 0; m < TM; m++) {
-                tileA[localRow + m * TILE_SIZE][localCol] =
-                    loadA_fast(blockRowStart + localRow + m * TILE_SIZE, tileKStart + localCol);
-            }
-            [unroll] for (uint n = 0; n < TN; n++) {
-                tileB[localRow][localCol + n * TILE_SIZE] =
-                    loadB_fast(tileKStart + localRow, blockColStart + localCol + n * TILE_SIZE);
-            }
+            // Vec4 load for tileA: 1 vec4 per thread
+            uint gA_row = blockRowStart + tileA_row;
+            uint gA_idx = gA_row * pc.strideA + tileKStart + tileA_col;
+            %VEC_DTYPE_INPUT1% vA = dataA[gA_idx >> 2];
+            tileA[tileA_row][tileA_col + 0] = vA[0];
+            tileA[tileA_row][tileA_col + 1] = vA[1];
+            tileA[tileA_row][tileA_col + 2] = vA[2];
+            tileA[tileA_row][tileA_col + 3] = vA[3];
+
+            // Vec4 load for tileB: 1 vec4 per thread
+            uint gB_row = tileKStart + tileB_row;
+            uint gB_idx = gB_row * pc.strideB + blockColStart + tileB_col;
+            %VEC_DTYPE_INPUT2% vB = dataB[gB_idx >> 2];
+            tileB[tileB_row][tileB_col + 0] = vB[0];
+            tileB[tileB_row][tileB_col + 1] = vB[1];
+            tileB[tileB_row][tileB_col + 2] = vB[2];
+            tileB[tileB_row][tileB_col + 3] = vB[3];
 
             GroupMemoryBarrierWithGroupSync();
 
@@ -78,7 +96,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
         }
 
-        // Partial K tile (last tile, K not multiple of TILE_SIZE): use checked loads
+        // Partial K tile: fall back to scalar checked loads
         if (hasPartialK) {
             uint tileKStart = fullKTiles * TILE_SIZE;
 
@@ -112,16 +130,15 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
         }
 
-        // Unchecked output write with SiLU activation
         [unroll] for (uint m = 0; m < TM; m++) {
             [unroll] for (uint n = 0; n < TN; n++) {
                 uint outRow = blockRowStart + localRow + m * TILE_SIZE;
                 uint outCol = blockColStart + localCol + n * TILE_SIZE;
-                dataC[outRow * pc.strideB + outCol] = silu(acc[m][n]);
+                dataC[outRow * pc.strideB + outCol] = acc[m][n];
             }
         }
     } else {
-        // Edge workgroup: use checked loads and output bounds checks
+        // Edge workgroup: scalar checked loads throughout
         for (uint t = 0; t < numTiles; t++) {
             uint tileKStart = t * TILE_SIZE;
 
@@ -155,13 +172,12 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
         }
 
-        // Checked output write with SiLU activation
         [unroll] for (uint m = 0; m < TM; m++) {
             [unroll] for (uint n = 0; n < TN; n++) {
                 uint outRow = blockRowStart + localRow + m * TILE_SIZE;
                 uint outCol = blockColStart + localCol + n * TILE_SIZE;
                 if (outRow < pc.M && outCol < pc.N) {
-                    dataC[outRow * pc.strideB + outCol] = silu(acc[m][n]);
+                    dataC[outRow * pc.strideB + outCol] = acc[m][n];
                 }
             }
         }

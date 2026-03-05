@@ -4,9 +4,9 @@
 %DTYPE_DEFINES_INPUT2%
 %DTYPE_DEFINES_OUTPUT%
 
-// Fused tiled matmul with SiLU activation: silu(A * B)
-// where silu(x) = x / (1 + exp(-x)) = x * sigmoid(x)
-// Tiling parameters: TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%
+// Linear-dispatch tiled matmul with register blocking: TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%
+// Same algorithm as MatMulTiledReg but with 1D threadgroup (TILE_SIZE*TILE_SIZE, 1, 1)
+// instead of 2D (TILE_SIZE, TILE_SIZE, 1). Thread derives row/col via div/mod.
 // Optimizations: shared memory padding, K-unroll by 4 with mad(), bounds check hoisting
 
 #define TILE_SIZE %TILE_SIZE%
@@ -19,15 +19,10 @@
 groupshared %SCALAR_DTYPE_INPUT1% tileA[TILE_SIZE * TM][TILE_SIZE + 1];
 groupshared %SCALAR_DTYPE_INPUT2% tileB[TILE_SIZE][TILE_SIZE * TN + 1];
 
-// SiLU activation: x / (1 + exp(-x)) = x * sigmoid(x)
-%SCALAR_DTYPE_OUTPUT% silu(%SCALAR_DTYPE_OUTPUT% x) {
-    return x / ((%SCALAR_DTYPE_OUTPUT%)(1.0) + exp(-x));
-}
-
-[numthreads(TILE_SIZE, TILE_SIZE, 1)]
+[numthreads(TILE_SIZE * TILE_SIZE, 1, 1)]
 void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
-    uint localRow = GTid.y;
-    uint localCol = GTid.x;
+    uint localRow = GTid.x / TILE_SIZE;
+    uint localCol = GTid.x % TILE_SIZE;
 
     uint blockRowStart = Gid.y * TILE_SIZE * TM;
     uint blockColStart = Gid.x * TILE_SIZE * TN;
@@ -112,12 +107,12 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
         }
 
-        // Unchecked output write with SiLU activation
+        // Unchecked output write — all outputs in bounds for interior workgroup
         [unroll] for (uint m = 0; m < TM; m++) {
             [unroll] for (uint n = 0; n < TN; n++) {
                 uint outRow = blockRowStart + localRow + m * TILE_SIZE;
                 uint outCol = blockColStart + localCol + n * TILE_SIZE;
-                dataC[outRow * pc.strideB + outCol] = silu(acc[m][n]);
+                dataC[outRow * pc.strideB + outCol] = acc[m][n];
             }
         }
     } else {
@@ -155,13 +150,13 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
         }
 
-        // Checked output write with SiLU activation
+        // Checked output write — edge workgroup needs bounds checks
         [unroll] for (uint m = 0; m < TM; m++) {
             [unroll] for (uint n = 0; n < TN; n++) {
                 uint outRow = blockRowStart + localRow + m * TILE_SIZE;
                 uint outCol = blockColStart + localCol + n * TILE_SIZE;
                 if (outRow < pc.M && outCol < pc.N) {
-                    dataC[outRow * pc.strideB + outCol] = silu(acc[m][n]);
+                    dataC[outRow * pc.strideB + outCol] = acc[m][n];
                 }
             }
         }

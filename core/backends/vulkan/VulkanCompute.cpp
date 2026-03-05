@@ -67,6 +67,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   allocatorInfo.physicalDevice = physicalDevice;
   allocatorInfo.device = device_;
   allocatorInfo.instance = *owner_;
+  allocatorInfo.preferredLargeHeapBlockSize = 16 * 1024 * 1024; // 16 MB
 
   VK_CHECK(vmaCreateAllocator(&allocatorInfo, &allocator_));
 #endif

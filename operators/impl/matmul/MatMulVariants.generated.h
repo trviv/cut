@@ -17,8 +17,8 @@ struct MatMulVariantInfo {
     const char* description;
 };
 
-inline constexpr int kMatMulVariantCount = 13;
-inline constexpr int kMatMulDefaultVariant = 6;
+inline constexpr int kMatMulVariantCount = 20;
+inline constexpr int kMatMulDefaultVariant = 5;
 
 inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
     {"MatMulNaive", 16, 16, 16, 16, "Naive (no tiling)"},
@@ -30,10 +30,17 @@ inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
     {"MatMulT16R4x4", 16, 16, 64, 64, "T16 R4x4 (8KB)"},
     {"MatMulT16R8x8", 16, 16, 128, 128, "T16 R8x8 (16KB)"},
     {"MatMulT32R2x2", 32, 32, 64, 64, "T32 R2x2 (16KB)"},
+    {"MatMulT16R2x8", 16, 16, 32, 128, "T16 R2x8 (10KB)"},
+    {"MatMulT16R1x16", 16, 16, 16, 256, "T16 R1x16 (17KB)"},
     {"MatMulSimdR4x4", 32, 1, 32, 16, "SIMD R4x4 (32x16)"},
     {"MatMulSimdR4x8", 32, 1, 32, 32, "SIMD R4x8 (32x32)"},
     {"MatMulSimdR8x8", 32, 1, 64, 32, "SIMD R8x8 (64x32)"},
+    {"MatMulVecT16R4x4", 16, 16, 64, 64, "Vec4 T16 R4x4 (8KB)"},
+    {"MatMulVecBRegT16R4x4", 16, 16, 64, 64, "Vec4+BReg T16 R4x4 (8KB)"},
+    {"MatMulBRegT16R4x4", 16, 16, 64, 64, "BReg T16 R4x4 (8KB)"},
+    {"MatMulDblBufT16R4x4", 16, 16, 64, 64, "DblBuf T16 R4x4 (16KB)"},
     {"MatMulSiLUT16R4x4", 16, 16, 64, 64, "SiLU T16 R4x4 (8KB)"},
+    {"MatMulLinearT16R4x4", 256, 1, 64, 64, "Linear T16 R4x4 (8KB)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
@@ -46,10 +53,17 @@ std::optional<std::vector<uint32_t>> compiledMatMulT8R4x4(DataType input1, DataT
 std::optional<std::vector<uint32_t>> compiledMatMulT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulT16R8x8(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulT32R2x2(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulT16R2x8(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulT16R1x16(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulSimdR4x8(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulSimdR8x8(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulVecT16R4x4(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulVecBRegT16R4x4(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulBRegT16R4x4(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulDblBufT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulSiLUT16R4x4(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulLinearT16R4x4(DataType input1, DataType input2, DataType output);
 
 using CompiledMatMulFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType, DataType);
 
@@ -63,10 +77,17 @@ inline const CompiledMatMulFn kMatMulCompiledFns[kMatMulVariantCount] = {
     compiledMatMulT16R4x4,
     compiledMatMulT16R8x8,
     compiledMatMulT32R2x2,
+    compiledMatMulT16R2x8,
+    compiledMatMulT16R1x16,
     compiledMatMulSimdR4x4,
     compiledMatMulSimdR4x8,
     compiledMatMulSimdR8x8,
+    compiledMatMulVecT16R4x4,
+    compiledMatMulVecBRegT16R4x4,
+    compiledMatMulBRegT16R4x4,
+    compiledMatMulDblBufT16R4x4,
     compiledMatMulSiLUT16R4x4,
+    compiledMatMulLinearT16R4x4,
 };
 
 /// Returns compiled SPIR-V for a matmul variant by index.

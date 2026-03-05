@@ -4,10 +4,10 @@
 %DTYPE_DEFINES_INPUT2%
 %DTYPE_DEFINES_OUTPUT%
 
-// Fused tiled matmul with SiLU activation: silu(A * B)
-// where silu(x) = x / (1 + exp(-x)) = x * sigmoid(x)
-// Tiling parameters: TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%
-// Optimizations: shared memory padding, K-unroll by 4 with mad(), bounds check hoisting
+// Tiled matmul with register blocking + B-register pre-load
+// TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%
+// Optimization: pre-loads B values into registers before the M-loop,
+// eliminating TM-1 redundant shared memory reads per B element.
 
 #define TILE_SIZE %TILE_SIZE%
 #define TM %TM%
@@ -15,14 +15,8 @@
 
 #include "MatMulCommon.shaderh"
 
-// +1 padding on inner dimension to avoid shared memory bank conflicts
 groupshared %SCALAR_DTYPE_INPUT1% tileA[TILE_SIZE * TM][TILE_SIZE + 1];
 groupshared %SCALAR_DTYPE_INPUT2% tileB[TILE_SIZE][TILE_SIZE * TN + 1];
-
-// SiLU activation: x / (1 + exp(-x)) = x * sigmoid(x)
-%SCALAR_DTYPE_OUTPUT% silu(%SCALAR_DTYPE_OUTPUT% x) {
-    return x / ((%SCALAR_DTYPE_OUTPUT%)(1.0) + exp(-x));
-}
 
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
@@ -44,7 +38,6 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     bool fullN = (blockColStart + TILE_SIZE * TN <= pc.N);
 
     if (fullM && fullN) {
-        // Fast path: interior workgroup — skip bounds checks on loads and output
         for (uint t = 0; t < fullKTiles; t++) {
             uint tileKStart = t * TILE_SIZE;
 
@@ -60,17 +53,25 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
 
             [unroll] for (uint k = 0; k < TILE_SIZE; k += 4) {
+                // Pre-load B values into registers — avoids TM redundant shared mem reads
+                %SCALAR_DTYPE_OUTPUT% b_reg[4][TN];
+                [unroll] for (uint n = 0; n < TN; n++) {
+                    uint bc = localCol + n * TILE_SIZE;
+                    b_reg[0][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k    ][bc];
+                    b_reg[1][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 1][bc];
+                    b_reg[2][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 2][bc];
+                    b_reg[3][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 3][bc];
+                }
                 [unroll] for (uint m = 0; m < TM; m++) {
                     %SCALAR_DTYPE_OUTPUT% a0 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k];
                     %SCALAR_DTYPE_OUTPUT% a1 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 1];
                     %SCALAR_DTYPE_OUTPUT% a2 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 2];
                     %SCALAR_DTYPE_OUTPUT% a3 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 3];
                     [unroll] for (uint n = 0; n < TN; n++) {
-                        uint bc = localCol + n * TILE_SIZE;
-                        acc[m][n] = mad(a0, (%SCALAR_DTYPE_OUTPUT%)tileB[k    ][bc], acc[m][n]);
-                        acc[m][n] = mad(a1, (%SCALAR_DTYPE_OUTPUT%)tileB[k + 1][bc], acc[m][n]);
-                        acc[m][n] = mad(a2, (%SCALAR_DTYPE_OUTPUT%)tileB[k + 2][bc], acc[m][n]);
-                        acc[m][n] = mad(a3, (%SCALAR_DTYPE_OUTPUT%)tileB[k + 3][bc], acc[m][n]);
+                        acc[m][n] = mad(a0, b_reg[0][n], acc[m][n]);
+                        acc[m][n] = mad(a1, b_reg[1][n], acc[m][n]);
+                        acc[m][n] = mad(a2, b_reg[2][n], acc[m][n]);
+                        acc[m][n] = mad(a3, b_reg[3][n], acc[m][n]);
                     }
                 }
             }
@@ -78,7 +79,6 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
         }
 
-        // Partial K tile (last tile, K not multiple of TILE_SIZE): use checked loads
         if (hasPartialK) {
             uint tileKStart = fullKTiles * TILE_SIZE;
 
@@ -94,17 +94,24 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
 
             [unroll] for (uint k = 0; k < TILE_SIZE; k += 4) {
+                %SCALAR_DTYPE_OUTPUT% b_reg[4][TN];
+                [unroll] for (uint n = 0; n < TN; n++) {
+                    uint bc = localCol + n * TILE_SIZE;
+                    b_reg[0][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k    ][bc];
+                    b_reg[1][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 1][bc];
+                    b_reg[2][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 2][bc];
+                    b_reg[3][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 3][bc];
+                }
                 [unroll] for (uint m = 0; m < TM; m++) {
                     %SCALAR_DTYPE_OUTPUT% a0 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k];
                     %SCALAR_DTYPE_OUTPUT% a1 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 1];
                     %SCALAR_DTYPE_OUTPUT% a2 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 2];
                     %SCALAR_DTYPE_OUTPUT% a3 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 3];
                     [unroll] for (uint n = 0; n < TN; n++) {
-                        uint bc = localCol + n * TILE_SIZE;
-                        acc[m][n] = mad(a0, (%SCALAR_DTYPE_OUTPUT%)tileB[k    ][bc], acc[m][n]);
-                        acc[m][n] = mad(a1, (%SCALAR_DTYPE_OUTPUT%)tileB[k + 1][bc], acc[m][n]);
-                        acc[m][n] = mad(a2, (%SCALAR_DTYPE_OUTPUT%)tileB[k + 2][bc], acc[m][n]);
-                        acc[m][n] = mad(a3, (%SCALAR_DTYPE_OUTPUT%)tileB[k + 3][bc], acc[m][n]);
+                        acc[m][n] = mad(a0, b_reg[0][n], acc[m][n]);
+                        acc[m][n] = mad(a1, b_reg[1][n], acc[m][n]);
+                        acc[m][n] = mad(a2, b_reg[2][n], acc[m][n]);
+                        acc[m][n] = mad(a3, b_reg[3][n], acc[m][n]);
                     }
                 }
             }
@@ -112,16 +119,14 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
         }
 
-        // Unchecked output write with SiLU activation
         [unroll] for (uint m = 0; m < TM; m++) {
             [unroll] for (uint n = 0; n < TN; n++) {
                 uint outRow = blockRowStart + localRow + m * TILE_SIZE;
                 uint outCol = blockColStart + localCol + n * TILE_SIZE;
-                dataC[outRow * pc.strideB + outCol] = silu(acc[m][n]);
+                dataC[outRow * pc.strideB + outCol] = acc[m][n];
             }
         }
     } else {
-        // Edge workgroup: use checked loads and output bounds checks
         for (uint t = 0; t < numTiles; t++) {
             uint tileKStart = t * TILE_SIZE;
 
@@ -137,17 +142,24 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
 
             [unroll] for (uint k = 0; k < TILE_SIZE; k += 4) {
+                %SCALAR_DTYPE_OUTPUT% b_reg[4][TN];
+                [unroll] for (uint n = 0; n < TN; n++) {
+                    uint bc = localCol + n * TILE_SIZE;
+                    b_reg[0][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k    ][bc];
+                    b_reg[1][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 1][bc];
+                    b_reg[2][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 2][bc];
+                    b_reg[3][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 3][bc];
+                }
                 [unroll] for (uint m = 0; m < TM; m++) {
                     %SCALAR_DTYPE_OUTPUT% a0 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k];
                     %SCALAR_DTYPE_OUTPUT% a1 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 1];
                     %SCALAR_DTYPE_OUTPUT% a2 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 2];
                     %SCALAR_DTYPE_OUTPUT% a3 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 3];
                     [unroll] for (uint n = 0; n < TN; n++) {
-                        uint bc = localCol + n * TILE_SIZE;
-                        acc[m][n] = mad(a0, (%SCALAR_DTYPE_OUTPUT%)tileB[k    ][bc], acc[m][n]);
-                        acc[m][n] = mad(a1, (%SCALAR_DTYPE_OUTPUT%)tileB[k + 1][bc], acc[m][n]);
-                        acc[m][n] = mad(a2, (%SCALAR_DTYPE_OUTPUT%)tileB[k + 2][bc], acc[m][n]);
-                        acc[m][n] = mad(a3, (%SCALAR_DTYPE_OUTPUT%)tileB[k + 3][bc], acc[m][n]);
+                        acc[m][n] = mad(a0, b_reg[0][n], acc[m][n]);
+                        acc[m][n] = mad(a1, b_reg[1][n], acc[m][n]);
+                        acc[m][n] = mad(a2, b_reg[2][n], acc[m][n]);
+                        acc[m][n] = mad(a3, b_reg[3][n], acc[m][n]);
                     }
                 }
             }
@@ -155,13 +167,12 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             GroupMemoryBarrierWithGroupSync();
         }
 
-        // Checked output write with SiLU activation
         [unroll] for (uint m = 0; m < TM; m++) {
             [unroll] for (uint n = 0; n < TN; n++) {
                 uint outRow = blockRowStart + localRow + m * TILE_SIZE;
                 uint outCol = blockColStart + localCol + n * TILE_SIZE;
                 if (outRow < pc.M && outCol < pc.N) {
-                    dataC[outRow * pc.strideB + outCol] = silu(acc[m][n]);
+                    dataC[outRow * pc.strideB + outCol] = acc[m][n];
                 }
             }
         }

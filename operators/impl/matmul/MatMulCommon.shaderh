@@ -22,3 +22,14 @@ struct PushConstants {
     uint idx = row * pc.strideB + col;
     return dataB[idx >> 2][idx & 3];
 }
+
+// Unchecked variants — skip bounds checks for interior workgroups
+%SCALAR_DTYPE_INPUT1% loadA_fast(uint row, uint col) {
+    uint idx = row * pc.strideA + col;
+    return dataA[idx >> 2][idx & 3];
+}
+
+%SCALAR_DTYPE_INPUT2% loadB_fast(uint row, uint col) {
+    uint idx = row * pc.strideB + col;
+    return dataB[idx >> 2][idx & 3];
+}
