@@ -1,6 +1,8 @@
 #include "model_report.h"
 #include "OpNode.h"
 
+#include <ComputeCommon.h>
+
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -256,6 +258,11 @@ static OpMapping mapTensorToOps(const std::string &name,
 // Optimized-graph SVG rendering helpers
 // =========================================================================
 
+static std::string dtypeToString(cut::DataType dtype) {
+  const char *name = cut::dataTypeName(dtype);
+  return name ? name : "Unknown";
+}
+
 static std::string nodeDetailStr(const cut::graph::GraphNode &gn) {
   auto *stub = dynamic_cast<const cut::StubOpNode *>(gn.op.get());
   if (stub)
@@ -380,10 +387,11 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
          "<polygon points=\"0 0, 8 3, 0 6\" fill=\"#d0d7de\"/>"
          "</marker></defs>\n";
 
-  // Draw edges (behind nodes).
+  // Draw edges (behind nodes) with datatype labels.
   for (uint32_t idx : order) {
     const auto &n = nodes[idx];
-    for (uint32_t inpId : n.inputIds) {
+    for (size_t inputIdx = 0; inputIdx < n.inputIds.size(); ++inputIdx) {
+      uint32_t inpId = n.inputIds[inputIdx];
       if (inpId < nodes.size() && nodes[inpId].op && !nodes[inpId].isRemoved) {
         int x1 = pos[inpId].x + nodeW / 2;
         int y1 = pos[inpId].y + nodeH;
@@ -394,6 +402,31 @@ static std::string renderOptimizedGraphSVG(const cut::graph::Graph &graph,
             << "\" stroke=\"#b0b8c1\" stroke-width=\"1.5\" "
                "marker-end=\"url(#"
             << markerId << ")\"/>\n";
+
+        // Add datatype label on the edge
+        auto dtype = nodes[inpId].op->outputDtype();
+        std::string dtypeStr = dtypeToString(dtype);
+        int mx = (x1 + x2) / 2;
+        int my = (y1 + y2) / 2;
+
+        // Determine label position offset based on whether edges are vertical
+        // or diagonal
+        int offsetX = (x1 != x2) ? ((x1 < x2) ? 6 : -6) : 6;
+        std::string anchor =
+            (x1 < x2) ? "start" : ((x1 > x2) ? "end" : "start");
+
+        // Show input index and datatype for ops with multiple inputs
+        std::string label;
+        if (n.inputIds.size() > 1) {
+          label = "in[" + std::to_string(inputIdx) + "]: " + dtypeStr;
+        } else {
+          label = dtypeStr;
+        }
+
+        svg << "<text x=\"" << (mx + offsetX) << "\" y=\"" << (my + 3)
+            << "\" font-size=\"7\" fill=\"#0e7c86\" text-anchor=\"" << anchor
+            << "\" font-family=\"'SF Mono', 'Fira Code', monospace\">"
+            << htmlEscape(label) << "</text>\n";
       }
     }
   }
