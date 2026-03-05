@@ -64,6 +64,14 @@ public:
                     const Tensor &b,
                     std::optional<uint32_t> spec = {});
 
+  /// Fused Q8_0 dequantize-matmul with SiLU: silu(A * dequant(packedB,
+  /// scales)^T)
+  Tensor matmulQ8SiLU(const Tensor &a,
+                      const Tensor &packedB,
+                      const Tensor &scales,
+                      uint32_t bCols,
+                      std::optional<uint32_t> spec = {});
+
   Tensor transpose(const Tensor &a, std::optional<uint32_t> spec = {});
 
   Tensor

@@ -4,6 +4,7 @@
 #include "impl/binary/BinaryOp.h"
 #include "impl/binary/FusedBinaryOp.h"
 #include "impl/matmul/MatMulSiLUOp.h"
+#include "impl/matmulq8/MatMulQ8SiLUOp.h"
 #include "impl/rmsnorm/ExtendedRMSNormOp.h"
 #include "impl/rmsnorm/RMSNormOp.h"
 
@@ -350,7 +351,7 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
   bool changed = false;
   int siluCount = 0, matmulSiluCount = 0, skipReason[5] = {0};
 
-  // Pattern: MatMul → UnarySilu
+  // Pattern: MatMul/MatMulQ8 → UnarySilu
   // Match from the end (UnarySilu) and walk backwards
   for (uint32_t i = 0; i < graph.size(); ++i) {
     auto &siluNode = graph.nodes()[i];
@@ -370,7 +371,9 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
       skipReason[1]++;
       continue;
     }
-    if (matmulNode.op->op() != OperatorEnum::MatMul) {
+    bool isMatMul = matmulNode.op->op() == OperatorEnum::MatMul;
+    bool isMatMulQ8 = matmulNode.op->op() == OperatorEnum::MatMulQ8;
+    if (!isMatMul && !isMatMulQ8) {
       skipReason[2]++;
       continue;
     }
@@ -378,33 +381,53 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
       skipReason[3]++;
       continue;
     }
-    if (matmulNode.inputIds.size() != 2)
-      continue;
 
-    // Pattern matches: MatMul → UnarySilu
-    // Create fused MatMulSiLU node
-    uint32_t aId = matmulNode.inputIds[0];
-    uint32_t bId = matmulNode.inputIds[1];
-    auto &aNode = graph.nodes()[aId];
-    auto &bNode = graph.nodes()[bId];
-
-    if (!aNode.op || !bNode.op)
-      continue;
-
-    // Verify inputs are 2D (MatMulSiLU requires 2D matrices)
-    auto shapeA = aNode.op->outputShape();
-    auto shapeB = bNode.op->outputShape();
-    if (shapeA.size() != 2 || shapeB.size() != 2) {
-      skipReason[4]++;
-      continue; // Skip fusion if inputs are not 2D
+    if (isMatMul) {
+      // MatMul → UnarySilu: fuse into MatMulSiLU (2 inputs)
+      if (matmulNode.inputIds.size() != 2)
+        continue;
+      uint32_t aId = matmulNode.inputIds[0];
+      uint32_t bId = matmulNode.inputIds[1];
+      auto &aNode = graph.nodes()[aId];
+      auto &bNode = graph.nodes()[bId];
+      if (!aNode.op || !bNode.op)
+        continue;
+      auto shapeA = aNode.op->outputShape();
+      auto shapeB = bNode.op->outputShape();
+      if (shapeA.size() != 2 || shapeB.size() != 2) {
+        skipReason[4]++;
+        continue;
+      }
+      auto fusedNode = std::make_unique<MatMulSiLUOpNode>(
+          store, aNode.op->output(), bNode.op->output());
+      uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId});
+      graph.replaceAllUses(i, fusedId);
+    } else {
+      // MatMulQ8 → UnarySilu: fuse into MatMulQ8SiLU (3 inputs)
+      if (matmulNode.inputIds.size() != 3)
+        continue;
+      uint32_t aId = matmulNode.inputIds[0];
+      uint32_t bId = matmulNode.inputIds[1];
+      uint32_t sId = matmulNode.inputIds[2];
+      auto &aNode = graph.nodes()[aId];
+      auto &bNode = graph.nodes()[bId];
+      auto &sNode = graph.nodes()[sId];
+      if (!aNode.op || !bNode.op || !sNode.op)
+        continue;
+      auto shapeA = aNode.op->outputShape();
+      if (shapeA.size() != 2) {
+        skipReason[4]++;
+        continue;
+      }
+      // Extract bCols from the MatMulQ8 output shape (N dimension)
+      auto mmOutShape = matmulNode.op->outputShape();
+      uint32_t bCols = mmOutShape.size() >= 2 ? mmOutShape[1] : mmOutShape[0];
+      auto fusedNode = std::make_unique<MatMulQ8SiLUOpNode>(
+          store, aNode.op->output(), bNode.op->output(), sNode.op->output(),
+          bCols);
+      uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId, sId});
+      graph.replaceAllUses(i, fusedId);
     }
-
-    // Create the fused MatMulSiLU operation
-    auto fusedNode = std::make_unique<MatMulSiLUOpNode>(
-        store, aNode.op->output(), bNode.op->output());
-
-    uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId});
-    graph.replaceAllUses(i, fusedId);
     matmulSiluCount++;
     changed = true;
   }

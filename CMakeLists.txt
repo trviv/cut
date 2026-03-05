@@ -155,6 +155,7 @@ set(LIB_SOURCES
     operators/impl/matmul/MatMulOp.cpp
     operators/impl/matmul/MatMulSiLUOp.cpp
     operators/impl/matmulq8/MatMulQ8Op.cpp
+    operators/impl/matmulq8/MatMulQ8SiLUOp.cpp
     operators/impl/maxpool2d/MaxPool2DOp.cpp
     operators/impl/rope/RoPEOp.cpp
     operators/impl/attention/AttentionOp.cpp

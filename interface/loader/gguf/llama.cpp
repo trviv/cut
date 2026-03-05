@@ -451,8 +451,16 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   cut::graph::GraphBuilder builder(*runtime_);
   int32_t dim = static_cast<int32_t>(config_.dim);
 
-  // Dynamic input: normed [dim] — use attn_norm as shape placeholder
-  auto vNormed = builder.input(layer.attn_norm, /*isConstant=*/false);
+  // Dynamic input: hidden state [dim] — use ffn_norm as shape placeholder
+  // (must differ from attn_norm which is used as constant input below)
+  auto vHidden = builder.input(layer.ffn_norm, /*isConstant=*/false);
+
+  // Constant input: attention norm weight [dim]
+  auto vAttnNormWeight = builder.input(layer.attn_norm, /*isConstant=*/true);
+
+  // RMS norm inside the graph (saves a standalone dispatch)
+  auto vNormed =
+      builder.ops().rmsNorm(vHidden, vAttnNormWeight, config_.norm_eps);
 
   auto normed_2d = builder.ops().reshape(vNormed, {1, dim});
 
@@ -498,7 +506,7 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   auto graph = builder.build();
 
   GraphTemplate tpl;
-  tpl.dynamicInputIds = {graph->nodeId(vNormed)};
+  tpl.dynamicInputIds = {graph->nodeId(vHidden)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
   optimizer.optimize(*graph, runtime_->store());
@@ -548,10 +556,16 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   cut::graph::GraphBuilder builder(*runtime_);
   int32_t dim = static_cast<int32_t>(config_.dim);
 
-  // Dynamic inputs — each must use a DIFFERENT placeholder tensor so that
-  // Operations can distinguish them during graph construction.
-  auto vNormed = builder.input(layer.ffn_norm, /*isConstant=*/false);
+  // Dynamic input: hidden state [dim] — use attn_norm as shape placeholder
+  // (must differ from ffn_norm which is used as constant input below)
   auto vHidden = builder.input(layer.attn_norm, /*isConstant=*/false);
+
+  // Constant input: FFN norm weight [dim]
+  auto vFfnNormWeight = builder.input(layer.ffn_norm, /*isConstant=*/true);
+
+  // RMS norm inside the graph (saves a standalone dispatch)
+  auto vNormed =
+      builder.ops().rmsNorm(vHidden, vFfnNormWeight, config_.norm_eps);
 
   auto x_2d = builder.ops().reshape(vNormed, {1, dim});
 
@@ -582,7 +596,7 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   auto graph = builder.build();
 
   GraphTemplate tpl;
-  tpl.dynamicInputIds = {graph->nodeId(vNormed), graph->nodeId(vHidden)};
+  tpl.dynamicInputIds = {graph->nodeId(vHidden)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
   optimizer.optimize(*graph, runtime_->store());
@@ -722,10 +736,8 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
     auto &lg = layerGraphs_[i];
 
     // --- Attention block ---
-    auto normed = rmsNorm(hidden, l.attn_norm);
-
-    // QKV projection (graph template)
-    auto qkv = executeGraph(lg.qkvProjection, {normed});
+    // QKV projection (graph template — includes rmsNorm internally)
+    auto qkv = executeGraph(lg.qkvProjection, {hidden});
     auto q = qkv[0]; // [n_heads * head_dim]
     auto k = qkv[1]; // [kv_dim]
     auto v = qkv[2]; // [kv_dim]
@@ -742,10 +754,8 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
     hidden = attn_result[0];
 
     // --- FFN block ---
-    auto normed_ffn = rmsNorm(hidden, l.ffn_norm);
-
-    // FFN + residual (graph template)
-    auto ffn_result = executeGraph(lg.ffnResidual, {normed_ffn, hidden});
+    // FFN + residual (graph template — includes rmsNorm internally)
+    auto ffn_result = executeGraph(lg.ffnResidual, {hidden});
     hidden = ffn_result[0];
   }
 
