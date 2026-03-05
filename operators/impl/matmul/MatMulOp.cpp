@@ -26,7 +26,14 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   M_ = shapeA[0];
   K_ = shapeA[1];
   N_ = shapeB[1];
-  spec_ = spec.value_or(kMatMulDefaultVariant);
+  if (spec.has_value()) {
+    spec_ = *spec;
+  } else {
+    // Auto-select GEMV variant for M=1 (vector-matrix multiply).
+    // The tiled kernels waste 31/32 of each tile when M=1.
+    constexpr int kGemvVariant = kMatMulVariantCount - 1; // last variant
+    spec_ = (M_ == 1) ? kGemvVariant : kMatMulDefaultVariant;
+  }
   inputs_ = {a, b};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }

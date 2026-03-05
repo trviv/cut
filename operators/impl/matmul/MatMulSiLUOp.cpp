@@ -31,9 +31,9 @@ MatMulSiLUOpNode::MatMulSiLUOpNode(TensorStore &store,
   K_ = shapeA[1];
   N_ = shapeB[1];
 
-  // Use SiLUT16R4x4 variant (last variant in MatMul shaders.json, index 12)
-  // This variant includes inline SiLU activation
-  constexpr uint32_t kMatMulSiLUVariant = 12;
+  // Use SiLUT16R4x4 variant (index 18 in MatMul variants table).
+  // This variant includes inline SiLU activation.
+  constexpr uint32_t kMatMulSiLUVariant = 18;
   spec_ = spec.value_or(kMatMulSiLUVariant);
 
   inputs_ = {a, b};

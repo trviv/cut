@@ -96,6 +96,7 @@ int main(int argc, char *argv[]) {
 
     std::cout << "Generating " << max_new_tokens
               << " tokens (repeat_penalty=" << repeat_penalty << ")...\n";
+    // model.setProfilingEnabled(true);
     auto tokens = model.generate(prompt, max_new_tokens, repeat_penalty);
 
     std::cout << "\nBuffers after generation: " << runtime.bufferCount()

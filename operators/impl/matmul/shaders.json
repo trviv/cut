@@ -524,6 +524,27 @@
           {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
         ]
       }
+    },
+    {
+      "name": "Gemv",
+      "template": "MatMulGemv",
+      "defines": {},
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        1,
+        256
+      ],
+      "description": "GEMV (M=1 vector)",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+          {"input1": "Float32", "input2": "Float16", "output": "Float32"}
+        ]
+      }
     }
   ]
 }

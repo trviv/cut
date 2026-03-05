@@ -405,23 +405,8 @@ void LlamaModel::precomputeRoPE() {
 
 cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
                                        const cut::ComputeHandle &weight) {
-  // x is 1D [dim]
-
-  // 1. Square elements
-  auto x_sq = ops_->unaryOp(cut::UnarySquare, x);
-
-  // 2. Compute scale entirely on GPU: rsqrt(sum(x^2) / dim + eps)
-  auto sumTensor = ops_->reduce(cut::ReduceSum, x_sq);
-  auto mean = ops_->binaryOp(cut::BinaryDiv, sumTensor,
-                             static_cast<float>(config_.dim));
-  auto meanPlusEps = ops_->binaryOp(cut::BinaryAdd, mean, config_.norm_eps);
-  auto scale = ops_->unaryOp(cut::UnaryRsqrt, meanPlusEps);
-
-  // 3. Scale x by rsqrt factor
-  auto normalized = ops_->binaryOp(cut::BinaryMul, x, scale);
-
-  // 4. Multiply by weight
-  return ops_->binaryOp(cut::BinaryMul, normalized, weight);
+  // x is 1D [dim] — use fused RMSNorm kernel (single dispatch)
+  return ops_->rmsNorm(x, weight, config_.norm_eps);
 }
 
 // ============================================================================
