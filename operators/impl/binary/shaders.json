@@ -85,6 +85,66 @@
           {"input": "Int8", "output": "Int8"}
         ]
       }
+    },
+    {
+      "name": "FusedVecScalarVecVec",
+      "description": "Fused VecScalar + VecVec: op2(op1(A, scalar), B)",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "FusedVecVecVecScalar",
+      "description": "Fused VecVec + VecScalar: op2(op1(A, B), scalar)",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "FusedVecVecVecScalarBuf",
+      "description": "Fused VecVec + VecScalarBuf: op2(op1(A, B), scalarBuf[0])",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "FusedVecScalarBufVecVec",
+      "description": "Fused VecScalarBuf + VecVec: op2(op1(A, scalarBuf[0]), B)",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "FusedUnaryVecVec",
+      "description": "Fused Unary + VecVec: binary(unary(A), B)",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "FusedVecVecUnary",
+      "description": "Fused VecVec + Unary: unary(binary(A, B))",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+        ]
+      }
     }
   ]
 }

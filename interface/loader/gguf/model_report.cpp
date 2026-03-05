@@ -252,10 +252,11 @@ static OpMapping mapTensorToOps(const std::string &name,
   return {"", "", "", ""};
 }
 
-void generateModelReport(const GGUFReader &reader,
-                         const LlamaConfig &config,
-                         const std::string &output_path,
-                         const std::vector<cut::graph::NamedGraph> &optimizedGraphs) {
+void generateModelReport(
+    const GGUFReader &reader,
+    const LlamaConfig &config,
+    const std::string &output_path,
+    const std::vector<cut::graph::NamedGraph> &optimizedGraphs) {
   const auto &meta = reader.metadata();
   const auto &tensors = reader.tensors();
 

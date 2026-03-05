@@ -13,5 +13,11 @@ std::optional<std::vector<uint32_t>> compiledBinaryVecScalar(DataType input, Dat
 std::optional<std::vector<uint32_t>> compiledBinaryVecScalarCmp(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledBinaryVecScalarBuf(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledBinaryVecScalarBufCmp(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledBinaryFusedVecScalarVecVec(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledBinaryFusedVecVecVecScalar(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledBinaryFusedVecVecVecScalarBuf(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledBinaryFusedVecScalarBufVecVec(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledBinaryFusedUnaryVecVec(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledBinaryFusedVecVecUnary(DataType input1, DataType input2, DataType output);
 
 } // namespace cut

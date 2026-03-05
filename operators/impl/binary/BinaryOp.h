@@ -19,6 +19,9 @@ public:
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
 
+  /// Returns the scalar bits (only meaningful for VecScalar variant).
+  uint32_t scalarBits() const { return scalarBits_; }
+
 private:
   enum class BinaryOpVariant {
     VecVec,         // tensor-tensor (2 buffer bindings)

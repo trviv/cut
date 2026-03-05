@@ -358,6 +358,10 @@ const char *operatorName(OperatorEnum op) {
   case MatMulQ8:
     return "MatMulQ8";
 
+  // Fused binary
+  case FusedBinary:
+    return "FusedBinary";
+
   default:
     return "Unknown";
   }

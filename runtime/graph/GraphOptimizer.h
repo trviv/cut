@@ -86,8 +86,9 @@ public:
 };
 
 /// Eliminates reshape nodes whose memory layout is identical to their input.
-/// Covers cases where shapes differ but innermost dimensions share the same
-/// alignment (e.g. [576] → [1,576]), making the GPU copy a no-op.
+/// Covers cases where shapes differ (including dimensionality changes like
+/// [576] → [1,576]) but innermost dimensions share the same alignment,
+/// making the GPU copy a no-op.
 class NoOpReshapePass : public GraphPass {
 public:
   const char *name() const override { return "NoOpReshape"; }
@@ -115,6 +116,14 @@ public:
 class MatMulSiLUFusionPass : public GraphPass {
 public:
   const char *name() const override { return "MatMulSiLUFusion"; }
+  bool run(Graph &graph, TensorStore &store) override;
+};
+
+/// Fuses two consecutive binary operations into a single dispatch.
+/// Supports VecScalar→VecVec and VecVec→VecScalar patterns.
+class FusedBinaryPass : public GraphPass {
+public:
+  const char *name() const override { return "FusedBinary"; }
   bool run(Graph &graph, TensorStore &store) override;
 };
 

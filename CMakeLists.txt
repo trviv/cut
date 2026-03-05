@@ -147,6 +147,7 @@ set(LIB_SOURCES
     operators/OpNode.cpp
     operators/impl/avgpool2d/AvgPool2DOp.cpp
     operators/impl/binary/BinaryOp.cpp
+    operators/impl/binary/FusedBinaryOp.cpp
     operators/impl/cast/CastOp.cpp
     operators/impl/conv1d/Conv1DOp.cpp
     operators/impl/conv2d/Conv2DOp.cpp

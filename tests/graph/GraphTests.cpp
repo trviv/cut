@@ -232,6 +232,46 @@ TEST_F(GraphTest, ReshapeChainElimination) {
   EXPECT_EQ(graph->node(r2Id).inputIds[0], vaId);
 }
 
+TEST_F(GraphTest, CrossDimensionalityReshapeElimination) {
+  // [576] → [1, 576]: dimensionality changes but inner dim is the same,
+  // so memory layout is identical — should be eliminated by NoOpReshapePass.
+  auto a = runtime_.createTensor({576}, DataType::Float32);
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto r = builder.ops().reshape(va, {1, 576}); // 1D → 2D, same inner
+  builder.markOutput(r);
+  auto graph = builder.build();
+
+  uint32_t vaId = graph->nodeId(va);
+
+  NoOpReshapePass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_TRUE(changed);
+
+  // Output should now point to the input node (reshape eliminated)
+  EXPECT_EQ(graph->outputs()[0], vaId);
+}
+
+TEST_F(GraphTest, CrossDimensionalityReshapeElimination_2Dto1D) {
+  // [1, 576] → [576]: 2D→1D, same inner dim — should be eliminated.
+  auto a = runtime_.createTensor({1, 576}, DataType::Float32);
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto r = builder.ops().reshape(va, {576});
+  builder.markOutput(r);
+  auto graph = builder.build();
+
+  uint32_t vaId = graph->nodeId(va);
+
+  NoOpReshapePass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_TRUE(changed);
+
+  EXPECT_EQ(graph->outputs()[0], vaId);
+}
+
 TEST_F(GraphTest, TransposeCancelElimination) {
   auto a = runtime_.createTensor({3, 5}, DataType::Float32);
 
@@ -839,6 +879,982 @@ TEST_F(GraphTest, MemoryPlannerWithOptimizer) {
   runtime_.copyFromTensor(results[0], graphResult.data(), 4 * sizeof(float));
   for (int i = 0; i < 4; ++i) {
     EXPECT_NEAR(graphResult[i], eagerResult[i], 1e-5f);
+  }
+}
+
+// ============================================================================
+// Fused Binary Pass Tests
+// ============================================================================
+
+TEST_F(GraphTest, FusedBinaryVecVecVecScalar) {
+  // Pattern: (a + b) * 2.0 → fused into single dispatch
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  // Eager reference
+  auto &ops = runtime_.ops();
+  auto eagerSum = ops.binaryOp(BinaryAdd, a, b);
+  auto eagerResult = ops.binaryOp(BinaryMul, eagerSum, 2.0f);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  // Graph with optimization
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto scaled = builder.ops().binaryOp(BinaryMul, sum, 2.0f);
+  builder.markOutput(scaled);
+  auto graph = builder.build();
+
+  // Verify fusion happens
+  graph::FusedBinaryPass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_TRUE(changed);
+
+  // Execute and compare
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecScalarVecVec) {
+  // Pattern: (a * 2.0) + b → fused into single dispatch
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {10.0f, 20.0f, 30.0f, 40.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  // Eager reference
+  auto &ops = runtime_.ops();
+  auto eagerScaled = ops.binaryOp(BinaryMul, a, 2.0f);
+  auto eagerResult = ops.binaryOp(BinaryAdd, eagerScaled, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  // Graph with optimization
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto scaled = builder.ops().binaryOp(BinaryMul, va, 2.0f);
+  auto sum = builder.ops().binaryOp(BinaryAdd, scaled, vb);
+  builder.markOutput(sum);
+  auto graph = builder.build();
+
+  // Verify fusion happens
+  graph::FusedBinaryPass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_TRUE(changed);
+
+  // Execute and compare
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryNoFusionMultiConsumer) {
+  // When intermediate has multiple consumers, fusion should NOT happen
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto scaled = builder.ops().binaryOp(BinaryMul, sum, 2.0f);
+  // Mark both sum and scaled as outputs — sum has 2 consumers (scaled + output)
+  builder.markOutput(sum);
+  builder.markOutput(scaled);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_FALSE(changed); // Should not fuse since sum has refCount > 1
+}
+
+TEST_F(GraphTest, FusedBinaryFullPipeline) {
+  // End-to-end: build graph, optimize with full pipeline, execute
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  // Eager reference: (a + b) * 3.0
+  auto &ops = runtime_.ops();
+  auto eagerSum = ops.binaryOp(BinaryAdd, a, b);
+  auto eagerResult = ops.binaryOp(BinaryMul, eagerSum, 3.0f);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  // Graph with full optimizer
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto scaled = builder.ops().binaryOp(BinaryMul, sum, 3.0f);
+  builder.markOutput(scaled);
+  auto graph = builder.build();
+
+  auto optimizer = GraphOptimizer::createDefault();
+  optimizer.optimize(*graph, runtime_.store());
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecVecVecScalarBuf) {
+  // Pattern: (a + b) * scalarBuf → fused VecVecVecScalarBuf
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  float scalarVal = 2.0f;
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+  auto s = runtime_.createTensor({1}, DataType::Float32, &scalarVal);
+
+  // Eager reference
+  auto &ops = runtime_.ops();
+  auto eagerSum = ops.binaryOp(BinaryAdd, a, b);
+  auto eagerResult = ops.binaryOp(BinaryMul, eagerSum, s);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  // Graph with optimizer
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto vs = builder.input(s);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto scaled = builder.ops().binaryOp(BinaryMul, sum, vs);
+  builder.markOutput(scaled);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_TRUE(changed);
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecScalarBufVecVec) {
+  // Pattern: (a * scalarBuf) + b → fused VecScalarBufVecVec
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  float scalarVal = 3.0f;
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+  auto s = runtime_.createTensor({1}, DataType::Float32, &scalarVal);
+
+  // Eager reference
+  auto &ops = runtime_.ops();
+  auto eagerScaled = ops.binaryOp(BinaryMul, a, s);
+  auto eagerResult = ops.binaryOp(BinaryAdd, eagerScaled, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  // Graph with optimizer
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto vs = builder.input(s);
+  auto scaled = builder.ops().binaryOp(BinaryMul, va, vs);
+  auto sum = builder.ops().binaryOp(BinaryAdd, scaled, vb);
+  builder.markOutput(sum);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_TRUE(changed);
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryUnaryVecVec) {
+  // Pattern: silu(a) * b → fused UnaryVecVec
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  // Eager reference
+  auto &ops = runtime_.ops();
+  auto eagerAct = ops.unaryOp(UnarySilu, a);
+  auto eagerResult = ops.binaryOp(BinaryMul, eagerAct, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  // Graph with optimizer
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto act = builder.ops().unaryOp(UnarySilu, va);
+  auto result = builder.ops().binaryOp(BinaryMul, act, vb);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_TRUE(changed);
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecVecUnary) {
+  // Pattern: silu(a + b) → fused VecVecUnary
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  // Eager reference
+  auto &ops = runtime_.ops();
+  auto eagerSum = ops.binaryOp(BinaryAdd, a, b);
+  auto eagerResult = ops.unaryOp(UnarySilu, eagerSum);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  // Graph with optimizer
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto result = builder.ops().unaryOp(UnarySilu, sum);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_TRUE(changed);
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+// ============================================================================
+// Fused Binary Pass — Extended Tests
+// ============================================================================
+
+TEST_F(GraphTest, FusedBinaryVecVecVecScalar_SubDiv) {
+  // Pattern: (a - b) / 2.0 → fused VecVecVecScalar with Sub+Div
+  std::vector<float> aData = {10.0f, 20.0f, 30.0f, 40.0f};
+  std::vector<float> bData = {1.0f, 5.0f, 10.0f, 15.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerDiff = ops.binaryOp(BinarySub, a, b);
+  auto eagerResult = ops.binaryOp(BinaryDiv, eagerDiff, 2.0f);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto diff = builder.ops().binaryOp(BinarySub, va, vb);
+  auto result = builder.ops().binaryOp(BinaryDiv, diff, 2.0f);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecScalarVecVec_SubAdd) {
+  // Pattern: (a - 1.0) + b → fused VecScalarVecVec with Sub+Add
+  std::vector<float> aData = {5.0f, 10.0f, 15.0f, 20.0f};
+  std::vector<float> bData = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerShifted = ops.binaryOp(BinarySub, a, 1.0f);
+  auto eagerResult = ops.binaryOp(BinaryAdd, eagerShifted, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto shifted = builder.ops().binaryOp(BinarySub, va, 1.0f);
+  auto result = builder.ops().binaryOp(BinaryAdd, shifted, vb);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecVecVecScalar_MinMax) {
+  // Pattern: min(a, b) * 0.5 → fused VecVecVecScalar with Min+Mul
+  std::vector<float> aData = {3.0f, 1.0f, 7.0f, 2.0f};
+  std::vector<float> bData = {5.0f, 0.5f, 4.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerMin = ops.binaryOp(BinaryMin, a, b);
+  auto eagerResult = ops.binaryOp(BinaryMul, eagerMin, 0.5f);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto m = builder.ops().binaryOp(BinaryMin, va, vb);
+  auto result = builder.ops().binaryOp(BinaryMul, m, 0.5f);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryUnaryVecVec_Relu) {
+  // Pattern: relu(a) * b → fused UnaryVecVec with Relu
+  std::vector<float> aData = {-2.0f, 3.0f, -1.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerAct = ops.unaryOp(UnaryRelu, a);
+  auto eagerResult = ops.binaryOp(BinaryMul, eagerAct, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto act = builder.ops().unaryOp(UnaryRelu, va);
+  auto result = builder.ops().binaryOp(BinaryMul, act, vb);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryUnaryVecVec_Neg) {
+  // Pattern: neg(a) + b → fused UnaryVecVec with Neg+Add
+  std::vector<float> aData = {1.0f, -2.0f, 3.0f, -4.0f};
+  std::vector<float> bData = {10.0f, 20.0f, 30.0f, 40.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerNeg = ops.unaryOp(UnaryNeg, a);
+  auto eagerResult = ops.binaryOp(BinaryAdd, eagerNeg, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto neg = builder.ops().unaryOp(UnaryNeg, va);
+  auto result = builder.ops().binaryOp(BinaryAdd, neg, vb);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecVecUnary_Relu) {
+  // Pattern: relu(a - b) → fused VecVecUnary with Sub+Relu
+  std::vector<float> aData = {3.0f, 1.0f, 7.0f, 2.0f};
+  std::vector<float> bData = {5.0f, 0.5f, 4.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerDiff = ops.binaryOp(BinarySub, a, b);
+  auto eagerResult = ops.unaryOp(UnaryRelu, eagerDiff);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto diff = builder.ops().binaryOp(BinarySub, va, vb);
+  auto result = builder.ops().unaryOp(UnaryRelu, diff);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecVecUnary_Gelu) {
+  // Pattern: gelu(a * b) → fused VecVecUnary with Mul+Gelu
+  std::vector<float> aData = {0.5f, 1.0f, -0.5f, 2.0f};
+  std::vector<float> bData = {1.0f, 0.5f, 2.0f, 0.25f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerProd = ops.binaryOp(BinaryMul, a, b);
+  auto eagerResult = ops.unaryOp(UnaryGelu, eagerProd);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto prod = builder.ops().binaryOp(BinaryMul, va, vb);
+  auto result = builder.ops().unaryOp(UnaryGelu, prod);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(graphOut[i], eagerOut[i], 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecVecUnary_Exp) {
+  // Pattern: exp(a + b) → fused VecVecUnary with Add+Exp
+  std::vector<float> aData = {0.1f, 0.2f, 0.3f, 0.4f};
+  std::vector<float> bData = {0.5f, 0.4f, 0.3f, 0.2f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerSum = ops.binaryOp(BinaryAdd, a, b);
+  auto eagerResult = ops.unaryOp(UnaryExp, eagerSum);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto result = builder.ops().unaryOp(UnaryExp, sum);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(graphOut[i], eagerOut[i], 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryUnaryVecVec_Exp) {
+  // Pattern: exp(a) * b → fused UnaryVecVec with Exp+Mul
+  std::vector<float> aData = {0.1f, 0.2f, 0.3f, 0.4f};
+  std::vector<float> bData = {2.0f, 3.0f, 4.0f, 5.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerExp = ops.unaryOp(UnaryExp, a);
+  auto eagerResult = ops.binaryOp(BinaryMul, eagerExp, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto e = builder.ops().unaryOp(UnaryExp, va);
+  auto result = builder.ops().binaryOp(BinaryMul, e, vb);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(graphOut[i], eagerOut[i], 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecVecVecScalarBuf_SubMul) {
+  // Pattern: (a - b) * scalarBuf → fused VecVecVecScalarBuf with Sub+Mul
+  std::vector<float> aData = {10.0f, 20.0f, 30.0f, 40.0f};
+  std::vector<float> bData = {1.0f, 2.0f, 3.0f, 4.0f};
+  float scalarVal = 0.5f;
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+  auto s = runtime_.createTensor({1}, DataType::Float32, &scalarVal);
+
+  auto &ops = runtime_.ops();
+  auto eagerDiff = ops.binaryOp(BinarySub, a, b);
+  auto eagerResult = ops.binaryOp(BinaryMul, eagerDiff, s);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto vs = builder.input(s);
+  auto diff = builder.ops().binaryOp(BinarySub, va, vb);
+  auto result = builder.ops().binaryOp(BinaryMul, diff, vs);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecScalarBufVecVec_DivAdd) {
+  // Pattern: (a / scalarBuf) + b → fused VecScalarBufVecVec with Div+Add
+  std::vector<float> aData = {10.0f, 20.0f, 30.0f, 40.0f};
+  std::vector<float> bData = {1.0f, 2.0f, 3.0f, 4.0f};
+  float scalarVal = 5.0f;
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+  auto s = runtime_.createTensor({1}, DataType::Float32, &scalarVal);
+
+  auto &ops = runtime_.ops();
+  auto eagerDiv = ops.binaryOp(BinaryDiv, a, s);
+  auto eagerResult = ops.binaryOp(BinaryAdd, eagerDiv, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto vs = builder.input(s);
+  auto div = builder.ops().binaryOp(BinaryDiv, va, vs);
+  auto result = builder.ops().binaryOp(BinaryAdd, div, vb);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryLargerTensor) {
+  // Test fusion with a larger, non-trivially-sized tensor (non-aligned to 4)
+  constexpr int N = 17;
+  std::vector<float> aData(N), bData(N);
+  for (int i = 0; i < N; ++i) {
+    aData[i] = static_cast<float>(i + 1);
+    bData[i] = static_cast<float>(N - i);
+  }
+  auto a = runtime_.createTensor({static_cast<uint32_t>(N)}, DataType::Float32,
+                                 aData.data());
+  auto b = runtime_.createTensor({static_cast<uint32_t>(N)}, DataType::Float32,
+                                 bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerSum = ops.binaryOp(BinaryAdd, a, b);
+  auto eagerResult = ops.binaryOp(BinaryMul, eagerSum, 0.1f);
+  std::vector<float> eagerOut(N);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), N * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto result = builder.ops().binaryOp(BinaryMul, sum, 0.1f);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(N);
+  runtime_.copyFromTensor(results[0], graphOut.data(), N * sizeof(float));
+  for (int i = 0; i < N; ++i) {
+    EXPECT_NEAR(graphOut[i], eagerOut[i], 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, FusedBinary2D) {
+  // Test fusion with a 2D tensor
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+  std::vector<float> bData = {8.0f, 7.0f, 6.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f};
+  auto a = runtime_.createTensor({2, 4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({2, 4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerSum = ops.binaryOp(BinaryAdd, a, b);
+  auto eagerResult = ops.unaryOp(UnarySilu, eagerSum);
+  std::vector<float> eagerOut(8);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 8 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto result = builder.ops().unaryOp(UnarySilu, sum);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(8);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 8 * sizeof(float));
+  for (int i = 0; i < 8; ++i) {
+    EXPECT_NEAR(graphOut[i], eagerOut[i], 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecVecVecScalar_MaxAdd) {
+  // Pattern: max(a, b) + 1.0 → fused VecVecVecScalar with Max+Add
+  std::vector<float> aData = {3.0f, -1.0f, 7.0f, 0.0f};
+  std::vector<float> bData = {1.0f, 2.0f, 4.0f, -3.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerMax = ops.binaryOp(BinaryMax, a, b);
+  auto eagerResult = ops.binaryOp(BinaryAdd, eagerMax, 1.0f);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto mx = builder.ops().binaryOp(BinaryMax, va, vb);
+  auto result = builder.ops().binaryOp(BinaryAdd, mx, 1.0f);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut[i], eagerOut[i]);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecScalarVecVec_PowSub) {
+  // Pattern: (a ^ 2.0) - b → fused VecScalarVecVec with Pow+Sub
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {0.5f, 1.0f, 2.0f, 3.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerPow = ops.binaryOp(BinaryPow, a, 2.0f);
+  auto eagerResult = ops.binaryOp(BinarySub, eagerPow, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto p = builder.ops().binaryOp(BinaryPow, va, 2.0f);
+  auto result = builder.ops().binaryOp(BinarySub, p, vb);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(graphOut[i], eagerOut[i], 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryUnaryVecVec_Sigmoid) {
+  // Pattern: sigmoid(a) + b → fused UnaryVecVec with Sigmoid+Add
+  std::vector<float> aData = {-2.0f, -1.0f, 0.0f, 1.0f};
+  std::vector<float> bData = {1.0f, 1.0f, 1.0f, 1.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerSig = ops.unaryOp(UnarySigmoid, a);
+  auto eagerResult = ops.binaryOp(BinaryAdd, eagerSig, b);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sig = builder.ops().unaryOp(UnarySigmoid, va);
+  auto result = builder.ops().binaryOp(BinaryAdd, sig, vb);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(graphOut[i], eagerOut[i], 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryVecVecUnary_Tanh) {
+  // Pattern: tanh(a * b) → fused VecVecUnary with Mul+Tanh
+  std::vector<float> aData = {0.5f, 1.0f, -0.5f, 0.25f};
+  std::vector<float> bData = {1.0f, 0.5f, 2.0f, 3.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  auto eagerProd = ops.binaryOp(BinaryMul, a, b);
+  auto eagerResult = ops.unaryOp(UnaryTanh, eagerProd);
+  std::vector<float> eagerOut(4);
+  runtime_.copyFromTensor(eagerResult, eagerOut.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto prod = builder.ops().binaryOp(BinaryMul, va, vb);
+  auto result = builder.ops().unaryOp(UnaryTanh, prod);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  EXPECT_TRUE(pass.run(*graph, runtime_.store()));
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 1u);
+
+  std::vector<float> graphOut(4);
+  runtime_.copyFromTensor(results[0], graphOut.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(graphOut[i], eagerOut[i], 1e-5f);
+  }
+}
+
+TEST_F(GraphTest, FusedBinaryNoFusionComparison) {
+  // Comparison ops should NOT be fused (isBinaryArithmetic excludes them)
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {4.0f, 3.0f, 2.0f, 1.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto cmp = builder.ops().binaryOp(BinaryGreater, va, vb);
+  auto result = builder.ops().binaryOp(BinaryMul, cmp, 2.0f);
+  builder.markOutput(result);
+  auto graph = builder.build();
+
+  graph::FusedBinaryPass pass;
+  bool changed = pass.run(*graph, runtime_.store());
+  EXPECT_FALSE(changed);
+}
+
+TEST_F(GraphTest, FusedBinaryFullPipeline_MultipleOutputs) {
+  // Full pipeline: two separate fusable chains, both fused independently
+  std::vector<float> aData = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> bData = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto a = runtime_.createTensor({4}, DataType::Float32, aData.data());
+  auto b = runtime_.createTensor({4}, DataType::Float32, bData.data());
+
+  auto &ops = runtime_.ops();
+  // Reference: output1 = (a + b) * 2.0, output2 = relu(a - b)
+  auto eagerSum = ops.binaryOp(BinaryAdd, a, b);
+  auto eagerOut1 = ops.binaryOp(BinaryMul, eagerSum, 2.0f);
+  auto eagerDiff = ops.binaryOp(BinarySub, a, b);
+  auto eagerOut2 = ops.unaryOp(UnaryRelu, eagerDiff);
+  std::vector<float> refOut1(4), refOut2(4);
+  runtime_.copyFromTensor(eagerOut1, refOut1.data(), 4 * sizeof(float));
+  runtime_.copyFromTensor(eagerOut2, refOut2.data(), 4 * sizeof(float));
+
+  GraphBuilder builder(runtime_);
+  auto va = builder.input(a);
+  auto vb = builder.input(b);
+  auto sum = builder.ops().binaryOp(BinaryAdd, va, vb);
+  auto out1 = builder.ops().binaryOp(BinaryMul, sum, 2.0f);
+  auto diff = builder.ops().binaryOp(BinarySub, va, vb);
+  auto out2 = builder.ops().unaryOp(UnaryRelu, diff);
+  builder.markOutput(out1);
+  builder.markOutput(out2);
+  auto graph = builder.build();
+
+  auto optimizer = GraphOptimizer::createDefault();
+  optimizer.optimize(*graph, runtime_.store());
+
+  GraphExecutor executor(ops, runtime_.store());
+  auto results = executor.execute(*graph);
+  ASSERT_EQ(results.size(), 2u);
+
+  std::vector<float> graphOut1(4), graphOut2(4);
+  runtime_.copyFromTensor(results[0], graphOut1.data(), 4 * sizeof(float));
+  runtime_.copyFromTensor(results[1], graphOut2.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(graphOut1[i], refOut1[i]);
+    EXPECT_FLOAT_EQ(graphOut2[i], refOut2[i]);
   }
 }
 

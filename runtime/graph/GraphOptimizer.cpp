@@ -1,6 +1,8 @@
 #include "GraphOptimizer.h"
 #include "ComputeOps.h"
 #include "OpNode.h"
+#include "impl/binary/BinaryOp.h"
+#include "impl/binary/FusedBinaryOp.h"
 #include "impl/matmul/MatMulSiLUOp.h"
 #include "impl/rmsnorm/ExtendedRMSNormOp.h"
 #include "impl/rmsnorm/RMSNormOp.h"
@@ -46,6 +48,7 @@ GraphOptimizer GraphOptimizer::createDefault() {
   opt.addPass(std::make_unique<ExtendedRMSNormFusionPass>());
   opt.addPass(std::make_unique<RMSNormFusionPass>());
   opt.addPass(std::make_unique<MatMulSiLUFusionPass>());
+  opt.addPass(std::make_unique<FusedBinaryPass>());
   // Then structural optimizations
   opt.addPass(std::make_unique<IdentityReshapePass>());
   opt.addPass(std::make_unique<NoOpReshapePass>());
@@ -145,12 +148,6 @@ bool NoOpReshapePass::run(Graph &graph, TensorStore &store) {
 
     // IdentityReshapePass already handles identical shapes
     if (srcShape == dstShape)
-      continue;
-
-    // Don't remove reshapes that change dimensionality (e.g., [576] → [1,576]).
-    // CopyOpNode handles these as zero-copy tensor views, but downstream ops
-    // may require specific dimensions (e.g., MatMul needs 2D inputs).
-    if (srcShape.size() != dstShape.size())
       continue;
 
     uint32_t srcInner = srcShape.empty() ? 1 : srcShape.back();
@@ -417,6 +414,244 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
            "removed=%d, notMatMul=%d, multiUse=%d, not2D=%d]\n",
            siluCount, matmulSiluCount, skipReason[0], skipReason[1],
            skipReason[2], skipReason[3], skipReason[4]);
+  }
+
+  return changed;
+}
+
+// ============================================================================
+// FusedBinaryPass
+// ============================================================================
+
+static bool isBinaryArithmetic(OperatorEnum op) {
+  // Binary ops are 0-32, comparison ops are 7-12
+  return op >= BinaryAdd && op <= BinaryLogaddexp2 &&
+         !(op >= BinaryEqual && op <= BinaryGreaterEqual);
+}
+
+static bool isUnaryOp(OperatorEnum op) {
+  return op >= UnaryNeg && op <= UnaryIsFinite;
+}
+
+// Check common fusion prerequisites on the producer node (node1)
+static bool canFuseProducer(const GraphNode &node1) {
+  return node1.op && !node1.isRemoved && node1.refCount == 1 && !node1.isOutput;
+}
+
+// Check if a 2-input binary node is a true VecVec (not VecScalarBuf)
+static bool isVecVecNode(const GraphNode &node,
+                         const std::vector<GraphNode> &nodes) {
+  if (node.inputIds.size() != 2)
+    return false;
+  auto &inp0 = nodes[node.inputIds[0]];
+  auto &inp1 = nodes[node.inputIds[1]];
+  if (!inp0.op || !inp1.op)
+    return false;
+  return actualElementCount(inp0.op->outputShape()) ==
+         actualElementCount(inp1.op->outputShape());
+}
+
+bool FusedBinaryPass::run(Graph &graph, TensorStore &store) {
+  bool changed = false;
+
+  for (uint32_t i = 0; i < graph.size(); ++i) {
+    auto &node2 = graph.nodes()[i];
+    if (!node2.op || node2.isRemoved)
+      continue;
+
+    OperatorEnum op2 = node2.op->op();
+
+    // ================================================================
+    // node2 is a VecVec binary (2 inputs, same element count)
+    // ================================================================
+    if (isBinaryArithmetic(op2) && node2.inputIds.size() == 2 &&
+        isVecVecNode(node2, graph.nodes())) {
+      uint32_t node1Id = node2.inputIds[0];
+      auto &node1 = graph.nodes()[node1Id];
+      if (!canFuseProducer(node1))
+        continue;
+      if (node1.op->outputDtype() != node2.op->outputDtype())
+        continue;
+
+      OperatorEnum op1 = node1.op->op();
+
+      // Sub-case: node1 is VecScalar → VecScalarVecVec
+      if (isBinaryArithmetic(op1) && node1.inputIds.size() == 1) {
+        auto *binNode1 = static_cast<BinaryOpNode *>(node1.op.get());
+        uint32_t aId = node1.inputIds[0];
+        uint32_t bId = node2.inputIds[1];
+        auto &aNode = graph.nodes()[aId];
+        auto &bNode = graph.nodes()[bId];
+        if (!aNode.op || !bNode.op)
+          continue;
+
+        auto fusedNode = std::make_unique<FusedBinaryOpNode>(
+            store, op1, op2, aNode.op->output(), bNode.op->output(),
+            binNode1->scalarBits(), FusedBinaryVariant::VecScalarVecVec);
+        uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId});
+        graph.replaceAllUses(i, fusedId);
+        changed = true;
+        continue;
+      }
+
+      // Sub-case: node1 is Unary → UnaryVecVec
+      if (isUnaryOp(op1) && node1.inputIds.size() == 1) {
+        uint32_t aId = node1.inputIds[0];
+        uint32_t bId = node2.inputIds[1];
+        auto &aNode = graph.nodes()[aId];
+        auto &bNode = graph.nodes()[bId];
+        if (!aNode.op || !bNode.op)
+          continue;
+
+        auto fusedNode = std::make_unique<FusedBinaryOpNode>(
+            store, op1, op2, aNode.op->output(), bNode.op->output(),
+            FusedBinaryVariant::UnaryVecVec);
+        uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId});
+        graph.replaceAllUses(i, fusedId);
+        changed = true;
+        continue;
+      }
+
+      // Sub-case: node1 is VecScalarBuf → VecScalarBufVecVec
+      if (isBinaryArithmetic(op1) && node1.inputIds.size() == 2) {
+        auto &n1inp0 = graph.nodes()[node1.inputIds[0]];
+        auto &n1inp1 = graph.nodes()[node1.inputIds[1]];
+        if (!n1inp0.op || !n1inp1.op)
+          continue;
+        // VecScalarBuf: second input has element count 1
+        if (actualElementCount(n1inp1.op->outputShape()) != 1)
+          continue;
+
+        uint32_t aId = node1.inputIds[0];
+        uint32_t scalarBufId = node1.inputIds[1];
+        uint32_t bId = node2.inputIds[1];
+        auto &bNode = graph.nodes()[bId];
+        if (!bNode.op)
+          continue;
+
+        auto fusedNode = std::make_unique<FusedBinaryOpNode>(
+            store, op1, op2, n1inp0.op->output(), bNode.op->output(),
+            n1inp1.op->output(), FusedBinaryVariant::VecScalarBufVecVec);
+        uint32_t fusedId =
+            graph.addNode(std::move(fusedNode), {aId, scalarBufId, bId});
+        graph.replaceAllUses(i, fusedId);
+        changed = true;
+        continue;
+      }
+
+      continue;
+    }
+
+    // ================================================================
+    // node2 is a VecScalar binary (1 input, scalar in push constants)
+    // ================================================================
+    if (isBinaryArithmetic(op2) && node2.inputIds.size() == 1) {
+      uint32_t node1Id = node2.inputIds[0];
+      auto &node1 = graph.nodes()[node1Id];
+      if (!canFuseProducer(node1))
+        continue;
+      if (node1.op->outputDtype() != node2.op->outputDtype())
+        continue;
+
+      OperatorEnum op1 = node1.op->op();
+      if (!isBinaryArithmetic(op1))
+        continue;
+      if (!isVecVecNode(node1, graph.nodes()))
+        continue;
+
+      // Pattern: VecVec(A, B) → VecScalar(result, scalar)
+      auto *binNode2 = static_cast<BinaryOpNode *>(node2.op.get());
+      uint32_t aId = node1.inputIds[0];
+      uint32_t bId = node1.inputIds[1];
+      auto &aNode = graph.nodes()[aId];
+      auto &bNode = graph.nodes()[bId];
+      if (!aNode.op || !bNode.op)
+        continue;
+
+      auto fusedNode = std::make_unique<FusedBinaryOpNode>(
+          store, op1, op2, aNode.op->output(), bNode.op->output(),
+          binNode2->scalarBits(), FusedBinaryVariant::VecVecVecScalar);
+      uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId});
+      graph.replaceAllUses(i, fusedId);
+      changed = true;
+      continue;
+    }
+
+    // ================================================================
+    // node2 is a VecScalarBuf binary (2 inputs, second has elcount 1)
+    // ================================================================
+    if (isBinaryArithmetic(op2) && node2.inputIds.size() == 2 &&
+        !isVecVecNode(node2, graph.nodes())) {
+      auto &n2inp1 = graph.nodes()[node2.inputIds[1]];
+      if (!n2inp1.op)
+        continue;
+      if (actualElementCount(n2inp1.op->outputShape()) != 1)
+        continue;
+
+      uint32_t node1Id = node2.inputIds[0];
+      auto &node1 = graph.nodes()[node1Id];
+      if (!canFuseProducer(node1))
+        continue;
+      if (node1.op->outputDtype() != node2.op->outputDtype())
+        continue;
+
+      OperatorEnum op1 = node1.op->op();
+      if (!isBinaryArithmetic(op1))
+        continue;
+      if (!isVecVecNode(node1, graph.nodes()))
+        continue;
+
+      // Pattern: VecVec(A, B) → VecScalarBuf(result, scalarBuf)
+      uint32_t aId = node1.inputIds[0];
+      uint32_t bId = node1.inputIds[1];
+      uint32_t scalarBufId = node2.inputIds[1];
+      auto &aNode = graph.nodes()[aId];
+      auto &bNode = graph.nodes()[bId];
+      if (!aNode.op || !bNode.op)
+        continue;
+
+      auto fusedNode = std::make_unique<FusedBinaryOpNode>(
+          store, op1, op2, aNode.op->output(), bNode.op->output(),
+          n2inp1.op->output(), FusedBinaryVariant::VecVecVecScalarBuf);
+      uint32_t fusedId =
+          graph.addNode(std::move(fusedNode), {aId, bId, scalarBufId});
+      graph.replaceAllUses(i, fusedId);
+      changed = true;
+      continue;
+    }
+
+    // ================================================================
+    // node2 is a Unary op (1 input)
+    // ================================================================
+    if (isUnaryOp(op2) && node2.inputIds.size() == 1) {
+      uint32_t node1Id = node2.inputIds[0];
+      auto &node1 = graph.nodes()[node1Id];
+      if (!canFuseProducer(node1))
+        continue;
+      if (node1.op->outputDtype() != node2.op->outputDtype())
+        continue;
+
+      OperatorEnum op1 = node1.op->op();
+      if (!isBinaryArithmetic(op1))
+        continue;
+      if (!isVecVecNode(node1, graph.nodes()))
+        continue;
+
+      // Pattern: VecVec(A, B) → Unary(result)
+      uint32_t aId = node1.inputIds[0];
+      uint32_t bId = node1.inputIds[1];
+      auto &aNode = graph.nodes()[aId];
+      auto &bNode = graph.nodes()[bId];
+      if (!aNode.op || !bNode.op)
+        continue;
+
+      auto fusedNode = std::make_unique<FusedBinaryOpNode>(
+          store, op1, op2, aNode.op->output(), bNode.op->output(),
+          FusedBinaryVariant::VecVecUnary);
+      uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId});
+      graph.replaceAllUses(i, fusedId);
+      changed = true;
+    }
   }
 
   return changed;
