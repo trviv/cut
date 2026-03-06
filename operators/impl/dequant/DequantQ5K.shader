@@ -61,12 +61,9 @@ void getScaleMinK4(int j, uint scalesBase, out uint sc, out uint m) {
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
-    uint gid = DTid.x;
-    uint totalElements = pc.rows * pc.cols;
-    if (gid >= totalElements) return;
-
-    uint row = gid / pc.cols;
-    uint col = gid % pc.cols;
+    uint col = DTid.x;
+    uint row = DTid.y;
+    if (col >= pc.cols) return;
 
     // Q5_K: 256 elements per super-block, 176 bytes per block
     // Layout: [d:f16][dmin:f16][scales:12B][qh:32B][ql:128B]

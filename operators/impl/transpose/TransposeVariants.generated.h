@@ -17,19 +17,21 @@ struct TransposeVariantInfo {
     const char* description;
 };
 
-inline constexpr int kTransposeVariantCount = 3;
+inline constexpr int kTransposeVariantCount = 4;
 inline constexpr int kTransposeDefaultVariant = 0;
 
 inline constexpr TransposeVariantInfo kTransposeVariants[kTransposeVariantCount] = {
     {"TransposeNaive", 16, 16, 16, 16, "Naive (no shared mem)"},
     {"TransposeTiled16", 16, 16, 16, 16, "SharedMem 16x16"},
     {"TransposeTiled32", 32, 32, 32, 32, "SharedMem 32x32"},
+    {"TransposeTiled16R4", 16, 16, 64, 16, "SharedMem 16x16 RPT=4"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
 std::optional<std::vector<uint32_t>> compiledTransposeNaive(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledTransposeTiled16(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledTransposeTiled32(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledTransposeTiled16R4(DataType input, DataType output);
 
 using CompiledTransposeFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
@@ -37,6 +39,7 @@ inline const CompiledTransposeFn kTransposeCompiledFns[kTransposeVariantCount] =
     compiledTransposeNaive,
     compiledTransposeTiled16,
     compiledTransposeTiled32,
+    compiledTransposeTiled16R4,
 };
 
 /// Returns compiled SPIR-V for a transpose variant by index.

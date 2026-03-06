@@ -46,8 +46,9 @@ std::vector<uint32_t> DequantOpNode::outputShape() const {
 }
 
 ThreadSize DequantOpNode::dispatchSize() const {
-  uint32_t totalElements = rows_ * cols_;
-  return {totalElements, 1, 1};
+  // 2D dispatch: X covers cols, Y covers rows.
+  // Avoids expensive integer division (gid/cols, gid%cols) in shader.
+  return {cols_, rows_, 1};
 }
 
 std::vector<uint8_t> DequantOpNode::pushConstants() const {

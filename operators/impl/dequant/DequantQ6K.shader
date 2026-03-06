@@ -56,12 +56,9 @@ int readInt8(uint byteOffset) {
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
-    uint gid = DTid.x;
-    uint totalElements = pc.rows * pc.cols;
-    if (gid >= totalElements) return;
-
-    uint row = gid / pc.cols;
-    uint col = gid % pc.cols;
+    uint col = DTid.x;
+    uint row = DTid.y;
+    if (col >= pc.cols) return;
 
     // Q6_K: 256 elements per super-block, 210 bytes per block
     // Layout: [ql:128B][qh:64B][scales:16B][d:f16]

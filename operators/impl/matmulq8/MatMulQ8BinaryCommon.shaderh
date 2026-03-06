@@ -33,6 +33,33 @@ struct PushConstants {
     return dataA[idx >> 2][idx & 3];
 }
 
+// Unchecked variant — skip bounds checks for interior workgroups
+%SCALAR_DTYPE_INPUT1% loadA_fast(uint row, uint col) {
+    uint idx = row * pc.strideA + col;
+    return dataA[idx >> 2][idx & 3];
+}
+
+// Unchecked B load — skip bounds check (caller guarantees in-bounds)
+float loadB_fast(uint k, uint n) {
+    uint byteIdx = k * pc.strideBN + n;
+    uint packed = packedB[byteIdx >> 2];
+    uint shift = (byteIdx & 3u) * 8u;
+    uint rawByte = (packed >> shift) & 0xFFu;
+    int val = (int)((int)(rawByte << 24) >> 24);
+
+    uint scaleIdx = (k >> 5) * pc.scaleStride + n;
+#ifdef DTYPE_SCALES_IS_INT8
+    int packedScale = scalesB[scaleIdx >> 4][(scaleIdx >> 2) & 3];
+    uint scaleShift = (scaleIdx & 3u) * 8u;
+    uint scaleByte = (uint(packedScale) >> scaleShift) & 0xFFu;
+    float scale = float((int)((int)(scaleByte << 24) >> 24));
+#else
+    float scale = float(scalesB[scaleIdx >> 2][scaleIdx & 3]);
+#endif
+
+    return float(val) * scale;
+}
+
 // Sequential access with inline Q8_0 dequantization.
 // B[k][n] = int8_values[k][n] * scale[k/32][n]
 float loadB(uint k, uint n) {

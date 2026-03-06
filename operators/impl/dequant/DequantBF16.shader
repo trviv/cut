@@ -18,14 +18,12 @@ struct PushConstants {
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
-    uint gid = DTid.x;
-    uint totalElements = pc.rows * pc.cols;
-    if (gid >= totalElements) return;
-
-    uint row = gid / pc.cols;
-    uint col = gid % pc.cols;
+    uint col = DTid.x;
+    uint row = DTid.y;
+    if (col >= pc.cols) return;
 
     // BF16 is 2 bytes per element. Read the uint16 value.
+    uint gid = row * pc.cols + col;
     uint byteIdx = gid * 2;
     uint word = rawData[byteIdx >> 2];
     uint shift = (byteIdx & 2u) * 8u;

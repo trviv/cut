@@ -6,6 +6,8 @@
 
 // Fused Q8_0 dequant matmul with SiLU activation: silu(A * dequant(B))
 // where silu(x) = x / (1 + exp(-x))
+// Optimizations: shared memory padding, K-unroll by 4 with mad(), bounds check hoisting,
+// B-register pre-loading
 // Tiling parameters: TILE_SIZE=%TILE_SIZE%, TM=%TM%, TN=%TN%
 
 #define TILE_SIZE %TILE_SIZE%
@@ -14,8 +16,9 @@
 
 #include "MatMulQ8Common.shaderh"
 
-groupshared %SCALAR_DTYPE_INPUT1% tileA[TILE_SIZE * TM][TILE_SIZE];
-groupshared float tileB[TILE_SIZE][TILE_SIZE * TN];
+// +1 padding on inner dimension to avoid shared memory bank conflicts
+groupshared %SCALAR_DTYPE_INPUT1% tileA[TILE_SIZE * TM][TILE_SIZE + 1];
+groupshared float tileB[TILE_SIZE][TILE_SIZE * TN + 1];
 
 // SiLU activation: x / (1 + exp(-x)) = x * sigmoid(x)
 %SCALAR_DTYPE_OUTPUT% silu(%SCALAR_DTYPE_OUTPUT% x) {
@@ -36,43 +39,149 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             acc[m][n] = (%SCALAR_DTYPE_OUTPUT%)(0);
 
     uint numTiles = (pc.K + TILE_SIZE - 1) / TILE_SIZE;
+    uint fullKTiles = pc.K / TILE_SIZE;
+    bool hasPartialK = (pc.K % TILE_SIZE) != 0;
+    bool fullM = (blockRowStart + TILE_SIZE * TM <= pc.M);
+    bool fullN = (blockColStart + TILE_SIZE * TN <= pc.N);
 
-    for (uint t = 0; t < numTiles; t++) {
-        uint tileKStart = t * TILE_SIZE;
+    if (fullM && fullN) {
+        for (uint t = 0; t < fullKTiles; t++) {
+            uint tileKStart = t * TILE_SIZE;
 
-        [unroll] for (uint m = 0; m < TM; m++) {
-            uint aRow = blockRowStart + localRow + m * TILE_SIZE;
-            uint aCol = tileKStart + localCol;
-            tileA[localRow + m * TILE_SIZE][localCol] = loadA(aRow, aCol);
-        }
-
-        [unroll] for (uint n = 0; n < TN; n++) {
-            uint bK = tileKStart + localRow;
-            uint bN = blockColStart + localCol + n * TILE_SIZE;
-            tileB[localRow][localCol + n * TILE_SIZE] = loadB(bK, bN);
-        }
-
-        GroupMemoryBarrierWithGroupSync();
-
-        for (uint k = 0; k < TILE_SIZE; k++) {
             [unroll] for (uint m = 0; m < TM; m++) {
-                %SCALAR_DTYPE_OUTPUT% aVal = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k];
+                tileA[localRow + m * TILE_SIZE][localCol] =
+                    loadA_fast(blockRowStart + localRow + m * TILE_SIZE, tileKStart + localCol);
+            }
+            [unroll] for (uint n = 0; n < TN; n++) {
+                tileB[localRow][localCol + n * TILE_SIZE] =
+                    loadB_fast(tileKStart + localRow, blockColStart + localCol + n * TILE_SIZE);
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+
+            [unroll] for (uint k = 0; k < TILE_SIZE; k += 4) {
+                %SCALAR_DTYPE_OUTPUT% b_reg[4][TN];
                 [unroll] for (uint n = 0; n < TN; n++) {
-                    acc[m][n] += aVal * (%SCALAR_DTYPE_OUTPUT%)tileB[k][localCol + n * TILE_SIZE];
+                    uint bc = localCol + n * TILE_SIZE;
+                    b_reg[0][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k    ][bc];
+                    b_reg[1][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 1][bc];
+                    b_reg[2][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 2][bc];
+                    b_reg[3][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 3][bc];
+                }
+                [unroll] for (uint m = 0; m < TM; m++) {
+                    %SCALAR_DTYPE_OUTPUT% a0 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k];
+                    %SCALAR_DTYPE_OUTPUT% a1 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 1];
+                    %SCALAR_DTYPE_OUTPUT% a2 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 2];
+                    %SCALAR_DTYPE_OUTPUT% a3 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 3];
+                    [unroll] for (uint n = 0; n < TN; n++) {
+                        acc[m][n] = mad(a0, b_reg[0][n], acc[m][n]);
+                        acc[m][n] = mad(a1, b_reg[1][n], acc[m][n]);
+                        acc[m][n] = mad(a2, b_reg[2][n], acc[m][n]);
+                        acc[m][n] = mad(a3, b_reg[3][n], acc[m][n]);
+                    }
                 }
             }
+
+            GroupMemoryBarrierWithGroupSync();
         }
 
-        GroupMemoryBarrierWithGroupSync();
-    }
+        if (hasPartialK) {
+            uint tileKStart = fullKTiles * TILE_SIZE;
 
-    // Write output with SiLU activation applied
-    [unroll] for (uint m = 0; m < TM; m++) {
-        [unroll] for (uint n = 0; n < TN; n++) {
-            uint outRow = blockRowStart + localRow + m * TILE_SIZE;
-            uint outCol = blockColStart + localCol + n * TILE_SIZE;
-            if (outRow < pc.M && outCol < pc.N) {
+            [unroll] for (uint m = 0; m < TM; m++) {
+                tileA[localRow + m * TILE_SIZE][localCol] =
+                    loadA(blockRowStart + localRow + m * TILE_SIZE, tileKStart + localCol);
+            }
+            [unroll] for (uint n = 0; n < TN; n++) {
+                tileB[localRow][localCol + n * TILE_SIZE] =
+                    loadB(tileKStart + localRow, blockColStart + localCol + n * TILE_SIZE);
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+
+            [unroll] for (uint k = 0; k < TILE_SIZE; k += 4) {
+                %SCALAR_DTYPE_OUTPUT% b_reg[4][TN];
+                [unroll] for (uint n = 0; n < TN; n++) {
+                    uint bc = localCol + n * TILE_SIZE;
+                    b_reg[0][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k    ][bc];
+                    b_reg[1][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 1][bc];
+                    b_reg[2][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 2][bc];
+                    b_reg[3][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 3][bc];
+                }
+                [unroll] for (uint m = 0; m < TM; m++) {
+                    %SCALAR_DTYPE_OUTPUT% a0 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k];
+                    %SCALAR_DTYPE_OUTPUT% a1 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 1];
+                    %SCALAR_DTYPE_OUTPUT% a2 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 2];
+                    %SCALAR_DTYPE_OUTPUT% a3 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 3];
+                    [unroll] for (uint n = 0; n < TN; n++) {
+                        acc[m][n] = mad(a0, b_reg[0][n], acc[m][n]);
+                        acc[m][n] = mad(a1, b_reg[1][n], acc[m][n]);
+                        acc[m][n] = mad(a2, b_reg[2][n], acc[m][n]);
+                        acc[m][n] = mad(a3, b_reg[3][n], acc[m][n]);
+                    }
+                }
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+        }
+
+        // Unchecked output write with SiLU activation
+        [unroll] for (uint m = 0; m < TM; m++) {
+            [unroll] for (uint n = 0; n < TN; n++) {
+                uint outRow = blockRowStart + localRow + m * TILE_SIZE;
+                uint outCol = blockColStart + localCol + n * TILE_SIZE;
                 dataC[outRow * pc.strideC + outCol] = silu(acc[m][n]);
+            }
+        }
+    } else {
+        for (uint t = 0; t < numTiles; t++) {
+            uint tileKStart = t * TILE_SIZE;
+
+            [unroll] for (uint m = 0; m < TM; m++) {
+                tileA[localRow + m * TILE_SIZE][localCol] =
+                    loadA(blockRowStart + localRow + m * TILE_SIZE, tileKStart + localCol);
+            }
+            [unroll] for (uint n = 0; n < TN; n++) {
+                tileB[localRow][localCol + n * TILE_SIZE] =
+                    loadB(tileKStart + localRow, blockColStart + localCol + n * TILE_SIZE);
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+
+            [unroll] for (uint k = 0; k < TILE_SIZE; k += 4) {
+                %SCALAR_DTYPE_OUTPUT% b_reg[4][TN];
+                [unroll] for (uint n = 0; n < TN; n++) {
+                    uint bc = localCol + n * TILE_SIZE;
+                    b_reg[0][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k    ][bc];
+                    b_reg[1][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 1][bc];
+                    b_reg[2][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 2][bc];
+                    b_reg[3][n] = (%SCALAR_DTYPE_OUTPUT%)tileB[k + 3][bc];
+                }
+                [unroll] for (uint m = 0; m < TM; m++) {
+                    %SCALAR_DTYPE_OUTPUT% a0 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k];
+                    %SCALAR_DTYPE_OUTPUT% a1 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 1];
+                    %SCALAR_DTYPE_OUTPUT% a2 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 2];
+                    %SCALAR_DTYPE_OUTPUT% a3 = (%SCALAR_DTYPE_OUTPUT%)tileA[localRow + m * TILE_SIZE][k + 3];
+                    [unroll] for (uint n = 0; n < TN; n++) {
+                        acc[m][n] = mad(a0, b_reg[0][n], acc[m][n]);
+                        acc[m][n] = mad(a1, b_reg[1][n], acc[m][n]);
+                        acc[m][n] = mad(a2, b_reg[2][n], acc[m][n]);
+                        acc[m][n] = mad(a3, b_reg[3][n], acc[m][n]);
+                    }
+                }
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+        }
+
+        // Checked output write with SiLU activation
+        [unroll] for (uint m = 0; m < TM; m++) {
+            [unroll] for (uint n = 0; n < TN; n++) {
+                uint outRow = blockRowStart + localRow + m * TILE_SIZE;
+                uint outCol = blockColStart + localCol + n * TILE_SIZE;
+                if (outRow < pc.M && outCol < pc.N) {
+                    dataC[outRow * pc.strideC + outCol] = silu(acc[m][n]);
+                }
             }
         }
     }
