@@ -4,6 +4,7 @@
 #include <ComputeContainers.h>
 #include <VulkanStructs.h>
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -233,6 +234,10 @@ private:
 
   /// Destroys a pipeline layout and releases its Vulkan resources.
   void destroyAPIObject(const ComputeHandle &handle) override;
+
+  /// Cache key: (descriptorSetLayout, pushConstantSize) → handle.
+  using LayoutCacheKey = std::pair<VkDescriptorSetLayout, uint32_t>;
+  std::map<LayoutCacheKey, ComputeHandle> layoutCache_;
 };
 
 /// Container managing compute pipeline allocations and their lifecycle.

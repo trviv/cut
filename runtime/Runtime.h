@@ -193,6 +193,7 @@ private:
   bool vulkanAvailable_ = false;
   bool vulkanChecked_ = false;
   bool pendingCommands_ = false;
+  bool profilingEnabled_ = false;
 
   // Tensor buffer storage
   std::unique_ptr<TensorStore> store_;

@@ -295,10 +295,26 @@ void VulkanDescriptorSetLayoutContainer::destroyAPIObject(
 
 ComputeHandle VulkanPipelineLayoutContainer::createLayout(
     const VulkanPipelineLayoutCreateInfo &createInfo) {
+  VkDescriptorSetLayout dsLayout = (createInfo.createInfo.setLayoutCount > 0 &&
+                                    createInfo.createInfo.pSetLayouts)
+                                       ? createInfo.createInfo.pSetLayouts[0]
+                                       : VK_NULL_HANDLE;
+  uint32_t pcSize = createInfo.createInfo.pushConstantRangeCount > 0
+                        ? createInfo.pushConstantRange.size
+                        : 0;
+
+  LayoutCacheKey key{dsLayout, pcSize};
+  auto it = layoutCache_.find(key);
+  if (it != layoutCache_.end()) {
+    return it->second;
+  }
+
   VulkanPipelineLayoutStruct layoutStruct{};
   VK_CHECK(vkCreatePipelineLayout(getDevice(), &createInfo.createInfo, nullptr,
                                   &layoutStruct.layout));
-  return ComputeDataContainer::create(std::move(layoutStruct));
+  auto handle = ComputeDataContainer::create(std::move(layoutStruct));
+  layoutCache_.emplace(key, handle);
+  return handle;
 }
 
 std::vector<ComputeHandle> VulkanPipelineLayoutContainer::createLayouts(

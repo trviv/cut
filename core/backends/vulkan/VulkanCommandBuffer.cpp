@@ -9,9 +9,6 @@
 
 namespace cut {
 
-/// Enable/disable profiling for VulkanCommandBuffer::end()
-constexpr bool kEnableCommandBufferProfiling = false;
-
 /// Converts a BindingType to its corresponding VkDescriptorType.
 /// Returns std::nullopt for types that don't map to descriptor types (e.g.
 /// PushConstant).
@@ -241,9 +238,8 @@ void VulkanCommandBuffer::begin() {
 
 void VulkanCommandBuffer::end() {
   using Clock = std::chrono::high_resolution_clock;
-  [[maybe_unused]] Clock::time_point endStart, descriptorSetsStart,
-      descriptorSetsEnd;
-  if constexpr (kEnableCommandBufferProfiling) {
+  Clock::time_point endStart, descriptorSetsStart, descriptorSetsEnd;
+  if (isProfilingEnabled()) {
     endStart = Clock::now();
     descriptorSetsStart = Clock::now();
   }
@@ -256,7 +252,7 @@ void VulkanCommandBuffer::end() {
   auto descriptorSetLayoutHandles = std::move(descriptorResult.layoutHandles);
   descriptorsHandle_ = std::move(descriptorResult.descriptorsHandle);
 
-  if constexpr (kEnableCommandBufferProfiling) {
+  if (isProfilingEnabled()) {
     descriptorSetsEnd = Clock::now();
   }
 
@@ -265,8 +261,8 @@ void VulkanCommandBuffer::end() {
         containers_.descriptorContainer.getDescriptorSets(descriptorsHandle_);
 
     // Create compute pipelines from descriptor set layouts
-    [[maybe_unused]] Clock::time_point pipelinesStart, pipelinesEnd;
-    if constexpr (kEnableCommandBufferProfiling) {
+    Clock::time_point pipelinesStart, pipelinesEnd;
+    if (isProfilingEnabled()) {
       pipelinesStart = Clock::now();
     }
     auto pipelineResult = createComputePipelines(
@@ -275,7 +271,7 @@ void VulkanCommandBuffer::end() {
         containers_.pipelineLayoutContainer, containers_.pipelineContainer);
     pipelineHandles_ = std::move(pipelineResult.pipelineHandles);
     const auto &pipelineLayouts = pipelineResult.pipelineLayouts;
-    if constexpr (kEnableCommandBufferProfiling) {
+    if (isProfilingEnabled()) {
       pipelinesEnd = Clock::now();
     }
 
@@ -356,9 +352,8 @@ void VulkanCommandBuffer::end() {
     }
 
     // Update all descriptor sets in a single call
-    [[maybe_unused]] Clock::time_point updateDescriptorsStart,
-        updateDescriptorsEnd;
-    if constexpr (kEnableCommandBufferProfiling) {
+    Clock::time_point updateDescriptorsStart, updateDescriptorsEnd;
+    if (isProfilingEnabled()) {
       updateDescriptorsStart = Clock::now();
     }
     if (!descriptorWrites.empty()) {
@@ -366,7 +361,7 @@ void VulkanCommandBuffer::end() {
                              static_cast<uint32_t>(descriptorWrites.size()),
                              descriptorWrites.data(), 0, nullptr);
     }
-    if constexpr (kEnableCommandBufferProfiling) {
+    if (isProfilingEnabled()) {
       updateDescriptorsEnd = Clock::now();
     }
 
@@ -397,8 +392,8 @@ void VulkanCommandBuffer::end() {
 
     // Record commands: bind pipelines, descriptor sets, push constants, and
     // dispatch
-    [[maybe_unused]] Clock::time_point recordCommandsStart, recordCommandsEnd;
-    if constexpr (kEnableCommandBufferProfiling) {
+    Clock::time_point recordCommandsStart, recordCommandsEnd;
+    if (isProfilingEnabled()) {
       recordCommandsStart = Clock::now();
     }
     dispatchIndex = 0;
@@ -495,7 +490,7 @@ void VulkanCommandBuffer::end() {
                          VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &memoryBarrier, 0,
                          nullptr, 0, nullptr);
 
-    if constexpr (kEnableCommandBufferProfiling) {
+    if (isProfilingEnabled()) {
       recordCommandsEnd = Clock::now();
 
       // Log profiling information
@@ -507,6 +502,7 @@ void VulkanCommandBuffer::end() {
              toUs(descriptorSetsEnd - descriptorSetsStart));
       logMsg("[VulkanCommandBuffer::end] createComputePipelines: %lld us",
              toUs(pipelinesEnd - pipelinesStart));
+
       logMsg("[VulkanCommandBuffer::end] vkUpdateDescriptorSets: %lld us",
              toUs(updateDescriptorsEnd - updateDescriptorsStart));
       logMsg("[VulkanCommandBuffer::end] recordCommands: %lld us",
@@ -515,13 +511,13 @@ void VulkanCommandBuffer::end() {
   }
 
   // End command buffer recording
-  [[maybe_unused]] Clock::time_point endCommandBufferStart, endCommandBufferEnd;
-  if constexpr (kEnableCommandBufferProfiling) {
+  Clock::time_point endCommandBufferStart, endCommandBufferEnd;
+  if (isProfilingEnabled()) {
     endCommandBufferStart = Clock::now();
   }
   VK_CHECK(vkEndCommandBuffer(commandBuffer_));
 
-  if constexpr (kEnableCommandBufferProfiling) {
+  if (isProfilingEnabled()) {
     endCommandBufferEnd = Clock::now();
 
     auto toUs = [](auto duration) {
@@ -570,17 +566,11 @@ void VulkanCommandBuffer::wait() {
     if (result == VK_SUCCESS) {
       const float periodNs = containers_.timestampPeriod;
       double totalUs = 0.0;
-      logMsg("[GPU Profile] %-30s %10s", "Operation", "Time");
-      logMsg("[GPU Profile] %-30s %10s", "------------------------------",
-             "----------");
       for (uint32_t i = 0; i < queryCount_; ++i) {
         double durationUs =
             static_cast<double>(timestamps[i * 2 + 1] - timestamps[i * 2]) *
             periodNs / 1000.0;
         totalUs += durationUs;
-        const char *label =
-            i < dispatchLabels_.size() ? dispatchLabels_[i].c_str() : "?";
-        logMsg("[GPU Profile] %-30s %9.1f us", label, durationUs);
       }
       logMsg("[GPU Profile] %-30s %9.1f us", "TOTAL", totalUs);
     }

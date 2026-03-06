@@ -5,6 +5,8 @@
 #include "Operations.h"
 #include "VulkanCompute.h"
 
+#include <ComputeCommon.h>
+#include <chrono>
 #include <stdexcept>
 
 namespace cut {
@@ -160,6 +162,7 @@ void Runtime::copyFromTensor(Tensor handle,
 }
 
 void Runtime::setProfilingEnabled(bool enabled) {
+  profilingEnabled_ = enabled;
   if (interface_) {
     interface_->setProfilingEnabled(enabled);
   }
@@ -192,8 +195,24 @@ void Runtime::dispatch(OpNode &node) {
 
 void Runtime::flushPendingCommands() {
   if (pendingCommands_ && interface_) {
-    Tensor cmd = interface_->submit();
-    interface_->wait(cmd);
+    if (profilingEnabled_) {
+      auto t0 = std::chrono::high_resolution_clock::now();
+      Tensor cmd = interface_->submit();
+      auto t1 = std::chrono::high_resolution_clock::now();
+      interface_->wait(cmd);
+      auto t2 = std::chrono::high_resolution_clock::now();
+      auto cpuUs =
+          std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0)
+              .count();
+      auto gpuUs =
+          std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+              .count();
+      logMsg("[Runtime] CPU submit: %lld us, GPU wait: %lld us, total: %lld us",
+             cpuUs, gpuUs, cpuUs + gpuUs);
+    } else {
+      Tensor cmd = interface_->submit();
+      interface_->wait(cmd);
+    }
     pendingCommands_ = false;
   }
 }
