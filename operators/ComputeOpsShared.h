@@ -313,6 +313,7 @@
 
 #define OP_MATMUL_Q8 371
 #define OP_MATMUL_Q8_SILU 372
+#define OP_MATMUL_Q8_BINARY 373
 
 // =============================================================================
 // Fused binary operations (380)

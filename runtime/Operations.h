@@ -72,6 +72,16 @@ public:
                       uint32_t bCols,
                       std::optional<uint32_t> spec = {});
 
+  /// Fused Q8_0 dequantize-matmul with binary vec op:
+  /// binaryOp(A * dequant(packedB, scales)^T, D)
+  Tensor matmulQ8Binary(OperatorEnum binaryOp,
+                        const Tensor &a,
+                        const Tensor &packedB,
+                        const Tensor &scales,
+                        const Tensor &d,
+                        uint32_t bCols,
+                        std::optional<uint32_t> spec = {});
+
   Tensor transpose(const Tensor &a, std::optional<uint32_t> spec = {});
 
   Tensor

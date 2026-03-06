@@ -4,6 +4,7 @@
 #include "impl/binary/BinaryOp.h"
 #include "impl/binary/FusedBinaryOp.h"
 #include "impl/matmul/MatMulSiLUOp.h"
+#include "impl/matmulq8/MatMulQ8BinaryOp.h"
 #include "impl/matmulq8/MatMulQ8SiLUOp.h"
 #include "impl/rmsnorm/ExtendedRMSNormOp.h"
 #include "impl/rmsnorm/RMSNormOp.h"
@@ -59,6 +60,7 @@ GraphOptimizer GraphOptimizer::createDefault() {
   opt.addPass(std::make_unique<ExtendedRMSNormFusionPass>());
   opt.addPass(std::make_unique<RMSNormFusionPass>());
   opt.addPass(std::make_unique<MatMulSiLUFusionPass>());
+  opt.addPass(std::make_unique<MatMulQ8BinaryFusionPass>());
   opt.addPass(std::make_unique<FusedBinaryPass>());
   // Final dead code removal for nodes orphaned by fusion
   opt.addPass(std::make_unique<DeadCodePass>());
@@ -444,6 +446,131 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
            "removed=%d, notMatMul=%d, multiUse=%d, not2D=%d]\n",
            siluCount, matmulSiluCount, skipReason[0], skipReason[1],
            skipReason[2], skipReason[3], skipReason[4]);
+  }
+
+  return changed;
+}
+
+// ============================================================================
+// MatMulQ8BinaryFusionPass
+// ============================================================================
+
+static bool isCommutativeOp(OperatorEnum op) {
+  return op == BinaryAdd || op == BinaryMul || op == BinaryMin ||
+         op == BinaryMax;
+}
+
+bool MatMulQ8BinaryFusionPass::run(Graph &graph, TensorStore &store) {
+  bool changed = false;
+  int binaryCount = 0, fusedCount = 0, skipReason[6] = {0};
+  auto &nodes = graph.nodes();
+
+  // Pattern: MatMulQ8 → BinaryVecVec(result, D)
+  // Match from the binary node and walk backwards to find the MatMulQ8 input
+  for (uint32_t i = 0; i < graph.size(); ++i) {
+    auto &binNode = nodes[i];
+    if (!binNode.op || binNode.isRemoved)
+      continue;
+
+    OperatorEnum binOp = binNode.op->op();
+    // Only fuse arithmetic binary ops (not comparisons)
+    if (binOp < BinaryAdd || binOp > BinaryLogaddexp2)
+      continue;
+    if (binOp >= BinaryEqual && binOp <= BinaryGreaterEqual)
+      continue;
+
+    // Must be a VecVec binary (2 inputs of equal element count)
+    if (binNode.inputIds.size() != 2)
+      continue;
+
+    auto &inp0 = nodes[binNode.inputIds[0]];
+    auto &inp1 = nodes[binNode.inputIds[1]];
+    if (!inp0.op || !inp1.op)
+      continue;
+    if (actualElementCount(inp0.op->outputShape()) !=
+        actualElementCount(inp1.op->outputShape()))
+      continue;
+
+    binaryCount++;
+
+    // Check which input (if any) is a MatMulQ8 eligible for fusion
+    int matmulPos = -1; // 0 or 1
+    if (inp0.op->op() == OperatorEnum::MatMulQ8 && !inp0.isRemoved &&
+        inp0.refCount == 1 && !inp0.isOutput) {
+      matmulPos = 0;
+    } else if (inp1.op->op() == OperatorEnum::MatMulQ8 && !inp1.isRemoved &&
+               inp1.refCount == 1 && !inp1.isOutput) {
+      matmulPos = 1;
+    }
+
+    if (matmulPos < 0) {
+      skipReason[0]++;
+      continue;
+    }
+
+    // For non-commutative ops, matmul result must be the first operand
+    if (matmulPos == 1 && !isCommutativeOp(binOp)) {
+      skipReason[1]++;
+      continue;
+    }
+
+    uint32_t matmulId = binNode.inputIds[matmulPos];
+    uint32_t dId = binNode.inputIds[1 - matmulPos];
+    auto &matmulNode = nodes[matmulId];
+    auto &dNode = nodes[dId];
+
+    if (matmulNode.inputIds.size() != 3) {
+      skipReason[2]++;
+      continue;
+    }
+
+    uint32_t aId = matmulNode.inputIds[0];
+    uint32_t bId = matmulNode.inputIds[1];
+    uint32_t sId = matmulNode.inputIds[2];
+    auto &aNode = nodes[aId];
+    auto &bNode = nodes[bId];
+    auto &sNode = nodes[sId];
+    if (!aNode.op || !bNode.op || !sNode.op || !dNode.op) {
+      skipReason[3]++;
+      continue;
+    }
+
+    auto shapeA = aNode.op->outputShape();
+    if (shapeA.size() < 1 || shapeA.size() > 2) {
+      skipReason[4]++;
+      continue;
+    }
+
+    // Only fuse when matmul output shape matches binary output shape.
+    // After NoOpReshapePass, a matmul [1, dim] → reshape [dim] → binary [dim]
+    // becomes matmul [1, dim] → binary [dim]. Fusing would produce [1, dim]
+    // output instead of [dim], breaking downstream ops (e.g. rmsNorm).
+    auto mmOutShape = matmulNode.op->outputShape();
+    auto binOutShape = binNode.op->outputShape();
+    if (mmOutShape != binOutShape) {
+      skipReason[5]++;
+      continue;
+    }
+
+    uint32_t bCols = mmOutShape.size() >= 2 ? mmOutShape[1] : mmOutShape[0];
+
+    auto fusedNode = std::make_unique<MatMulQ8BinaryOpNode>(
+        store, binOp, aNode.op->output(), bNode.op->output(),
+        sNode.op->output(), dNode.op->output(), bCols);
+    uint32_t fusedId =
+        graph.addNode(std::move(fusedNode), {aId, bId, sId, dId});
+    graph.replaceAllUses(i, fusedId);
+
+    fusedCount++;
+    changed = true;
+  }
+
+  if (binaryCount > 0) {
+    printf("MatMulQ8Binary fusion: %d binary nodes checked, %d fused, "
+           "skipped: [notMatMulQ8=%d, nonCommutative=%d, not3Inputs=%d, "
+           "nullOp=%d, badShapeA=%d, shapeMismatch=%d]\n",
+           binaryCount, fusedCount, skipReason[0], skipReason[1], skipReason[2],
+           skipReason[3], skipReason[4], skipReason[5]);
   }
 
   return changed;

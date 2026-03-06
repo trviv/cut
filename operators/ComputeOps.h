@@ -319,6 +319,7 @@ enum OperatorEnum {
 
   MatMulQ8 = OP_MATMUL_Q8,
   MatMulQ8SiLU = OP_MATMUL_Q8_SILU,
+  MatMulQ8Binary = OP_MATMUL_Q8_BINARY,
 
   // ===========================================================================
   // Fused binary operations (380)

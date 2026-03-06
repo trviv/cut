@@ -11,6 +11,7 @@
 #include "impl/conv2d/Conv2DOp.h"
 #include "impl/matmul/MatMulOp.h"
 #include "impl/matmul/MatMulSiLUOp.h"
+#include "impl/matmulq8/MatMulQ8BinaryOp.h"
 #include "impl/matmulq8/MatMulQ8Op.h"
 #include "impl/matmulq8/MatMulQ8SiLUOp.h"
 #include "impl/maxpool2d/MaxPool2DOp.h"
@@ -241,6 +242,22 @@ Tensor Operations::matmulQ8SiLU(const Tensor &a,
   if (inputs[0] != a)
     node = std::make_unique<MatMulQ8SiLUOpNode>(*store_, inputs[0], packedB,
                                                 scales, bCols, spec);
+  return recordOrEncode(std::move(node));
+}
+
+Tensor Operations::matmulQ8Binary(OperatorEnum binaryOp,
+                                  const Tensor &a,
+                                  const Tensor &packedB,
+                                  const Tensor &scales,
+                                  const Tensor &d,
+                                  uint32_t bCols,
+                                  std::optional<uint32_t> spec) {
+  auto node = std::make_unique<MatMulQ8BinaryOpNode>(
+      *store_, binaryOp, a, packedB, scales, d, bCols, spec);
+  auto inputs = resolveAndCastInputs(*node, {a, packedB, scales, d});
+  if (inputs[0] != a || inputs[3] != d)
+    node = std::make_unique<MatMulQ8BinaryOpNode>(
+        *store_, binaryOp, inputs[0], packedB, scales, inputs[3], bCols, spec);
   return recordOrEncode(std::move(node));
 }
 
