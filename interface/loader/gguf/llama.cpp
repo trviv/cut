@@ -88,17 +88,15 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
   if (info.type == GGMLType::Q4_0) {
     // Upload Q4_0 weights as separated packed nibbles + F16 scales.
     // GGUF layout: [rows=N, cols=K]. Q4 has 2 nibbles per byte.
-    // Target: packedB [K, N/2] Int8, scalesB [K/32, N] Float16.
+    // Upload in GGUF-native layout, then GPU-transpose.
     auto q4 = reader.read_tensor_q4_separated(name);
     uint32_t N = rows, K = cols;
     uint32_t blocksK = K / 32;
 
-    // q4.packedValues is [N, K/2] — nibbles packed along K dimension
-    // We need to:
-    //   1. Unpack to individual nibble values [N, K]
-    //   2. Transpose to [K, N]
-    //   3. Repack adjacent N values into bytes -> [K, N/2]
-
+    // Upload [N, K/2] packed values and transpose to [K/2, N] on GPU.
+    // Then repack: pairs of adjacent K/2-dimension values along N...
+    // Q4 packing is tightly coupled with the transpose, so we keep the CPU
+    // unpack-transpose-repack path for Q4_0.
     // Step 1: Unpack nibbles from [N, K/2] to [N, K]
     std::vector<uint8_t> unpacked(N * K);
     for (uint32_t n = 0; n < N; ++n) {
@@ -110,56 +108,48 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
     }
 
     // Step 2+3: Transpose [N, K] -> [K, N] and repack into [K, N/2]
-    // Pack pairs of adjacent N values into one byte: low nibble = even n,
-    // high nibble = odd n.
     std::vector<uint8_t> tPacked(K * (N / 2));
-    for (uint32_t k = 0; k < K; ++k) {
-      for (uint32_t n = 0; n < N; n += 2) {
-        uint8_t lo = unpacked[n * K + k];
-        uint8_t hi = unpacked[(n + 1) * K + k];
-        tPacked[k * (N / 2) + n / 2] = lo | (hi << 4);
+    constexpr uint32_t TILE = 64;
+    for (uint32_t k0 = 0; k0 < K; k0 += TILE) {
+      uint32_t kEnd = std::min(k0 + TILE, K);
+      for (uint32_t n0 = 0; n0 < N; n0 += TILE) {
+        uint32_t nEnd = std::min(n0 + TILE, N);
+        for (uint32_t k = k0; k < kEnd; ++k) {
+          for (uint32_t n = n0; n < nEnd; n += 2) {
+            uint8_t lo = unpacked[n * K + k];
+            uint8_t hi = unpacked[(n + 1) * K + k];
+            tPacked[k * (N / 2) + n / 2] = lo | (hi << 4);
+          }
+        }
       }
     }
 
-    // Transpose f16 scales from [N, K/32] to [K/32, N]
-    std::vector<uint16_t> tScales(blocksK * N);
-    for (uint32_t n = 0; n < N; ++n)
-      for (uint32_t b = 0; b < blocksK; ++b)
-        tScales[b * N + n] = q4.scales[n * blocksK + b];
+    // Transpose scales [N, K/32] -> [K/32, N] on GPU
+    auto gpuScales = runtime_->createTensor(
+        {N, blocksK}, cut::DataType::Float16, q4.scales.data());
+    auto tScales = ops_->transpose(gpuScales);
 
     wh.qValues =
         runtime_->createTensor({K, N / 2}, cut::DataType::Int8, tPacked.data());
-    wh.qScales = runtime_->createTensor({blocksK, N}, cut::DataType::Float16,
-                                        tScales.data());
+    wh.qScales = tScales;
     wh.qCols = cols;
     wh.quantType = WeightHandle::QuantType::Q4_0;
     return wh;
   }
 
   if (info.type == GGMLType::Q8_0) {
-    // Upload Q8_0 weights as separated Int8 values + F16 scales,
-    // transposed from GGUF [rows=N, cols=K] to [K, N] to match the
-    // regular matmul layout convention (B is [K, N]).
+    // Upload Q8_0 weights in GGUF-native [N, K] layout, then GPU-transpose
+    // to [K, N] to match the matmul layout convention.
     auto q8 = reader.read_tensor_q8_separated(name);
     uint32_t N = rows, K = cols;
     uint32_t blocksK = K / 32;
 
-    // CPU-transpose int8 values from [N, K] to [K, N]
-    std::vector<int8_t> tValues(K * N);
-    for (uint32_t n = 0; n < N; ++n)
-      for (uint32_t k = 0; k < K; ++k)
-        tValues[k * N + n] = q8.values[n * K + k];
-
-    // CPU-transpose f16 scales from [N, K/32] to [K/32, N]
-    std::vector<uint16_t> tScales(blocksK * N);
-    for (uint32_t n = 0; n < N; ++n)
-      for (uint32_t b = 0; b < blocksK; ++b)
-        tScales[b * N + n] = q8.scales[n * blocksK + b];
-
-    wh.qValues =
-        runtime_->createTensor({K, N}, cut::DataType::Int8, tValues.data());
-    wh.qScales = runtime_->createTensor({blocksK, N}, cut::DataType::Float16,
-                                        tScales.data());
+    auto gpuValues =
+        runtime_->createTensor({N, K}, cut::DataType::Int8, q8.values.data());
+    auto gpuScales = runtime_->createTensor(
+        {N, blocksK}, cut::DataType::Float16, q8.scales.data());
+    wh.qValues = ops_->transpose(gpuValues);
+    wh.qScales = ops_->transpose(gpuScales);
     wh.qCols = cols;
     wh.quantType = WeightHandle::QuantType::Q8_0;
     return wh;
@@ -196,6 +186,7 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
   runtime_ = &runtime;
   ops_ = &runtime.ops();
 
+  auto loadStart = std::chrono::high_resolution_clock::now();
   std::cout << "Loading GGUF model: " << gguf_path << "\n";
 
   GGUFReader reader(gguf_path);
@@ -300,6 +291,7 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
             << " bos=" << bos_token_id_ << " eos=" << eos_token_id_ << "\n";
 
   // Load layers
+  auto layersStart = std::chrono::high_resolution_clock::now();
   layers_.resize(config_.n_layers);
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
     std::string blk = "blk." + std::to_string(i) + ".";
@@ -389,7 +381,14 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
                                                 rows, cols);
     }
   }
-  std::cout << "  Loaded all " << config_.n_layers << " layers.     \n";
+  {
+    auto layersEnd = std::chrono::high_resolution_clock::now();
+    double layersMs =
+        std::chrono::duration<double, std::milli>(layersEnd - layersStart)
+            .count();
+    std::cout << "  Loaded all " << config_.n_layers << " layers in "
+              << layersMs << " ms\n";
+  }
 
   // Output norm
   {
@@ -436,9 +435,23 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
   precomputeRoPE();
 
   // Build and optimize graph templates for forward pass
+  auto graphStart = std::chrono::high_resolution_clock::now();
   buildGraphTemplates();
+  auto graphEnd = std::chrono::high_resolution_clock::now();
 
   runtime_->flush();
+  auto flushEnd = std::chrono::high_resolution_clock::now();
+  {
+    double graphMs =
+        std::chrono::duration<double, std::milli>(graphEnd - graphStart)
+            .count();
+    double flushMs =
+        std::chrono::duration<double, std::milli>(flushEnd - graphEnd).count();
+    double totalMs =
+        std::chrono::duration<double, std::milli>(flushEnd - loadStart).count();
+    std::cout << "Graph build: " << graphMs << " ms, flush: " << flushMs
+              << " ms, total load: " << totalMs << " ms\n";
+  }
   std::cout << "Model loaded successfully. Buffers: " << runtime_->bufferCount()
             << "  GPU memory: "
             << (runtime_->activeBufferMemoryBytes() / (1024.0 * 1024.0))
