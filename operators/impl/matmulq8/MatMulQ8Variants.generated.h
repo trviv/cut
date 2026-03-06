@@ -17,23 +17,29 @@ struct MatMulQ8VariantInfo {
     const char* description;
 };
 
-inline constexpr int kMatMulQ8VariantCount = 2;
+inline constexpr int kMatMulQ8VariantCount = 4;
 inline constexpr int kMatMulQ8DefaultVariant = 0;
 
 inline constexpr MatMulQ8VariantInfo kMatMulQ8Variants[kMatMulQ8VariantCount] = {
     {"MatMulQ8T16R4x4", 16, 16, 64, 64, "Q8 T16 R4x4"},
     {"MatMulQ8SiLUT16R4x4", 16, 16, 64, 64, "Q8 SiLU T16 R4x4"},
+    {"MatMulQ8Gemv", 256, 1, 1, 256, "Q8 GEMV (M=1 vector)"},
+    {"MatMulQ8GemvSiLU", 256, 1, 1, 256, "Q8 GEMV+SiLU (M=1 vector)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
 std::optional<std::vector<uint32_t>> compiledMatMulQ8T16R4x4(DataType input1, DataType scales, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulQ8SiLUT16R4x4(DataType input1, DataType scales, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulQ8Gemv(DataType input1, DataType scales, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulQ8GemvSiLU(DataType input1, DataType scales, DataType output);
 
 using CompiledMatMulQ8Fn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType, DataType);
 
 inline const CompiledMatMulQ8Fn kMatMulQ8CompiledFns[kMatMulQ8VariantCount] = {
     compiledMatMulQ8T16R4x4,
     compiledMatMulQ8SiLUT16R4x4,
+    compiledMatMulQ8Gemv,
+    compiledMatMulQ8GemvSiLU,
 };
 
 /// Returns compiled SPIR-V for a matmulq8 variant by index.

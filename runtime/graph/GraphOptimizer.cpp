@@ -45,17 +45,22 @@ void GraphOptimizer::optimize(Graph &graph, TensorStore &store) {
 
 GraphOptimizer GraphOptimizer::createDefault() {
   GraphOptimizer opt;
-  // Fusion passes run FIRST for maximum opportunity
-  opt.addPass(std::make_unique<ExtendedRMSNormFusionPass>());
-  opt.addPass(std::make_unique<RMSNormFusionPass>());
-  opt.addPass(std::make_unique<MatMulSiLUFusionPass>());
-  opt.addPass(std::make_unique<FusedBinaryPass>());
-  // Then structural optimizations
+  // Structural simplifications first — remove identity reshapes, collapse
+  // chains, cancel transposes so that fusion passes see clean graphs.
+  // (e.g. MatMulQ8 → IdentityReshape → SiLU blocks MatMulSiLU fusion)
   opt.addPass(std::make_unique<IdentityReshapePass>());
   opt.addPass(std::make_unique<NoOpReshapePass>());
   opt.addPass(std::make_unique<ReshapeChainPass>());
   opt.addPass(std::make_unique<TransposeCancelPass>());
-  // Dead code removal always runs last
+  // Early dead code removal — dead nodes inflate refCounts and block fusion
+  // (e.g. unused transpose(gate) makes gate refCount=2, blocking MatMulSiLU)
+  opt.addPass(std::make_unique<DeadCodePass>());
+  // Fusion passes operate on simplified, pruned graph
+  opt.addPass(std::make_unique<ExtendedRMSNormFusionPass>());
+  opt.addPass(std::make_unique<RMSNormFusionPass>());
+  opt.addPass(std::make_unique<MatMulSiLUFusionPass>());
+  opt.addPass(std::make_unique<FusedBinaryPass>());
+  // Final dead code removal for nodes orphaned by fusion
   opt.addPass(std::make_unique<DeadCodePass>());
   return opt;
 }
@@ -415,7 +420,9 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
       if (!aNode.op || !bNode.op || !sNode.op)
         continue;
       auto shapeA = aNode.op->outputShape();
-      if (shapeA.size() != 2) {
+      // Accept 1D A (treated as [1, K]) — NoOpReshapePass may have removed
+      // the [dim] → [1, dim] reshape when memory layout is identical.
+      if (shapeA.size() < 1 || shapeA.size() > 2) {
         skipReason[4]++;
         continue;
       }

@@ -14,6 +14,7 @@
 #include "Runtime.h"
 #include "llama.h"
 
+#include <chrono>
 #include <exception>
 #include <iostream>
 #include <string>
@@ -97,7 +98,17 @@ int main(int argc, char *argv[]) {
     std::cout << "Generating " << max_new_tokens
               << " tokens (repeat_penalty=" << repeat_penalty << ")...\n";
     // model.setProfilingEnabled(true);
+    auto t0 = std::chrono::high_resolution_clock::now();
     auto tokens = model.generate(prompt, max_new_tokens, repeat_penalty);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double totalMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    int newTokens =
+        static_cast<int>(tokens.size()) - static_cast<int>(prompt.size());
+    if (newTokens > 0) {
+      std::cout << "\nGeneration: " << totalMs << " ms total, "
+                << (totalMs / newTokens) << " ms/token, "
+                << (1000.0 * newTokens / totalMs) << " tok/s\n";
+    }
 
     std::cout << "\nBuffers after generation: " << runtime.bufferCount()
               << "  GPU memory: "

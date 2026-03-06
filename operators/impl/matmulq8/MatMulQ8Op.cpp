@@ -37,7 +37,11 @@ MatMulQ8OpNode::MatMulQ8OpNode(TensorStore &store,
                              ")");
   }
 
-  spec_ = spec.value_or(kMatMulQ8DefaultVariant);
+  if (spec.has_value()) {
+    spec_ = *spec;
+  } else {
+    spec_ = kMatMulQ8DefaultVariant;
+  }
   inputs_ = {a, packedB, scalesB};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }

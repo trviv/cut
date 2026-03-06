@@ -22,12 +22,19 @@ MatMulQ8SiLUOpNode::MatMulQ8SiLUOpNode(TensorStore &store,
   dtypeA_ = bufA.getDtype();
   dtypeScales_ = bufScalesB.getDtype();
 
-  if (shapeA.size() != 2 || shapePB.size() != 2 || shapeSB.size() != 2) {
-    throw std::runtime_error("matmulQ8SiLU requires 2D matrices");
+  if (shapePB.size() != 2 || shapeSB.size() != 2) {
+    throw std::runtime_error("matmulQ8SiLU requires 2D B and scales matrices");
   }
-
-  M_ = shapeA[0];
-  K_ = shapeA[1];
+  // A can be 1D [K] (treated as [1, K]) — optimizer may remove the reshape
+  if (shapeA.size() == 1) {
+    M_ = 1;
+    K_ = shapeA[0];
+  } else if (shapeA.size() == 2) {
+    M_ = shapeA[0];
+    K_ = shapeA[1];
+  } else {
+    throw std::runtime_error("matmulQ8SiLU: A must be 1D or 2D");
+  }
   N_ = shapePB[1]; // B is [K, N] (transposed at load time)
 
   if (shapePB[0] != K_) {
@@ -36,9 +43,12 @@ MatMulQ8SiLUOpNode::MatMulQ8SiLUOpNode(TensorStore &store,
         ") must match A cols (" + std::to_string(K_) + ")");
   }
 
-  // SiLU variant is index 1 in the MatMulQ8 variants table
-  constexpr uint32_t kMatMulQ8SiLUVariant = 1;
-  spec_ = spec.value_or(kMatMulQ8SiLUVariant);
+  if (spec.has_value()) {
+    spec_ = *spec;
+  } else {
+    constexpr uint32_t kSiLUTiledVariant = 1; // SiLUT16R4x4
+    spec_ = kSiLUTiledVariant;
+  }
   inputs_ = {a, packedB, scalesB};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }

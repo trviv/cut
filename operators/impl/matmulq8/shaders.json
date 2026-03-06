@@ -50,6 +50,46 @@
           {"input1": "Float32", "scales": "Int8", "output": "Float32"}
         ]
       }
+    },
+    {
+      "name": "Gemv",
+      "template": "MatMulQ8Gemv",
+      "defines": {},
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        1,
+        256
+      ],
+      "description": "Q8 GEMV (M=1 vector)",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+          {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "GemvSiLU",
+      "template": "MatMulQ8GemvSiLU",
+      "defines": {},
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        1,
+        256
+      ],
+      "description": "Q8 GEMV+SiLU (M=1 vector)",
+      "dtype_slots": {
+        "combos": [
+          {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+          {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+        ]
+      }
     }
   ]
 }
