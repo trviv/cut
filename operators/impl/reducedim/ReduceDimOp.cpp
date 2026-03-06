@@ -90,4 +90,9 @@ std::vector<uint8_t> DimReduceOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+size_t DimReduceOpNode::shaderKey() const {
+  // Distinguish from GlobalReduceOpNode which shares the same op_ enum
+  return shaderKeyWith(1);
+}
+
 } // namespace cut

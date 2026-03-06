@@ -12,6 +12,7 @@
 #include <ComputeOps.h>
 #include <Operations.h>
 #include <Runtime.h>
+#include <SharedRuntime.h>
 
 #include <algorithm>
 #include <array>
@@ -1252,23 +1253,20 @@ std::vector<T> generateTestData(size_t count, uint32_t seed = 42) {
 
 class RuntimeOperatorTest : public ::testing::Test {
 protected:
-  void SetUp() override { runtime_ = std::make_unique<Runtime>(); }
-
-  void TearDown() override {
-    runtime_->shutdown();
-    runtime_.reset();
-  }
-
-  void initBackend(BackendType backend) {
-    if (backend == BackendType::Vulkan) {
-      if (!runtime_->isVulkanAvailable()) {
-        GTEST_SKIP() << "Vulkan not available on this system";
-      }
+  void SetUp() override {
+    runtime_ = test::sharedRuntime();
+    if (!runtime_) {
+      GTEST_SKIP() << "Vulkan not available on this system";
     }
-    runtime_->init(backend);
   }
 
-  std::unique_ptr<Runtime> runtime_;
+  void TearDown() override { runtime_->flush(); }
+
+  void initBackend(BackendType /* backend */) {
+    // No-op: shared runtime is already initialized
+  }
+
+  Runtime *runtime_ = nullptr;
 };
 
 // ============================================================================
@@ -1492,16 +1490,16 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators) {
 
     switch (dtype) {
     case DataType::Float32:
-      testBinaryVecVec<float>(runtime_.get(), dtype);
+      testBinaryVecVec<float>(runtime_, dtype);
       break;
     case DataType::Float16:
-      testBinaryVecVecFloat16(runtime_.get());
+      testBinaryVecVecFloat16(runtime_);
       break;
     case DataType::Int32:
-      testBinaryVecVec<int32_t>(runtime_.get(), dtype);
+      testBinaryVecVec<int32_t>(runtime_, dtype);
       break;
     case DataType::UInt32:
-      testBinaryVecVec<uint32_t>(runtime_.get(), dtype);
+      testBinaryVecVec<uint32_t>(runtime_, dtype);
       break;
     }
   }

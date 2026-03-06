@@ -210,9 +210,9 @@ int main(int argc, char *argv[]) {
       auto result =
           model.generate(promptTokens, maxTokens, repeatPenalty, repeatLastN);
 
-      std::vector<int> genTokens(
-          result.tokens.begin() + static_cast<int>(promptSize),
-          result.tokens.end());
+      std::vector<int> genTokens(result.tokens.begin() +
+                                     static_cast<int>(promptSize),
+                                 result.tokens.end());
       std::string text = model.detokenize(genTokens);
 
       double totalMs = result.prefillMs + result.generateMs;
@@ -321,9 +321,9 @@ int main(int argc, char *argv[]) {
       auto result =
           model.generate(promptTokens, maxTokens, repeatPenalty, repeatLastN);
 
-      std::vector<int> genTokens(
-          result.tokens.begin() + static_cast<int>(promptSize),
-          result.tokens.end());
+      std::vector<int> genTokens(result.tokens.begin() +
+                                     static_cast<int>(promptSize),
+                                 result.tokens.end());
       std::string text = model.detokenize(genTokens);
 
       double totalMs = result.prefillMs + result.generateMs;

@@ -18,6 +18,7 @@ public:
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
+  size_t shaderKey() const override;
 
 private:
   DataType dtype_;
