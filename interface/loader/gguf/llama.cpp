@@ -5,6 +5,7 @@
 #include "model_report.h"
 
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <iostream>
@@ -772,11 +773,14 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
 // Generation
 // ============================================================================
 
-std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
+GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
                                       int max_new_tokens,
                                       float repeat_penalty,
                                       int repeat_last_n) {
   resetCache();
+
+  GenerationResult result;
+  result.promptTokens = static_cast<int>(prompt_tokens.size());
 
   std::vector<int> tokens = prompt_tokens;
   int next_token = 0;
@@ -829,6 +833,7 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
   };
 
   // Process prompt tokens (prefill)
+  auto prefillStart = std::chrono::high_resolution_clock::now();
   for (size_t i = 0; i < prompt_tokens.size(); ++i) {
     auto logits = forward(prompt_tokens[i], static_cast<int>(i));
 
@@ -837,6 +842,10 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
       next_token = sample(logits);
     }
   }
+  auto prefillEnd = std::chrono::high_resolution_clock::now();
+  result.prefillMs =
+      std::chrono::duration<double, std::milli>(prefillEnd - prefillStart)
+          .count();
 
   tokens.push_back(next_token);
   std::cout << "Generated token: " << next_token << "\n";
@@ -853,10 +862,14 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
 
   // Stop on EOS from first sampled token
   if (isStopToken(next_token)) {
-    return tokens;
+    result.tokens = std::move(tokens);
+    result.generatedTokens = 1;
+    result.generateMs = 0.0;
+    return result;
   }
 
   // Autoregressive generation
+  auto genStart = std::chrono::high_resolution_clock::now();
   for (int step = 0; step < max_new_tokens - 1; ++step) {
     int pos = static_cast<int>(prompt_tokens.size()) + step;
     auto logits = forward(next_token, pos);
@@ -870,8 +883,14 @@ std::vector<int> LlamaModel::generate(const std::vector<int> &prompt_tokens,
       break;
     }
   }
+  auto genEnd = std::chrono::high_resolution_clock::now();
+  result.generateMs =
+      std::chrono::duration<double, std::milli>(genEnd - genStart).count();
 
-  return tokens;
+  result.tokens = std::move(tokens);
+  result.generatedTokens =
+      static_cast<int>(result.tokens.size()) - result.promptTokens;
+  return result;
 }
 
 // ============================================================================

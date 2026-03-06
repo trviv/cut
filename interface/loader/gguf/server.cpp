@@ -207,31 +207,32 @@ int main(int argc, char *argv[]) {
       log("  Tokenized: " + std::to_string(promptSize) + " prompt tokens");
 
       log("  Generating...");
-      auto start = std::chrono::high_resolution_clock::now();
-      auto allTokens =
+      auto result =
           model.generate(promptTokens, maxTokens, repeatPenalty, repeatLastN);
-      auto end = std::chrono::high_resolution_clock::now();
 
-      // Extract generated tokens only
       std::vector<int> genTokens(
-          allTokens.begin() + static_cast<int>(promptSize), allTokens.end());
+          result.tokens.begin() + static_cast<int>(promptSize),
+          result.tokens.end());
       std::string text = model.detokenize(genTokens);
 
-      double elapsedMs =
-          std::chrono::duration<double, std::milli>(end - start).count();
-      double tokPerSec =
-          genTokens.empty() ? 0.0 : genTokens.size() / (elapsedMs / 1000.0);
+      double totalMs = result.prefillMs + result.generateMs;
+      int decodeTokens =
+          result.generatedTokens > 1 ? result.generatedTokens - 1 : 0;
+      double decodeTokPerSec =
+          decodeTokens > 0 ? 1000.0 * decodeTokens / result.generateMs : 0.0;
 
       log("  Done: " + std::to_string(genTokens.size()) + " tokens in " +
-          std::to_string(static_cast<int>(elapsedMs)) + "ms (" +
-          std::to_string(static_cast<int>(tokPerSec)) + " tok/s)");
+          std::to_string(static_cast<int>(totalMs)) + "ms (decode " +
+          std::to_string(static_cast<int>(decodeTokPerSec)) + " tok/s)");
 
       json resp = {{"text", text},
                    {"prompt_tokens", promptSize},
                    {"generated_tokens", genTokens.size()},
-                   {"total_tokens", allTokens.size()},
-                   {"elapsed_ms", elapsedMs},
-                   {"tokens_per_second", tokPerSec}};
+                   {"total_tokens", result.tokens.size()},
+                   {"prefill_ms", result.prefillMs},
+                   {"generate_ms", result.generateMs},
+                   {"elapsed_ms", totalMs},
+                   {"tokens_per_second", decodeTokPerSec}};
       res.set_content(resp.dump(), "application/json");
 
     } catch (const json::exception &e) {
@@ -317,30 +318,32 @@ int main(int argc, char *argv[]) {
       log("  Tokenized: " + std::to_string(promptSize) + " prompt tokens");
 
       log("  Generating...");
-      auto start = std::chrono::high_resolution_clock::now();
-      auto allTokens =
+      auto result =
           model.generate(promptTokens, maxTokens, repeatPenalty, repeatLastN);
-      auto end = std::chrono::high_resolution_clock::now();
 
       std::vector<int> genTokens(
-          allTokens.begin() + static_cast<int>(promptSize), allTokens.end());
+          result.tokens.begin() + static_cast<int>(promptSize),
+          result.tokens.end());
       std::string text = model.detokenize(genTokens);
 
-      double elapsedMs =
-          std::chrono::duration<double, std::milli>(end - start).count();
-      double tokPerSec =
-          genTokens.empty() ? 0.0 : genTokens.size() / (elapsedMs / 1000.0);
+      double totalMs = result.prefillMs + result.generateMs;
+      int decodeTokens =
+          result.generatedTokens > 1 ? result.generatedTokens - 1 : 0;
+      double decodeTokPerSec =
+          decodeTokens > 0 ? 1000.0 * decodeTokens / result.generateMs : 0.0;
 
       log("  Done: " + std::to_string(genTokens.size()) + " tokens in " +
-          std::to_string(static_cast<int>(elapsedMs)) + "ms (" +
-          std::to_string(static_cast<int>(tokPerSec)) + " tok/s)");
+          std::to_string(static_cast<int>(totalMs)) + "ms (decode " +
+          std::to_string(static_cast<int>(decodeTokPerSec)) + " tok/s)");
 
       json resp = {{"text", text},
                    {"prompt_tokens", promptSize},
                    {"generated_tokens", genTokens.size()},
-                   {"total_tokens", allTokens.size()},
-                   {"elapsed_ms", elapsedMs},
-                   {"tokens_per_second", tokPerSec}};
+                   {"total_tokens", result.tokens.size()},
+                   {"prefill_ms", result.prefillMs},
+                   {"generate_ms", result.generateMs},
+                   {"elapsed_ms", totalMs},
+                   {"tokens_per_second", decodeTokPerSec}};
       res.set_content(resp.dump(), "application/json");
 
     } catch (const json::exception &e) {

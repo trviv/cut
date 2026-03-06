@@ -14,7 +14,6 @@
 #include "Runtime.h"
 #include "llama.h"
 
-#include <chrono>
 #include <exception>
 #include <iostream>
 #include <string>
@@ -98,17 +97,22 @@ int main(int argc, char *argv[]) {
     std::cout << "Generating " << max_new_tokens
               << " tokens (repeat_penalty=" << repeat_penalty << ")...\n";
     // model.setProfilingEnabled(true);
-    auto t0 = std::chrono::high_resolution_clock::now();
-    auto tokens = model.generate(prompt, max_new_tokens, repeat_penalty);
-    auto t1 = std::chrono::high_resolution_clock::now();
-    double totalMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
-    int newTokens =
-        static_cast<int>(tokens.size()) - static_cast<int>(prompt.size());
-    if (newTokens > 0) {
-      std::cout << "\nGeneration: " << totalMs << " ms total, "
-                << (totalMs / newTokens) << " ms/token, "
-                << (1000.0 * newTokens / totalMs) << " tok/s\n";
+    auto result = model.generate(prompt, max_new_tokens, repeat_penalty);
+
+    std::cout << "\nPrefill: " << result.prefillMs << " ms, "
+              << result.promptTokens << " tokens, "
+              << (1000.0 * result.promptTokens / result.prefillMs)
+              << " tok/s\n";
+    if (result.generatedTokens > 1) {
+      // First token comes from prefill; generation phase produces the rest
+      int decodeTokens = result.generatedTokens - 1;
+      std::cout << "Decode:  " << result.generateMs << " ms, " << decodeTokens
+                << " tokens, " << (1000.0 * decodeTokens / result.generateMs)
+                << " tok/s\n";
     }
+    double totalMs = result.prefillMs + result.generateMs;
+    std::cout << "Total:   " << totalMs << " ms, " << result.generatedTokens
+              << " tokens\n";
 
     std::cout << "\nBuffers after generation: " << runtime.bufferCount()
               << "  GPU memory: "
@@ -116,14 +120,14 @@ int main(int argc, char *argv[]) {
               << " MB\n";
 
     std::cout << "\nGenerated token IDs: [";
-    for (size_t i = 0; i < tokens.size(); ++i) {
+    for (size_t i = 0; i < result.tokens.size(); ++i) {
       if (i > 0)
         std::cout << ", ";
-      std::cout << tokens[i];
+      std::cout << result.tokens[i];
     }
     std::cout << "]\n";
 
-    std::string text = model.detokenize(tokens);
+    std::string text = model.detokenize(result.tokens);
     if (!text.empty()) {
       std::cout << "\nDecoded text:\n" << text << "\n";
     }

@@ -93,6 +93,15 @@ struct LayerGraphs {
   GraphTemplate ffnResidual;
 };
 
+/// Result from autoregressive generation, including timing breakdown.
+struct GenerationResult {
+  std::vector<int> tokens; // all tokens (prompt + generated)
+  double prefillMs = 0.0;  // time to process prompt tokens
+  double generateMs = 0.0; // time for autoregressive generation only
+  int promptTokens = 0;    // number of prompt tokens processed
+  int generatedTokens = 0; // number of new tokens generated
+};
+
 /// LLaMA model that loads from GGUF and runs inference using CUT operators.
 class LlamaModel {
 public:
@@ -119,8 +128,8 @@ public:
   /// @param max_new_tokens Maximum tokens to generate.
   /// @param repeat_penalty Repetition penalty (1.0 = disabled, >1.0 penalizes).
   /// @param repeat_last_n Lookback window for repetition penalty (0 = all).
-  /// @return All tokens (prompt + generated).
-  std::vector<int> generate(const std::vector<int> &prompt_tokens,
+  /// @return GenerationResult with tokens and timing breakdown.
+  GenerationResult generate(const std::vector<int> &prompt_tokens,
                             int max_new_tokens,
                             float repeat_penalty = 1.05f,
                             int repeat_last_n = 64);
