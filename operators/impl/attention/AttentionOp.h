@@ -11,8 +11,8 @@ class CacheWriteOpNode : public OpNode {
 public:
   CacheWriteOpNode(TensorStore &store,
                    const Tensor &newData,
+                   const Tensor &runtimeParams,
                    const Tensor &cache,
-                   uint32_t pos,
                    std::optional<uint32_t> spec = {});
 
   DataType outputDtype() const override;
@@ -23,7 +23,6 @@ public:
 
 private:
   DataType dtype_;
-  uint32_t pos_;
   uint32_t kvDim_;
   uint32_t alignedKvDim_;
 };
@@ -37,10 +36,11 @@ public:
                   const Tensor &q,
                   const Tensor &kCache,
                   const Tensor &vCache,
+                  const Tensor &runtimeParams,
                   uint32_t nHeads,
                   uint32_t nKvHeads,
                   uint32_t headDim,
-                  uint32_t seqLen,
+                  const Tensor &preallocOutput = {},
                   std::optional<uint32_t> spec = {});
 
   DataType outputDtype() const override;
@@ -54,7 +54,6 @@ private:
   uint32_t nHeads_;
   uint32_t nKvHeads_;
   uint32_t headDim_;
-  uint32_t seqLen_;
   uint32_t kvDim_;
   uint32_t alignedKvDim_;
   uint32_t nRep_;

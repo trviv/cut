@@ -206,6 +206,18 @@ private:
                         std::vector<int> &ids) const;
   void buildGPT2ByteEncoder();
 
+  // Pre-allocated buffers for command buffer reuse
+  cut::ComputeHandle runtimeParamsBuffer_; // {pos, seqLen} — 2x uint32
+  cut::ComputeHandle hiddenBuffer_;        // [dim] Float32
+  cut::ComputeHandle ropeQOutBuffer_;      // [n_heads * head_dim] Float32
+  cut::ComputeHandle ropeKOutBuffer_;      // [kv_dim] Float32
+  cut::ComputeHandle attnOutBuffer_;       // [n_heads * head_dim] Float32
+  cut::ComputeHandle logitsOutput_;        // stable logits handle
+
+  // Command buffer caching for decode phase
+  cut::ComputeHandle cachedDecodeCB_;
+  bool decodeCBCached_ = false;
+
   // Helper: upload 1D float vector to GPU
   cut::ComputeHandle uploadVector(const std::vector<float> &data);
 
@@ -234,15 +246,14 @@ private:
                              const cut::ComputeHandle &weight);
 
   // Apply RoPE on GPU using precomputed cos/sin tables
-  cut::ComputeHandle
-  applyRoPE(const cut::ComputeHandle &x, int pos, uint32_t n_heads_for_rope);
+  cut::ComputeHandle applyRoPE(const cut::ComputeHandle &x,
+                               const cut::ComputeHandle &preallocOutput);
 
-  // Attention on GPU using KV cache
-  cut::ComputeHandle attention(const cut::ComputeHandle &q,
-                               const cut::ComputeHandle &k,
-                               const cut::ComputeHandle &v,
-                               int layer,
-                               int pos);
+  // Attention on GPU using KV cache (writes to attnOutBuffer_)
+  void attention(const cut::ComputeHandle &q,
+                 const cut::ComputeHandle &k,
+                 const cut::ComputeHandle &v,
+                 int layer);
 
   // Precompute RoPE tables
   void precomputeRoPE();

@@ -217,4 +217,24 @@ void Runtime::flushPendingCommands() {
   }
 }
 
+ComputeHandle Runtime::submitReusable() {
+  if (!pendingCommands_ || !interface_) {
+    return {};
+  }
+  if (operations_) {
+    operations_->flush();
+  }
+  ComputeHandle cmd = interface_->submitReusable();
+  interface_->wait(cmd);
+  pendingCommands_ = false;
+  return cmd;
+}
+
+void Runtime::resubmitAndWait(const ComputeHandle &cb) {
+  if (!interface_ || !cb)
+    return;
+  interface_->resubmit(cb);
+  interface_->wait(cb);
+}
+
 } // namespace cut

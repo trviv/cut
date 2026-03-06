@@ -54,6 +54,12 @@ public:
    */
   void wait() override;
 
+  /**
+   * Re-submits a previously recorded reusable command buffer.
+   * Waits for any prior execution, resets fence, and re-submits.
+   */
+  void resubmit() override;
+
   ~VulkanCommandBuffer() override;
 
 private:

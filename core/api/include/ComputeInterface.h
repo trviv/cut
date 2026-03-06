@@ -152,6 +152,21 @@ public:
   ComputeHandle submit();
 
   /**
+   * Ends recording and submits the command buffer marked as reusable.
+   * The returned handle can be passed to resubmit() for subsequent executions.
+   * @return Handle to the submitted reusable command buffer.
+   */
+  ComputeHandle submitReusable();
+
+  /**
+   * Re-submits a previously recorded reusable command buffer.
+   * Waits for prior execution, resets fence, and re-submits without
+   * re-recording.
+   * @param commandBufferHandle Handle to the reusable command buffer.
+   */
+  void resubmit(const ComputeHandle &commandBufferHandle);
+
+  /**
    * Waits for a command buffer to finish execution.
    * Blocks until all submitted commands have completed.
    * @param commandBufferHandle Handle to the command buffer to wait on.

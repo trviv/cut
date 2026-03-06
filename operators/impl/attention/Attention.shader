@@ -9,7 +9,6 @@ struct PushConstants {
     uint nHeads;
     uint nKvHeads;
     uint headDim;
-    uint seqLen;       // pos + 1
     uint kvDim;        // nKvHeads * headDim
     uint alignedKvDim; // (kvDim + 3) & ~3
     uint nRep;         // nHeads / nKvHeads
@@ -23,8 +22,10 @@ struct PushConstants {
 [[vk::binding(1, 0)]] StructuredBuffer<float> kCache;
 // V cache [maxSeqLen, kvDim] with aligned stride
 [[vk::binding(2, 0)]] StructuredBuffer<float> vCache;
+// Runtime params [pos, seqLen]
+[[vk::binding(3, 0)]] StructuredBuffer<uint> runtimeParams;
 // Output [nHeads * headDim]
-[[vk::binding(3, 0)]] RWStructuredBuffer<float> dataOut;
+[[vk::binding(4, 0)]] RWStructuredBuffer<float> dataOut;
 
 // Shared memory
 groupshared float sharedQ[128];            // Max head_dim
@@ -38,6 +39,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
     uint h = Gid.x;      // Attention head index
     uint tid = GTid.x;   // Thread within workgroup
     uint kvH = h / pc.nRep; // KV head index (GQA)
+    uint seqLen = runtimeParams[1];
 
     // Phase 1: Load Q for this head into shared memory
     if (tid < pc.headDim) {
@@ -46,7 +48,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
     GroupMemoryBarrierWithGroupSync();
 
     // Phase 2: Compute attention scores = dot(Q_h, K_t) * scale
-    for (uint t = tid; t < pc.seqLen; t += WG_SIZE) {
+    for (uint t = tid; t < seqLen; t += WG_SIZE) {
         float dot = 0.0;
         uint kBase = t * pc.alignedKvDim + kvH * pc.headDim;
         for (uint d = 0; d < pc.headDim; d++) {
@@ -59,7 +61,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
     // Phase 3: Softmax over scores[0:seqLen]
     // 3a. Find max
     float localMax = -1e30;
-    for (uint t = tid; t < pc.seqLen; t += WG_SIZE) {
+    for (uint t = tid; t < seqLen; t += WG_SIZE) {
         localMax = max(localMax, sharedScores[t]);
     }
     sharedReduce[tid] = localMax;
@@ -74,7 +76,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
 
     // 3b. Exp and sum
     float localSum = 0.0;
-    for (uint t = tid; t < pc.seqLen; t += WG_SIZE) {
+    for (uint t = tid; t < seqLen; t += WG_SIZE) {
         sharedScores[t] = exp(sharedScores[t] - maxScore);
         localSum += sharedScores[t];
     }
@@ -89,7 +91,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
     float sumExp = sharedReduce[0];
 
     // 3c. Normalize
-    for (uint t = tid; t < pc.seqLen; t += WG_SIZE) {
+    for (uint t = tid; t < seqLen; t += WG_SIZE) {
         sharedScores[t] /= sumExp;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -97,7 +99,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
     // Phase 4: Weighted sum of V
     if (tid < pc.headDim) {
         float acc = 0.0;
-        for (uint t = 0; t < pc.seqLen; t++) {
+        for (uint t = 0; t < seqLen; t++) {
             acc += sharedScores[t] * vCache[t * pc.alignedKvDim + kvH * pc.headDim + tid];
         }
         dataOut[h * pc.headDim + tid] = acc;

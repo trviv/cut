@@ -161,6 +161,19 @@ public:
   void flush();
 
   /**
+   * Flushes pending commands as a reusable command buffer.
+   * The returned handle can be passed to resubmitAndWait() for re-execution.
+   * @return Handle to the reusable command buffer, or empty if nothing pending.
+   */
+  ComputeHandle submitReusable();
+
+  /**
+   * Re-submits a previously recorded reusable command buffer and waits.
+   * @param cb Handle from submitReusable().
+   */
+  void resubmitAndWait(const ComputeHandle &cb);
+
+  /**
    * Returns a reference to the Operations object for issuing compute
    * operations.
    * @throws std::runtime_error if not initialized.

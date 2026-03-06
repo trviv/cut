@@ -6,7 +6,6 @@ struct PushConstants {
     uint numElements; // n_heads * head_dim
     uint headDim;
     uint halfDim;     // head_dim / 2
-    uint pos;         // sequence position
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -16,16 +15,19 @@ struct PushConstants {
 [[vk::binding(1, 0)]] StructuredBuffer<float> cosTable;
 // Precomputed sin table [maxSeqLen * halfDim]
 [[vk::binding(2, 0)]] StructuredBuffer<float> sinTable;
+// Runtime params [pos, seqLen]
+[[vk::binding(3, 0)]] StructuredBuffer<uint> runtimeParams;
 // Output tensor [numElements]
-[[vk::binding(3, 0)]] RWStructuredBuffer<float> dataOut;
+[[vk::binding(4, 0)]] RWStructuredBuffer<float> dataOut;
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
     uint gid = DTid.x;
     if (gid >= pc.numElements) return;
 
+    uint pos = runtimeParams[0];
     uint idxInHead = gid % pc.headDim;
-    uint tableBase = pc.pos * pc.halfDim;
+    uint tableBase = pos * pc.halfDim;
 
     if (idxInHead < pc.halfDim) {
         // First half: out = x[i] * cos - x[i + halfDim] * sin

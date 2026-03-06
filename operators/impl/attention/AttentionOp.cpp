@@ -11,20 +11,18 @@ namespace cut {
 
 CacheWriteOpNode::CacheWriteOpNode(TensorStore &store,
                                    const Tensor &newData,
+                                   const Tensor &runtimeParams,
                                    const Tensor &cache,
-                                   uint32_t pos,
                                    std::optional<uint32_t> spec)
     : OpNode(CacheWrite, store, spec) {
   const auto &cacheBuf = store.getTensor(cache);
-  const auto &newBuf = store.getTensor(newData);
   dtype_ = cacheBuf.getDtype();
-  pos_ = pos;
 
   auto cacheShape = cacheBuf.getShape();
   kvDim_ = cacheShape.back();
   alignedKvDim_ = (kvDim_ + 3) & ~static_cast<uint32_t>(3);
 
-  inputs_ = {newData};
+  inputs_ = {newData, runtimeParams};
   // In-place: output IS the cache buffer
   output_ = cache;
 }
@@ -48,10 +46,9 @@ ThreadSize CacheWriteOpNode::dispatchSize() const {
 
 std::vector<uint8_t> CacheWriteOpNode::pushConstants() const {
   struct PushConstants {
-    uint32_t pos;
     uint32_t kvDim;
     uint32_t alignedKvDim;
-  } pc{pos_, kvDim_, alignedKvDim_};
+  } pc{kvDim_, alignedKvDim_};
   return toBytes(pc);
 }
 
@@ -61,22 +58,17 @@ AttentionOpNode::AttentionOpNode(TensorStore &store,
                                  const Tensor &q,
                                  const Tensor &kCache,
                                  const Tensor &vCache,
+                                 const Tensor &runtimeParams,
                                  uint32_t nHeads,
                                  uint32_t nKvHeads,
                                  uint32_t headDim,
-                                 uint32_t seqLen,
+                                 const Tensor &preallocOutput,
                                  std::optional<uint32_t> spec)
     : OpNode(Attention, store, spec) {
-  if (seqLen > 2048) {
-    throw std::runtime_error("AttentionOpNode: seqLen " +
-                             std::to_string(seqLen) +
-                             " exceeds MAX_SEQ_LEN (2048)");
-  }
   dtype_ = store.getTensor(q).getDtype();
   nHeads_ = nHeads;
   nKvHeads_ = nKvHeads;
   headDim_ = headDim;
-  seqLen_ = seqLen;
   kvDim_ = nKvHeads * headDim;
   alignedKvDim_ = (kvDim_ + 3) & ~static_cast<uint32_t>(3);
   nRep_ = nHeads / nKvHeads;
@@ -84,8 +76,9 @@ AttentionOpNode::AttentionOpNode(TensorStore &store,
 
   outShape_ = {nHeads * headDim};
 
-  inputs_ = {q, kCache, vCache};
-  output_ = store.createTensorEmpty(outShape_, dtype_);
+  inputs_ = {q, kCache, vCache, runtimeParams};
+  output_ = preallocOutput ? preallocOutput
+                           : store.createTensorEmpty(outShape_, dtype_);
 }
 
 DataType AttentionOpNode::outputDtype() const {
@@ -110,13 +103,11 @@ std::vector<uint8_t> AttentionOpNode::pushConstants() const {
     uint32_t nHeads;
     uint32_t nKvHeads;
     uint32_t headDim;
-    uint32_t seqLen;
     uint32_t kvDim;
     uint32_t alignedKvDim;
     uint32_t nRep;
     float scale;
-  } pc{nHeads_, nKvHeads_,     headDim_, seqLen_,
-       kvDim_,  alignedKvDim_, nRep_,    scale_};
+  } pc{nHeads_, nKvHeads_, headDim_, kvDim_, alignedKvDim_, nRep_, scale_};
   return toBytes(pc);
 }
 

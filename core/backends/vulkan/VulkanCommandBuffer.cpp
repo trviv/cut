@@ -231,7 +231,7 @@ VulkanCommandBuffer::~VulkanCommandBuffer() {
 void VulkanCommandBuffer::begin() {
   VkCommandBufferBeginInfo beginInfo{};
   beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  beginInfo.flags = 0;
 
   vkBeginCommandBuffer(commandBuffer_, &beginInfo);
 }
@@ -580,6 +580,22 @@ void VulkanCommandBuffer::wait() {
     queryCount_ = 0;
     dispatchLabels_.clear();
   }
+}
+
+void VulkanCommandBuffer::resubmit() {
+  // Wait for any prior execution to complete
+  wait();
+
+  // Reset fence and re-submit the same recorded command buffer
+  VK_CHECK(vkResetFences(device_, 1, &fence_));
+
+  VkSubmitInfo submitInfo{};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &commandBuffer_;
+
+  VK_CHECK(vkQueueSubmit(queue_, 1, &submitInfo, fence_));
+  submitted_ = true;
 }
 
 } // namespace cut

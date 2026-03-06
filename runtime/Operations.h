@@ -231,24 +231,28 @@ public:
   Tensor applyRoPE(const Tensor &x,
                    const Tensor &cosTable,
                    const Tensor &sinTable,
-                   uint32_t pos,
+                   const Tensor &runtimeParams,
                    uint32_t headDim,
+                   const Tensor &preallocOutput = {},
                    std::optional<uint32_t> spec = {});
 
   // ===== Attention =====
 
   /// Write a 1D vector into a specific row of a 2D cache buffer (in-place).
   /// Dispatched immediately (not graph-recorded).
-  void cacheWrite(const Tensor &cache, const Tensor &newData, uint32_t pos);
+  void cacheWrite(const Tensor &cache,
+                  const Tensor &newData,
+                  const Tensor &runtimeParams);
 
   /// Scaled dot-product attention with GQA support.
   Tensor attention(const Tensor &q,
                    const Tensor &kCache,
                    const Tensor &vCache,
+                   const Tensor &runtimeParams,
                    uint32_t nHeads,
                    uint32_t nKvHeads,
                    uint32_t headDim,
-                   uint32_t seqLen,
+                   const Tensor &preallocOutput = {},
                    std::optional<uint32_t> spec = {});
 
   // ===== Expand (broadcast) =====

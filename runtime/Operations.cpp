@@ -942,11 +942,13 @@ Tensor Operations::pad(const Tensor &input,
 Tensor Operations::applyRoPE(const Tensor &x,
                              const Tensor &cosTable,
                              const Tensor &sinTable,
-                             uint32_t pos,
+                             const Tensor &runtimeParams,
                              uint32_t headDim,
+                             const Tensor &preallocOutput,
                              std::optional<uint32_t> spec) {
-  auto node = std::make_unique<RoPEOpNode>(*store_, x, cosTable, sinTable, pos,
-                                           headDim, spec);
+  auto node = std::make_unique<RoPEOpNode>(*store_, x, cosTable, sinTable,
+                                           runtimeParams, headDim,
+                                           preallocOutput, spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -956,21 +958,24 @@ Tensor Operations::applyRoPE(const Tensor &x,
 
 void Operations::cacheWrite(const Tensor &cache,
                             const Tensor &newData,
-                            uint32_t pos) {
-  auto node = std::make_unique<CacheWriteOpNode>(*store_, newData, cache, pos);
+                            const Tensor &runtimeParams) {
+  auto node = std::make_unique<CacheWriteOpNode>(*store_, newData,
+                                                 runtimeParams, cache);
   dispatch(std::move(node));
 }
 
 Tensor Operations::attention(const Tensor &q,
                              const Tensor &kCache,
                              const Tensor &vCache,
+                             const Tensor &runtimeParams,
                              uint32_t nHeads,
                              uint32_t nKvHeads,
                              uint32_t headDim,
-                             uint32_t seqLen,
+                             const Tensor &preallocOutput,
                              std::optional<uint32_t> spec) {
-  auto node = std::make_unique<AttentionOpNode>(
-      *store_, q, kCache, vCache, nHeads, nKvHeads, headDim, seqLen, spec);
+  auto node = std::make_unique<AttentionOpNode>(*store_, q, kCache, vCache,
+                                                runtimeParams, nHeads, nKvHeads,
+                                                headDim, preallocOutput, spec);
   return recordOrEncode(std::move(node));
 }
 

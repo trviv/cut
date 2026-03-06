@@ -444,6 +444,19 @@ public:
    */
   virtual void wait() = 0;
 
+  /**
+   * Re-submits a previously recorded command buffer without re-recording.
+   * Waits for any prior execution to complete, then submits again.
+   * Only valid for reusable command buffers.
+   */
+  virtual void resubmit() {}
+
+  /// Marks this command buffer as reusable (can be re-submitted).
+  void setReusable(bool reusable) { reusable_ = reusable; }
+
+  /// Returns true if this command buffer is reusable.
+  bool isReusable() const { return reusable_; }
+
   /// Enables or disables per-dispatch GPU profiling for this command buffer.
   void setProfilingEnabled(bool enabled) { profilingEnabled_ = enabled; }
 
@@ -455,6 +468,7 @@ protected:
   const std::vector<ComputeDispatch> &dispatches() { return dispatches_; }
 
   bool profilingEnabled_ = false; ///< Per-dispatch GPU profiling flag.
+  bool reusable_ = false;         ///< Whether this CB can be re-submitted.
 
 private:
   std::vector<ComputeDispatch> dispatches_; ///< List of compute dispatches.

@@ -331,6 +331,18 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
         {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
   }
 
+  // Pre-allocate buffers for command buffer reuse
+  runtimeParamsBuffer_ =
+      runtime_->createTensorEmpty({2}, cut::DataType::UInt32);
+  hiddenBuffer_ =
+      runtime_->createTensorEmpty({config_.dim}, cut::DataType::Float32);
+  ropeQOutBuffer_ = runtime_->createTensorEmpty(
+      {config_.n_heads * config_.head_dim}, cut::DataType::Float32);
+  ropeKOutBuffer_ =
+      runtime_->createTensorEmpty({config_.kv_dim}, cut::DataType::Float32);
+  attnOutBuffer_ = runtime_->createTensorEmpty(
+      {config_.n_heads * config_.head_dim}, cut::DataType::Float32);
+
   // Precompute RoPE tables
   precomputeRoPE();
 
@@ -414,34 +426,31 @@ cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
 // RoPE application
 // ============================================================================
 
-cut::ComputeHandle LlamaModel::applyRoPE(const cut::ComputeHandle &x,
-                                         int pos,
-                                         uint32_t n_heads_for_rope) {
-  // x is 1D [n_heads_for_rope * head_dim] — apply RoPE entirely on GPU
-  return ops_->applyRoPE(x, rope_cos_gpu_, rope_sin_gpu_,
-                         static_cast<uint32_t>(pos), config_.head_dim);
+cut::ComputeHandle
+LlamaModel::applyRoPE(const cut::ComputeHandle &x,
+                      const cut::ComputeHandle &preallocOutput) {
+  return ops_->applyRoPE(x, rope_cos_gpu_, rope_sin_gpu_, runtimeParamsBuffer_,
+                         config_.head_dim, preallocOutput);
 }
 
 // ============================================================================
 // Attention
 // ============================================================================
 
-cut::ComputeHandle LlamaModel::attention(const cut::ComputeHandle &q,
-                                         const cut::ComputeHandle &k,
-                                         const cut::ComputeHandle &v,
-                                         int layer,
-                                         int pos) {
+void LlamaModel::attention(const cut::ComputeHandle &q,
+                           const cut::ComputeHandle &k,
+                           const cut::ComputeHandle &v,
+                           int layer) {
   auto &cache = kv_caches_[layer];
-  uint32_t upos = static_cast<uint32_t>(pos);
 
-  // Write K and V into GPU cache at current position (immediate dispatch)
-  ops_->cacheWrite(cache.k_cache, k, upos);
-  ops_->cacheWrite(cache.v_cache, v, upos);
-  cache.seq_len = upos + 1;
+  // Write K and V into GPU cache at position from runtimeParamsBuffer_
+  ops_->cacheWrite(cache.k_cache, k, runtimeParamsBuffer_);
+  ops_->cacheWrite(cache.v_cache, v, runtimeParamsBuffer_);
 
-  // Compute attention entirely on GPU
-  return ops_->attention(q, cache.k_cache, cache.v_cache, config_.n_heads,
-                         config_.n_kv_heads, config_.head_dim, cache.seq_len);
+  // Compute attention — seqLen read from runtimeParamsBuffer_ by shader
+  ops_->attention(q, cache.k_cache, cache.v_cache, runtimeParamsBuffer_,
+                  config_.n_heads, config_.n_kv_heads, config_.head_dim,
+                  attnOutBuffer_);
 }
 
 // ============================================================================
@@ -610,10 +619,17 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
   cut::graph::GraphBuilder builder(*runtime_);
   int32_t dim = static_cast<int32_t>(config_.dim);
 
-  // Dynamic input — use output_norm_ as shape placeholder for {dim}
-  auto vHidden = builder.input(output_norm_, /*isConstant=*/false);
+  // Dynamic input: hidden state [dim] — use layers_[0].attn_norm as shape
+  // placeholder (must differ from output_norm_ used as constant input below)
+  auto vHidden = builder.input(layers_[0].attn_norm, /*isConstant=*/false);
 
-  auto hidden_2d = builder.ops().reshape(vHidden, {1, dim});
+  // Constant input: output norm weight [dim]
+  auto vOutputNorm = builder.input(output_norm_, /*isConstant=*/true);
+
+  // RMS norm inside the graph (eliminates standalone dispatch)
+  auto vNormed = builder.ops().rmsNorm(vHidden, vOutputNorm, config_.norm_eps);
+
+  auto hidden_2d = builder.ops().reshape(vNormed, {1, dim});
   auto logits_raw = graphWeight(builder, output_weight_, hidden_2d);
 
   // Dead code: identity reshape (optimizer: IdentityReshapePass + DeadCodePass)
@@ -725,48 +741,61 @@ std::vector<cut::Tensor> LlamaModel::executeGraph(
 
 cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   uint32_t dim = config_.dim;
+  uint32_t upos = static_cast<uint32_t>(pos);
 
-  // 1. Token embedding lookup (CPU → GPU)
+  // Update runtime params buffer: {pos, seqLen}
+  uint32_t params[2] = {upos, upos + 1};
+  runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
+
+  // Update embedding buffer with token embedding
   const float *embd_row = token_embd_data_.data() + token_id * dim;
-  std::vector<float> embd_vec(embd_row, embd_row + dim);
-  auto hidden = uploadVector(embd_vec);
+  runtime_->copyToTensor(hiddenBuffer_, embd_row, dim * sizeof(float));
 
-  // 2. Transformer layers
+  if (decodeCBCached_) {
+    // Re-submit cached command buffer (no re-recording needed)
+    runtime_->resubmitAndWait(cachedDecodeCB_);
+    return logitsOutput_;
+  }
+
+  // First forward: run with pre-allocated buffers, then cache CB
+  auto hidden = hiddenBuffer_;
+
+  // Transformer layers
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
-    auto &l = layers_[i];
     auto &lg = layerGraphs_[i];
 
-    // --- Attention block ---
     // QKV projection (graph template — includes rmsNorm internally)
     auto qkv = executeGraph(lg.qkvProjection, {hidden});
     auto q = qkv[0]; // [n_heads * head_dim]
     auto k = qkv[1]; // [kv_dim]
     auto v = qkv[2]; // [kv_dim]
 
-    // Apply RoPE (GPU)
-    q = applyRoPE(q, pos, config_.n_heads);
-    k = applyRoPE(k, pos, config_.n_kv_heads);
+    // Apply RoPE (GPU) with pre-allocated output buffers
+    q = applyRoPE(q, ropeQOutBuffer_);
+    k = applyRoPE(k, ropeKOutBuffer_);
 
-    // Attention with GPU KV cache
-    auto attn_out = attention(q, k, v, i, pos);
+    // Attention with GPU KV cache (writes to attnOutBuffer_)
+    attention(q, k, v, i);
 
     // Output projection + residual (graph template)
-    auto attn_result = executeGraph(lg.attnOutputResidual, {attn_out, hidden});
+    auto attn_result =
+        executeGraph(lg.attnOutputResidual, {attnOutBuffer_, hidden});
     hidden = attn_result[0];
 
-    // --- FFN block ---
     // FFN + residual (graph template — includes rmsNorm internally)
     auto ffn_result = executeGraph(lg.ffnResidual, {hidden});
     hidden = ffn_result[0];
   }
 
-  // 3. Final RMS norm
-  hidden = rmsNorm(hidden, output_norm_);
-
-  // 4. LM head logits (graph template)
+  // LM head logits (graph template — includes rmsNorm internally)
   auto logit_result = executeGraph(logitsGraph_, {hidden});
+  logitsOutput_ = logit_result[0];
 
-  return logit_result[0];
+  // Cache the command buffer for reuse on subsequent tokens
+  cachedDecodeCB_ = runtime_->submitReusable();
+  decodeCBCached_ = static_cast<bool>(cachedDecodeCB_);
+
+  return logitsOutput_;
 }
 
 // ============================================================================
@@ -1278,6 +1307,9 @@ void LlamaModel::resetCache() {
         {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
     cache.seq_len = 0;
   }
+  // Invalidate cached command buffer (new generation = new KV cache handles)
+  cachedDecodeCB_.reset();
+  decodeCBCached_ = false;
 }
 
 } // namespace gguf

@@ -35,6 +35,31 @@ ComputeHandle ComputeInterface::submit() {
   return result;
 }
 
+ComputeHandle ComputeInterface::submitReusable() {
+  if (!activeCommandBuffer_) {
+    logErr("No command buffer is currently recording. "
+           "Call encode() before submitReusable().");
+  }
+  auto *cb = commandBufferContainer_->get(activeCommandBuffer_);
+  cb->setReusable(true);
+  cb->end();
+
+  ComputeHandle result = std::move(activeCommandBuffer_);
+  activeCommandBuffer_.reset();
+
+  commandBufferContainer_->get(result)->submit();
+
+  return result;
+}
+
+void ComputeInterface::resubmit(const ComputeHandle &commandBufferHandle) {
+  if (!commandBufferHandle) {
+    logErr("Invalid command buffer handle. "
+           "Call submitReusable() to get a valid handle.");
+  }
+  commandBufferContainer_->get(commandBufferHandle)->resubmit();
+}
+
 void ComputeInterface::wait(const ComputeHandle &commandBufferHandle) {
   if (!commandBufferHandle) {
     logErr("Invalid command buffer handle. "

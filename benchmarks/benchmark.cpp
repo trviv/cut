@@ -1109,8 +1109,10 @@ static void benchmarkAttention(Runtime &runtime, int warmup, int iterations) {
                                            hostK.data());
           auto bufV = runtime.createTensor({kvRows, kvCols}, DataType::Float32,
                                            hostV.data());
-          runtime.ops().attention(bufQ, bufK, bufV, tc.nHeads, tc.nKvHeads,
-                                  tc.headDim, tc.seqLen);
+          uint32_t params[2] = {0, tc.seqLen};
+          auto bufParams = runtime.createTensor({2}, DataType::UInt32, params);
+          runtime.ops().attention(bufQ, bufK, bufV, bufParams, tc.nHeads,
+                                  tc.nKvHeads, tc.headDim);
           runtime.flush();
         },
         warmup, iterations);

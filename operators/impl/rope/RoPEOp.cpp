@@ -8,8 +8,9 @@ RoPEOpNode::RoPEOpNode(TensorStore &store,
                        const Tensor &x,
                        const Tensor &cosTable,
                        const Tensor &sinTable,
-                       uint32_t pos,
+                       const Tensor &runtimeParams,
                        uint32_t headDim,
+                       const Tensor &preallocOutput,
                        std::optional<uint32_t> spec)
     : OpNode(RoPE, store, spec) {
   const auto &buf = store.getTensor(x);
@@ -18,9 +19,9 @@ RoPEOpNode::RoPEOpNode(TensorStore &store,
   numElements_ = static_cast<uint32_t>(actualElementCount(outShape_));
   headDim_ = headDim;
   halfDim_ = headDim / 2;
-  pos_ = pos;
-  inputs_ = {x, cosTable, sinTable};
-  output_ = store.createTensorEmpty(outShape_, dtype_);
+  inputs_ = {x, cosTable, sinTable, runtimeParams};
+  output_ = preallocOutput ? preallocOutput
+                           : store.createTensorEmpty(outShape_, dtype_);
 }
 
 DataType RoPEOpNode::outputDtype() const {
@@ -45,8 +46,7 @@ std::vector<uint8_t> RoPEOpNode::pushConstants() const {
     uint32_t numElements;
     uint32_t headDim;
     uint32_t halfDim;
-    uint32_t pos;
-  } pc{numElements_, headDim_, halfDim_, pos_};
+  } pc{numElements_, headDim_, halfDim_};
   return toBytes(pc);
 }
 

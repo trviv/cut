@@ -10,8 +10,9 @@ public:
              const Tensor &x,
              const Tensor &cosTable,
              const Tensor &sinTable,
-             uint32_t pos,
+             const Tensor &runtimeParams,
              uint32_t headDim,
+             const Tensor &preallocOutput = {},
              std::optional<uint32_t> spec = {});
 
   DataType outputDtype() const override;
@@ -25,7 +26,6 @@ private:
   uint32_t numElements_;
   uint32_t headDim_;
   uint32_t halfDim_;
-  uint32_t pos_;
   std::vector<uint32_t> outShape_;
 };
 
