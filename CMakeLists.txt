@@ -152,6 +152,7 @@ set(LIB_SOURCES
     operators/impl/conv1d/Conv1DOp.cpp
     operators/impl/conv2d/Conv2DOp.cpp
     operators/impl/creation/CreationOp.cpp
+    operators/impl/dequant/DequantOp.cpp
     operators/impl/matmul/MatMulOp.cpp
     operators/impl/matmul/MatMulSiLUOp.cpp
     operators/impl/matmulq4/MatMulQ4Op.cpp

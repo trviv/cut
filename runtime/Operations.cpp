@@ -9,6 +9,7 @@
 #include "impl/cast/CastOp.h"
 #include "impl/conv1d/Conv1DOp.h"
 #include "impl/conv2d/Conv2DOp.h"
+#include "impl/dequant/DequantOp.h"
 #include "impl/matmul/MatMulOp.h"
 #include "impl/matmul/MatMulSiLUOp.h"
 #include "impl/matmulq4/MatMulQ4BinaryOp.h"
@@ -1062,6 +1063,15 @@ Operations::resolveAndCastInputs(const OpNode &node,
 // =========================================================================
 // Type conversion
 // =========================================================================
+
+Tensor Operations::dequantize(const Tensor &rawData,
+                              uint32_t format,
+                              uint32_t rows,
+                              uint32_t cols) {
+  auto node = std::make_unique<DequantOpNode>(
+      *store_, rawData, static_cast<DequantFormat>(format), rows, cols);
+  return recordOrEncode(std::move(node));
+}
 
 Tensor Operations::cast(const Tensor &input, DataType targetDtype) {
   if (getDtype(input) == targetDtype)

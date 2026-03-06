@@ -293,6 +293,17 @@ public:
              float value = 0.0f,
              std::optional<uint32_t> spec = {});
 
+  // ===== Dequantization =====
+
+  /// GPU dequantization: converts raw quantized bytes to Float32.
+  /// Input: 1D Int8 tensor of raw GGUF block data.
+  /// Output: 2D Float32 tensor [rows, cols].
+  /// @param format DequantFormat enum value (BF16=0, Q4_K=1, Q5_K=2, Q6_K=3).
+  Tensor dequantize(const Tensor &rawData,
+                    uint32_t format,
+                    uint32_t rows,
+                    uint32_t cols);
+
   // ===== Type conversion =====
 
   /// Casts a tensor to a different dtype via a graph-recorded CastOpNode.

@@ -2,6 +2,7 @@
 #include "OpNode.h"
 #include "Operations.h"
 #include "Runtime.h"
+#include "impl/dequant/DequantOp.h"
 #include "model_report.h"
 
 #include <algorithm>
@@ -41,7 +42,38 @@ LlamaModel::uploadWeight(const GGUFReader &reader,
     return runtime_->createTensor(shape, cut::DataType::Float16, raw.data());
   }
 
-  // All other types (F32, BF16, quantized): dequantize to Float32.
+  // GPU dequantization for 2D weight matrices in K-quant or BF16 formats.
+  // Upload raw bytes to GPU, then dequantize via compute shader.
+  if (shape.size() == 2) {
+    cut::DequantFormat fmt;
+    bool useGpuDequant = true;
+    switch (info.type) {
+    case GGMLType::BF16:
+      fmt = cut::DequantFormat::BF16;
+      break;
+    case GGMLType::Q4_K:
+      fmt = cut::DequantFormat::Q4_K;
+      break;
+    case GGMLType::Q5_K:
+      fmt = cut::DequantFormat::Q5_K;
+      break;
+    case GGMLType::Q6_K:
+      fmt = cut::DequantFormat::Q6_K;
+      break;
+    default:
+      useGpuDequant = false;
+      break;
+    }
+    if (useGpuDequant) {
+      auto raw = reader.read_tensor_raw(name);
+      auto rawTensor = runtime_->createTensor(
+          {static_cast<uint32_t>(raw.size())}, cut::DataType::Int8, raw.data());
+      return ops_->dequantize(rawTensor, static_cast<uint32_t>(fmt), shape[0],
+                              shape[1]);
+    }
+  }
+
+  // Fallback: CPU dequantize to Float32 (F32 pass-through, small tensors).
   auto data = reader.read_tensor_f32(name);
   return runtime_->createTensor(shape, cut::DataType::Float32, data.data());
 }

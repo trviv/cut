@@ -1,0 +1,42 @@
+{
+  "type": "variants",
+  "cpp_prefix": "",
+  "variants": [
+    {
+      "name": "DequantBF16",
+      "description": "BF16 to Float32 dequantization",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Int8", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "DequantQ4K",
+      "description": "Q4_K to Float32 dequantization",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Int8", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "DequantQ5K",
+      "description": "Q5_K to Float32 dequantization",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Int8", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "DequantQ6K",
+      "description": "Q6_K to Float32 dequantization",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Int8", "output": "Float32"}
+        ]
+      }
+    }
+  ]
+}

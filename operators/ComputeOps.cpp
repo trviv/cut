@@ -374,6 +374,10 @@ const char *operatorName(OperatorEnum op) {
   case FusedBinary:
     return "FusedBinary";
 
+  // Dequantization
+  case Dequantize:
+    return "Dequantize";
+
   default:
     return "Unknown";
   }
