@@ -53,6 +53,57 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
   const auto &info = reader.get_tensor_info(name);
   WeightHandle wh;
 
+  if (info.type == GGMLType::Q4_0) {
+    // Upload Q4_0 weights as separated packed nibbles + F16 scales.
+    // GGUF layout: [rows=N, cols=K]. Q4 has 2 nibbles per byte.
+    // Target: packedB [K, N/2] Int8, scalesB [K/32, N] Float16.
+    auto q4 = reader.read_tensor_q4_separated(name);
+    uint32_t N = rows, K = cols;
+    uint32_t blocksK = K / 32;
+
+    // q4.packedValues is [N, K/2] — nibbles packed along K dimension
+    // We need to:
+    //   1. Unpack to individual nibble values [N, K]
+    //   2. Transpose to [K, N]
+    //   3. Repack adjacent N values into bytes -> [K, N/2]
+
+    // Step 1: Unpack nibbles from [N, K/2] to [N, K]
+    std::vector<uint8_t> unpacked(N * K);
+    for (uint32_t n = 0; n < N; ++n) {
+      for (uint32_t k = 0; k < K / 2; ++k) {
+        uint8_t byte = q4.packedValues[n * (K / 2) + k];
+        unpacked[n * K + k * 2] = byte & 0x0Fu;
+        unpacked[n * K + k * 2 + 1] = (byte >> 4) & 0x0Fu;
+      }
+    }
+
+    // Step 2+3: Transpose [N, K] -> [K, N] and repack into [K, N/2]
+    // Pack pairs of adjacent N values into one byte: low nibble = even n,
+    // high nibble = odd n.
+    std::vector<uint8_t> tPacked(K * (N / 2));
+    for (uint32_t k = 0; k < K; ++k) {
+      for (uint32_t n = 0; n < N; n += 2) {
+        uint8_t lo = unpacked[n * K + k];
+        uint8_t hi = unpacked[(n + 1) * K + k];
+        tPacked[k * (N / 2) + n / 2] = lo | (hi << 4);
+      }
+    }
+
+    // Transpose f16 scales from [N, K/32] to [K/32, N]
+    std::vector<uint16_t> tScales(blocksK * N);
+    for (uint32_t n = 0; n < N; ++n)
+      for (uint32_t b = 0; b < blocksK; ++b)
+        tScales[b * N + n] = q4.scales[n * blocksK + b];
+
+    wh.qValues =
+        runtime_->createTensor({K, N / 2}, cut::DataType::Int8, tPacked.data());
+    wh.qScales = runtime_->createTensor({blocksK, N}, cut::DataType::Float16,
+                                        tScales.data());
+    wh.qCols = cols;
+    wh.quantType = WeightHandle::QuantType::Q4_0;
+    return wh;
+  }
+
   if (info.type == GGMLType::Q8_0) {
     // Upload Q8_0 weights as separated Int8 values + F16 scales,
     // transposed from GGUF [rows=N, cols=K] to [K, N] to match the
@@ -78,6 +129,7 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
     wh.qScales = runtime_->createTensor({blocksK, N}, cut::DataType::Float16,
                                         tScales.data());
     wh.qCols = cols;
+    wh.quantType = WeightHandle::QuantType::Q8_0;
     return wh;
   }
 
@@ -90,7 +142,12 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
 cut::Tensor LlamaModel::graphWeight(cut::graph::GraphBuilder &builder,
                                     const WeightHandle &wh,
                                     const cut::Tensor &activation) {
-  if (wh.isQuantized()) {
+  if (wh.isQ4()) {
+    auto vValues = builder.input(wh.qValues, /*isConstant=*/true);
+    auto vScales = builder.input(wh.qScales, /*isConstant=*/true);
+    return builder.ops().matmulQ4(activation, vValues, vScales);
+  }
+  if (wh.isQ8()) {
     auto vValues = builder.input(wh.qValues, /*isConstant=*/true);
     auto vScales = builder.input(wh.qScales, /*isConstant=*/true);
     return builder.ops().matmulQ8(activation, vValues, vScales, wh.qCols);

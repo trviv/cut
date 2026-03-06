@@ -40,10 +40,16 @@ struct LlamaConfig {
 /// Weight handle that supports both plain and quantized storage.
 struct WeightHandle {
   cut::ComputeHandle handle;  // plain weight (pre-transposed F16/F32)
-  cut::ComputeHandle qValues; // Int8 values (transposed) [K, N]
+  cut::ComputeHandle qValues; // Q8: Int8 [K,N] / Q4: packed nibbles [K,N/2]
   cut::ComputeHandle qScales; // F16 scales (transposed) [K/32, N]
   uint32_t qCols = 0;         // original K dimension (0 = not quantized)
-  bool isQuantized() const { return qCols > 0; }
+
+  enum class QuantType { None, Q8_0, Q4_0 };
+  QuantType quantType = QuantType::None;
+
+  bool isQuantized() const { return quantType != QuantType::None; }
+  bool isQ8() const { return quantType == QuantType::Q8_0; }
+  bool isQ4() const { return quantType == QuantType::Q4_0; }
 };
 
 /// Per-layer weight handles stored on GPU.

@@ -154,6 +154,9 @@ set(LIB_SOURCES
     operators/impl/creation/CreationOp.cpp
     operators/impl/matmul/MatMulOp.cpp
     operators/impl/matmul/MatMulSiLUOp.cpp
+    operators/impl/matmulq4/MatMulQ4Op.cpp
+    operators/impl/matmulq4/MatMulQ4SiLUOp.cpp
+    operators/impl/matmulq4/MatMulQ4BinaryOp.cpp
     operators/impl/matmulq8/MatMulQ8Op.cpp
     operators/impl/matmulq8/MatMulQ8SiLUOp.cpp
     operators/impl/matmulq8/MatMulQ8BinaryOp.cpp

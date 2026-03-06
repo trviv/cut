@@ -358,6 +358,18 @@ std::vector<float> GGUFReader::read_tensor_f32(const std::string &name) const {
     dequantize_q8_0(raw_data.data(), result.data(), n_elements);
     break;
 
+  case GGMLType::Q4_K:
+    dequantize_q4_k(raw_data.data(), result.data(), n_elements);
+    break;
+
+  case GGMLType::Q5_K:
+    dequantize_q5_k(raw_data.data(), result.data(), n_elements);
+    break;
+
+  case GGMLType::Q6_K:
+    dequantize_q6_k(raw_data.data(), result.data(), n_elements);
+    break;
+
   default:
     throw GGUFReaderError("Dequantization not implemented for type: " +
                           std::string(get_type_name(info.type)));
@@ -418,6 +430,63 @@ GGUFReader::read_tensor_q8_separated(const std::string &name) const {
     size_t block_in_row = block % blocks_per_row;
     size_t val_offset = row * cols + block_in_row * 32;
     std::memcpy(&result.values[val_offset], block_ptr + 2, 32);
+  }
+
+  return result;
+}
+
+GGUFReader::Q4SeparatedData
+GGUFReader::read_tensor_q4_separated(const std::string &name) const {
+  auto it = tensors_.find(name);
+  if (it == tensors_.end()) {
+    throw GGUFReaderError("Tensor not found: " + name);
+  }
+
+  const auto &info = it->second;
+  if (info.type != GGMLType::Q4_0) {
+    throw GGUFReaderError("Tensor is not Q4_0: " + name);
+  }
+  if (info.dimensions.size() != 2) {
+    throw GGUFReaderError("Q4 separation requires 2D tensor: " + name);
+  }
+
+  // GGML convention: dimensions[0] = innermost (cols), dimensions[1] = rows
+  uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
+  uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
+
+  if (cols % 32 != 0) {
+    throw GGUFReaderError("Q4_0 innermost dimension must be multiple of 32: " +
+                          name);
+  }
+
+  uint32_t blocks_per_row = cols / 32;
+  size_t total_blocks = static_cast<size_t>(rows) * blocks_per_row;
+
+  auto raw_data = read_tensor_raw(name);
+
+  Q4SeparatedData result;
+  result.rows = rows;
+  result.cols = cols;
+  result.packedValues.resize(static_cast<size_t>(rows) * (cols / 2));
+  result.scales.resize(total_blocks);
+
+  // Q4_0 block layout: 2 bytes (f16 scale) + 16 bytes (32 nibbles) = 18 bytes
+  constexpr size_t block_bytes = 18;
+  const uint8_t *src = raw_data.data();
+
+  for (size_t block = 0; block < total_blocks; ++block) {
+    const uint8_t *block_ptr = src + block * block_bytes;
+
+    // Extract f16 scale (first 2 bytes)
+    uint16_t scale_bits;
+    std::memcpy(&scale_bits, block_ptr, sizeof(scale_bits));
+    result.scales[block] = scale_bits;
+
+    // Extract 16 packed bytes (32 nibbles, next 16 bytes)
+    size_t row = block / blocks_per_row;
+    size_t block_in_row = block % blocks_per_row;
+    size_t val_offset = row * (cols / 2) + block_in_row * 16;
+    std::memcpy(&result.packedValues[val_offset], block_ptr + 2, 16);
   }
 
   return result;
@@ -495,6 +564,166 @@ void GGUFReader::dequantize_q4_0(const uint8_t *data,
       }
     }
     offset += 16;
+  }
+}
+
+/// Extract 6-bit sub-block scale and min from the 12-byte scales array.
+/// Q4_K packs 8 sub-block scales and 8 sub-block mins into 12 bytes:
+///   bytes 0-3:  lower 6 bits of scales for sub-blocks 0-3
+///   bytes 4-7:  lower 6 bits of mins for sub-blocks 0-3
+///   bytes 8-11: lower 4 bits of scales (lo nibble) and mins (hi nibble)
+///               for sub-blocks 4-7, with upper 2 bits from bytes 0-7.
+static void get_scale_min_k4(int j, const uint8_t *q, uint8_t &sc, uint8_t &m) {
+  if (j < 4) {
+    sc = q[j] & 63;
+    m = q[j + 4] & 63;
+  } else {
+    sc = (q[j + 4] & 0xF) | ((q[j - 4] >> 6) << 4);
+    m = (q[j + 4] >> 4) | ((q[j] >> 6) << 4);
+  }
+}
+
+void GGUFReader::dequantize_q4_k(const uint8_t *data,
+                                 float *output,
+                                 size_t n_elements) {
+  // Q4_K: 256 elements per super-block, 144 bytes per block.
+  // Layout: [d:f16][dmin:f16][scales:12 bytes][qs:128 bytes]
+  constexpr size_t block_size = 256;
+  constexpr size_t block_bytes = 144;
+  size_t n_blocks = (n_elements + block_size - 1) / block_size;
+
+  size_t out_idx = 0;
+  for (size_t i = 0; i < n_blocks && out_idx < n_elements; ++i) {
+    const uint8_t *block = data + i * block_bytes;
+
+    // Super-block scale and minimum (f16)
+    uint16_t d_bits, dmin_bits;
+    std::memcpy(&d_bits, block, 2);
+    std::memcpy(&dmin_bits, block + 2, 2);
+    float d = f16_to_f32(d_bits);
+    float dmin = f16_to_f32(dmin_bits);
+
+    const uint8_t *scales = block + 4; // 12 bytes of packed sub-block info
+    const uint8_t *qs = block + 16;    // 128 bytes of 4-bit quants
+
+    // Process 4 pairs of sub-blocks (each pair = 64 elements, 32 bytes of qs)
+    int is = 0;
+    for (int j = 0; j < 256 && out_idx < n_elements; j += 64) {
+      uint8_t sc1, m1, sc2, m2;
+      get_scale_min_k4(is, scales, sc1, m1);
+      float d1 = d * sc1;
+      float dm1 = dmin * m1;
+      get_scale_min_k4(is + 1, scales, sc2, m2);
+      float d2 = d * sc2;
+      float dm2 = dmin * m2;
+
+      // First 32 elements: lower nibble
+      for (int l = 0; l < 32 && out_idx < n_elements; ++l) {
+        output[out_idx++] = d1 * (qs[l] & 0xF) - dm1;
+      }
+      // Next 32 elements: upper nibble
+      for (int l = 0; l < 32 && out_idx < n_elements; ++l) {
+        output[out_idx++] = d2 * ((qs[l] >> 4) & 0xF) - dm2;
+      }
+      qs += 32;
+      is += 2;
+    }
+  }
+}
+
+void GGUFReader::dequantize_q5_k(const uint8_t *data,
+                                 float *output,
+                                 size_t n_elements) {
+  // Q5_K: 256 elements per super-block, 176 bytes per block.
+  // Layout: [d:f16][dmin:f16][scales:12][qh:32][qs:128]
+  constexpr size_t block_size = 256;
+  constexpr size_t block_bytes = 176;
+  size_t n_blocks = (n_elements + block_size - 1) / block_size;
+
+  size_t out_idx = 0;
+  for (size_t i = 0; i < n_blocks && out_idx < n_elements; ++i) {
+    const uint8_t *block = data + i * block_bytes;
+
+    uint16_t d_bits, dmin_bits;
+    std::memcpy(&d_bits, block, 2);
+    std::memcpy(&dmin_bits, block + 2, 2);
+    float d = f16_to_f32(d_bits);
+    float dmin = f16_to_f32(dmin_bits);
+
+    const uint8_t *scales = block + 4; // 12 bytes
+    const uint8_t *qh = block + 16;    // 32 bytes (high bits)
+    const uint8_t *ql = block + 48;    // 128 bytes (low 4 bits)
+
+    int is = 0;
+    uint8_t u1 = 1, u2 = 2;
+    for (int j = 0; j < 256 && out_idx < n_elements; j += 64) {
+      uint8_t sc1, m1, sc2, m2;
+      get_scale_min_k4(is, scales, sc1, m1);
+      float d1 = d * sc1;
+      float dm1 = dmin * m1;
+      get_scale_min_k4(is + 1, scales, sc2, m2);
+      float d2 = d * sc2;
+      float dm2 = dmin * m2;
+
+      for (int l = 0; l < 32 && out_idx < n_elements; ++l) {
+        output[out_idx++] = d1 * ((ql[l] & 0xF) + (qh[l] & u1 ? 16 : 0)) - dm1;
+      }
+      for (int l = 0; l < 32 && out_idx < n_elements; ++l) {
+        output[out_idx++] = d2 * ((ql[l] >> 4) + (qh[l] & u2 ? 16 : 0)) - dm2;
+      }
+      ql += 32;
+      u1 <<= 2;
+      u2 <<= 2;
+      is += 2;
+    }
+  }
+}
+
+void GGUFReader::dequantize_q6_k(const uint8_t *data,
+                                 float *output,
+                                 size_t n_elements) {
+  // Q6_K: 256 elements per super-block, 210 bytes per block.
+  // Layout: [ql:128][qh:64][scales:16][d:f16]
+  constexpr size_t block_size = 256;
+  constexpr size_t block_bytes = 210;
+  size_t n_blocks = (n_elements + block_size - 1) / block_size;
+
+  size_t out_idx = 0;
+  for (size_t i = 0; i < n_blocks && out_idx < n_elements; ++i) {
+    const uint8_t *block = data + i * block_bytes;
+
+    const uint8_t *ql = block;       // 128 bytes (lower 4 bits)
+    const uint8_t *qh = block + 128; // 64 bytes (upper 2 bits)
+    const int8_t *sc =
+        reinterpret_cast<const int8_t *>(block + 192); // 16 bytes
+    uint16_t d_bits;
+    std::memcpy(&d_bits, block + 208, 2);
+    float d = f16_to_f32(d_bits);
+
+    // Process 2 groups of 128 elements each
+    for (int n = 0; n < 256 && out_idx < n_elements; n += 128) {
+      for (int l = 0; l < 32 && out_idx + 96 + l <= n_elements; ++l) {
+        int is = n / 16 + l / 16;
+        int8_t q1 =
+            static_cast<int8_t>((ql[l] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
+        int8_t q2 = static_cast<int8_t>((ql[l + 32] & 0xF) |
+                                        (((qh[l] >> 2) & 3) << 4)) -
+                    32;
+        int8_t q3 =
+            static_cast<int8_t>((ql[l] >> 4) | (((qh[l] >> 4) & 3) << 4)) - 32;
+        int8_t q4 =
+            static_cast<int8_t>((ql[l + 32] >> 4) | (((qh[l] >> 6) & 3) << 4)) -
+            32;
+        output[out_idx + l] = d * sc[is + 0] * q1;
+        output[out_idx + l + 32] = d * sc[is + 2] * q2;
+        output[out_idx + l + 64] = d * sc[is + 4] * q3;
+        output[out_idx + l + 96] = d * sc[is + 6] * q4;
+      }
+      out_idx += 128;
+      ql += 64;
+      qh += 32;
+      sc += 8;
+    }
   }
 }
 

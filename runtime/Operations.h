@@ -82,6 +82,31 @@ public:
                         uint32_t bCols,
                         std::optional<uint32_t> spec = {});
 
+  /// Fused Q4_0 dequantize-matmul: C = A * dequant(packedB, scales)
+  /// packedB stores 4-bit nibbles packed 2 per byte as [K, N/2].
+  Tensor matmulQ4(const Tensor &a,
+                  const Tensor &packedB,
+                  const Tensor &scales,
+                  std::optional<uint32_t> spec = {});
+
+  /// Fused Q4_0 dequantize-matmul with SiLU: silu(A * dequant(packedB,
+  /// scales))
+  Tensor matmulQ4SiLU(const Tensor &a,
+                      const Tensor &packedB,
+                      const Tensor &scales,
+                      uint32_t bCols,
+                      std::optional<uint32_t> spec = {});
+
+  /// Fused Q4_0 dequantize-matmul with binary vec op:
+  /// binaryOp(A * dequant(packedB, scales), D)
+  Tensor matmulQ4Binary(OperatorEnum binaryOp,
+                        const Tensor &a,
+                        const Tensor &packedB,
+                        const Tensor &scales,
+                        const Tensor &d,
+                        uint32_t bCols,
+                        std::optional<uint32_t> spec = {});
+
   Tensor transpose(const Tensor &a, std::optional<uint32_t> spec = {});
 
   Tensor

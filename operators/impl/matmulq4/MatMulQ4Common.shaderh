@@ -1,0 +1,55 @@
+struct PushConstants {
+    uint M;              // rows of A / rows of output
+    uint K;              // cols of A (inner dimension)
+    uint N;              // cols of output (original, unpacked)
+    uint strideA;        // padded K for A (multiple of 4)
+    uint strideBNpacked; // padded (N/2) for packed B [K, N/2] (multiple of 4)
+    uint strideC;        // padded N for output C (multiple of 4)
+    uint scaleStride;    // padded N for scales [K/32, N] (multiple of 4)
+};
+[[vk::push_constant]] PushConstants pc;
+
+// A: activations [M, K] — standard float/half access via vec4
+[[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT1%> dataA;
+
+// B: packed 4-bit weights [K, N/2] stored as uint (8 nibbles per uint32)
+// Two nibbles per byte: lower nibble = even n, upper nibble = odd n.
+[[vk::binding(1, 0)]] StructuredBuffer<uint> packedB;
+
+// B scales: [K/32, N], one scale per 32-element block
+[[vk::binding(2, 0)]] StructuredBuffer<%VEC_DTYPE_SCALES%> scalesB;
+
+// C: output [M, N]
+[[vk::binding(3, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_OUTPUT%> dataC;
+
+%SCALAR_DTYPE_INPUT1% loadA(uint row, uint col) {
+    if (row >= pc.M || col >= pc.K) return (%SCALAR_DTYPE_INPUT1%)(0);
+    uint idx = row * pc.strideA + col;
+    return dataA[idx >> 2][idx & 3];
+}
+
+// Sequential access with inline Q4_0 dequantization.
+// B is stored as packed nibbles [K, N/2]. Each byte holds two 4-bit values:
+//   lower nibble (bits 0-3) = value for even n
+//   upper nibble (bits 4-7) = value for odd n
+// Dequantized value = (nibble - 8) * scale[k/32][n]
+float loadB(uint k, uint n) {
+    if (k >= pc.K || n >= pc.N) return 0.0f;
+
+    // Locate the byte holding this nibble in packed B [K, N/2]
+    uint halfN = n >> 1;
+    uint byteIdx = k * pc.strideBNpacked + halfN;
+    uint packed = packedB[byteIdx >> 2];
+    uint byteShift = (byteIdx & 3u) * 8u;
+    uint byte_val = (packed >> byteShift) & 0xFFu;
+
+    // Extract the correct nibble: lower for even n, upper for odd n
+    uint nibbleShift = (n & 1u) * 4u;
+    int val = int((byte_val >> nibbleShift) & 0xFu) - 8;
+
+    // Read per-block scale from scalesB[k/32][n]
+    uint scaleIdx = (k >> 5) * pc.scaleStride + n;
+    float scale = float(scalesB[scaleIdx >> 2][scaleIdx & 3]);
+
+    return float(val) * scale;
+}

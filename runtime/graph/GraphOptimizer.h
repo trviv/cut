@@ -127,6 +127,14 @@ public:
   bool run(Graph &graph, TensorStore &store) override;
 };
 
+/// Fuses MatMulQ4 → BinaryVecVec into MatMulQ4Binary (matmul with inline
+/// binary operation). Applies to element-wise add, mul, etc. after Q4 matmul.
+class MatMulQ4BinaryFusionPass : public GraphPass {
+public:
+  const char *name() const override { return "MatMulQ4BinaryFusion"; }
+  bool run(Graph &graph, TensorStore &store) override;
+};
+
 /// Fuses two consecutive binary operations into a single dispatch.
 /// Supports VecScalar→VecVec and VecVec→VecScalar patterns.
 class FusedBinaryPass : public GraphPass {

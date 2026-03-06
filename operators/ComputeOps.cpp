@@ -362,6 +362,14 @@ const char *operatorName(OperatorEnum op) {
   case MatMulQ8Binary:
     return "MatMulQ8Binary";
 
+  // Quantized Q4 matmul
+  case MatMulQ4:
+    return "MatMulQ4";
+  case MatMulQ4SiLU:
+    return "MatMulQ4SiLU";
+  case MatMulQ4Binary:
+    return "MatMulQ4Binary";
+
   // Fused binary
   case FusedBinary:
     return "FusedBinary";

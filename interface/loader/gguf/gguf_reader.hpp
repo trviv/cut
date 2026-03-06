@@ -62,6 +62,17 @@ public:
   // Read Q8_0 tensor and separate into int8 values and f16 scales
   Q8SeparatedData read_tensor_q8_separated(const std::string &name) const;
 
+  // Q4_0 separated data: packed nibbles and f16 scales stored separately
+  struct Q4SeparatedData {
+    std::vector<uint8_t> packedValues; // packed nibbles [rows * (cols/2)]
+    std::vector<uint16_t> scales;      // raw f16 scale bits [rows * (cols/32)]
+    uint32_t rows;
+    uint32_t cols;
+  };
+
+  // Read Q4_0 tensor and separate into packed nibbles and f16 scales
+  Q4SeparatedData read_tensor_q4_separated(const std::string &name) const;
+
   // Get tensor names
   std::vector<std::string> get_tensor_names() const;
 
@@ -96,6 +107,12 @@ private:
   // Dequantization helpers
   static void
   dequantize_q4_0(const uint8_t *data, float *output, size_t n_elements);
+  static void
+  dequantize_q4_k(const uint8_t *data, float *output, size_t n_elements);
+  static void
+  dequantize_q5_k(const uint8_t *data, float *output, size_t n_elements);
+  static void
+  dequantize_q6_k(const uint8_t *data, float *output, size_t n_elements);
   static void
   dequantize_q8_0(const uint8_t *data, float *output, size_t n_elements);
   static void
