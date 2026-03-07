@@ -164,15 +164,10 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
 cut::Tensor LlamaModel::graphWeight(cut::graph::GraphBuilder &builder,
                                     const WeightHandle &wh,
                                     const cut::Tensor &activation) {
-  if (wh.isQ4()) {
+  if (wh.isQuantized()) {
     auto vValues = builder.input(wh.qValues, /*isConstant=*/true);
     auto vScales = builder.input(wh.qScales, /*isConstant=*/true);
-    return builder.ops().matmulQ4(activation, vValues, vScales);
-  }
-  if (wh.isQ8()) {
-    auto vValues = builder.input(wh.qValues, /*isConstant=*/true);
-    auto vScales = builder.input(wh.qScales, /*isConstant=*/true);
-    return builder.ops().matmulQ8(activation, vValues, vScales, wh.qCols);
+    return builder.ops().matmul(activation, vValues, vScales);
   }
   auto vW = builder.input(wh.handle, /*isConstant=*/true);
   return builder.ops().matmul(activation, vW);

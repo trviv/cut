@@ -47,65 +47,35 @@ public:
 
   // ===== Matrix ops =====
 
+  /// Standard matmul: C = A * B
   Tensor
   matmul(const Tensor &a, const Tensor &b, std::optional<uint32_t> spec = {});
 
-  /// Fused Q8_0 dequantize-matmul: C = A * dequant(packedB, scales)^T
-  Tensor matmulQ8(const Tensor &a,
-                  const Tensor &packedB,
-                  const Tensor &scales,
-                  uint32_t bCols,
-                  std::optional<uint32_t> spec = {});
+  /// Quantized matmul: C = A * dequant(packedB, scales)
+  /// Auto-detects Q4 vs Q8 from input shapes.
+  Tensor matmul(const Tensor &a,
+                const Tensor &packedB,
+                const Tensor &scales,
+                std::optional<uint32_t> spec = {});
 
-  /// Fused matrix multiplication with SiLU activation: silu(A * B)
-  /// where silu(x) = x / (1 + exp(-x))
-  /// Saves GPU dispatch overhead vs separate matmul + silu operations.
+  /// Standard matmul with SiLU activation: silu(A * B)
   Tensor matmulSiLU(const Tensor &a,
                     const Tensor &b,
                     std::optional<uint32_t> spec = {});
 
-  /// Fused Q8_0 dequantize-matmul with SiLU: silu(A * dequant(packedB,
-  /// scales)^T)
-  Tensor matmulQ8SiLU(const Tensor &a,
+  /// Quantized matmul with SiLU: silu(A * dequant(packedB, scales))
+  Tensor matmulSiLU(const Tensor &a,
+                    const Tensor &packedB,
+                    const Tensor &scales,
+                    std::optional<uint32_t> spec = {});
+
+  /// Quantized matmul with binary op: binaryOp(A * dequant(packedB, scales), D)
+  Tensor matmulBinary(OperatorEnum binaryOp,
+                      const Tensor &a,
                       const Tensor &packedB,
                       const Tensor &scales,
-                      uint32_t bCols,
+                      const Tensor &d,
                       std::optional<uint32_t> spec = {});
-
-  /// Fused Q8_0 dequantize-matmul with binary vec op:
-  /// binaryOp(A * dequant(packedB, scales)^T, D)
-  Tensor matmulQ8Binary(OperatorEnum binaryOp,
-                        const Tensor &a,
-                        const Tensor &packedB,
-                        const Tensor &scales,
-                        const Tensor &d,
-                        uint32_t bCols,
-                        std::optional<uint32_t> spec = {});
-
-  /// Fused Q4_0 dequantize-matmul: C = A * dequant(packedB, scales)
-  /// packedB stores 4-bit nibbles packed 2 per byte as [K, N/2].
-  Tensor matmulQ4(const Tensor &a,
-                  const Tensor &packedB,
-                  const Tensor &scales,
-                  std::optional<uint32_t> spec = {});
-
-  /// Fused Q4_0 dequantize-matmul with SiLU: silu(A * dequant(packedB,
-  /// scales))
-  Tensor matmulQ4SiLU(const Tensor &a,
-                      const Tensor &packedB,
-                      const Tensor &scales,
-                      uint32_t bCols,
-                      std::optional<uint32_t> spec = {});
-
-  /// Fused Q4_0 dequantize-matmul with binary vec op:
-  /// binaryOp(A * dequant(packedB, scales), D)
-  Tensor matmulQ4Binary(OperatorEnum binaryOp,
-                        const Tensor &a,
-                        const Tensor &packedB,
-                        const Tensor &scales,
-                        const Tensor &d,
-                        uint32_t bCols,
-                        std::optional<uint32_t> spec = {});
 
   Tensor transpose(const Tensor &a, std::optional<uint32_t> spec = {});
 

@@ -1,30 +1,30 @@
 #pragma once
 
 #include "OpNode.h"
+#include "impl/matmul/MatMulOp.h"
 
 namespace cut {
 
-/// Fused dequantize-matmul with SiLU activation for Q8_0 quantized weights.
+/// Fused dequantize-matmul with binary vector operation.
 ///
-/// Computes silu(A * dequant(B)):
-///   C[m][n] = silu( sum_k( A[m][k] * int8_B[k][n] * scale[k/32][n] ) )
-/// where silu(x) = x / (1 + exp(-x))
+/// Computes binaryOp(A * dequant(B), D).
+/// Supports Q8 and Q4 quantization formats (auto-detected from shapes).
 ///
 /// Inputs:
 ///   0: A          — Float32 activations [M, K]
-///   1: packedB    — Int8 quantized values [K, N] (transposed at load time)
+///   1: packedB    — Int8 quantized/packed values
 ///   2: scalesB    — Float16 per-block scales [ceil(K/32), N]
+///   3: D          — Float32 binary operand [M, N]
 /// Output:
 ///   Float32 [M, N]
-///
-/// Used in FFN gate projections where MatMulQ8 is followed by SiLU activation.
-class MatMulQ8SiLUOpNode : public OpNode {
+class MatMulBinaryOpNode : public OpNode {
 public:
-  MatMulQ8SiLUOpNode(TensorStore &store,
+  MatMulBinaryOpNode(TensorStore &store,
+                     OperatorEnum binaryOp,
                      const Tensor &a,
                      const Tensor &packedB,
                      const Tensor &scalesB,
-                     uint32_t bCols,
+                     const Tensor &d,
                      std::optional<uint32_t> spec = {});
 
   DataType outputDtype() const override;
@@ -38,6 +38,8 @@ public:
   resolveInputDtypes(const std::vector<DataType> &inputDtypes) const override;
 
 private:
+  QuantFormat format_;
+  OperatorEnum binaryOp_;
   DataType dtypeA_;
   DataType dtypeScales_;
   uint32_t M_, K_, N_;

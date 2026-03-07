@@ -308,7 +308,7 @@ static void benchmarkMatMulQ8(Runtime &runtime, int warmup, int iterations) {
                                              hostB.data());
             auto bufS = runtime.createTensor({blocksK, tc.N}, DataType::Float16,
                                              hostScales.data());
-            runtime.ops().matmulQ8(bufA, bufB, bufS, tc.K, vi);
+            runtime.ops().matmul(bufA, bufB, bufS, vi);
             runtime.flush();
           },
           warmup, iterations);

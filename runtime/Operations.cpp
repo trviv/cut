@@ -10,14 +10,9 @@
 #include "impl/conv1d/Conv1DOp.h"
 #include "impl/conv2d/Conv2DOp.h"
 #include "impl/dequant/DequantOp.h"
+#include "impl/matmul/MatMulBinaryOp.h"
 #include "impl/matmul/MatMulOp.h"
 #include "impl/matmul/MatMulSiLUOp.h"
-#include "impl/matmulq4/MatMulQ4BinaryOp.h"
-#include "impl/matmulq4/MatMulQ4Op.h"
-#include "impl/matmulq4/MatMulQ4SiLUOp.h"
-#include "impl/matmulq8/MatMulQ8BinaryOp.h"
-#include "impl/matmulq8/MatMulQ8Op.h"
-#include "impl/matmulq8/MatMulQ8SiLUOp.h"
 #include "impl/maxpool2d/MaxPool2DOp.h"
 #include "impl/memory/MemoryOp.h"
 #include "impl/reduce/ReduceOp.h"
@@ -210,17 +205,15 @@ Tensor Operations::matmul(const Tensor &a,
   return recordOrEncode(std::move(node));
 }
 
-Tensor Operations::matmulQ8(const Tensor &a,
-                            const Tensor &packedB,
-                            const Tensor &scales,
-                            uint32_t bCols,
-                            std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulQ8OpNode>(*store_, a, packedB, scales,
-                                               bCols, spec);
+Tensor Operations::matmul(const Tensor &a,
+                          const Tensor &packedB,
+                          const Tensor &scales,
+                          std::optional<uint32_t> spec) {
+  auto node = std::make_unique<MatMulOpNode>(*store_, a, packedB, scales, spec);
   auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
   if (inputs[0] != a)
-    node = std::make_unique<MatMulQ8OpNode>(*store_, inputs[0], packedB, scales,
-                                            bCols, spec);
+    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], packedB, scales,
+                                          spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -235,76 +228,31 @@ Tensor Operations::matmulSiLU(const Tensor &a,
   return recordOrEncode(std::move(node));
 }
 
-Tensor Operations::matmulQ8SiLU(const Tensor &a,
-                                const Tensor &packedB,
-                                const Tensor &scales,
-                                uint32_t bCols,
-                                std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulQ8SiLUOpNode>(*store_, a, packedB, scales,
-                                                   bCols, spec);
-  auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
-  if (inputs[0] != a)
-    node = std::make_unique<MatMulQ8SiLUOpNode>(*store_, inputs[0], packedB,
-                                                scales, bCols, spec);
-  return recordOrEncode(std::move(node));
-}
-
-Tensor Operations::matmulQ8Binary(OperatorEnum binaryOp,
-                                  const Tensor &a,
-                                  const Tensor &packedB,
-                                  const Tensor &scales,
-                                  const Tensor &d,
-                                  uint32_t bCols,
-                                  std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulQ8BinaryOpNode>(
-      *store_, binaryOp, a, packedB, scales, d, bCols, spec);
-  auto inputs = resolveAndCastInputs(*node, {a, packedB, scales, d});
-  if (inputs[0] != a || inputs[3] != d)
-    node = std::make_unique<MatMulQ8BinaryOpNode>(
-        *store_, binaryOp, inputs[0], packedB, scales, inputs[3], bCols, spec);
-  return recordOrEncode(std::move(node));
-}
-
-Tensor Operations::matmulQ4(const Tensor &a,
-                            const Tensor &packedB,
-                            const Tensor &scales,
-                            std::optional<uint32_t> spec) {
+Tensor Operations::matmulSiLU(const Tensor &a,
+                              const Tensor &packedB,
+                              const Tensor &scales,
+                              std::optional<uint32_t> spec) {
   auto node =
-      std::make_unique<MatMulQ4OpNode>(*store_, a, packedB, scales, spec);
+      std::make_unique<MatMulSiLUOpNode>(*store_, a, packedB, scales, spec);
   auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
   if (inputs[0] != a)
-    node = std::make_unique<MatMulQ4OpNode>(*store_, inputs[0], packedB, scales,
-                                            spec);
+    node = std::make_unique<MatMulSiLUOpNode>(*store_, inputs[0], packedB,
+                                              scales, spec);
   return recordOrEncode(std::move(node));
 }
 
-Tensor Operations::matmulQ4SiLU(const Tensor &a,
+Tensor Operations::matmulBinary(OperatorEnum binaryOp,
+                                const Tensor &a,
                                 const Tensor &packedB,
                                 const Tensor &scales,
-                                uint32_t bCols,
+                                const Tensor &d,
                                 std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulQ4SiLUOpNode>(*store_, a, packedB, scales,
-                                                   bCols, spec);
-  auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
-  if (inputs[0] != a)
-    node = std::make_unique<MatMulQ4SiLUOpNode>(*store_, inputs[0], packedB,
-                                                scales, bCols, spec);
-  return recordOrEncode(std::move(node));
-}
-
-Tensor Operations::matmulQ4Binary(OperatorEnum binaryOp,
-                                  const Tensor &a,
-                                  const Tensor &packedB,
-                                  const Tensor &scales,
-                                  const Tensor &d,
-                                  uint32_t bCols,
-                                  std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulQ4BinaryOpNode>(
-      *store_, binaryOp, a, packedB, scales, d, bCols, spec);
+  auto node = std::make_unique<MatMulBinaryOpNode>(*store_, binaryOp, a,
+                                                   packedB, scales, d, spec);
   auto inputs = resolveAndCastInputs(*node, {a, packedB, scales, d});
   if (inputs[0] != a || inputs[3] != d)
-    node = std::make_unique<MatMulQ4BinaryOpNode>(
-        *store_, binaryOp, inputs[0], packedB, scales, inputs[3], bCols, spec);
+    node = std::make_unique<MatMulBinaryOpNode>(
+        *store_, binaryOp, inputs[0], packedB, scales, inputs[3], spec);
   return recordOrEncode(std::move(node));
 }
 

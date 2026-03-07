@@ -3,11 +3,8 @@
 #include "OpNode.h"
 #include "impl/binary/BinaryOp.h"
 #include "impl/binary/FusedBinaryOp.h"
+#include "impl/matmul/MatMulBinaryOp.h"
 #include "impl/matmul/MatMulSiLUOp.h"
-#include "impl/matmulq4/MatMulQ4BinaryOp.h"
-#include "impl/matmulq4/MatMulQ4SiLUOp.h"
-#include "impl/matmulq8/MatMulQ8BinaryOp.h"
-#include "impl/matmulq8/MatMulQ8SiLUOp.h"
 #include "impl/rmsnorm/ExtendedRMSNormOp.h"
 #include "impl/rmsnorm/RMSNormOp.h"
 
@@ -414,7 +411,7 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
       uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId});
       graph.replaceAllUses(i, fusedId);
     } else {
-      // MatMulQ8/Q4 → UnarySilu: fuse into MatMulQ8SiLU/Q4SiLU (3 inputs)
+      // MatMulQ8/Q4 → UnarySilu: fuse into MatMulSiLU (3 inputs, auto-detect)
       if (matmulNode.inputIds.size() != 3)
         continue;
       uint32_t aId = matmulNode.inputIds[0];
@@ -432,21 +429,10 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
         skipReason[4]++;
         continue;
       }
-      auto mmOutShape = matmulNode.op->outputShape();
-      uint32_t bCols = mmOutShape.size() >= 2 ? mmOutShape[1] : mmOutShape[0];
-      if (isMatMulQ8) {
-        auto fusedNode = std::make_unique<MatMulQ8SiLUOpNode>(
-            store, aNode.op->output(), bNode.op->output(), sNode.op->output(),
-            bCols);
-        uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId, sId});
-        graph.replaceAllUses(i, fusedId);
-      } else {
-        auto fusedNode = std::make_unique<MatMulQ4SiLUOpNode>(
-            store, aNode.op->output(), bNode.op->output(), sNode.op->output(),
-            bCols);
-        uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId, sId});
-        graph.replaceAllUses(i, fusedId);
-      }
+      auto fusedNode = std::make_unique<MatMulSiLUOpNode>(
+          store, aNode.op->output(), bNode.op->output(), sNode.op->output());
+      uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId, sId});
+      graph.replaceAllUses(i, fusedId);
     }
     matmulSiluCount++;
     changed = true;
@@ -563,11 +549,9 @@ bool MatMulQ8BinaryFusionPass::run(Graph &graph, TensorStore &store) {
       continue;
     }
 
-    uint32_t bCols = mmOutShape.size() >= 2 ? mmOutShape[1] : mmOutShape[0];
-
-    auto fusedNode = std::make_unique<MatMulQ8BinaryOpNode>(
+    auto fusedNode = std::make_unique<MatMulBinaryOpNode>(
         store, binOp, aNode.op->output(), bNode.op->output(),
-        sNode.op->output(), dNode.op->output(), bCols);
+        sNode.op->output(), dNode.op->output());
     uint32_t fusedId =
         graph.addNode(std::move(fusedNode), {aId, bId, sId, dId});
     graph.replaceAllUses(i, fusedId);
@@ -674,11 +658,9 @@ bool MatMulQ4BinaryFusionPass::run(Graph &graph, TensorStore &store) {
       continue;
     }
 
-    uint32_t bCols = mmOutShape.size() >= 2 ? mmOutShape[1] : mmOutShape[0];
-
-    auto fusedNode = std::make_unique<MatMulQ4BinaryOpNode>(
+    auto fusedNode = std::make_unique<MatMulBinaryOpNode>(
         store, binOp, aNode.op->output(), bNode.op->output(),
-        sNode.op->output(), dNode.op->output(), bCols);
+        sNode.op->output(), dNode.op->output());
     uint32_t fusedId =
         graph.addNode(std::move(fusedNode), {aId, bId, sId, dId});
     graph.replaceAllUses(i, fusedId);

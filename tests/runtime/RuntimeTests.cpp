@@ -4398,7 +4398,7 @@ TEST_F(MatrixOpsTest, MatMulQ8_Simple) {
   auto bufS =
       runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
 
-  auto bufC = runtime_->ops().matmulQ8(bufA, bufB, bufS, K);
+  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
 
   std::vector<float> output(M * N);
   runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
@@ -4435,7 +4435,7 @@ TEST_F(MatrixOpsTest, MatMulQ8_WithScales) {
   auto bufS =
       runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
 
-  auto bufC = runtime_->ops().matmulQ8(bufA, bufB, bufS, K);
+  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
 
   std::vector<float> output(M * N);
   runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
@@ -4477,7 +4477,7 @@ TEST_F(MatrixOpsTest, MatMulQ8_VsRegularMatMul) {
   auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
   auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16,
                                      scaleF16.data());
-  auto bufC = runtime_->ops().matmulQ8(bufA, bufB, bufS, K);
+  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
 
   std::vector<float> gpuOutput(M * N);
   runtime_->copyFromTensor(bufC, gpuOutput.data(), M * N * sizeof(float));
@@ -4539,7 +4539,7 @@ TEST_F(MatrixOpsTest, MatMulQ4_Simple) {
   auto bufS =
       runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
 
-  auto bufC = runtime_->ops().matmulQ4(bufA, bufB, bufS);
+  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
 
   std::vector<float> output(M * N);
   runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
@@ -4579,7 +4579,7 @@ TEST_F(MatrixOpsTest, MatMulQ4_WithScales) {
   auto bufS =
       runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
 
-  auto bufC = runtime_->ops().matmulQ4(bufA, bufB, bufS);
+  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
 
   std::vector<float> output(M * N);
   runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
@@ -4630,7 +4630,7 @@ TEST_F(MatrixOpsTest, MatMulQ4_VsReference) {
       runtime_->createTensor({K, N / 2}, DataType::Int8, packedB.data());
   auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16,
                                      scaleF16.data());
-  auto bufC = runtime_->ops().matmulQ4(bufA, bufB, bufS);
+  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
 
   std::vector<float> gpuOutput(M * N);
   runtime_->copyFromTensor(bufC, gpuOutput.data(), M * N * sizeof(float));

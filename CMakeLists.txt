@@ -155,12 +155,7 @@ set(LIB_SOURCES
     operators/impl/dequant/DequantOp.cpp
     operators/impl/matmul/MatMulOp.cpp
     operators/impl/matmul/MatMulSiLUOp.cpp
-    operators/impl/matmulq4/MatMulQ4Op.cpp
-    operators/impl/matmulq4/MatMulQ4SiLUOp.cpp
-    operators/impl/matmulq4/MatMulQ4BinaryOp.cpp
-    operators/impl/matmulq8/MatMulQ8Op.cpp
-    operators/impl/matmulq8/MatMulQ8SiLUOp.cpp
-    operators/impl/matmulq8/MatMulQ8BinaryOp.cpp
+    operators/impl/matmul/MatMulBinaryOp.cpp
     operators/impl/maxpool2d/MaxPool2DOp.cpp
     operators/impl/rope/RoPEOp.cpp
     operators/impl/attention/AttentionOp.cpp
