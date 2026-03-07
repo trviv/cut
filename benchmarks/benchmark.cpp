@@ -300,6 +300,12 @@ static void benchmarkMatMulQ8(Runtime &runtime, int warmup, int iterations) {
     printSingleHeader();
 
     for (int vi = 0; vi < kMatMulQ8VariantCount; ++vi) {
+      // Skip fused-activation and binary variants — they need extra inputs
+      std::string vname(kMatMulQ8Variants[vi].name);
+      if (vname.find("SiLU") != std::string::npos ||
+          vname.find("Binary") != std::string::npos)
+        continue;
+
       auto r = time_op(
           [&]() {
             auto bufA = runtime.createTensor({tc.M, tc.K}, DataType::Float32,
@@ -887,30 +893,23 @@ static void benchmarkRMSNorm(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nRMSNorm Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
 
-  struct TestCase {
-    uint32_t batch, features;
-    std::string name;
-  };
-  std::vector<TestCase> cases = {
-      {1, 576, "1x576"},     {1, 2048, "1x2048"},   {32, 768, "32x768"},
-      {32, 2048, "32x2048"}, {128, 768, "128x768"},
-  };
+  std::vector<uint32_t> sizes = {576, 768, 2048, 4096};
 
-  for (const auto &tc : cases) {
-    std::cout << "\n=== RMSNorm " << tc.name << " ===" << std::endl;
-    auto hostIn = randomFloats(tc.batch * tc.features, 42);
-    auto hostW = randomPositiveFloats(tc.features, 123);
-    auto hostDelta = randomFloats(tc.batch * tc.features, 456);
+  for (auto dim : sizes) {
+    std::cout << "\n=== RMSNorm dim=" << dim << " ===" << std::endl;
+    auto hostIn = randomFloats(dim, 42);
+    auto hostW = randomPositiveFloats(dim, 123);
+    auto hostDelta = randomFloats(dim, 456);
 
     printSingleHeader();
 
     // RMSNorm variant
     auto rRms = time_op(
         [&]() {
-          auto bufIn = runtime.createTensor({tc.batch, tc.features},
-                                            DataType::Float32, hostIn.data());
-          auto bufW = runtime.createTensor({tc.features}, DataType::Float32,
-                                           hostW.data());
+          auto bufIn =
+              runtime.createTensor({dim}, DataType::Float32, hostIn.data());
+          auto bufW =
+              runtime.createTensor({dim}, DataType::Float32, hostW.data());
           runtime.ops().rmsNorm(bufIn, bufW);
           runtime.flush();
         },
@@ -920,12 +919,12 @@ static void benchmarkRMSNorm(Runtime &runtime, int warmup, int iterations) {
     // ExtendedRMSNorm variant (residual + RMSNorm)
     auto rExt = time_op(
         [&]() {
-          auto bufIn = runtime.createTensor({tc.batch, tc.features},
-                                            DataType::Float32, hostIn.data());
-          auto bufDelta = runtime.createTensor(
-              {tc.batch, tc.features}, DataType::Float32, hostDelta.data());
-          auto bufW = runtime.createTensor({tc.features}, DataType::Float32,
-                                           hostW.data());
+          auto bufIn =
+              runtime.createTensor({dim}, DataType::Float32, hostIn.data());
+          auto bufDelta =
+              runtime.createTensor({dim}, DataType::Float32, hostDelta.data());
+          auto bufW =
+              runtime.createTensor({dim}, DataType::Float32, hostW.data());
           runtime.ops().extendedRmsNorm(bufIn, bufDelta, bufW);
           runtime.flush();
         },
