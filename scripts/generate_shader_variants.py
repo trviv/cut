@@ -11,11 +11,24 @@ Scans subdirectories of --impl-dir for shaders.json files and produces:
 4. generated_shaders.cmake manifest for the build system
 
 JSON format (unified for all shader groups):
+
+Single-group format:
 {
   "type": "variants",
   "cpp_prefix": "MatMul",           // prepended to variant name for full name
   "default_variant": "T16R4x4",     // optional, suffix form
-  "variants": [
+  "variants": [...]
+}
+
+Multi-group format (multiple groups in one directory):
+{
+  "groups": [
+    { "cpp_prefix": "MatMul", "default_variant": "T8R4x4", "variants": [...] },
+    { "cpp_prefix": "MatMulQ4", "default_variant": "T16R4x4", "variants": [...] }
+  ]
+}
+
+Variant entry:
     {
       "name": "Naive",              // suffix after cpp_prefix (can be "")
       "description": "...",
@@ -30,8 +43,6 @@ JSON format (unified for all shader groups):
       "wg": [16, 16],              // optional: workgroup size
       "eff_tile": [16, 16]         // optional: effective tile size
     }
-  ]
-}
 """
 
 import argparse
@@ -534,24 +545,32 @@ def main():
             continue
 
         with open(config_path, "r") as f:
-            config = json.load(f)
+            raw = json.load(f)
 
-        group_name = entry
-
-        print(f"Processing group: {group_name}")
-
-        # Generate dtype-preprocessed shader files
-        generated = generate_shader_files(config, group_dir, output_dir,
-                                                 impl_dir)
-        all_generated.extend(generated)
-
-        # Generate appropriate header
-        if has_dispatch_metadata(config):
-            generate_variant_header(config, group_dir, group_name)
+        # Support multi-group format: {"groups": [{...}, {...}]}
+        if "groups" in raw:
+            configs = raw["groups"]
         else:
-            generate_simple_header(config, group_dir, group_name)
+            configs = [raw]
 
-        processed += 1
+        for config in configs:
+            cpp_prefix = config.get("cpp_prefix", "")
+            group_name = cpp_prefix.lower() if cpp_prefix else entry
+
+            print(f"Processing group: {group_name}")
+
+            # Generate dtype-preprocessed shader files
+            generated = generate_shader_files(config, group_dir, output_dir,
+                                                     impl_dir)
+            all_generated.extend(generated)
+
+            # Generate appropriate header
+            if has_dispatch_metadata(config):
+                generate_variant_header(config, group_dir, group_name)
+            else:
+                generate_simple_header(config, group_dir, group_name)
+
+            processed += 1
 
     # Write CMake manifest
     generate_cmake_manifest(all_generated, output_dir)

@@ -1,9 +1,9 @@
 #pragma once
 
 #include "OpNode.h"
+#include "impl/matmul/MatMulQ4Variants.generated.h"
+#include "impl/matmul/MatMulQ8Variants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
-#include "impl/matmulq4/MatMulQ4Variants.generated.h"
-#include "impl/matmulq8/MatMulQ8Variants.generated.h"
 
 namespace cut {
 

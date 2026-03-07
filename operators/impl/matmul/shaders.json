@@ -1,550 +1,533 @@
 {
-  "type": "variants",
-  "cpp_prefix": "MatMul",
-  "default_variant": "T8R4x4",
-  "variants": [
+  "groups": [
     {
-      "name": "Naive",
-      "template": "MatMulNaive",
-      "defines": {},
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        16,
-        16
-      ],
-      "description": "Naive (no tiling)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
+      "type": "variants",
+      "cpp_prefix": "MatMul",
+      "default_variant": "T8R4x4",
+      "variants": [
+        {
+          "name": "Naive",
+          "template": "MatMulNaive",
+          "defines": {},
+          "wg": [16, 16],
+          "eff_tile": [16, 16],
+          "description": "Naive (no tiling)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "",
+          "template": "MatMulBasicTiled",
+          "defines": {},
+          "wg": [16, 16],
+          "eff_tile": [16, 16],
+          "description": "SharedMem 16x16",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "RegTiled",
+          "template": "MatMulRegTiled",
+          "defines": {},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "RegTiled 4x4",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "Tiled2x2",
+          "template": "MatMulTiledReg",
+          "defines": {"TILE_SIZE": 16, "TM": 2, "TN": 2},
+          "wg": [16, 16],
+          "eff_tile": [32, 32],
+          "description": "T16 R2x2 (4KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "T8R2x2",
+          "template": "MatMulTiledReg",
+          "defines": {"TILE_SIZE": 8, "TM": 2, "TN": 2},
+          "wg": [8, 8],
+          "eff_tile": [16, 16],
+          "description": "T8 R2x2 (1KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "T8R4x4",
+          "template": "MatMulTiledReg",
+          "defines": {"TILE_SIZE": 8, "TM": 4, "TN": 4},
+          "wg": [8, 8],
+          "eff_tile": [32, 32],
+          "description": "T8 R4x4 (2KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "T16R4x4",
+          "template": "MatMulTiledReg",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "T16 R4x4 (8KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float32", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"},
+              {"input1": "Float16", "input2": "Int8", "output": "Float16"},
+              {"input1": "Float32", "input2": "Int8", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "T16R8x8",
+          "template": "MatMulTiledReg",
+          "defines": {"TILE_SIZE": 16, "TM": 8, "TN": 8},
+          "wg": [16, 16],
+          "eff_tile": [128, 128],
+          "description": "T16 R8x8 (16KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "T32R2x2",
+          "template": "MatMulTiledReg",
+          "defines": {"TILE_SIZE": 32, "TM": 2, "TN": 2},
+          "wg": [32, 32],
+          "eff_tile": [64, 64],
+          "description": "T32 R2x2 (16KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "T16R2x8",
+          "template": "MatMulTiledReg",
+          "defines": {"TILE_SIZE": 16, "TM": 2, "TN": 8},
+          "wg": [16, 16],
+          "eff_tile": [32, 128],
+          "description": "T16 R2x8 (10KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "T16R1x16",
+          "template": "MatMulTiledReg",
+          "defines": {"TILE_SIZE": 16, "TM": 1, "TN": 16},
+          "wg": [16, 16],
+          "eff_tile": [16, 256],
+          "description": "T16 R1x16 (17KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "SimdR4x4",
+          "template": "MatMulSimdWave",
+          "defines": {"WR": 8, "WC": 4, "TM": 4, "TN": 4},
+          "wg": [32, 1],
+          "eff_tile": [32, 16],
+          "description": "SIMD R4x4 (32x16)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "SimdR4x8",
+          "template": "MatMulSimdWave",
+          "defines": {"WR": 8, "WC": 4, "TM": 4, "TN": 8},
+          "wg": [32, 1],
+          "eff_tile": [32, 32],
+          "description": "SIMD R4x8 (32x32)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "SimdR8x8",
+          "template": "MatMulSimdWave",
+          "defines": {"WR": 8, "WC": 4, "TM": 8, "TN": 8},
+          "wg": [32, 1],
+          "eff_tile": [64, 32],
+          "description": "SIMD R8x8 (64x32)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "VecT16R4x4",
+          "template": "MatMulTiledRegVec",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Vec4 T16 R4x4 (8KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "VecBRegT16R4x4",
+          "template": "MatMulTiledRegVecBReg",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Vec4+BReg T16 R4x4 (8KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "BRegT16R4x4",
+          "template": "MatMulTiledRegBReg",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "BReg T16 R4x4 (8KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "DblBufT16R4x4",
+          "template": "MatMulTiledRegDblBuf",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "DblBuf T16 R4x4 (16KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "SiLUT16R4x4",
+          "template": "MatMulSiLU",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "SiLU T16 R4x4 (8KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "LinearT16R4x4",
+          "template": "MatMulTiledRegLinear",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [256, 1],
+          "eff_tile": [64, 64],
+          "description": "Linear T16 R4x4 (8KB)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"},
+              {"input1": "Int32", "input2": "Int32", "output": "Int32"},
+              {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "Gemv",
+          "template": "MatMulGemv",
+          "defines": {},
+          "wg": [256, 1],
+          "eff_tile": [1, 256],
+          "description": "GEMV (M=1 vector)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"}
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "",
-      "template": "MatMulBasicTiled",
-      "defines": {},
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        16,
-        16
-      ],
-      "description": "SharedMem 16x16",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
+      "type": "variants",
+      "cpp_prefix": "MatMulQ4",
+      "default_variant": "T16R4x4",
+      "variants": [
+        {
+          "name": "T16R4x4",
+          "template": "MatMulQ4TiledReg",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Q4 T16 R4x4",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "SiLUT16R4x4",
+          "template": "MatMulQ4SiLU",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Q4 SiLU T16 R4x4",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "Gemv",
+          "template": "MatMulQ4Gemv",
+          "defines": {},
+          "wg": [256, 1],
+          "eff_tile": [1, 256],
+          "description": "Q4 GEMV (M=1 vector)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "GemvSiLU",
+          "template": "MatMulQ4GemvSiLU",
+          "defines": {},
+          "wg": [256, 1],
+          "eff_tile": [1, 256],
+          "description": "Q4 GEMV+SiLU (M=1 vector)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "BinaryT16R4x4",
+          "template": "MatMulQ4BinaryTiledReg",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Q4 Binary T16 R4x4",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "BinaryGemv",
+          "template": "MatMulQ4BinaryGemv",
+          "defines": {},
+          "wg": [256, 1],
+          "eff_tile": [1, 256],
+          "description": "Q4 Binary GEMV",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "RegTiled",
-      "template": "MatMulRegTiled",
-      "defines": {},
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        64,
-        64
-      ],
-      "description": "RegTiled 4x4",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "Tiled2x2",
-      "template": "MatMulTiledReg",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 2,
-        "TN": 2
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        32,
-        32
-      ],
-      "description": "T16 R2x2 (4KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "T8R2x2",
-      "template": "MatMulTiledReg",
-      "defines": {
-        "TILE_SIZE": 8,
-        "TM": 2,
-        "TN": 2
-      },
-      "wg": [
-        8,
-        8
-      ],
-      "eff_tile": [
-        16,
-        16
-      ],
-      "description": "T8 R2x2 (1KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "T8R4x4",
-      "template": "MatMulTiledReg",
-      "defines": {
-        "TILE_SIZE": 8,
-        "TM": 4,
-        "TN": 4
-      },
-      "wg": [
-        8,
-        8
-      ],
-      "eff_tile": [
-        32,
-        32
-      ],
-      "description": "T8 R4x4 (2KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "T16R4x4",
-      "template": "MatMulTiledReg",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 4,
-        "TN": 4
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        64,
-        64
-      ],
-      "description": "T16 R4x4 (8KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float32", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"},
-          {"input1": "Float16", "input2": "Int8", "output": "Float16"},
-          {"input1": "Float32", "input2": "Int8", "output": "Float32"}
-        ]
-      }
-    },
-    {
-      "name": "T16R8x8",
-      "template": "MatMulTiledReg",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 8,
-        "TN": 8
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        128,
-        128
-      ],
-      "description": "T16 R8x8 (16KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "T32R2x2",
-      "template": "MatMulTiledReg",
-      "defines": {
-        "TILE_SIZE": 32,
-        "TM": 2,
-        "TN": 2
-      },
-      "wg": [
-        32,
-        32
-      ],
-      "eff_tile": [
-        64,
-        64
-      ],
-      "description": "T32 R2x2 (16KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "T16R2x8",
-      "template": "MatMulTiledReg",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 2,
-        "TN": 8
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        32,
-        128
-      ],
-      "description": "T16 R2x8 (10KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "T16R1x16",
-      "template": "MatMulTiledReg",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 1,
-        "TN": 16
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        16,
-        256
-      ],
-      "description": "T16 R1x16 (17KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "SimdR4x4",
-      "template": "MatMulSimdWave",
-      "defines": {
-        "WR": 8,
-        "WC": 4,
-        "TM": 4,
-        "TN": 4
-      },
-      "wg": [
-        32,
-        1
-      ],
-      "eff_tile": [
-        32,
-        16
-      ],
-      "description": "SIMD R4x4 (32x16)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "SimdR4x8",
-      "template": "MatMulSimdWave",
-      "defines": {
-        "WR": 8,
-        "WC": 4,
-        "TM": 4,
-        "TN": 8
-      },
-      "wg": [
-        32,
-        1
-      ],
-      "eff_tile": [
-        32,
-        32
-      ],
-      "description": "SIMD R4x8 (32x32)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "SimdR8x8",
-      "template": "MatMulSimdWave",
-      "defines": {
-        "WR": 8,
-        "WC": 4,
-        "TM": 8,
-        "TN": 8
-      },
-      "wg": [
-        32,
-        1
-      ],
-      "eff_tile": [
-        64,
-        32
-      ],
-      "description": "SIMD R8x8 (64x32)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "VecT16R4x4",
-      "template": "MatMulTiledRegVec",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 4,
-        "TN": 4
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        64,
-        64
-      ],
-      "description": "Vec4 T16 R4x4 (8KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"}
-        ]
-      }
-    },
-    {
-      "name": "VecBRegT16R4x4",
-      "template": "MatMulTiledRegVecBReg",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 4,
-        "TN": 4
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        64,
-        64
-      ],
-      "description": "Vec4+BReg T16 R4x4 (8KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"}
-        ]
-      }
-    },
-    {
-      "name": "BRegT16R4x4",
-      "template": "MatMulTiledRegBReg",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 4,
-        "TN": 4
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        64,
-        64
-      ],
-      "description": "BReg T16 R4x4 (8KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "DblBufT16R4x4",
-      "template": "MatMulTiledRegDblBuf",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 4,
-        "TN": 4
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        64,
-        64
-      ],
-      "description": "DblBuf T16 R4x4 (16KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "SiLUT16R4x4",
-      "template": "MatMulSiLU",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 4,
-        "TN": 4
-      },
-      "wg": [
-        16,
-        16
-      ],
-      "eff_tile": [
-        64,
-        64
-      ],
-      "description": "SiLU T16 R4x4 (8KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"}
-        ]
-      }
-    },
-    {
-      "name": "LinearT16R4x4",
-      "template": "MatMulTiledRegLinear",
-      "defines": {
-        "TILE_SIZE": 16,
-        "TM": 4,
-        "TN": 4
-      },
-      "wg": [
-        256,
-        1
-      ],
-      "eff_tile": [
-        64,
-        64
-      ],
-      "description": "Linear T16 R4x4 (8KB)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "Gemv",
-      "template": "MatMulGemv",
-      "defines": {},
-      "wg": [
-        256,
-        1
-      ],
-      "eff_tile": [
-        1,
-        256
-      ],
-      "description": "GEMV (M=1 vector)",
-      "dtype_slots": {
-        "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"}
-        ]
-      }
+      "type": "variants",
+      "cpp_prefix": "MatMulQ8",
+      "default_variant": "T16R4x4",
+      "variants": [
+        {
+          "name": "T16R4x4",
+          "template": "MatMulQ8TiledReg",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Q8 T16 R4x4",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "SiLUT16R4x4",
+          "template": "MatMulQ8SiLU",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Q8 SiLU T16 R4x4",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "Gemv",
+          "template": "MatMulQ8Gemv",
+          "defines": {},
+          "wg": [256, 1],
+          "eff_tile": [1, 256],
+          "description": "Q8 GEMV (M=1 vector)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "GemvSiLU",
+          "template": "MatMulQ8GemvSiLU",
+          "defines": {},
+          "wg": [256, 1],
+          "eff_tile": [1, 256],
+          "description": "Q8 GEMV+SiLU (M=1 vector)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "BinaryT16R4x4",
+          "template": "MatMulQ8BinaryTiledReg",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Q8 Binary T16 R4x4",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "BinaryGemv",
+          "template": "MatMulQ8BinaryGemv",
+          "defines": {},
+          "wg": [256, 1],
+          "eff_tile": [1, 256],
+          "description": "Q8 Binary GEMV",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+            ]
+          }
+        }
+      ]
     }
   ]
 }
