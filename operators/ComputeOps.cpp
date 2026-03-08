@@ -235,8 +235,6 @@ const char *operatorName(OperatorEnum op) {
   // Matrix operations
   case MatMul:
     return "MatMul";
-  case MatMulSiLU:
-    return "MatMulSiLU";
   case Transpose:
     return "Transpose";
   case Dot:
@@ -357,18 +355,10 @@ const char *operatorName(OperatorEnum op) {
   // Quantized matmul
   case MatMulQ8:
     return "MatMulQ8";
-  case MatMulQ8SiLU:
-    return "MatMulQ8SiLU";
-  case MatMulQ8Binary:
-    return "MatMulQ8Binary";
 
   // Quantized Q4 matmul
   case MatMulQ4:
     return "MatMulQ4";
-  case MatMulQ4SiLU:
-    return "MatMulQ4SiLU";
-  case MatMulQ4Binary:
-    return "MatMulQ4Binary";
 
   // Fused binary
   case FusedBinary:

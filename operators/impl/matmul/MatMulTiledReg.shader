@@ -110,7 +110,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             [unroll] for (uint n = 0; n < TN; n++) {
                 uint outRow = blockRowStart + localRow + m * TILE_SIZE;
                 uint outCol = blockColStart + localCol + n * TILE_SIZE;
-                dataC[outRow * pc.strideB + outCol] = acc[m][n];
+                writeOutput(outRow, outCol, acc[m][n]);
             }
         }
     } else {
@@ -154,7 +154,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
                 uint outRow = blockRowStart + localRow + m * TILE_SIZE;
                 uint outCol = blockColStart + localCol + n * TILE_SIZE;
                 if (outRow < pc.M && outCol < pc.N) {
-                    dataC[outRow * pc.strideB + outCol] = acc[m][n];
+                    writeOutput(outRow, outCol, acc[m][n]);
                 }
             }
         }

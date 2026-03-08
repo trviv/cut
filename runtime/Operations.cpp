@@ -10,9 +10,7 @@
 #include "impl/conv1d/Conv1DOp.h"
 #include "impl/conv2d/Conv2DOp.h"
 #include "impl/dequant/DequantOp.h"
-#include "impl/matmul/MatMulBinaryOp.h"
 #include "impl/matmul/MatMulOp.h"
-#include "impl/matmul/MatMulSiLUOp.h"
 #include "impl/maxpool2d/MaxPool2DOp.h"
 #include "impl/memory/MemoryOp.h"
 #include "impl/reduce/ReduceOp.h"
@@ -220,11 +218,11 @@ Tensor Operations::matmul(const Tensor &a,
 Tensor Operations::matmulSiLU(const Tensor &a,
                               const Tensor &b,
                               std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulSiLUOpNode>(*store_, a, b, spec);
+  auto node = std::make_unique<MatMulOpNode>(*store_, a, b, spec);
   auto inputs = resolveAndCastInputs(*node, {a, b});
   if (inputs[0] != a || inputs[1] != b)
-    node =
-        std::make_unique<MatMulSiLUOpNode>(*store_, inputs[0], inputs[1], spec);
+    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], inputs[1], spec);
+  node->setFusion(MatMulFusion::SiLU);
   return recordOrEncode(std::move(node));
 }
 
@@ -232,12 +230,12 @@ Tensor Operations::matmulSiLU(const Tensor &a,
                               const Tensor &packedB,
                               const Tensor &scales,
                               std::optional<uint32_t> spec) {
-  auto node =
-      std::make_unique<MatMulSiLUOpNode>(*store_, a, packedB, scales, spec);
+  auto node = std::make_unique<MatMulOpNode>(*store_, a, packedB, scales, spec);
   auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
   if (inputs[0] != a)
-    node = std::make_unique<MatMulSiLUOpNode>(*store_, inputs[0], packedB,
-                                              scales, spec);
+    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], packedB, scales,
+                                          spec);
+  node->setFusion(MatMulFusion::SiLU);
   return recordOrEncode(std::move(node));
 }
 
@@ -247,12 +245,12 @@ Tensor Operations::matmulBinary(OperatorEnum binaryOp,
                                 const Tensor &scales,
                                 const Tensor &d,
                                 std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulBinaryOpNode>(*store_, binaryOp, a,
-                                                   packedB, scales, d, spec);
+  auto node = std::make_unique<MatMulOpNode>(*store_, a, packedB, scales, spec);
   auto inputs = resolveAndCastInputs(*node, {a, packedB, scales, d});
-  if (inputs[0] != a || inputs[3] != d)
-    node = std::make_unique<MatMulBinaryOpNode>(
-        *store_, binaryOp, inputs[0], packedB, scales, inputs[3], spec);
+  if (inputs[0] != a)
+    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], packedB, scales,
+                                          spec);
+  node->setFusion(MatMulFusion::Binary, binaryOp, inputs[3]);
   return recordOrEncode(std::move(node));
 }
 

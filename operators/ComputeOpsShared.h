@@ -274,7 +274,6 @@
 #define OP_BATCH_NORM 311
 #define OP_RMS_NORM 312
 #define OP_EXTENDED_RMS_NORM 313
-#define OP_MATMUL_SILU 314
 
 // =============================================================================
 // Embedding operations (320)
@@ -312,12 +311,8 @@
 // =============================================================================
 
 #define OP_MATMUL_Q8 371
-#define OP_MATMUL_Q8_SILU 372
-#define OP_MATMUL_Q8_BINARY 373
 
 #define OP_MATMUL_Q4 374
-#define OP_MATMUL_Q4_SILU 375
-#define OP_MATMUL_Q4_BINARY 376
 
 // =============================================================================
 // Fused binary operations (380)

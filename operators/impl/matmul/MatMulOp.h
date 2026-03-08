@@ -10,6 +10,9 @@ namespace cut {
 /// Weight quantization format for matmul ops.
 enum class QuantFormat { None, Q8, Q4 };
 
+/// Fusion mode for matmul ops (applied at output write via SPIR-V linking).
+enum class MatMulFusion { None, SiLU, Binary };
+
 class MatMulOpNode : public OpNode {
 public:
   /// Standard matmul: C = A * B (2 inputs)
@@ -27,6 +30,14 @@ public:
                std::optional<uint32_t> spec = {});
 
   QuantFormat format() const { return format_; }
+  MatMulFusion fusion() const { return fusion_; }
+
+  /// Set fusion mode after construction (called by optimizer passes).
+  /// For Binary fusion, d is the [M,N] tensor to combine with the matmul
+  /// result.
+  void setFusion(MatMulFusion fusion,
+                 OperatorEnum binaryOp = {},
+                 const Tensor &d = {});
 
   DataType outputDtype() const override;
   size_t shaderKey() const override;
@@ -34,12 +45,15 @@ public:
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
+  std::vector<ComputeBinding> bindings() const override;
   std::string displayName() const override;
   std::vector<DataType>
   resolveInputDtypes(const std::vector<DataType> &inputDtypes) const override;
 
 private:
   QuantFormat format_;
+  MatMulFusion fusion_ = MatMulFusion::None;
+  OperatorEnum binaryOp_{};
   DataType dtypeA_;
   DataType dtypeB_; // B dtype for None, scales dtype for Q8/Q4
   uint32_t M_, K_, N_;

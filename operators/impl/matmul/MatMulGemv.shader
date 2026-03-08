@@ -38,5 +38,5 @@ void main(uint3 DTid : SV_DispatchThreadID) {
                   (%SCALAR_DTYPE_OUTPUT%)loadB_fast(k, n), acc);
     }
 
-    dataC[m * pc.strideB + n] = acc;
+    writeOutput(m, n, acc);
 }

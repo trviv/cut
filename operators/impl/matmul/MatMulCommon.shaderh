@@ -3,13 +3,53 @@ struct PushConstants {
     uint K;  // cols of A / rows of B
     uint N;  // cols of B
     uint strideA; // padded K (multiple of 4)
-    uint strideB; // padded N (multiple of 4)
+    uint strideB; // padded N for B (multiple of 4)
+    uint strideC; // padded N for output C (multiple of 4, same value as strideB)
 };
 [[vk::push_constant]] PushConstants pc;
 
 [[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT1%> dataA;
 [[vk::binding(1, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT2%> dataB;
-[[vk::binding(2, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_OUTPUT%> dataC;
+
+// D: fusion input [M, N] — dummy buffer when no fusion active
+[[vk::binding(2, 0)]] StructuredBuffer<%VEC_DTYPE_OUTPUT%> dataD;
+
+// C: output [M, N]
+[[vk::binding(3, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_OUTPUT%> dataC;
+
+// Fusion type: 0 = none, 1 = SiLU, 2 = binary op
+[[vk::constant_id(1)]] const uint FUSION_TYPE = 0;
+// Binary op selector (only used when FUSION_TYPE == 2)
+[[vk::constant_id(2)]] const uint BINARY_OP = 0;
+
+// Write a single output element, applying fusion post-processing if enabled.
+// Fusion logic is inlined via specialization constants — the GPU driver
+// dead-code-eliminates unused branches at pipeline creation time.
+void writeOutput(uint row, uint col, %SCALAR_DTYPE_OUTPUT% value) {
+    uint idx = row * pc.strideC + col;
+    if (FUSION_TYPE == 1) {
+        float x = float(value);
+        value = (%SCALAR_DTYPE_OUTPUT%)(x / (1.0 + exp(-x)));
+    } else if (FUSION_TYPE == 2) {
+        float a = float(value);
+        float b = float(dataD[idx >> 2][idx & 3]);
+        float r = a;
+        switch (BINARY_OP) {
+            case OP_BINARY_ADD:       r = a + b; break;
+            case OP_BINARY_SUB:       r = a - b; break;
+            case OP_BINARY_MUL:       r = a * b; break;
+            case OP_BINARY_DIV:       r = a / b; break;
+            case OP_BINARY_MOD:       r = a - b * floor(a / b); break;
+            case OP_BINARY_POW:       r = pow(a, b); break;
+            case OP_BINARY_FLOOR_DIV: r = floor(a / b); break;
+            case OP_BINARY_MIN:       r = min(a, b); break;
+            case OP_BINARY_MAX:       r = max(a, b); break;
+            default:                  r = a + b; break;
+        }
+        value = (%SCALAR_DTYPE_OUTPUT%)r;
+    }
+    dataC[idx] = value;
+}
 
 %SCALAR_DTYPE_INPUT1% loadA(uint row, uint col) {
     if (row >= pc.M || col >= pc.K) return (%SCALAR_DTYPE_INPUT1%)(0);

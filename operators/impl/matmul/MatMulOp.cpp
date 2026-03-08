@@ -1,4 +1,6 @@
 #include "MatMulOp.h"
+#include "ShaderUtils.h"
+#include "Shaders.h"
 #include "TensorStore.h"
 
 namespace cut {
@@ -118,8 +120,8 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   }
 
   // Auto-detect Q4 vs Q8 from shapes:
-  //   Q8: B [K, N], scales [K/32, N] → B.cols == scales.cols
-  //   Q4: B [K, N/2], scales [K/32, N] → B.cols * 2 == scales.cols
+  //   Q8: B [K, N], scales [K/32, N] -> B.cols == scales.cols
+  //   Q4: B [K, N/2], scales [K/32, N] -> B.cols * 2 == scales.cols
   uint32_t bCols = shapePB[1];
   uint32_t sCols = shapeSB[1];
   if (bCols == sCols) {
@@ -149,6 +151,20 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
 }
 
 // ============================================================================
+// Fusion support
+// ============================================================================
+
+void MatMulOpNode::setFusion(MatMulFusion fusion,
+                             OperatorEnum binaryOp,
+                             const Tensor &d) {
+  fusion_ = fusion;
+  binaryOp_ = binaryOp;
+  if (fusion == MatMulFusion::Binary) {
+    inputs_.push_back(d);
+  }
+}
+
+// ============================================================================
 // Shared methods
 // ============================================================================
 
@@ -160,19 +176,45 @@ size_t MatMulOpNode::shaderKey() const {
   size_t key = static_cast<size_t>(op_);
   key |= (static_cast<size_t>(dtypeA_) & 0xF) << 16;
   key |= (static_cast<size_t>(dtypeB_) & 0xF) << 20;
+  // Encode fusion type (bits 36-39) and binary op (bits 40-47)
+  key |= (static_cast<size_t>(fusion_) & 0xF) << 36;
+  if (fusion_ == MatMulFusion::Binary) {
+    key |= (static_cast<size_t>(binaryOp_) & 0xFF) << 40;
+  }
   key |= static_cast<size_t>(spec_.value_or(0)) << 48;
   return key;
 }
 
 std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
+  // Get base matmul SPIR-V
+  std::optional<std::vector<uint32_t>> compiled;
   switch (format_) {
   case QuantFormat::Q8:
-    return getCompiledMatMulQ8(*spec_, dtypeA_, dtypeB_, DataType::Float32);
+    compiled = getCompiledMatMulQ8(*spec_, dtypeA_, dtypeB_, DataType::Float32);
+    break;
   case QuantFormat::Q4:
-    return getCompiledMatMulQ4(*spec_, dtypeA_, dtypeB_, DataType::Float32);
+    compiled = getCompiledMatMulQ4(*spec_, dtypeA_, dtypeB_, DataType::Float32);
+    break;
   default:
-    return getCompiledMatMul(*spec_, dtypeA_, dtypeB_, dtypeA_);
+    compiled = getCompiledMatMul(*spec_, dtypeA_, dtypeB_, dtypeA_);
+    break;
   }
+
+  if (!compiled.has_value() || fusion_ == MatMulFusion::None) {
+    return compiled;
+  }
+
+  auto spirv = std::move(compiled.value());
+
+  // Patch specialization constants for fusion
+  if (fusion_ == MatMulFusion::SiLU) {
+    patchSpecConstant(spirv, 1, 1); // FUSION_TYPE = 1 (SiLU)
+  } else if (fusion_ == MatMulFusion::Binary) {
+    patchSpecConstant(spirv, 1, 2); // FUSION_TYPE = 2 (binary op)
+    patchSpecConstant(spirv, 2, static_cast<uint32_t>(binaryOp_));
+  }
+
+  return spirv;
 }
 
 std::vector<uint32_t> MatMulOpNode::outputShape() const {
@@ -190,9 +232,10 @@ std::vector<uint8_t> MatMulOpNode::pushConstants() const {
   uint32_t strideA = (K_ + 3) & ~3u;
   if (format_ == QuantFormat::None) {
     uint32_t strideB = (N_ + 3) & ~3u;
+    uint32_t strideC = strideB;
     struct PushConstants {
-      uint32_t M, K, N, strideA, strideB;
-    } pc{M_, K_, N_, strideA, strideB};
+      uint32_t M, K, N, strideA, strideB, strideC;
+    } pc{M_, K_, N_, strideA, strideB, strideC};
     return toBytes(pc);
   }
   if (format_ == QuantFormat::Q4) {
@@ -214,15 +257,59 @@ std::vector<uint8_t> MatMulOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+std::vector<ComputeBinding> MatMulOpNode::bindings() const {
+  std::vector<ComputeBinding> result;
+  uint32_t idx = 0;
+
+  // Bind all inputs (A, B, [scalesB], [D for Binary fusion])
+  for (const auto &h : inputs_) {
+    result.emplace_back(idx++, h);
+  }
+
+  // For non-Binary fusion, insert a dummy D binding (use output_ as dummy).
+  // Binary fusion already has D as the last entry in inputs_.
+  if (fusion_ != MatMulFusion::Binary) {
+    result.emplace_back(idx++, output_);
+  }
+
+  // Bind output C
+  if (output_) {
+    result.emplace_back(idx++, output_);
+  }
+
+  // Push constants
+  auto pc = pushConstants();
+  if (!pc.empty()) {
+    result.emplace_back(
+        idx, DataReference(pc.data(), static_cast<uint32_t>(pc.size())));
+  }
+  return result;
+}
+
 std::string MatMulOpNode::displayName() const {
+  std::string name;
   switch (format_) {
   case QuantFormat::Q8:
-    return "MatMulQ8";
+    name = "MatMulQ8";
+    break;
   case QuantFormat::Q4:
-    return "MatMulQ4";
+    name = "MatMulQ4";
+    break;
   default:
-    return "MatMul";
+    name = "MatMul";
+    break;
   }
+  switch (fusion_) {
+  case MatMulFusion::SiLU:
+    name += "SiLU";
+    break;
+  case MatMulFusion::Binary:
+    name += "Binary";
+    break;
+  default:
+    break;
+  }
+  return name;
 }
 
 std::vector<DataType> MatMulOpNode::resolveInputDtypes(
@@ -230,23 +317,38 @@ std::vector<DataType> MatMulOpNode::resolveInputDtypes(
   if (format_ != QuantFormat::None) {
     // Quantized: widen A to Float32, keep packedB and scales as-is
     DataType dtA = widenPrecision(inputDtypes[0]);
-    return {dtA, inputDtypes[1], inputDtypes[2]};
+    std::vector<DataType> result = {dtA, inputDtypes[1], inputDtypes[2]};
+    // Binary fusion has D as 4th input
+    if (fusion_ == MatMulFusion::Binary && inputDtypes.size() > 3) {
+      result.push_back(widenPrecision(inputDtypes[3]));
+    }
+    return result;
   }
   // Standard: try various dtype combinations
   DataType dtA = inputDtypes[0];
   DataType dtB = inputDtypes[1];
-  if (getCompiledMatMul(*spec_, dtA, dtB, dtA).has_value())
-    return {dtA, dtB};
 
-  DataType wA = widenPrecision(dtA);
-  DataType wB = widenPrecision(dtB);
-  if (getCompiledMatMul(*spec_, dtA, wB, wB).has_value())
-    return {dtA, wB};
-  if (getCompiledMatMul(*spec_, wA, dtB, wA).has_value())
-    return {wA, dtB};
-  if (getCompiledMatMul(*spec_, wA, wB, wA).has_value())
-    return {wA, wB};
-  return {DataType::Float32, DataType::Float32};
+  std::vector<DataType> result;
+  if (getCompiledMatMul(*spec_, dtA, dtB, dtA).has_value())
+    result = {dtA, dtB};
+  else {
+    DataType wA = widenPrecision(dtA);
+    DataType wB = widenPrecision(dtB);
+    if (getCompiledMatMul(*spec_, dtA, wB, wB).has_value())
+      result = {dtA, wB};
+    else if (getCompiledMatMul(*spec_, wA, dtB, wA).has_value())
+      result = {wA, dtB};
+    else if (getCompiledMatMul(*spec_, wA, wB, wA).has_value())
+      result = {wA, wB};
+    else
+      result = {DataType::Float32, DataType::Float32};
+  }
+
+  // Binary fusion has D as 3rd input for standard format
+  if (fusion_ == MatMulFusion::Binary && inputDtypes.size() > 2) {
+    result.push_back(widenPrecision(inputDtypes[2]));
+  }
+  return result;
 }
 
 } // namespace cut

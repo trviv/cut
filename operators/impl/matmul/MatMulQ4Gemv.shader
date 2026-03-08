@@ -33,5 +33,5 @@ void main(uint3 DTid : SV_DispatchThreadID) {
         acc = mad(float(loadA(m, k)), loadB(k, n), acc);
     }
 
-    dataC[m * pc.strideC + n] = acc;
+    writeOutput(m, n, acc);
 }

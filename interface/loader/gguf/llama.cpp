@@ -98,12 +98,17 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
     // Q4 packing is tightly coupled with the transpose, so we keep the CPU
     // unpack-transpose-repack path for Q4_0.
     // Step 1: Unpack nibbles from [N, K/2] to [N, K]
+    // Q4_0 block layout: within each 32-element block, the 16 packed bytes
+    // store lower nibbles at positions 0-15 and upper nibbles at positions
+    // 16-31 (NOT interleaved). See GGML dequantize_row_q4_0.
     std::vector<uint8_t> unpacked(N * K);
     for (uint32_t n = 0; n < N; ++n) {
-      for (uint32_t k = 0; k < K / 2; ++k) {
-        uint8_t byte = q4.packedValues[n * (K / 2) + k];
-        unpacked[n * K + k * 2] = byte & 0x0Fu;
-        unpacked[n * K + k * 2 + 1] = (byte >> 4) & 0x0Fu;
+      for (uint32_t b = 0; b < K / 32; ++b) {
+        for (uint32_t j = 0; j < 16; ++j) {
+          uint8_t byte = q4.packedValues[n * (K / 2) + b * 16 + j];
+          unpacked[n * K + b * 32 + j] = byte & 0x0Fu;
+          unpacked[n * K + b * 32 + j + 16] = (byte >> 4) & 0x0Fu;
+        }
       }
     }
 

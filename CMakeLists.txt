@@ -102,7 +102,6 @@ set(LIB_HEADERS
     operators/impl/conv2d/Conv2DOp.h
     operators/impl/creation/CreationOp.h
     operators/impl/matmul/MatMulOp.h
-    operators/impl/matmul/MatMulSiLUOp.h
     operators/impl/maxpool2d/MaxPool2DOp.h
     operators/impl/rope/RoPEOp.h
     operators/impl/attention/AttentionOp.h
@@ -154,8 +153,6 @@ set(LIB_SOURCES
     operators/impl/creation/CreationOp.cpp
     operators/impl/dequant/DequantOp.cpp
     operators/impl/matmul/MatMulOp.cpp
-    operators/impl/matmul/MatMulSiLUOp.cpp
-    operators/impl/matmul/MatMulBinaryOp.cpp
     operators/impl/maxpool2d/MaxPool2DOp.cpp
     operators/impl/rope/RoPEOp.cpp
     operators/impl/attention/AttentionOp.cpp

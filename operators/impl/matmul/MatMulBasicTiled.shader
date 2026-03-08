@@ -38,6 +38,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 GTid : SV_GroupThreadID) {
     }
 
     if (row < pc.M && col < pc.N) {
-        dataC[row * pc.strideB + col] = sum;
+        writeOutput(row, col, sum);
     }
 }

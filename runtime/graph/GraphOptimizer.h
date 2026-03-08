@@ -119,19 +119,11 @@ public:
   bool run(Graph &graph, TensorStore &store) override;
 };
 
-/// Fuses MatMulQ8 → BinaryVecVec into MatMulQ8Binary (matmul with inline
-/// binary operation). Applies to element-wise add, mul, etc. after Q8 matmul.
-class MatMulQ8BinaryFusionPass : public GraphPass {
+/// Fuses MatMul/MatMulQ8/MatMulQ4 → BinaryVecVec into MatMul with Binary
+/// fusion (matmul with inline binary operation via SPIR-V linking).
+class MatMulBinaryFusionPass : public GraphPass {
 public:
-  const char *name() const override { return "MatMulQ8BinaryFusion"; }
-  bool run(Graph &graph, TensorStore &store) override;
-};
-
-/// Fuses MatMulQ4 → BinaryVecVec into MatMulQ4Binary (matmul with inline
-/// binary operation). Applies to element-wise add, mul, etc. after Q4 matmul.
-class MatMulQ4BinaryFusionPass : public GraphPass {
-public:
-  const char *name() const override { return "MatMulQ4BinaryFusion"; }
+  const char *name() const override { return "MatMulBinaryFusion"; }
   bool run(Graph &graph, TensorStore &store) override;
 };
 

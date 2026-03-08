@@ -17,7 +17,7 @@ struct MatMulVariantInfo {
     const char* description;
 };
 
-inline constexpr int kMatMulVariantCount = 21;
+inline constexpr int kMatMulVariantCount = 20;
 inline constexpr int kMatMulDefaultVariant = 5;
 
 inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
@@ -39,7 +39,6 @@ inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
     {"MatMulVecBRegT16R4x4", 16, 16, 64, 64, "Vec4+BReg T16 R4x4 (8KB)"},
     {"MatMulBRegT16R4x4", 16, 16, 64, 64, "BReg T16 R4x4 (8KB)"},
     {"MatMulDblBufT16R4x4", 16, 16, 64, 64, "DblBuf T16 R4x4 (16KB)"},
-    {"MatMulSiLUT16R4x4", 16, 16, 64, 64, "SiLU T16 R4x4 (8KB)"},
     {"MatMulLinearT16R4x4", 256, 1, 64, 64, "Linear T16 R4x4 (8KB)"},
     {"MatMulGemv", 256, 1, 1, 256, "GEMV (M=1 vector)"},
 };
@@ -63,7 +62,6 @@ std::optional<std::vector<uint32_t>> compiledMatMulVecT16R4x4(DataType input1, D
 std::optional<std::vector<uint32_t>> compiledMatMulVecBRegT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulBRegT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulDblBufT16R4x4(DataType input1, DataType input2, DataType output);
-std::optional<std::vector<uint32_t>> compiledMatMulSiLUT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulLinearT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulGemv(DataType input1, DataType input2, DataType output);
 
@@ -88,7 +86,6 @@ inline const CompiledMatMulFn kMatMulCompiledFns[kMatMulVariantCount] = {
     compiledMatMulVecBRegT16R4x4,
     compiledMatMulBRegT16R4x4,
     compiledMatMulDblBufT16R4x4,
-    compiledMatMulSiLUT16R4x4,
     compiledMatMulLinearT16R4x4,
     compiledMatMulGemv,
 };

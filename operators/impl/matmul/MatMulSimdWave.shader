@@ -78,7 +78,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             uint outRow = blockRowStart + wr * TM + m;
             uint outCol = blockColStart + wc * TN + n;
             if (outRow < pc.M && outCol < pc.N) {
-                dataC[outRow * pc.strideB + outCol] = acc[m][n];
+                writeOutput(outRow, outCol, acc[m][n]);
             }
         }
     }

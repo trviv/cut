@@ -1,8 +1,10 @@
 #include "ShaderUtils.h"
 
+#include <cstdio>
 #include <cstring>
 #include <stdexcept>
 
+#include <spirv-tools/libspirv.hpp>
 #include <spirv-tools/linker.hpp>
 
 namespace cut {
@@ -222,7 +224,10 @@ compileCustomShader(const std::vector<uint32_t> &templateSpirv,
     removeFunc(mod, modEntryId);
 
   // 3. Link both modules.
-  spvtools::Context ctx(SPV_ENV_VULKAN_1_0);
+  // Use Vulkan 1.1 environment (matches VK_API_VERSION_1_1 in runtime).
+  // The linker's SetUseHighestVersion merges SPIR-V versions from both
+  // modules; Vulkan 1.1 supports SPIR-V up to 1.3 which DXC may emit.
+  spvtools::Context ctx(SPV_ENV_VULKAN_1_1);
   std::vector<uint32_t> linked;
   spvtools::LinkerOptions lopts;
   lopts.SetAllowPtrTypeMismatch(true);
@@ -232,6 +237,32 @@ compileCustomShader(const std::vector<uint32_t> &templateSpirv,
   if (result != SPV_SUCCESS)
     throw std::runtime_error("SPIR-V linking failed (error " +
                              std::to_string(result) + ")");
+
+  // Validate linked SPIR-V and log any issues
+  spvtools::SpirvTools tools(SPV_ENV_VULKAN_1_1);
+  tools.SetMessageConsumer([&](spv_message_level_t level, const char *,
+                               const spv_position_t &, const char *msg) {
+    if (level <= SPV_MSG_ERROR) {
+      fprintf(stderr,
+              "[ShaderUtils] SPIR-V validation error after linking "
+              "'%s' <- '%s': %s\n",
+              templateFuncName.c_str(), moduleFuncName.c_str(), msg);
+    }
+  });
+  if (!tools.Validate(linked)) {
+    fprintf(stderr,
+            "[ShaderUtils] Linked SPIR-V is INVALID (%s <- %s). "
+            "Template had func ID %u, module had func ID %u\n",
+            templateFuncName.c_str(), moduleFuncName.c_str(), tmplFuncId,
+            modFuncId);
+
+    // Dump SPIR-V disassembly for debugging
+    std::string disassembly;
+    if (tools.Disassemble(linked, &disassembly)) {
+      fprintf(stderr, "[ShaderUtils] Linked SPIR-V disassembly:\n%s\n",
+              disassembly.c_str());
+    }
+  }
 
   return linked;
 }

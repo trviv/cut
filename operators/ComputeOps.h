@@ -280,7 +280,6 @@ enum OperatorEnum {
   BatchNorm = OP_BATCH_NORM,
   RMSNorm = OP_RMS_NORM,
   ExtendedRMSNorm = OP_EXTENDED_RMS_NORM,
-  MatMulSiLU = OP_MATMUL_SILU,
 
   // ===========================================================================
   // Embedding operations (320)
@@ -318,12 +317,8 @@ enum OperatorEnum {
   // ===========================================================================
 
   MatMulQ8 = OP_MATMUL_Q8,
-  MatMulQ8SiLU = OP_MATMUL_Q8_SILU,
-  MatMulQ8Binary = OP_MATMUL_Q8_BINARY,
 
   MatMulQ4 = OP_MATMUL_Q4,
-  MatMulQ4SiLU = OP_MATMUL_Q4_SILU,
-  MatMulQ4Binary = OP_MATMUL_Q4_BINARY,
 
   // ===========================================================================
   // Fused binary operations (380)

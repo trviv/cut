@@ -305,21 +305,6 @@
           }
         },
         {
-          "name": "SiLUT16R4x4",
-          "template": "MatMulSiLU",
-          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
-          "wg": [16, 16],
-          "eff_tile": [64, 64],
-          "description": "SiLU T16 R4x4 (8KB)",
-          "dtype_slots": {
-            "combos": [
-              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-              {"input1": "Float32", "input2": "Float16", "output": "Float32"}
-            ]
-          }
-        },
-        {
           "name": "LinearT16R4x4",
           "template": "MatMulTiledRegLinear",
           "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
@@ -372,64 +357,12 @@
           }
         },
         {
-          "name": "SiLUT16R4x4",
-          "template": "MatMulQ4SiLU",
-          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
-          "wg": [16, 16],
-          "eff_tile": [64, 64],
-          "description": "Q4 SiLU T16 R4x4",
-          "dtype_slots": {
-            "combos": [
-              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
-            ]
-          }
-        },
-        {
           "name": "Gemv",
           "template": "MatMulQ4Gemv",
           "defines": {},
           "wg": [256, 1],
           "eff_tile": [1, 256],
           "description": "Q4 GEMV (M=1 vector)",
-          "dtype_slots": {
-            "combos": [
-              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
-            ]
-          }
-        },
-        {
-          "name": "GemvSiLU",
-          "template": "MatMulQ4GemvSiLU",
-          "defines": {},
-          "wg": [256, 1],
-          "eff_tile": [1, 256],
-          "description": "Q4 GEMV+SiLU (M=1 vector)",
-          "dtype_slots": {
-            "combos": [
-              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
-            ]
-          }
-        },
-        {
-          "name": "BinaryT16R4x4",
-          "template": "MatMulQ4BinaryTiledReg",
-          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
-          "wg": [16, 16],
-          "eff_tile": [64, 64],
-          "description": "Q4 Binary T16 R4x4",
-          "dtype_slots": {
-            "combos": [
-              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
-            ]
-          }
-        },
-        {
-          "name": "BinaryGemv",
-          "template": "MatMulQ4BinaryGemv",
-          "defines": {},
-          "wg": [256, 1],
-          "eff_tile": [1, 256],
-          "description": "Q4 Binary GEMV",
           "dtype_slots": {
             "combos": [
               {"input1": "Float32", "scales": "Float16", "output": "Float32"}
@@ -458,20 +391,6 @@
           }
         },
         {
-          "name": "SiLUT16R4x4",
-          "template": "MatMulQ8SiLU",
-          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
-          "wg": [16, 16],
-          "eff_tile": [64, 64],
-          "description": "Q8 SiLU T16 R4x4",
-          "dtype_slots": {
-            "combos": [
-              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
-              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
-            ]
-          }
-        },
-        {
           "name": "Gemv",
           "template": "MatMulQ8Gemv",
           "defines": {},
@@ -484,46 +403,28 @@
               {"input1": "Float32", "scales": "Int8", "output": "Float32"}
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "type": "variants",
+      "cpp_prefix": "Fusion",
+      "variants": [
         {
-          "name": "GemvSiLU",
-          "template": "MatMulQ8GemvSiLU",
-          "defines": {},
-          "wg": [256, 1],
-          "eff_tile": [1, 256],
-          "description": "Q8 GEMV+SiLU (M=1 vector)",
+          "name": "SiLU",
+          "description": "SiLU fusion module",
           "dtype_slots": {
             "combos": [
-              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
-              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+              {"output": "Float32"}
             ]
           }
         },
         {
-          "name": "BinaryT16R4x4",
-          "template": "MatMulQ8BinaryTiledReg",
-          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
-          "wg": [16, 16],
-          "eff_tile": [64, 64],
-          "description": "Q8 Binary T16 R4x4",
+          "name": "BinaryOp",
+          "description": "Binary op fusion module",
           "dtype_slots": {
             "combos": [
-              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
-              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
-            ]
-          }
-        },
-        {
-          "name": "BinaryGemv",
-          "template": "MatMulQ8BinaryGemv",
-          "defines": {},
-          "wg": [256, 1],
-          "eff_tile": [1, 256],
-          "description": "Q8 Binary GEMV",
-          "dtype_slots": {
-            "combos": [
-              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
-              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+              {"output": "Float32"}
             ]
           }
         }

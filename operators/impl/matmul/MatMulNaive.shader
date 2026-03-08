@@ -24,5 +24,5 @@ void main(uint3 DTid : SV_DispatchThreadID) {
         sum += (%SCALAR_DTYPE_OUTPUT%)(dataA[idxA >> 2][idxA & 3]) * (%SCALAR_DTYPE_OUTPUT%)(dataB[idxB >> 2][idxB & 3]);
     }
 
-    dataC[row * pc.strideB + col] = sum;
+    writeOutput(row, col, sum);
 }

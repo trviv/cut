@@ -45,7 +45,7 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     [unroll] for (uint m = 0; m < TM; m++) {
         [unroll] for (uint n = 0; n < TN; n++) {
             if (baseRow + m < pc.M && baseCol + n < pc.N) {
-                dataC[(baseRow + m) * pc.strideB + (baseCol + n)] = acc[m][n];
+                writeOutput(baseRow + m, baseCol + n, acc[m][n]);
             }
         }
     }
