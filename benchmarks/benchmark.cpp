@@ -362,7 +362,7 @@ static void benchmarkMatMulSiLU(Runtime &runtime, int warmup, int iterations) {
                                            hostA.data());
           auto bufB = runtime.createTensor({tc.K, tc.N}, DataType::Float32,
                                            hostB.data());
-          runtime.ops().matmulSiLU(bufA, bufB);
+          runtime.ops().matmulUnary(UnarySilu, bufA, bufB);
           runtime.flush();
         },
         warmup, iterations);

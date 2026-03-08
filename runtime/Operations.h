@@ -58,16 +58,18 @@ public:
                 const Tensor &scales,
                 std::optional<uint32_t> spec = {});
 
-  /// Standard matmul with SiLU activation: silu(A * B)
-  Tensor matmulSiLU(const Tensor &a,
-                    const Tensor &b,
-                    std::optional<uint32_t> spec = {});
+  /// Standard matmul with unary fusion: unaryOp(A * B)
+  Tensor matmulUnary(OperatorEnum unaryOp,
+                     const Tensor &a,
+                     const Tensor &b,
+                     std::optional<uint32_t> spec = {});
 
-  /// Quantized matmul with SiLU: silu(A * dequant(packedB, scales))
-  Tensor matmulSiLU(const Tensor &a,
-                    const Tensor &packedB,
-                    const Tensor &scales,
-                    std::optional<uint32_t> spec = {});
+  /// Quantized matmul with unary fusion: unaryOp(A * dequant(packedB, scales))
+  Tensor matmulUnary(OperatorEnum unaryOp,
+                     const Tensor &a,
+                     const Tensor &packedB,
+                     const Tensor &scales,
+                     std::optional<uint32_t> spec = {});
 
   /// Quantized matmul with binary op: binaryOp(A * dequant(packedB, scales), D)
   Tensor matmulBinary(OperatorEnum binaryOp,

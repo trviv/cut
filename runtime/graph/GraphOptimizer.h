@@ -111,11 +111,11 @@ public:
   bool run(Graph &graph, TensorStore &store) override;
 };
 
-/// Fuses MatMul → UnarySilu into MatMulSiLU (matmul with inline SiLU
-/// activation). Used in FFN gate projections (30× per forward pass in SmolLM2).
-class MatMulSiLUFusionPass : public GraphPass {
+/// Fuses MatMul → Unary into MatMul with inline unary activation.
+/// Matches any unary op (SiLU, GELU, ReLU, etc.) following a matmul.
+class MatMulUnaryFusionPass : public GraphPass {
 public:
-  const char *name() const override { return "MatMulSiLUFusion"; }
+  const char *name() const override { return "MatMulUnaryFusion"; }
   bool run(Graph &graph, TensorStore &store) override;
 };
 

@@ -46,18 +46,18 @@ GraphOptimizer GraphOptimizer::createDefault() {
   GraphOptimizer opt;
   // Structural simplifications first — remove identity reshapes, collapse
   // chains, cancel transposes so that fusion passes see clean graphs.
-  // (e.g. MatMulQ8 → IdentityReshape → SiLU blocks MatMulSiLU fusion)
+  // (e.g. MatMulQ8 → IdentityReshape → SiLU blocks MatMulUnary fusion)
   opt.addPass(std::make_unique<IdentityReshapePass>());
   opt.addPass(std::make_unique<NoOpReshapePass>());
   opt.addPass(std::make_unique<ReshapeChainPass>());
   opt.addPass(std::make_unique<TransposeCancelPass>());
   // Early dead code removal — dead nodes inflate refCounts and block fusion
-  // (e.g. unused transpose(gate) makes gate refCount=2, blocking MatMulSiLU)
+  // (e.g. unused transpose(gate) makes gate refCount=2, blocking MatMulUnary)
   opt.addPass(std::make_unique<DeadCodePass>());
   // Fusion passes operate on simplified, pruned graph
   opt.addPass(std::make_unique<ExtendedRMSNormFusionPass>());
   opt.addPass(std::make_unique<RMSNormFusionPass>());
-  opt.addPass(std::make_unique<MatMulSiLUFusionPass>());
+  opt.addPass(std::make_unique<MatMulUnaryFusionPass>());
   opt.addPass(std::make_unique<MatMulBinaryFusionPass>());
   opt.addPass(std::make_unique<FusedBinaryPass>());
   // Final dead code removal for nodes orphaned by fusion
@@ -348,48 +348,49 @@ bool RMSNormFusionPass::run(Graph &graph, TensorStore &store) {
   return changed;
 }
 
+// Forward declarations for helpers used by multiple passes
+static bool isMatMulOp(OperatorEnum op);
+static bool isUnaryOp(OperatorEnum op);
+
 // ============================================================================
-// MatMulSiLUFusionPass
+// MatMulUnaryFusionPass
 // ============================================================================
 
-bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
+bool MatMulUnaryFusionPass::run(Graph &graph, TensorStore &store) {
   bool changed = false;
-  int siluCount = 0, matmulSiluCount = 0, skipReason[5] = {0};
+  int unaryCount = 0, fusedCount = 0, skipReason[5] = {0};
 
-  // Pattern: MatMul/MatMulQ8 → UnarySilu
-  // Match from the end (UnarySilu) and walk backwards
+  // Pattern: MatMul/MatMulQ8/MatMulQ4 → Unary
+  // Match from the end (any unary op) and walk backwards
   for (uint32_t i = 0; i < graph.size(); ++i) {
-    auto &siluNode = graph.nodes()[i];
-    if (!siluNode.op || siluNode.isRemoved)
+    auto &unaryNode = graph.nodes()[i];
+    if (!unaryNode.op || unaryNode.isRemoved)
       continue;
-    if (siluNode.op->op() != OperatorEnum::UnarySilu)
+    OperatorEnum unaryOp = unaryNode.op->op();
+    if (!isUnaryOp(unaryOp))
       continue;
-    siluCount++;
-    if (siluNode.inputIds.size() != 1) {
-      skipReason[0]++;
+    if (unaryNode.inputIds.size() != 1) {
       continue;
     }
 
-    uint32_t matmulId = siluNode.inputIds[0];
+    uint32_t matmulId = unaryNode.inputIds[0];
     auto &matmulNode = graph.nodes()[matmulId];
     if (!matmulNode.op || matmulNode.isRemoved) {
-      skipReason[1]++;
       continue;
     }
-    bool isMatMul = matmulNode.op->op() == OperatorEnum::MatMul;
-    bool isMatMulQ8 = matmulNode.op->op() == OperatorEnum::MatMulQ8;
-    bool isMatMulQ4 = matmulNode.op->op() == OperatorEnum::MatMulQ4;
-    if (!isMatMul && !isMatMulQ8 && !isMatMulQ4) {
-      skipReason[2]++;
+    if (!isMatMulOp(matmulNode.op->op())) {
       continue;
     }
+    unaryCount++;
     if (matmulNode.refCount != 1) { // Must be single consumer
       skipReason[3]++;
       continue;
     }
 
-    if (isMatMul) {
-      // MatMul → UnarySilu: fuse into MatMul+SiLU (2 inputs)
+    bool isStandard = matmulNode.op->op() == OperatorEnum::MatMul;
+
+    if (isStandard) {
+      // MatMul → Unary: fuse (2 inputs)
       if (matmulNode.inputIds.size() != 2)
         continue;
       uint32_t aId = matmulNode.inputIds[0];
@@ -406,11 +407,11 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
       }
       auto fusedNode = std::make_unique<MatMulOpNode>(store, aNode.op->output(),
                                                       bNode.op->output());
-      fusedNode->setFusion(MatMulFusion::SiLU);
+      fusedNode->setFusion(MatMulFusion::Unary, unaryOp);
       uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId});
       graph.replaceAllUses(i, fusedId);
     } else {
-      // MatMulQ8/Q4 → UnarySilu: fuse into MatMul+SiLU (3 inputs, auto-detect)
+      // MatMulQ8/Q4 → Unary: fuse (3 inputs, auto-detect)
       if (matmulNode.inputIds.size() != 3)
         continue;
       uint32_t aId = matmulNode.inputIds[0];
@@ -430,19 +431,18 @@ bool MatMulSiLUFusionPass::run(Graph &graph, TensorStore &store) {
       }
       auto fusedNode = std::make_unique<MatMulOpNode>(
           store, aNode.op->output(), bNode.op->output(), sNode.op->output());
-      fusedNode->setFusion(MatMulFusion::SiLU);
+      fusedNode->setFusion(MatMulFusion::Unary, unaryOp);
       uint32_t fusedId = graph.addNode(std::move(fusedNode), {aId, bId, sId});
       graph.replaceAllUses(i, fusedId);
     }
-    matmulSiluCount++;
+    fusedCount++;
     changed = true;
   }
 
-  if (siluCount > 0) {
-    printf("MatMulSiLU fusion: %d SiLU nodes, %d fused, skipped: [inputs=%d, "
-           "removed=%d, notMatMul=%d, multiUse=%d, not2D=%d]\n",
-           siluCount, matmulSiluCount, skipReason[0], skipReason[1],
-           skipReason[2], skipReason[3], skipReason[4]);
+  if (unaryCount > 0) {
+    printf("MatMulUnary fusion: %d candidates, %d fused, skipped: "
+           "[multiUse=%d, not2D=%d]\n",
+           unaryCount, fusedCount, skipReason[3], skipReason[4]);
   }
 
   return changed;

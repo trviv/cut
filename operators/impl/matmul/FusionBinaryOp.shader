@@ -4,10 +4,10 @@
 // postProcessImpl replaces the postProcess stub in base matmul shaders.
 // Specialization constant selects the binary operation applied to (accum, dVal).
 
-[[vk::constant_id(2)]] const uint BINARY_OP = 0;
+[[vk::constant_id(2)]] const uint FUSION_OP = 0;
 
 [noinline] float postProcessImpl(float accum, float dVal) {
-    switch (BINARY_OP) {
+    switch (FUSION_OP) {
         case OP_BINARY_ADD:       return accum + dVal;
         case OP_BINARY_SUB:       return accum - dVal;
         case OP_BINARY_MUL:       return accum * dVal;

@@ -4334,7 +4334,7 @@ TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
     identity[i * N + i] = 1.0f;
 
   for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
-    // Skip fused activation variants (e.g. MatMulSiLU) — tested separately
+    // Skip fused activation variants (e.g. MatMulUnary) — tested separately
     if (std::string(getMatMulVariantName(vi)).find("SiLU") != std::string::npos)
       continue;
     SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));

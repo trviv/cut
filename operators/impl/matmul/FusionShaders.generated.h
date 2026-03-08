@@ -7,7 +7,7 @@
 
 namespace cut {
 
-std::optional<std::vector<uint32_t>> compiledFusionSiLU(DataType output);
+std::optional<std::vector<uint32_t>> compiledFusionUnary(DataType output);
 std::optional<std::vector<uint32_t>> compiledFusionBinaryOp(DataType output);
 
 } // namespace cut

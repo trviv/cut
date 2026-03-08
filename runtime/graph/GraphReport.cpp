@@ -70,7 +70,7 @@ static std::string chooseFillColor(const GraphNode &n) {
     return "#f0f4ff";
 
   const std::string &name = n.displayName;
-  if (name.find("SiLU") != std::string::npos)
+  if (name.find("Unary") != std::string::npos)
     return "#fde047";
   if (name == "RMSNorm")
     return "#a78bfa";

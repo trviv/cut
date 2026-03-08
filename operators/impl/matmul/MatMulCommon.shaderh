@@ -17,10 +17,10 @@ struct PushConstants {
 // C: output [M, N]
 [[vk::binding(3, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_OUTPUT%> dataC;
 
-// Fusion type: 0 = none, 1 = SiLU, 2 = binary op
+// Fusion type: 0 = none, 1 = unary, 2 = binary op
 [[vk::constant_id(1)]] const uint FUSION_TYPE = 0;
-// Binary op selector (only used when FUSION_TYPE == 2)
-[[vk::constant_id(2)]] const uint BINARY_OP = 0;
+// Fusion op selector: unary op code when FUSION_TYPE == 1, binary op code when FUSION_TYPE == 2
+[[vk::constant_id(2)]] const uint FUSION_OP = 0;
 
 // Write a single output element, applying fusion post-processing if enabled.
 // Fusion logic is inlined via specialization constants — the GPU driver
@@ -29,12 +29,36 @@ void writeOutput(uint row, uint col, %SCALAR_DTYPE_OUTPUT% value) {
     uint idx = row * pc.strideC + col;
     if (FUSION_TYPE == 1) {
         float x = float(value);
-        value = (%SCALAR_DTYPE_OUTPUT%)(x / (1.0 + exp(-x)));
+        switch (FUSION_OP) {
+            case OP_UNARY_NEG:        x = -x; break;
+            case OP_UNARY_ABS:        x = abs(x); break;
+            case OP_UNARY_SQRT:       x = sqrt(x); break;
+            case OP_UNARY_SQUARE:     x = x * x; break;
+            case OP_UNARY_RECIPROCAL: x = 1.0 / x; break;
+            case OP_UNARY_EXP:        x = exp(x); break;
+            case OP_UNARY_LOG:        x = log(x); break;
+            case OP_UNARY_TANH:       x = tanh(x); break;
+            case OP_UNARY_FLOOR:      x = floor(x); break;
+            case OP_UNARY_CEIL:       x = ceil(x); break;
+            case OP_UNARY_ROUND:      x = round(x); break;
+            case OP_UNARY_RELU:       x = max(0.0, x); break;
+            case OP_UNARY_SIGMOID:    x = 1.0 / (1.0 + exp(-x)); break;
+            case OP_UNARY_GELU:       x = x * 0.5 * (1.0 + tanh(sqrt(2.0 / 3.14159265) * (x + 0.044715 * x * x * x))); break;
+            case OP_UNARY_SILU:       x = x / (1.0 + exp(-x)); break;
+            case OP_UNARY_SOFTPLUS:   x = log(1.0 + exp(x)); break;
+            case OP_UNARY_RELU6:      x = clamp(x, 0.0, 6.0); break;
+            case OP_UNARY_MISH:       x = x * tanh(log(1.0 + exp(x))); break;
+            case OP_UNARY_HARDSWISH:  x = x * clamp(x / 6.0 + 0.5, 0.0, 1.0); break;
+            case OP_UNARY_HARDSIGMOID: x = clamp(x / 6.0 + 0.5, 0.0, 1.0); break;
+            case OP_UNARY_RSQRT:      x = rsqrt(x); break;
+            default: break;
+        }
+        value = (%SCALAR_DTYPE_OUTPUT%)x;
     } else if (FUSION_TYPE == 2) {
         float a = float(value);
         float b = float(dataD[idx >> 2][idx & 3]);
         float r = a;
-        switch (BINARY_OP) {
+        switch (FUSION_OP) {
             case OP_BINARY_ADD:       r = a + b; break;
             case OP_BINARY_SUB:       r = a - b; break;
             case OP_BINARY_MUL:       r = a * b; break;

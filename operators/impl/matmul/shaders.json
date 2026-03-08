@@ -411,8 +411,8 @@
       "cpp_prefix": "Fusion",
       "variants": [
         {
-          "name": "SiLU",
-          "description": "SiLU fusion module",
+          "name": "Unary",
+          "description": "Unary fusion module",
           "dtype_slots": {
             "combos": [
               {"output": "Float32"}

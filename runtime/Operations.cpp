@@ -215,27 +215,29 @@ Tensor Operations::matmul(const Tensor &a,
   return recordOrEncode(std::move(node));
 }
 
-Tensor Operations::matmulSiLU(const Tensor &a,
-                              const Tensor &b,
-                              std::optional<uint32_t> spec) {
+Tensor Operations::matmulUnary(OperatorEnum unaryOp,
+                               const Tensor &a,
+                               const Tensor &b,
+                               std::optional<uint32_t> spec) {
   auto node = std::make_unique<MatMulOpNode>(*store_, a, b, spec);
   auto inputs = resolveAndCastInputs(*node, {a, b});
   if (inputs[0] != a || inputs[1] != b)
     node = std::make_unique<MatMulOpNode>(*store_, inputs[0], inputs[1], spec);
-  node->setFusion(MatMulFusion::SiLU);
+  node->setFusion(MatMulFusion::Unary, unaryOp);
   return recordOrEncode(std::move(node));
 }
 
-Tensor Operations::matmulSiLU(const Tensor &a,
-                              const Tensor &packedB,
-                              const Tensor &scales,
-                              std::optional<uint32_t> spec) {
+Tensor Operations::matmulUnary(OperatorEnum unaryOp,
+                               const Tensor &a,
+                               const Tensor &packedB,
+                               const Tensor &scales,
+                               std::optional<uint32_t> spec) {
   auto node = std::make_unique<MatMulOpNode>(*store_, a, packedB, scales, spec);
   auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
   if (inputs[0] != a)
     node = std::make_unique<MatMulOpNode>(*store_, inputs[0], packedB, scales,
                                           spec);
-  node->setFusion(MatMulFusion::SiLU);
+  node->setFusion(MatMulFusion::Unary, unaryOp);
   return recordOrEncode(std::move(node));
 }
 

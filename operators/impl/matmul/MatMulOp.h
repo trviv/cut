@@ -11,7 +11,7 @@ namespace cut {
 enum class QuantFormat { None, Q8, Q4 };
 
 /// Fusion mode for matmul ops (applied at output write via SPIR-V linking).
-enum class MatMulFusion { None, SiLU, Binary };
+enum class MatMulFusion { None, Unary, Binary };
 
 class MatMulOpNode : public OpNode {
 public:
@@ -33,10 +33,11 @@ public:
   MatMulFusion fusion() const { return fusion_; }
 
   /// Set fusion mode after construction (called by optimizer passes).
+  /// fusionOp is the unary or binary op code to apply.
   /// For Binary fusion, d is the [M,N] tensor to combine with the matmul
   /// result.
   void setFusion(MatMulFusion fusion,
-                 OperatorEnum binaryOp = {},
+                 OperatorEnum fusionOp = {},
                  const Tensor &d = {});
 
   DataType outputDtype() const override;
@@ -53,7 +54,7 @@ public:
 private:
   QuantFormat format_;
   MatMulFusion fusion_ = MatMulFusion::None;
-  OperatorEnum binaryOp_{};
+  OperatorEnum fusionOp_{};
   DataType dtypeA_;
   DataType dtypeB_; // B dtype for None, scales dtype for Q8/Q4
   uint32_t M_, K_, N_;

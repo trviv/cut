@@ -155,10 +155,10 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
 // ============================================================================
 
 void MatMulOpNode::setFusion(MatMulFusion fusion,
-                             OperatorEnum binaryOp,
+                             OperatorEnum fusionOp,
                              const Tensor &d) {
   fusion_ = fusion;
-  binaryOp_ = binaryOp;
+  fusionOp_ = fusionOp;
   if (fusion == MatMulFusion::Binary) {
     inputs_.push_back(d);
   }
@@ -178,8 +178,8 @@ size_t MatMulOpNode::shaderKey() const {
   key |= (static_cast<size_t>(dtypeB_) & 0xF) << 20;
   // Encode fusion type (bits 36-39) and binary op (bits 40-47)
   key |= (static_cast<size_t>(fusion_) & 0xF) << 36;
-  if (fusion_ == MatMulFusion::Binary) {
-    key |= (static_cast<size_t>(binaryOp_) & 0xFF) << 40;
+  if (fusion_ != MatMulFusion::None) {
+    key |= (static_cast<size_t>(fusionOp_) & 0xFF) << 40;
   }
   key |= static_cast<size_t>(spec_.value_or(0)) << 48;
   return key;
@@ -207,11 +207,12 @@ std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
   auto spirv = std::move(compiled.value());
 
   // Patch specialization constants for fusion
-  if (fusion_ == MatMulFusion::SiLU) {
-    patchSpecConstant(spirv, 1, 1); // FUSION_TYPE = 1 (SiLU)
+  if (fusion_ == MatMulFusion::Unary) {
+    patchSpecConstant(spirv, 1, 1); // FUSION_TYPE = 1 (unary)
+    patchSpecConstant(spirv, 2, static_cast<uint32_t>(fusionOp_));
   } else if (fusion_ == MatMulFusion::Binary) {
     patchSpecConstant(spirv, 1, 2); // FUSION_TYPE = 2 (binary op)
-    patchSpecConstant(spirv, 2, static_cast<uint32_t>(binaryOp_));
+    patchSpecConstant(spirv, 2, static_cast<uint32_t>(fusionOp_));
   }
 
   return spirv;
@@ -300,8 +301,8 @@ std::string MatMulOpNode::displayName() const {
     break;
   }
   switch (fusion_) {
-  case MatMulFusion::SiLU:
-    name += "SiLU";
+  case MatMulFusion::Unary:
+    name += "Unary";
     break;
   case MatMulFusion::Binary:
     name += "Binary";

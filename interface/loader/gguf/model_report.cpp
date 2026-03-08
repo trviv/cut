@@ -1182,7 +1182,7 @@ void generateModelReport(
   if (!optimizedGraphs.empty()) {
     out << R"(<h2>Computation Graphs &mdash; Before &amp; After Optimization</h2>
 <p class="tensor-count">Graph templates (layer 0 representative) shown before and after optimization passes.<br>
-<strong>Fusion passes:</strong> ExtendedRMSNormFusion, RMSNormFusion, MatMulSiLUFusion<br>
+<strong>Fusion passes:</strong> ExtendedRMSNormFusion, RMSNormFusion, MatMulUnaryFusion<br>
 <strong>Structural passes:</strong> IdentityReshape, NoOpReshape, ReshapeChain, TransposeCancel, DeadCode</p>
 )";
     for (size_t gi = 0; gi < optimizedGraphs.size(); ++gi) {
