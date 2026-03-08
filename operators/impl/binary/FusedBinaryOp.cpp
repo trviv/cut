@@ -102,8 +102,8 @@ std::optional<std::vector<uint32_t>> FusedBinaryOpNode::shader() const {
 
   if (compiled.has_value()) {
     auto spirv = std::move(compiled.value());
-    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op1_));
-    patchSpecConstant(spirv, 2, static_cast<uint32_t>(op2_));
+    patchSpecConstants(spirv, {{1, static_cast<uint32_t>(op1_)},
+                               {2, static_cast<uint32_t>(op2_)}});
     return spirv;
   }
   return std::nullopt;

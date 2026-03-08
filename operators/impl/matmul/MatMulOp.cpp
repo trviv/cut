@@ -1,5 +1,4 @@
 #include "MatMulOp.h"
-#include "ShaderUtils.h"
 #include "Shaders.h"
 #include "TensorStore.h"
 
@@ -206,13 +205,11 @@ std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
 
   auto spirv = std::move(compiled.value());
 
-  // Patch specialization constants for fusion
+  // Patch specialization constants for fusion (single SPIR-V scan)
   if (fusion_ == MatMulFusion::Unary) {
-    patchSpecConstant(spirv, 1, 1); // FUSION_TYPE = 1 (unary)
-    patchSpecConstant(spirv, 2, static_cast<uint32_t>(fusionOp_));
+    patchSpecConstants(spirv, {{1, 1}, {2, static_cast<uint32_t>(fusionOp_)}});
   } else if (fusion_ == MatMulFusion::Binary) {
-    patchSpecConstant(spirv, 1, 2); // FUSION_TYPE = 2 (binary op)
-    patchSpecConstant(spirv, 2, static_cast<uint32_t>(fusionOp_));
+    patchSpecConstants(spirv, {{1, 2}, {2, static_cast<uint32_t>(fusionOp_)}});
   }
 
   return spirv;

@@ -23,87 +23,53 @@ find_program(DXC_EXECUTABLE dxc REQUIRED)
 message(STATUS "DXC compiler: ${DXC_EXECUTABLE}")
 
 # =============================================================================
-# Function to compile all dtype variants of a shader function to SPIR-V.
-# Groups all dtypes into a single build step with one cache check, instead of
-# spawning a separate process per dtype variant.
+# Function to compile each dtype variant of a shader function to SPIR-V as a
+# separate build step.  Each variant gets its own add_custom_command so CMake's
+# parallel build (-j) can compile them concurrently across all shader functions
+# and dtype combos.
 # =============================================================================
 function(compile_shader_group FUNC_NAME DTYPES_CSV SOURCE_HASH)
     set(EXTRA_DXC_FLAGS "${ARGN}")
     string(REPLACE "," ";" DTYPE_LIST "${DTYPES_CSV}")
 
-    # Collect all output SPV files and source shader files
-    set(ALL_OUTPUTS "")
-    set(ALL_SOURCES "")
     foreach(DTYPE ${DTYPE_LIST})
-        list(APPEND ALL_OUTPUTS ${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv)
-        list(APPEND ALL_SOURCES ${GENERATED_SHADER_DIR}/${FUNC_NAME}_${DTYPE}.shader)
-    endforeach()
+        set(SPV_OUTPUT ${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv)
+        set(SHADER_SRC ${GENERATED_SHADER_DIR}/${FUNC_NAME}_${DTYPE}.shader)
 
-    # Create a single CMake script that compiles all dtype variants with caching
-    set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${FUNC_NAME}.cmake)
-
-    # Build the script: hash header at build time, combine with pre-computed source hash
-    set(SCRIPT_CONTENT "# Compile all dtype variants of ${FUNC_NAME} with per-shader caching
+        # Per-variant CMake script with caching
+        set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${FUNC_NAME}_${DTYPE}.cmake)
+        set(SCRIPT_CONTENT "# Compile ${FUNC_NAME}_${DTYPE} with caching
 file(MD5 \"${SHADER_INCLUDE_DIR}/ComputeOpsShared.h\" HEADER_HASH)
 string(MD5 CACHE_KEY \"${SOURCE_HASH}_\${HEADER_HASH}\")
 
-# Check if all variants are cached
-set(ALL_CACHED TRUE)
-")
-
-    foreach(DTYPE ${DTYPE_LIST})
-        string(APPEND SCRIPT_CONTENT "
-if(NOT EXISTS \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\")
-    set(ALL_CACHED FALSE)
-endif()
-")
-    endforeach()
-
-    # Cache hit path: copy all variants from cache
-    string(APPEND SCRIPT_CONTENT "
-if(ALL_CACHED)
-    message(STATUS \"Cache hit: ${FUNC_NAME} (all variants)\")
-")
-    foreach(DTYPE ${DTYPE_LIST})
-        string(APPEND SCRIPT_CONTENT "\
-    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\" \"${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv\")
-")
-    endforeach()
-
-    # Cache miss path: compile all variants and store in cache
-    string(APPEND SCRIPT_CONTENT "\
+if(EXISTS \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\")
+    message(STATUS \"Cache hit: ${FUNC_NAME}_${DTYPE}\")
+    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\" \"${SPV_OUTPUT}\")
 else()
-    message(STATUS \"Cache miss: ${FUNC_NAME} — compiling all variants\")
-")
-    foreach(DTYPE ${DTYPE_LIST})
-        string(APPEND SCRIPT_CONTENT "
+    message(STATUS \"Compiling ${FUNC_NAME}_${DTYPE}\")
     execute_process(
-        COMMAND ${DXC_EXECUTABLE} -T cs_6_2 -E main -spirv -fspv-target-env=vulkan1.1 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${GENERATED_SHADER_DIR}/${FUNC_NAME}_${DTYPE}.shader\" -Fo \"${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv\"
+        COMMAND ${DXC_EXECUTABLE} -T cs_6_2 -E main -spirv -fspv-target-env=vulkan1.1 -I ${SHADER_INCLUDE_DIR} ${EXTRA_DXC_FLAGS} \"${SHADER_SRC}\" -Fo \"${SPV_OUTPUT}\"
         RESULT_VARIABLE result
     )
     if(NOT result EQUAL 0)
         message(FATAL_ERROR \"Shader compilation failed for ${FUNC_NAME}_${DTYPE}\")
     endif()
-    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv\" \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\")
-")
-    endforeach()
-
-    string(APPEND SCRIPT_CONTENT "\
+    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SPV_OUTPUT}\" \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\")
 endif()
 ")
+        file(WRITE ${COMPILE_SCRIPT} "${SCRIPT_CONTENT}")
 
-    file(WRITE ${COMPILE_SCRIPT} "${SCRIPT_CONTENT}")
+        add_custom_command(
+            OUTPUT ${SPV_OUTPUT}
+            COMMAND ${CMAKE_COMMAND} -P ${COMPILE_SCRIPT}
+            DEPENDS ${SHADER_SRC} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
+            COMMENT "Compiling ${FUNC_NAME}_${DTYPE}.spv"
+            VERBATIM
+        )
 
-    # Single custom command for all dtype variants of this function
-    add_custom_command(
-        OUTPUT ${ALL_OUTPUTS}
-        COMMAND ${CMAKE_COMMAND} -P ${COMPILE_SCRIPT}
-        DEPENDS ${ALL_SOURCES} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
-        COMMENT "Compiling ${FUNC_NAME} shaders to SPIR-V (${DTYPES_CSV})"
-        VERBATIM
-    )
+        list(APPEND COMPILED_SHADERS ${SPV_OUTPUT})
+    endforeach()
 
-    list(APPEND COMPILED_SHADERS ${ALL_OUTPUTS})
     set(COMPILED_SHADERS ${COMPILED_SHADERS} PARENT_SCOPE)
 endfunction()
 

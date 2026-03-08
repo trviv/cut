@@ -47,17 +47,6 @@ if(NOT SHADERC_LIB)
 endif()
 message(STATUS "shaderc library: ${SHADERC_LIB}")
 
-# Find SPIRV-Tools libraries (part of Vulkan SDK) for runtime SPIR-V linking
-find_library(SPIRV_TOOLS_LIB SPIRV-Tools
-    PATHS ${Vulkan_INCLUDE_DIRS}/../lib
-    REQUIRED
-)
-find_library(SPIRV_TOOLS_LINK_LIB SPIRV-Tools-link
-    PATHS ${Vulkan_INCLUDE_DIRS}/../lib
-    REQUIRED
-)
-message(STATUS "SPIRV-Tools library: ${SPIRV_TOOLS_LIB}")
-message(STATUS "SPIRV-Tools-link library: ${SPIRV_TOOLS_LINK_LIB}")
 
 # Shader compilation disabled - using pre-built CompiledShaders.cpp
 include(${CMAKE_CURRENT_LIST_DIR}/shader_loader.cmake)
@@ -115,7 +104,6 @@ set(LIB_HEADERS
     operators/impl/ternary/TernaryOp.h
     operators/impl/transpose/TransposeOp.h
     operators/impl/unary/UnaryOp.h
-    operators/ShaderUtils.h
     runtime/Runtime.h
     runtime/Dispatcher.h
     runtime/Operations.h
@@ -131,7 +119,6 @@ set(LIB_HEADERS
 # Source files
 set(LIB_SOURCES
     operators/Shaders.cpp
-    operators/ShaderUtils.cpp
     operators/CompiledShaders.cpp
     core/api/src/ComputeCommon.cpp
     core/api/src/ComputeHandle.cpp
@@ -198,8 +185,6 @@ endif()
 target_link_libraries(CUTLib PRIVATE
     ${Vulkan_LIBRARIES}
     ${SHADERC_LIB}
-    ${SPIRV_TOOLS_LINK_LIB}
-    ${SPIRV_TOOLS_LIB}
 )
 
 # Include directories

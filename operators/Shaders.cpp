@@ -3,49 +3,70 @@
 
 namespace cut {
 
-void patchSpecConstant(std::vector<uint32_t> &spirv,
-                       uint32_t specId,
-                       uint32_t newValue) {
+void patchSpecConstants(
+    std::vector<uint32_t> &spirv,
+    const std::initializer_list<std::pair<uint32_t, uint32_t>> &patches) {
   constexpr uint32_t kOpDecorate = 71;
   constexpr uint32_t kOpSpecConstant = 50;
   constexpr uint32_t kDecorationSpecId = 1;
   constexpr size_t kHeaderSize = 5;
 
-  if (spirv.size() < kHeaderSize)
+  if (spirv.size() < kHeaderSize || patches.size() == 0)
     return;
 
-  // First pass: find the result ID decorated with the target SpecId.
-  uint32_t targetId = 0;
-  bool found = false;
-  for (size_t i = kHeaderSize; i < spirv.size();) {
+  // Map specId -> {resultId, newValue} for all requested patches.
+  // Use a small fixed array since we never have more than a few spec constants.
+  struct Patch {
+    uint32_t specId;
+    uint32_t newValue;
+    uint32_t resultId;
+    bool found;
+  };
+  Patch p[4];
+  size_t n = 0;
+  for (auto &[sid, val] : patches) {
+    if (n < 4) {
+      p[n++] = {sid, val, 0, false};
+    }
+  }
+
+  // Single pass: find all OpDecorate SpecId decorations and all
+  // OpSpecConstant instructions, patching in place.
+  size_t remaining = n;
+  for (size_t i = kHeaderSize; i < spirv.size() && remaining > 0;) {
     uint32_t wordCount = spirv[i] >> 16;
     uint32_t opcode = spirv[i] & 0xFFFF;
     if (wordCount == 0)
       break;
     if (opcode == kOpDecorate && wordCount >= 4 &&
-        spirv[i + 2] == kDecorationSpecId && spirv[i + 3] == specId) {
-      targetId = spirv[i + 1];
-      found = true;
-      break;
+        spirv[i + 2] == kDecorationSpecId) {
+      uint32_t sid = spirv[i + 3];
+      uint32_t rid = spirv[i + 1];
+      for (size_t j = 0; j < n; ++j) {
+        if (!p[j].found && p[j].specId == sid) {
+          p[j].resultId = rid;
+          p[j].found = true;
+          break;
+        }
+      }
+    } else if (opcode == kOpSpecConstant && wordCount >= 4) {
+      uint32_t rid = spirv[i + 2];
+      for (size_t j = 0; j < n; ++j) {
+        if (p[j].found && p[j].resultId == rid) {
+          spirv[i + 3] = p[j].newValue;
+          --remaining;
+          break;
+        }
+      }
     }
     i += wordCount;
   }
-  if (!found)
-    return;
+}
 
-  // Second pass: patch the OpSpecConstant with matching result ID.
-  for (size_t i = kHeaderSize; i < spirv.size();) {
-    uint32_t wordCount = spirv[i] >> 16;
-    uint32_t opcode = spirv[i] & 0xFFFF;
-    if (wordCount == 0)
-      break;
-    if (opcode == kOpSpecConstant && wordCount >= 4 &&
-        spirv[i + 2] == targetId) {
-      spirv[i + 3] = newValue;
-      return;
-    }
-    i += wordCount;
-  }
+void patchSpecConstant(std::vector<uint32_t> &spirv,
+                       uint32_t specId,
+                       uint32_t newValue) {
+  patchSpecConstants(spirv, {{specId, newValue}});
 }
 
 std::vector<uint32_t> getShader(const OperatorEnum shader,

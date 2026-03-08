@@ -54,9 +54,17 @@ getDimReduceShader(const OperatorEnum reduceOp,
                    std::optional<uint32_t> variant = {});
 
 /**
- * Patch the default value of a specialization constant in SPIR-V bytecode.
- * Finds the OpSpecConstant decorated with the given SpecId and overwrites
- * its literal value.
+ * Patch multiple specialization constants in a single SPIR-V scan.
+ * Each pair is {specId, newValue}. More efficient than calling
+ * patchSpecConstant repeatedly for fusion shaders with 2+ constants.
+ */
+void patchSpecConstants(
+    std::vector<uint32_t> &spirv,
+    const std::initializer_list<std::pair<uint32_t, uint32_t>> &patches);
+
+/**
+ * Patch a single specialization constant. Convenience wrapper around
+ * patchSpecConstants for the common single-constant case.
  */
 void patchSpecConstant(std::vector<uint32_t> &spirv,
                        uint32_t specId,
