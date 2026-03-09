@@ -55,6 +55,7 @@ ComputeHandle ComputeInterface::submitReusable() {
 }
 
 void ComputeInterface::resubmit(const ComputeHandle &commandBufferHandle) {
+  flushTransfers();
   if (!commandBufferHandle) {
     logErr("Invalid command buffer handle. "
            "Call submitReusable() to get a valid handle.");
