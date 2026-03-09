@@ -17,23 +17,32 @@ struct ReduceDimVariantInfo {
     const char* description;
 };
 
-inline constexpr int kReduceDimVariantCount = 2;
+inline constexpr int kReduceDimVariantCount = 5;
 inline constexpr int kReduceDimDefaultVariant = 0;
 
 inline constexpr ReduceDimVariantInfo kReduceDimVariants[kReduceDimVariantCount] = {
     {"ReduceDimNaive", 256, 1, 256, 1, "Naive (serial reduce per thread)"},
     {"ReduceDimShared", 256, 1, 256, 1, "SharedMem parallel reduction"},
+    {"ReduceDimVariance", 256, 1, 256, 1, "Single-pass Welford variance"},
+    {"ReduceDimRMS", 256, 1, 256, 1, "Single-pass RMS"},
+    {"ReduceDimLogSumExp", 256, 1, 256, 1, "Single-pass LogSumExp"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
 std::optional<std::vector<uint32_t>> compiledReduceDimNaive(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledReduceDimShared(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledReduceDimVariance(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledReduceDimRMS(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledReduceDimLogSumExp(DataType input, DataType output);
 
 using CompiledReduceDimFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
 inline const CompiledReduceDimFn kReduceDimCompiledFns[kReduceDimVariantCount] = {
     compiledReduceDimNaive,
     compiledReduceDimShared,
+    compiledReduceDimVariance,
+    compiledReduceDimRMS,
+    compiledReduceDimLogSumExp,
 };
 
 /// Returns compiled SPIR-V for a reducedim variant by index.

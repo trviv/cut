@@ -18,13 +18,16 @@
 #include "impl/rmsnorm/ExtendedRMSNormOp.h"
 #include "impl/rmsnorm/RMSNormOp.h"
 #include "impl/scan/ScanOp.h"
+#include "impl/softmax/SoftmaxOp.h"
 #include "impl/sort/SortOp.h"
 #include "impl/ternary/TernaryOp.h"
 #include "impl/transpose/TransposeOp.h"
 #include "impl/unary/UnaryOp.h"
 
 #include "impl/attention/AttentionOp.h"
+#include "impl/q4transpose/TransposeQ4NibbleOp.h"
 #include "impl/rope/RoPEOp.h"
+#include "impl/sampling/RepetitionPenaltyOp.h"
 
 #include <algorithm>
 #include <cstring>
@@ -355,6 +358,86 @@ Operations::variance(const Tensor &a, int correction, std::optional<int> dim) {
 }
 
 // =========================================================================
+// Single-pass statistical reductions
+// =========================================================================
+
+Tensor Operations::varianceFused(const Tensor &a,
+                                 int correction,
+                                 std::optional<int> dim,
+                                 std::optional<uint32_t> spec) {
+  if (!dim.has_value()) {
+    // Global single-pass variance via Welford shader
+    auto node = std::make_unique<VarianceOpNode>(*store_, a, spec);
+    Tensor result = recordOrEncode(std::move(node));
+    // Apply Bessel's correction if needed: var * n / (n - correction)
+    if (correction != 0) {
+      auto shape = getShape(a);
+      size_t n = shapeProduct(shape);
+      int denom = static_cast<int>(n) - correction;
+      if (denom > 0) {
+        float scale = static_cast<float>(n) / static_cast<float>(denom);
+        return binaryOp(OperatorEnum::BinaryMul, result, scale);
+      }
+      return full({1}, 0.0f, DataType::Float32);
+    }
+    return result;
+  }
+  // Dim-wise single-pass variance via Welford dim shader
+  auto shape = getShape(a);
+  int ndim = static_cast<int>(shape.size());
+  int d = dim.value();
+  if (d < 0)
+    d = ndim + d;
+  uint32_t reduceSize = shape[d];
+  auto node = std::make_unique<DimReduceOpNode>(OperatorEnum::ReduceVariance,
+                                                *store_, a, d, spec);
+  Tensor result = recordOrEncode(std::move(node));
+  if (correction != 0) {
+    int denom = static_cast<int>(reduceSize) - correction;
+    if (denom > 0) {
+      float scale = static_cast<float>(reduceSize) / static_cast<float>(denom);
+      return binaryOp(OperatorEnum::BinaryMul, result, scale);
+    }
+    return full(computeDimParams(shape, d).outShape, 0.0f, DataType::Float32);
+  }
+  return result;
+}
+
+Tensor Operations::rms(const Tensor &a,
+                       std::optional<int> dim,
+                       std::optional<uint32_t> spec) {
+  if (!dim.has_value()) {
+    auto node = std::make_unique<RMSOpNode>(*store_, a, spec);
+    return recordOrEncode(std::move(node));
+  }
+  int d = dim.value();
+  auto shape = getShape(a);
+  int ndim = static_cast<int>(shape.size());
+  if (d < 0)
+    d = ndim + d;
+  auto node = std::make_unique<DimReduceOpNode>(OperatorEnum::ReduceRMS,
+                                                *store_, a, d, spec);
+  return recordOrEncode(std::move(node));
+}
+
+Tensor Operations::logSumExp(const Tensor &a,
+                             std::optional<int> dim,
+                             std::optional<uint32_t> spec) {
+  if (!dim.has_value()) {
+    auto node = std::make_unique<LogSumExpOpNode>(*store_, a, spec);
+    return recordOrEncode(std::move(node));
+  }
+  int d = dim.value();
+  auto shape = getShape(a);
+  int ndim = static_cast<int>(shape.size());
+  if (d < 0)
+    d = ndim + d;
+  auto node = std::make_unique<DimReduceOpNode>(OperatorEnum::ReduceLogSumExp,
+                                                *store_, a, d, spec);
+  return recordOrEncode(std::move(node));
+}
+
+// =========================================================================
 // Softmax
 // =========================================================================
 
@@ -394,6 +477,22 @@ Tensor Operations::logSoftmax(const Tensor &a, int dim) {
   Tensor logSumUnsq = unsqueeze(logSum, dim);
   Tensor logSumExp = expand(logSumUnsq, shape);
   return binaryOp(OperatorEnum::BinarySub, shifted, logSumExp);
+}
+
+Tensor Operations::softmaxFused(const Tensor &a,
+                                int dim,
+                                std::optional<uint32_t> spec) {
+  auto node = std::make_unique<SoftmaxOpNode>(OperatorEnum::Softmax, *store_, a,
+                                              dim, spec);
+  return recordOrEncode(std::move(node));
+}
+
+Tensor Operations::logSoftmaxFused(const Tensor &a,
+                                   int dim,
+                                   std::optional<uint32_t> spec) {
+  auto node = std::make_unique<SoftmaxOpNode>(OperatorEnum::LogSoftmax, *store_,
+                                              a, dim, spec);
+  return recordOrEncode(std::move(node));
 }
 
 // =========================================================================
@@ -912,8 +1011,10 @@ Tensor Operations::extendedRmsNorm(const Tensor &residual_base,
 
 Tensor Operations::embedding(const Tensor &indices,
                              const Tensor &weight,
+                             const Tensor &preallocOutput,
                              std::optional<uint32_t> spec) {
-  auto node = std::make_unique<EmbeddingOpNode>(*store_, indices, weight, spec);
+  auto node = std::make_unique<EmbeddingOpNode>(*store_, indices, weight,
+                                                preallocOutput, spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -1011,6 +1112,20 @@ Operations::resolveAndCastInputs(const OpNode &node,
 // =========================================================================
 // Type conversion
 // =========================================================================
+
+Tensor Operations::repetitionPenalty(const Tensor &logits,
+                                     const Tensor &penaltyFactors) {
+  auto node = std::make_unique<RepetitionPenaltyOpNode>(*store_, logits,
+                                                        penaltyFactors);
+  return recordOrEncode(std::move(node));
+}
+
+Tensor
+Operations::transposeQ4(const Tensor &packedInput, uint32_t N, uint32_t K) {
+  auto node =
+      std::make_unique<TransposeQ4NibbleOpNode>(*store_, packedInput, N, K);
+  return recordOrEncode(std::move(node));
+}
 
 Tensor Operations::dequantize(const Tensor &rawData,
                               uint32_t format,

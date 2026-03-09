@@ -202,6 +202,9 @@
 #define OP_REDUCE_PROD 204
 #define OP_REDUCE_ANY 205
 #define OP_REDUCE_ALL 206
+#define OP_REDUCE_VARIANCE 210
+#define OP_REDUCE_RMS 211
+#define OP_REDUCE_LOGSUMEXP 212
 #define OP_REDUCE_ARGMAX 214
 #define OP_REDUCE_ARGMIN 215
 
@@ -274,6 +277,8 @@
 #define OP_BATCH_NORM 311
 #define OP_RMS_NORM 312
 #define OP_EXTENDED_RMS_NORM 313
+#define OP_SOFTMAX 315
+#define OP_LOG_SOFTMAX 316
 
 // =============================================================================
 // Embedding operations (320)
@@ -325,5 +330,17 @@
 // =============================================================================
 
 #define OP_DEQUANTIZE 390
+
+// =============================================================================
+// Sampling operations (400)
+// =============================================================================
+
+#define OP_REPETITION_PENALTY 400
+
+// =============================================================================
+// Q4 transpose operations (401)
+// =============================================================================
+
+#define OP_TRANSPOSE_Q4 401
 
 #endif // COMPUTE_OPS_SHARED

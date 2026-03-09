@@ -47,6 +47,60 @@
           {"input": "UInt32", "output": "UInt32"}
         ]
       }
+    },
+    {
+      "name": "Variance",
+      "template": "ReduceDimVariance",
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        256,
+        1
+      ],
+      "description": "Single-pass Welford variance",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "RMS",
+      "template": "ReduceDimRMS",
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        256,
+        1
+      ],
+      "description": "Single-pass RMS",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "LogSumExp",
+      "template": "ReduceDimLogSumExp",
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        256,
+        1
+      ],
+      "description": "Single-pass LogSumExp",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
     }
   ]
 }

@@ -173,7 +173,9 @@ private:
   cut::Operations *ops_ = nullptr;
 
   // Weights
-  std::vector<float> token_embd_data_; // [vocab_size, dim] kept on CPU
+  cut::ComputeHandle embeddingTable_; // [vocab_size, dim] on GPU
+  cut::ComputeHandle
+      tokenIdBuffer_; // 1-element UInt32 for GPU embedding lookup
   std::vector<LlamaLayer> layers_;
   cut::ComputeHandle output_norm_;
   WeightHandle output_weight_; // LM head [dim, vocab_size]
@@ -213,12 +215,13 @@ private:
   void buildGPT2ByteEncoder();
 
   // Pre-allocated buffers for command buffer reuse
-  cut::ComputeHandle runtimeParamsBuffer_; // {pos, seqLen} — 2x uint32
-  cut::ComputeHandle hiddenBuffer_;        // [dim] Float32
-  cut::ComputeHandle ropeQOutBuffer_;      // [n_heads * head_dim] Float32
-  cut::ComputeHandle ropeKOutBuffer_;      // [kv_dim] Float32
-  cut::ComputeHandle attnOutBuffer_;       // [n_heads * head_dim] Float32
-  cut::ComputeHandle logitsOutput_;        // stable logits handle
+  cut::ComputeHandle runtimeParamsBuffer_;  // {pos, seqLen} — 2x uint32
+  cut::ComputeHandle hiddenBuffer_;         // [dim] Float32
+  cut::ComputeHandle ropeQOutBuffer_;       // [n_heads * head_dim] Float32
+  cut::ComputeHandle ropeKOutBuffer_;       // [kv_dim] Float32
+  cut::ComputeHandle attnOutBuffer_;        // [n_heads * head_dim] Float32
+  cut::ComputeHandle logitsOutput_;         // stable logits handle
+  cut::ComputeHandle penaltyFactorsBuffer_; // [vocab_size] Float32
 
   // Command buffer caching for decode phase
   cut::ComputeHandle cachedDecodeCB_;

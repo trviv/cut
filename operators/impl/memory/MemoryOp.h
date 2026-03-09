@@ -32,6 +32,7 @@ public:
   EmbeddingOpNode(TensorStore &store,
                   const Tensor &indices,
                   const Tensor &weight,
+                  const Tensor &preallocOutput = {},
                   std::optional<uint32_t> spec = {});
 
   DataType outputDtype() const override;

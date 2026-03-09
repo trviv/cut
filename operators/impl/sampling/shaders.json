@@ -1,0 +1,15 @@
+{
+  "type": "variants",
+  "cpp_prefix": "",
+  "variants": [
+    {
+      "name": "RepetitionPenalty",
+      "description": "Apply repetition penalty: logit>0 ? logit/factor : logit*factor",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    }
+  ]
+}

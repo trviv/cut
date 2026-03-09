@@ -168,6 +168,12 @@ std::vector<uint32_t> getDimReduceShader(const OperatorEnum reduceOp,
   std::optional<std::vector<uint32_t>> compiled;
   if (reduceOp == ReduceArgmax || reduceOp == ReduceArgmin) {
     compiled = compiledReduceDimArg(datatype, datatype);
+  } else if (reduceOp == ReduceVariance) {
+    compiled = compiledReduceDimVariance(datatype, datatype);
+  } else if (reduceOp == ReduceRMS) {
+    compiled = compiledReduceDimRMS(datatype, datatype);
+  } else if (reduceOp == ReduceLogSumExp) {
+    compiled = compiledReduceDimLogSumExp(datatype, datatype);
   } else if (variant.has_value()) {
     compiled = getCompiledReduceDim(variant.value(), datatype, datatype);
   } else {

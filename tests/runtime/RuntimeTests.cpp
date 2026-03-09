@@ -6885,7 +6885,7 @@ TEST_F(VulkanBackendTest, ReduceDimVariants_Dim0) {
     for (uint32_t j = 0; j < N; ++j)
       expected[j] += data[i * N + j];
 
-  for (int vi = 0; vi < kReduceDimVariantCount; ++vi) {
+  for (int vi = 0; vi < 2; ++vi) { // Only generic variants (Naive, Shared)
     SCOPED_TRACE(std::string("Variant: ") + getReduceDimVariantName(vi));
     auto buf = runtime_->createTensor({M, N}, dtype, data.data());
     auto bufOut = runtime_->ops().reduce(ReduceSum, buf, 0, vi);
@@ -6912,7 +6912,7 @@ TEST_F(VulkanBackendTest, ReduceDimVariants_Dim1) {
     for (uint32_t j = 0; j < N; ++j)
       expected[i] += data[i * N + j];
 
-  for (int vi = 0; vi < kReduceDimVariantCount; ++vi) {
+  for (int vi = 0; vi < 2; ++vi) { // Only generic variants (Naive, Shared)
     SCOPED_TRACE(std::string("Variant: ") + getReduceDimVariantName(vi));
     auto buf = runtime_->createTensor({M, N}, dtype, data.data());
     auto bufOut = runtime_->ops().reduce(ReduceSum, buf, 1, vi);
@@ -6941,7 +6941,7 @@ TEST_F(VulkanBackendTest, ReduceDimVariants_Mean) {
   for (uint32_t j = 0; j < N; ++j)
     expected[j] /= static_cast<float>(M);
 
-  for (int vi = 0; vi < kReduceDimVariantCount; ++vi) {
+  for (int vi = 0; vi < 2; ++vi) { // Only generic variants (Naive, Shared)
     SCOPED_TRACE(std::string("Variant: ") + getReduceDimVariantName(vi));
     auto buf = runtime_->createTensor({M, N}, dtype, data.data());
     auto bufOut = runtime_->ops().reduce(ReduceMean, buf, 0, vi);
@@ -6968,7 +6968,7 @@ TEST_F(VulkanBackendTest, ReduceDimVariants_Max) {
     for (uint32_t j = 0; j < N; ++j)
       expected[j] = std::max(expected[j], data[i * N + j]);
 
-  for (int vi = 0; vi < kReduceDimVariantCount; ++vi) {
+  for (int vi = 0; vi < 2; ++vi) { // Only generic variants (Naive, Shared)
     SCOPED_TRACE(std::string("Variant: ") + getReduceDimVariantName(vi));
     auto buf = runtime_->createTensor({M, N}, dtype, data.data());
     auto bufOut = runtime_->ops().reduce(ReduceMax, buf, 0, vi);
@@ -7352,6 +7352,676 @@ TEST_F(BinaryVecScalarHandleTest, BinaryMul_Handle_SingleElement) {
 
   float expected = dataA * scalarValue;
   ASSERT_NEAR(output, expected, 1e-5f);
+}
+
+// ============================================================================
+// Single-Pass Statistical Reduction Tests
+// ============================================================================
+
+// --- Variance ---
+
+TEST_F(VulkanBackendTest, VarianceFused_Global_MatchesComposite) {
+  auto data = generateTestData<float>(256, 42);
+  auto buf = runtime_->createTensor({256}, DataType::Float32, data.data());
+
+  auto varComposite = runtime_->ops().variance(buf, 0);
+  auto varFused = runtime_->ops().varianceFused(buf, 0);
+
+  float composite, fused;
+  runtime_->copyFromTensor(varComposite, &composite, sizeof(float));
+  runtime_->copyFromTensor(varFused, &fused, sizeof(float));
+
+  ASSERT_NEAR(fused, composite, std::abs(composite) * 1e-4f + 1e-5f)
+      << "Fused variance " << fused << " != composite " << composite;
+}
+
+TEST_F(VulkanBackendTest, VarianceFused_Global_BesselCorrection) {
+  auto data = generateTestData<float>(100, 42);
+  auto buf = runtime_->createTensor({100}, DataType::Float32, data.data());
+
+  auto varComposite = runtime_->ops().variance(buf, 1);
+  auto varFused = runtime_->ops().varianceFused(buf, 1);
+
+  float composite, fused;
+  runtime_->copyFromTensor(varComposite, &composite, sizeof(float));
+  runtime_->copyFromTensor(varFused, &fused, sizeof(float));
+
+  ASSERT_NEAR(fused, composite, std::abs(composite) * 1e-4f + 1e-5f)
+      << "Fused variance (Bessel) " << fused << " != composite " << composite;
+}
+
+TEST_F(VulkanBackendTest, VarianceFused_Dim_MatchesComposite) {
+  const uint32_t M = 16, N = 32;
+  auto data = generateTestData<float>(M * N, 42);
+  auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+
+  auto varComposite = runtime_->ops().variance(buf, 0, 1);
+  auto varFused = runtime_->ops().varianceFused(buf, 0, 1);
+
+  std::vector<float> compositeOut(M), fusedOut(M);
+  runtime_->copyFromTensor(varComposite, compositeOut.data(),
+                           M * sizeof(float));
+  runtime_->copyFromTensor(varFused, fusedOut.data(), M * sizeof(float));
+
+  for (uint32_t i = 0; i < M; ++i) {
+    ASSERT_NEAR(fusedOut[i], compositeOut[i],
+                std::abs(compositeOut[i]) * 1e-4f + 1e-5f)
+        << "Dim variance mismatch at index " << i;
+  }
+}
+
+TEST_F(VulkanBackendTest, VarianceFused_Global_KnownValues) {
+  // var([1,2,3,4,5]) = 2.0 (population variance)
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+  auto buf = runtime_->createTensor({5}, DataType::Float32, data.data());
+  auto result = runtime_->ops().varianceFused(buf, 0);
+
+  float val;
+  runtime_->copyFromTensor(result, &val, sizeof(float));
+  ASSERT_NEAR(val, 2.0f, 1e-5f);
+}
+
+// --- RMS ---
+
+TEST_F(VulkanBackendTest, RMS_Global_KnownValues) {
+  // rms([3,4]) = sqrt((9+16)/2) = sqrt(12.5) ≈ 3.5355
+  std::vector<float> data = {3.0f, 4.0f};
+  auto buf = runtime_->createTensor({2}, DataType::Float32, data.data());
+  auto result = runtime_->ops().rms(buf);
+
+  float val;
+  runtime_->copyFromTensor(result, &val, sizeof(float));
+  float expected = std::sqrt(12.5f);
+  ASSERT_NEAR(val, expected, 1e-5f);
+}
+
+TEST_F(VulkanBackendTest, RMS_Global_LargerArray) {
+  auto data = generateTestData<float>(1024, 42);
+  auto buf = runtime_->createTensor({1024}, DataType::Float32, data.data());
+  auto result = runtime_->ops().rms(buf);
+
+  // CPU reference
+  double sumSq = 0.0;
+  for (float v : data)
+    sumSq += static_cast<double>(v) * v;
+  float expected = static_cast<float>(std::sqrt(sumSq / data.size()));
+
+  float val;
+  runtime_->copyFromTensor(result, &val, sizeof(float));
+  ASSERT_NEAR(val, expected, std::abs(expected) * 1e-4f + 1e-5f);
+}
+
+TEST_F(VulkanBackendTest, RMS_Dim) {
+  const uint32_t M = 8, N = 16;
+  auto data = generateTestData<float>(M * N, 42);
+  auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+  auto result = runtime_->ops().rms(buf, 1);
+
+  // CPU reference: RMS along dim 1 → shape [M]
+  std::vector<float> expected(M);
+  for (uint32_t i = 0; i < M; ++i) {
+    double sumSq = 0.0;
+    for (uint32_t j = 0; j < N; ++j) {
+      double v = data[i * N + j];
+      sumSq += v * v;
+    }
+    expected[i] = static_cast<float>(std::sqrt(sumSq / N));
+  }
+
+  std::vector<float> output(M);
+  runtime_->copyFromTensor(result, output.data(), M * sizeof(float));
+
+  for (uint32_t i = 0; i < M; ++i) {
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
+        << "RMS dim mismatch at index " << i;
+  }
+}
+
+// --- LogSumExp ---
+
+TEST_F(VulkanBackendTest, LogSumExp_Global_KnownValues) {
+  // logsumexp([1,2,3,4]) = log(e^1 + e^2 + e^3 + e^4)
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto buf = runtime_->createTensor({4}, DataType::Float32, data.data());
+  auto result = runtime_->ops().logSumExp(buf);
+
+  float maxVal = 4.0f;
+  float expected =
+      maxVal + std::log(std::exp(1.0f - maxVal) + std::exp(2.0f - maxVal) +
+                        std::exp(3.0f - maxVal) + std::exp(4.0f - maxVal));
+
+  float val;
+  runtime_->copyFromTensor(result, &val, sizeof(float));
+  ASSERT_NEAR(val, expected, 1e-4f);
+}
+
+TEST_F(VulkanBackendTest, LogSumExp_Global_LargerArray) {
+  auto data = generateTestData<float>(512, 42);
+  auto buf = runtime_->createTensor({512}, DataType::Float32, data.data());
+  auto result = runtime_->ops().logSumExp(buf);
+
+  // CPU reference: stable logsumexp
+  float maxV = *std::max_element(data.begin(), data.end());
+  double sumExp = 0.0;
+  for (float v : data)
+    sumExp += std::exp(static_cast<double>(v) - maxV);
+  float expected = maxV + static_cast<float>(std::log(sumExp));
+
+  float val;
+  runtime_->copyFromTensor(result, &val, sizeof(float));
+  ASSERT_NEAR(val, expected, std::abs(expected) * 1e-4f + 1e-4f);
+}
+
+TEST_F(VulkanBackendTest, LogSumExp_Dim) {
+  const uint32_t M = 8, N = 16;
+  auto data = generateTestData<float>(M * N, 42);
+  auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+  auto result = runtime_->ops().logSumExp(buf, 1);
+
+  // CPU reference: logsumexp along dim 1 → shape [M]
+  std::vector<float> expected(M);
+  for (uint32_t i = 0; i < M; ++i) {
+    float maxV = -std::numeric_limits<float>::max();
+    for (uint32_t j = 0; j < N; ++j)
+      maxV = std::max(maxV, data[i * N + j]);
+    double sumExp = 0.0;
+    for (uint32_t j = 0; j < N; ++j)
+      sumExp += std::exp(static_cast<double>(data[i * N + j]) - maxV);
+    expected[i] = maxV + static_cast<float>(std::log(sumExp));
+  }
+
+  std::vector<float> output(M);
+  runtime_->copyFromTensor(result, output.data(), M * sizeof(float));
+
+  for (uint32_t i = 0; i < M; ++i) {
+    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-4f)
+        << "LogSumExp dim mismatch at index " << i;
+  }
+}
+
+// --- Timing comparison tests ---
+
+TEST_F(VulkanBackendTest, SinglePassReductions_Timing) {
+  constexpr int kWarmupIters = 3;
+  constexpr int kTimingIters = 10;
+  const uint32_t N = 65536;
+
+  auto data = generateTestData<float>(N, 42);
+
+  // Print header
+  std::cout << "\n=== Single-Pass vs Composite Reduction Timing ===\n";
+  std::cout << "Array size: " << N << " elements, " << kTimingIters
+            << " iterations\n\n";
+
+  // --- Variance ---
+  {
+    // Warmup
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().variance(buf, 0);
+      runtime_->flush();
+    }
+
+    // Time composite variance
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().variance(buf, 0);
+      runtime_->flush();
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double compositeMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    // Warmup fused
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().varianceFused(buf, 0);
+      runtime_->flush();
+    }
+
+    // Time single-pass variance
+    t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().varianceFused(buf, 0);
+      runtime_->flush();
+    }
+    t1 = std::chrono::high_resolution_clock::now();
+    double fusedMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    std::cout << "Variance:   composite=" << compositeMs
+              << "ms  fused=" << fusedMs
+              << "ms  speedup=" << compositeMs / fusedMs << "x\n";
+  }
+
+  // --- RMS (compare against composite: sqrt(mean(x*x))) ---
+  {
+    // Warmup composite
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto sq = runtime_->ops().unaryOp(UnarySquare, buf);
+      auto meanSq = runtime_->ops().reduce(ReduceMean, sq);
+      auto rms = runtime_->ops().unaryOp(UnarySqrt, meanSq);
+      runtime_->flush();
+    }
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto sq = runtime_->ops().unaryOp(UnarySquare, buf);
+      auto meanSq = runtime_->ops().reduce(ReduceMean, sq);
+      auto rms = runtime_->ops().unaryOp(UnarySqrt, meanSq);
+      runtime_->flush();
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double compositeMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    // Warmup fused
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().rms(buf);
+      runtime_->flush();
+    }
+
+    t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().rms(buf);
+      runtime_->flush();
+    }
+    t1 = std::chrono::high_resolution_clock::now();
+    double fusedMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    std::cout << "RMS:        composite=" << compositeMs
+              << "ms  fused=" << fusedMs
+              << "ms  speedup=" << compositeMs / fusedMs << "x\n";
+  }
+
+  // --- LogSumExp (compare against composite from softmax pattern) ---
+  {
+    // Warmup composite
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto maxV = runtime_->ops().reduce(ReduceMax, buf);
+      auto shifted = runtime_->ops().binaryOp(BinarySub, buf, maxV);
+      auto exps = runtime_->ops().unaryOp(UnaryExp, shifted);
+      auto sumE = runtime_->ops().reduce(ReduceSum, exps);
+      auto logS = runtime_->ops().unaryOp(UnaryLog, sumE);
+      auto lse = runtime_->ops().binaryOp(BinaryAdd, maxV, logS);
+      runtime_->flush();
+    }
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto maxV = runtime_->ops().reduce(ReduceMax, buf);
+      auto shifted = runtime_->ops().binaryOp(BinarySub, buf, maxV);
+      auto exps = runtime_->ops().unaryOp(UnaryExp, shifted);
+      auto sumE = runtime_->ops().reduce(ReduceSum, exps);
+      auto logS = runtime_->ops().unaryOp(UnaryLog, sumE);
+      auto lse = runtime_->ops().binaryOp(BinaryAdd, maxV, logS);
+      runtime_->flush();
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double compositeMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    // Warmup fused
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().logSumExp(buf);
+      runtime_->flush();
+    }
+
+    t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().logSumExp(buf);
+      runtime_->flush();
+    }
+    t1 = std::chrono::high_resolution_clock::now();
+    double fusedMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    std::cout << "LogSumExp:  composite=" << compositeMs
+              << "ms  fused=" << fusedMs
+              << "ms  speedup=" << compositeMs / fusedMs << "x\n";
+  }
+
+  std::cout << std::endl;
+}
+
+// ===========================================================================
+// Fused Softmax / LogSoftmax Tests
+// ===========================================================================
+
+TEST_F(RuntimeOperatorTest, SoftmaxFused_MatchesComposite_Dim1) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
+
+  auto composite = runtime_->ops().softmax(a, 1);
+  auto fused = runtime_->ops().softmaxFused(a, 1);
+  runtime_->flush();
+
+  std::vector<float> cOut(6), fOut(6);
+  runtime_->copyFromTensor(composite, cOut.data(), 6 * sizeof(float));
+  runtime_->copyFromTensor(fused, fOut.data(), 6 * sizeof(float));
+
+  for (int i = 0; i < 6; ++i) {
+    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(RuntimeOperatorTest, SoftmaxFused_MatchesComposite_Dim0) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
+
+  auto composite = runtime_->ops().softmax(a, 0);
+  auto fused = runtime_->ops().softmaxFused(a, 0);
+  runtime_->flush();
+
+  std::vector<float> cOut(6), fOut(6);
+  runtime_->copyFromTensor(composite, cOut.data(), 6 * sizeof(float));
+  runtime_->copyFromTensor(fused, fOut.data(), 6 * sizeof(float));
+
+  for (int i = 0; i < 6; ++i) {
+    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(RuntimeOperatorTest, SoftmaxFused_KnownValues) {
+  // softmax([1, 2, 3]) = [e^1, e^2, e^3] / sum
+  std::vector<float> data = {1.0f, 2.0f, 3.0f};
+  auto a = runtime_->createTensor({3}, DataType::Float32, data.data());
+  auto result = runtime_->ops().softmaxFused(a, 0);
+
+  std::vector<float> out(4); // aligned to 4
+  runtime_->copyFromTensor(result, out.data(), 4 * sizeof(float));
+
+  float e1 = std::exp(1.0f), e2 = std::exp(2.0f), e3 = std::exp(3.0f);
+  float sum = e1 + e2 + e3;
+  EXPECT_NEAR(out[0], e1 / sum, 1e-5f);
+  EXPECT_NEAR(out[1], e2 / sum, 1e-5f);
+  EXPECT_NEAR(out[2], e3 / sum, 1e-5f);
+}
+
+TEST_F(RuntimeOperatorTest, SoftmaxFused_LargerArray) {
+  // Use 2D shape since composite softmax doesn't support 1D
+  const uint32_t M = 8, N = 128;
+  std::vector<float> data(M * N);
+  for (uint32_t i = 0; i < M * N; ++i)
+    data[i] = static_cast<float>(i) * 0.01f - 5.0f;
+
+  auto a = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+  auto composite = runtime_->ops().softmax(a, 1);
+  auto fused = runtime_->ops().softmaxFused(a, 1);
+  runtime_->flush();
+
+  std::vector<float> cOut(M * N), fOut(M * N);
+  runtime_->copyFromTensor(composite, cOut.data(), M * N * sizeof(float));
+  runtime_->copyFromTensor(fused, fOut.data(), M * N * sizeof(float));
+
+  for (uint32_t i = 0; i < M * N; ++i) {
+    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(RuntimeOperatorTest, SoftmaxFused_3D) {
+  // 3D tensor, softmax along middle dimension
+  // Use aligned inner dim (4) to avoid padding issues in composite path
+  std::vector<float> data(2 * 4 * 4);
+  for (size_t i = 0; i < data.size(); ++i)
+    data[i] = static_cast<float>(i) * 0.1f - 1.0f;
+
+  auto a = runtime_->createTensor({2, 4, 4}, DataType::Float32, data.data());
+  auto composite = runtime_->ops().softmax(a, 1);
+  auto fused = runtime_->ops().softmaxFused(a, 1);
+  runtime_->flush();
+
+  uint32_t total = 2 * 4 * 4;
+  std::vector<float> cOut(total), fOut(total);
+  runtime_->copyFromTensor(composite, cOut.data(), total * sizeof(float));
+  runtime_->copyFromTensor(fused, fOut.data(), total * sizeof(float));
+
+  for (uint32_t i = 0; i < total; ++i) {
+    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(RuntimeOperatorTest, LogSoftmaxFused_MatchesComposite) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
+
+  auto composite = runtime_->ops().logSoftmax(a, 1);
+  auto fused = runtime_->ops().logSoftmaxFused(a, 1);
+  runtime_->flush();
+
+  std::vector<float> cOut(6), fOut(6);
+  runtime_->copyFromTensor(composite, cOut.data(), 6 * sizeof(float));
+  runtime_->copyFromTensor(fused, fOut.data(), 6 * sizeof(float));
+
+  for (int i = 0; i < 6; ++i) {
+    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(RuntimeOperatorTest, LogSoftmaxFused_KnownValues) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f};
+  auto a = runtime_->createTensor({3}, DataType::Float32, data.data());
+  auto result = runtime_->ops().logSoftmaxFused(a, 0);
+
+  std::vector<float> out(4);
+  runtime_->copyFromTensor(result, out.data(), 4 * sizeof(float));
+
+  float e1 = std::exp(1.0f), e2 = std::exp(2.0f), e3 = std::exp(3.0f);
+  float logsum = std::log(e1 + e2 + e3);
+  EXPECT_NEAR(out[0], 1.0f - logsum, 1e-5f);
+  EXPECT_NEAR(out[1], 2.0f - logsum, 1e-5f);
+  EXPECT_NEAR(out[2], 3.0f - logsum, 1e-5f);
+}
+
+TEST_F(RuntimeOperatorTest, LogSoftmaxFused_LargerArray) {
+  // Use 2D shape since composite logSoftmax doesn't support 1D
+  const uint32_t M = 8, N = 128;
+  std::vector<float> data(M * N);
+  for (uint32_t i = 0; i < M * N; ++i)
+    data[i] = static_cast<float>(i) * 0.01f - 5.0f;
+
+  auto a = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+  auto composite = runtime_->ops().logSoftmax(a, 1);
+  auto fused = runtime_->ops().logSoftmaxFused(a, 1);
+  runtime_->flush();
+
+  std::vector<float> cOut(M * N), fOut(M * N);
+  runtime_->copyFromTensor(composite, cOut.data(), M * N * sizeof(float));
+  runtime_->copyFromTensor(fused, fOut.data(), M * N * sizeof(float));
+
+  for (uint32_t i = 0; i < M * N; ++i) {
+    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  }
+}
+
+// ===========================================================================
+// Timing: Fused vs Composite Softmax + RMSNorm
+// ===========================================================================
+
+TEST_F(RuntimeOperatorTest, FusedSoftmax_Timing) {
+  const uint32_t M = 128, N = 512;
+  std::vector<float> data(M * N);
+  for (size_t i = 0; i < data.size(); ++i)
+    data[i] = static_cast<float>(i % 100) * 0.01f;
+
+  const int kWarmupIters = 5;
+  const int kTimingIters = 20;
+
+  std::cout << "\n=== Fused Softmax/LogSoftmax Timing ===\n";
+  std::cout << "Shape: [" << M << ", " << N << "], reduce dim=1\n\n";
+
+  // --- Softmax ---
+  {
+    // Warmup composite
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().softmax(buf, 1);
+      runtime_->flush();
+    }
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().softmax(buf, 1);
+      runtime_->flush();
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double compositeMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    // Warmup fused
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().softmaxFused(buf, 1);
+      runtime_->flush();
+    }
+
+    t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().softmaxFused(buf, 1);
+      runtime_->flush();
+    }
+    t1 = std::chrono::high_resolution_clock::now();
+    double fusedMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    std::cout << "Softmax:     composite=" << compositeMs
+              << "ms  fused=" << fusedMs
+              << "ms  speedup=" << compositeMs / fusedMs << "x\n";
+  }
+
+  // --- LogSoftmax ---
+  {
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().logSoftmax(buf, 1);
+      runtime_->flush();
+    }
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().logSoftmax(buf, 1);
+      runtime_->flush();
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double compositeMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().logSoftmaxFused(buf, 1);
+      runtime_->flush();
+    }
+
+    t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
+      auto r = runtime_->ops().logSoftmaxFused(buf, 1);
+      runtime_->flush();
+    }
+    t1 = std::chrono::high_resolution_clock::now();
+    double fusedMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    std::cout << "LogSoftmax:  composite=" << compositeMs
+              << "ms  fused=" << fusedMs
+              << "ms  speedup=" << compositeMs / fusedMs << "x\n";
+  }
+
+  // --- RMSNorm: fused (existing) vs composite ---
+  {
+    const uint32_t dim = 512;
+    std::vector<float> xData(dim), wData(dim);
+    for (uint32_t i = 0; i < dim; ++i) {
+      xData[i] = static_cast<float>(i) * 0.01f - 2.5f;
+      wData[i] = 1.0f;
+    }
+
+    // Warmup fused RMSNorm
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto x = runtime_->createTensor({dim}, DataType::Float32, xData.data());
+      auto w = runtime_->createTensor({dim}, DataType::Float32, wData.data());
+      auto r = runtime_->ops().rmsNorm(x, w, 1e-5f);
+      runtime_->flush();
+    }
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto x = runtime_->createTensor({dim}, DataType::Float32, xData.data());
+      auto w = runtime_->createTensor({dim}, DataType::Float32, wData.data());
+      auto r = runtime_->ops().rmsNorm(x, w, 1e-5f);
+      runtime_->flush();
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double fusedMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    // Composite RMSNorm: rms(x) → divide → multiply weight
+    for (int i = 0; i < kWarmupIters; ++i) {
+      auto x = runtime_->createTensor({dim}, DataType::Float32, xData.data());
+      auto w = runtime_->createTensor({dim}, DataType::Float32, wData.data());
+      auto rmsVal = runtime_->ops().rms(x);
+      auto rmsScalar =
+          runtime_->ops().binaryOp(OperatorEnum::BinaryAdd, rmsVal, 1e-5f);
+      auto invRms =
+          runtime_->ops().unaryOp(OperatorEnum::UnaryReciprocal, rmsScalar);
+      auto normalized =
+          runtime_->ops().binaryOp(OperatorEnum::BinaryMul, x, invRms);
+      auto result =
+          runtime_->ops().binaryOp(OperatorEnum::BinaryMul, normalized, w);
+      runtime_->flush();
+    }
+
+    t0 = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < kTimingIters; ++i) {
+      auto x = runtime_->createTensor({dim}, DataType::Float32, xData.data());
+      auto w = runtime_->createTensor({dim}, DataType::Float32, wData.data());
+      auto rmsVal = runtime_->ops().rms(x);
+      auto rmsScalar =
+          runtime_->ops().binaryOp(OperatorEnum::BinaryAdd, rmsVal, 1e-5f);
+      auto invRms =
+          runtime_->ops().unaryOp(OperatorEnum::UnaryReciprocal, rmsScalar);
+      auto normalized =
+          runtime_->ops().binaryOp(OperatorEnum::BinaryMul, x, invRms);
+      auto result =
+          runtime_->ops().binaryOp(OperatorEnum::BinaryMul, normalized, w);
+      runtime_->flush();
+    }
+    t1 = std::chrono::high_resolution_clock::now();
+    double compositeMs =
+        std::chrono::duration<double, std::milli>(t1 - t0).count() /
+        kTimingIters;
+
+    std::cout << "RMSNorm:     composite=" << compositeMs
+              << "ms  fused=" << fusedMs
+              << "ms  speedup=" << compositeMs / fusedMs << "x\n";
+  }
+
+  std::cout << std::endl;
 }
 
 } // namespace

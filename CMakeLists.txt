@@ -98,6 +98,7 @@ set(LIB_HEADERS
     operators/impl/reduce/ReduceOp.h
     operators/impl/rmsnorm/RMSNormOp.h
     operators/impl/rmsnorm/ExtendedRMSNormOp.h
+    operators/impl/softmax/SoftmaxOp.h
     operators/impl/reducedim/ReduceDimOp.h
     operators/impl/scan/ScanOp.h
     operators/impl/sort/SortOp.h
@@ -147,11 +148,14 @@ set(LIB_SOURCES
     operators/impl/reduce/ReduceOp.cpp
     operators/impl/rmsnorm/RMSNormOp.cpp
     operators/impl/rmsnorm/ExtendedRMSNormOp.cpp
+    operators/impl/softmax/SoftmaxOp.cpp
     operators/impl/reducedim/ReduceDimOp.cpp
     operators/impl/scan/ScanOp.cpp
     operators/impl/sort/SortOp.cpp
     operators/impl/ternary/TernaryOp.cpp
     operators/impl/transpose/TransposeOp.cpp
+    operators/impl/sampling/RepetitionPenaltyOp.cpp
+    operators/impl/q4transpose/TransposeQ4NibbleOp.cpp
     operators/impl/unary/UnaryOp.cpp
     runtime/Runtime.cpp
     runtime/Dispatcher.cpp

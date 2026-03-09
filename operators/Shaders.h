@@ -16,6 +16,7 @@
 #include "impl/matmul/MatMulVariants.generated.h"
 #include "impl/maxpool2d/MaxPool2DVariants.generated.h"
 #include "impl/reducedim/ReduceDimVariants.generated.h"
+#include "impl/softmax/SoftmaxVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
 
 // Generated forward declarations for compiled shader functions

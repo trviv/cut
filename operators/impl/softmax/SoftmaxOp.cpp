@@ -1,14 +1,14 @@
-#include "ReduceDimOp.h"
-#include "Shaders.h"
+#include "SoftmaxOp.h"
+#include "SoftmaxVariants.generated.h"
 #include "TensorStore.h"
 
 namespace cut {
 
-DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
-                                 TensorStore &store,
-                                 const Tensor &a,
-                                 int dim,
-                                 std::optional<uint32_t> spec)
+SoftmaxOpNode::SoftmaxOpNode(OperatorEnum op,
+                             TensorStore &store,
+                             const Tensor &a,
+                             int dim,
+                             std::optional<uint32_t> spec)
     : OpNode(op, store, spec) {
   const auto &buf = store.getTensor(a);
   const auto shape = buf.getShape();
@@ -33,12 +33,8 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
   for (int i = dim_ + 1; i < ndim; ++i)
     innerSize_ *= shape[i];
 
-  for (int i = 0; i < ndim; ++i) {
-    if (i != dim_)
-      outShape_.push_back(shape[i]);
-  }
-  if (outShape_.empty())
-    outShape_.push_back(1);
+  // Output shape is the same as input shape
+  outShape_ = shape;
 
   // Compute input buffer strides accounting for inner-dim alignment
   inReduceStride_ = innerSize_;
@@ -50,39 +46,32 @@ DimReduceOpNode::DimReduceOpNode(OperatorEnum op,
     inReduceStride_ = 1;
     inOuterStride_ = alignedBufInner_;
   }
-  spec_ = spec.value_or(kReduceDimDefaultVariant);
+
   inputs_ = {a};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
 
-DataType DimReduceOpNode::outputDtype() const {
+DataType SoftmaxOpNode::outputDtype() const {
   return dtype_;
 }
 
-std::optional<std::vector<uint32_t>> DimReduceOpNode::shader() const {
-  return getDimReduceShader(op_, dtype_, *spec_);
+std::optional<std::vector<uint32_t>> SoftmaxOpNode::shader() const {
+  // Variant 0 = Softmax, Variant 1 = LogSoftmax
+  int variantIndex = (op_ == OperatorEnum::LogSoftmax) ? 1 : 0;
+  return getCompiledSoftmax(variantIndex, dtype_, dtype_);
 }
 
-std::vector<uint32_t> DimReduceOpNode::outputShape() const {
+std::vector<uint32_t> SoftmaxOpNode::outputShape() const {
   return outShape_;
 }
 
-ThreadSize DimReduceOpNode::dispatchSize() const {
-  uint32_t numOutputs = outerSize_ * innerSize_;
-  // Statistical ops (Variance/RMS/LogSumExp) always use workgroup-per-output
-  bool isWorkgroupPerOutput = *spec_ != 0 || op_ == ReduceVariance ||
-                              op_ == ReduceRMS || op_ == ReduceLogSumExp;
-  if (!isWorkgroupPerOutput) {
-    // Naive: one thread per output element
-    uint32_t gridX = ((numOutputs + 255) / 256) * 256;
-    return {gridX, 1, 1};
-  }
-  // Shared/statistical: one workgroup (256 threads) per output element
-  uint32_t gridX = numOutputs * 256;
+ThreadSize SoftmaxOpNode::dispatchSize() const {
+  uint32_t numSlices = outerSize_ * innerSize_;
+  uint32_t gridX = numSlices * 256;
   return {gridX, 1, 1};
 }
 
-std::vector<uint8_t> DimReduceOpNode::pushConstants() const {
+std::vector<uint8_t> SoftmaxOpNode::pushConstants() const {
   struct PushConstants {
     uint32_t outerSize;
     uint32_t reduceSize;
@@ -93,9 +82,8 @@ std::vector<uint8_t> DimReduceOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
-size_t DimReduceOpNode::shaderKey() const {
-  // Distinguish from GlobalReduceOpNode which shares the same op_ enum
-  return shaderKeyWith(1);
+size_t SoftmaxOpNode::shaderKey() const {
+  return shaderKeyWith(5);
 }
 
 } // namespace cut

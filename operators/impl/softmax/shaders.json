@@ -1,0 +1,33 @@
+{
+  "type": "variants",
+  "cpp_prefix": "Softmax",
+  "default_variant": "Softmax",
+  "variants": [
+    {
+      "name": "Softmax",
+      "template": "Softmax",
+      "wg": [256, 1],
+      "eff_tile": [1, 1],
+      "description": "Fused single-pass softmax",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "LogSoftmax",
+      "template": "LogSoftmax",
+      "wg": [256, 1],
+      "eff_tile": [1, 1],
+      "description": "Fused single-pass log-softmax",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
+        ]
+      }
+    }
+  ]
+}

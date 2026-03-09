@@ -170,6 +170,147 @@ size_t NormOpNode::executionSize() const {
   return numElements_;
 }
 
+// --- VarianceOpNode ---
+
+VarianceOpNode::VarianceOpNode(TensorStore &store,
+                               const Tensor &a,
+                               std::optional<uint32_t> spec)
+    : OpNode(ReduceVariance, store, spec) {
+  const auto &buf = store.getTensor(a);
+  numElements_ = actualElementCount(buf.getShape());
+  actualInner_ = buf.innerDimSize();
+  alignedInner_ = (actualInner_ + 3) & ~static_cast<uint32_t>(3);
+  inputs_ = {a};
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
+}
+
+DataType VarianceOpNode::outputDtype() const {
+  return DataType::Float32;
+}
+
+std::optional<std::vector<uint32_t>> VarianceOpNode::shader() const {
+  return compiledReduceVariance(DataType::Float32, DataType::Float32);
+}
+
+std::vector<uint32_t> VarianceOpNode::outputShape() const {
+  return {1};
+}
+
+ThreadSize VarianceOpNode::dispatchSize() const {
+  return {256, 1, 1};
+}
+
+std::vector<uint8_t> VarianceOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t numElements;
+    uint32_t actualInner;
+    uint32_t alignedInner;
+  } pc{static_cast<uint32_t>(numElements_), actualInner_, alignedInner_};
+  return toBytes(pc);
+}
+
+size_t VarianceOpNode::executionSize() const {
+  return numElements_;
+}
+
+size_t VarianceOpNode::shaderKey() const {
+  return shaderKeyWith(2);
+}
+
+// --- RMSOpNode ---
+
+RMSOpNode::RMSOpNode(TensorStore &store,
+                     const Tensor &a,
+                     std::optional<uint32_t> spec)
+    : OpNode(ReduceRMS, store, spec) {
+  const auto &buf = store.getTensor(a);
+  numElements_ = actualElementCount(buf.getShape());
+  actualInner_ = buf.innerDimSize();
+  alignedInner_ = (actualInner_ + 3) & ~static_cast<uint32_t>(3);
+  inputs_ = {a};
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
+}
+
+DataType RMSOpNode::outputDtype() const {
+  return DataType::Float32;
+}
+
+std::optional<std::vector<uint32_t>> RMSOpNode::shader() const {
+  return compiledReduceRMS(DataType::Float32, DataType::Float32);
+}
+
+std::vector<uint32_t> RMSOpNode::outputShape() const {
+  return {1};
+}
+
+ThreadSize RMSOpNode::dispatchSize() const {
+  return {256, 1, 1};
+}
+
+std::vector<uint8_t> RMSOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t numElements;
+    uint32_t actualInner;
+    uint32_t alignedInner;
+  } pc{static_cast<uint32_t>(numElements_), actualInner_, alignedInner_};
+  return toBytes(pc);
+}
+
+size_t RMSOpNode::executionSize() const {
+  return numElements_;
+}
+
+size_t RMSOpNode::shaderKey() const {
+  return shaderKeyWith(3);
+}
+
+// --- LogSumExpOpNode ---
+
+LogSumExpOpNode::LogSumExpOpNode(TensorStore &store,
+                                 const Tensor &a,
+                                 std::optional<uint32_t> spec)
+    : OpNode(ReduceLogSumExp, store, spec) {
+  const auto &buf = store.getTensor(a);
+  numElements_ = actualElementCount(buf.getShape());
+  actualInner_ = buf.innerDimSize();
+  alignedInner_ = (actualInner_ + 3) & ~static_cast<uint32_t>(3);
+  inputs_ = {a};
+  output_ = store.createTensorEmpty(outputShape(), outputDtype());
+}
+
+DataType LogSumExpOpNode::outputDtype() const {
+  return DataType::Float32;
+}
+
+std::optional<std::vector<uint32_t>> LogSumExpOpNode::shader() const {
+  return compiledReduceLogSumExp(DataType::Float32, DataType::Float32);
+}
+
+std::vector<uint32_t> LogSumExpOpNode::outputShape() const {
+  return {1};
+}
+
+ThreadSize LogSumExpOpNode::dispatchSize() const {
+  return {256, 1, 1};
+}
+
+std::vector<uint8_t> LogSumExpOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t numElements;
+    uint32_t actualInner;
+    uint32_t alignedInner;
+  } pc{static_cast<uint32_t>(numElements_), actualInner_, alignedInner_};
+  return toBytes(pc);
+}
+
+size_t LogSumExpOpNode::executionSize() const {
+  return numElements_;
+}
+
+size_t LogSumExpOpNode::shaderKey() const {
+  return shaderKeyWith(4);
+}
+
 // --- DotOpNode ---
 
 DotOpNode::DotOpNode(TensorStore &store,

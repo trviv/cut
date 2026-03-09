@@ -221,6 +221,12 @@ const char *operatorName(OperatorEnum op) {
     return "ReduceAny";
   case ReduceAll:
     return "ReduceAll";
+  case ReduceVariance:
+    return "ReduceVariance";
+  case ReduceRMS:
+    return "ReduceRMS";
+  case ReduceLogSumExp:
+    return "ReduceLogSumExp";
   case ReduceArgmax:
     return "ReduceArgmax";
   case ReduceArgmin:
@@ -329,6 +335,10 @@ const char *operatorName(OperatorEnum op) {
     return "RMSNorm";
   case ExtendedRMSNorm:
     return "ExtendedRMSNorm";
+  case Softmax:
+    return "Softmax";
+  case LogSoftmax:
+    return "LogSoftmax";
 
   // Embedding operations
   case Embedding:
@@ -367,6 +377,14 @@ const char *operatorName(OperatorEnum op) {
   // Dequantization
   case Dequantize:
     return "Dequantize";
+
+  // Sampling
+  case RepetitionPenalty:
+    return "RepetitionPenalty";
+
+  // Q4 transpose
+  case TransposeQ4:
+    return "TransposeQ4";
 
   default:
     return "Unknown";

@@ -68,6 +68,7 @@ std::vector<uint8_t> CopyOpNode::pushConstants() const {
 EmbeddingOpNode::EmbeddingOpNode(TensorStore &store,
                                  const Tensor &indices,
                                  const Tensor &weight,
+                                 const Tensor &preallocOutput,
                                  std::optional<uint32_t> spec)
     : OpNode(Embedding, store, spec) {
   const auto &idxBuf = store.getTensor(indices);
@@ -86,7 +87,8 @@ EmbeddingOpNode::EmbeddingOpNode(TensorStore &store,
   outShape_ = idxShape;
   outShape_.push_back(embDim_);
   inputs_ = {indices, weight};
-  output_ = store.createTensorEmpty(outputShape(), DataType::Float32);
+  output_ = preallocOutput ? preallocOutput
+                           : store.createTensorEmpty(outputShape(), dtype_);
 }
 
 DataType EmbeddingOpNode::outputDtype() const {

@@ -86,56 +86,26 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
   WeightHandle wh;
 
   if (info.type == GGMLType::Q4_0) {
-    // Upload Q4_0 weights as separated packed nibbles + F16 scales.
+    // Upload Q4_0 weights and GPU-transpose packed nibbles + scales.
     // GGUF layout: [rows=N, cols=K]. Q4 has 2 nibbles per byte.
-    // Upload in GGUF-native layout, then GPU-transpose.
     auto q4 = reader.read_tensor_q4_separated(name);
     uint32_t N = rows, K = cols;
     uint32_t blocksK = K / 32;
 
-    // Upload [N, K/2] packed values and transpose to [K/2, N] on GPU.
-    // Then repack: pairs of adjacent K/2-dimension values along N...
-    // Q4 packing is tightly coupled with the transpose, so we keep the CPU
-    // unpack-transpose-repack path for Q4_0.
-    // Step 1: Unpack nibbles from [N, K/2] to [N, K]
-    // Q4_0 block layout: within each 32-element block, the 16 packed bytes
-    // store lower nibbles at positions 0-15 and upper nibbles at positions
-    // 16-31 (NOT interleaved). See GGML dequantize_row_q4_0.
-    std::vector<uint8_t> unpacked(N * K);
-    for (uint32_t n = 0; n < N; ++n) {
-      for (uint32_t b = 0; b < K / 32; ++b) {
-        for (uint32_t j = 0; j < 16; ++j) {
-          uint8_t byte = q4.packedValues[n * (K / 2) + b * 16 + j];
-          unpacked[n * K + b * 32 + j] = byte & 0x0Fu;
-          unpacked[n * K + b * 32 + j + 16] = (byte >> 4) & 0x0Fu;
-        }
-      }
-    }
+    // Upload packed nibbles [N, K/2] directly to GPU
+    auto gpuPacked = runtime_->createTensor({N, K / 2}, cut::DataType::Int8,
+                                            q4.packedValues.data());
 
-    // Step 2+3: Transpose [N, K] -> [K, N] and repack into [K, N/2]
-    std::vector<uint8_t> tPacked(K * (N / 2));
-    constexpr uint32_t TILE = 64;
-    for (uint32_t k0 = 0; k0 < K; k0 += TILE) {
-      uint32_t kEnd = std::min(k0 + TILE, K);
-      for (uint32_t n0 = 0; n0 < N; n0 += TILE) {
-        uint32_t nEnd = std::min(n0 + TILE, N);
-        for (uint32_t k = k0; k < kEnd; ++k) {
-          for (uint32_t n = n0; n < nEnd; n += 2) {
-            uint8_t lo = unpacked[n * K + k];
-            uint8_t hi = unpacked[(n + 1) * K + k];
-            tPacked[k * (N / 2) + n / 2] = lo | (hi << 4);
-          }
-        }
-      }
-    }
+    // GPU nibble transpose: [N, K/2] -> [K, N/2]
+    // Combines unpack (GGML block layout) + transpose + repack in one dispatch
+    auto tPacked = ops_->transposeQ4(gpuPacked, N, K);
 
-    // Transpose scales [N, K/32] -> [K/32, N] on GPU
+    // GPU transpose scales [N, K/32] -> [K/32, N]
     auto gpuScales = runtime_->createTensor(
         {N, blocksK}, cut::DataType::Float16, q4.scales.data());
     auto tScales = ops_->transpose(gpuScales);
 
-    wh.qValues =
-        runtime_->createTensor({K, N / 2}, cut::DataType::Int8, tPacked.data());
+    wh.qValues = tPacked;
     wh.qScales = tScales;
     wh.qCols = cols;
     wh.quantType = WeightHandle::QuantType::Q4_0;
@@ -234,13 +204,14 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
             << " ffn_dim=" << config_.ffn_dim
             << " head_dim=" << config_.head_dim << " vocab_size=";
 
-  // Load token embeddings (keep on CPU for row lookup)
+  // Load token embeddings to GPU for GPU-side embedding lookup.
   // GGML dimensions: [cols=dim, rows=vocab_size]
   {
     auto embd = reader.read_tensor_f32("token_embd.weight");
     const auto &info = reader.get_tensor_info("token_embd.weight");
     config_.vocab_size = static_cast<uint32_t>(info.dimensions[1]);
-    token_embd_data_ = std::move(embd);
+    embeddingTable_ =
+        uploadMatrix(embd.data(), config_.vocab_size, config_.dim);
   }
   std::cout << config_.vocab_size << "\n";
 
@@ -405,9 +376,7 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
         uploadWeightMaybeQuantized(reader, "output.weight", rows, cols);
   } else {
     // Some models tie embeddings — use token_embd.weight transposed
-    auto gpu =
-        uploadMatrix(token_embd_data_.data(), config_.vocab_size, config_.dim);
-    output_weight_.handle = ops_->transpose(gpu);
+    output_weight_.handle = ops_->transpose(embeddingTable_);
   }
 
   // Initialize KV caches with pre-allocated GPU buffers
@@ -422,6 +391,7 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
   // Pre-allocate buffers for command buffer reuse
   runtimeParamsBuffer_ =
       runtime_->createTensorEmpty({2}, cut::DataType::UInt32);
+  tokenIdBuffer_ = runtime_->createTensorEmpty({1}, cut::DataType::UInt32);
   hiddenBuffer_ =
       runtime_->createTensorEmpty({config_.dim}, cut::DataType::Float32);
   ropeQOutBuffer_ = runtime_->createTensorEmpty(
@@ -430,6 +400,8 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       runtime_->createTensorEmpty({config_.kv_dim}, cut::DataType::Float32);
   attnOutBuffer_ = runtime_->createTensorEmpty(
       {config_.n_heads * config_.head_dim}, cut::DataType::Float32);
+  penaltyFactorsBuffer_ = runtime_->createTensorEmpty({1, config_.vocab_size},
+                                                      cut::DataType::Float32);
 
   // Precompute RoPE tables
   precomputeRoPE();
@@ -849,9 +821,9 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   uint32_t params[2] = {upos, upos + 1};
   runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
 
-  // Update embedding buffer with token embedding
-  const float *embd_row = token_embd_data_.data() + token_id * dim;
-  runtime_->copyToTensor(hiddenBuffer_, embd_row, dim * sizeof(float));
+  // Update token ID for GPU embedding lookup
+  uint32_t tid = static_cast<uint32_t>(token_id);
+  runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t));
 
   if (decodeCBCached_) {
     // Re-submit cached command buffer (no re-recording needed)
@@ -860,6 +832,10 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   }
 
   // First forward: run with pre-allocated buffers, then cache CB
+  // GPU embedding lookup → writes directly to hiddenBuffer_
+  ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
+  ops_->flush();
+
   auto hidden = hiddenBuffer_;
 
   // Transformer layers
@@ -917,14 +893,9 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
   int next_token = 0;
   uint32_t vocabSize = config_.vocab_size;
 
-  // Sample with repetition penalty applied on CPU.
-  // Algorithm (matching llama.cpp):
-  //   For each token in the last repeat_last_n tokens:
-  //     if logit > 0: logit /= repeat_penalty
-  //     if logit < 0: logit *= repeat_penalty
+  // Sample with GPU repetition penalty + GPU argmax.
+  // Only copies 4 bytes (argmax result) back from GPU.
   auto sample = [&](const cut::ComputeHandle &logits) -> int {
-    // When no repetition penalty is needed, use GPU argmax directly
-    // to avoid copying the entire logits vector back to CPU.
     if (repeat_penalty == 1.0f || tokens.empty()) {
       auto argmaxTensor = ops_->reduce(cut::ReduceArgmax, logits);
       float best = 0.0f;
@@ -932,11 +903,8 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
       return static_cast<int>(best);
     }
 
-    // With repetition penalty: copy logits to CPU, apply penalty, argmax
-    std::vector<float> allLogits(vocabSize);
-    runtime_->copyFromTensor(logits, allLogits.data(),
-                             vocabSize * sizeof(float));
-
+    // Build penalty factors on CPU: 1.0 = no penalty, >1.0 = penalize
+    std::vector<float> factors(vocabSize, 1.0f);
     size_t start = 0;
     if (repeat_last_n > 0 &&
         tokens.size() > static_cast<size_t>(repeat_last_n)) {
@@ -945,22 +913,20 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
     for (size_t i = start; i < tokens.size(); ++i) {
       int tid = tokens[i];
       if (tid >= 0 && static_cast<uint32_t>(tid) < vocabSize) {
-        if (allLogits[tid] > 0.0f) {
-          allLogits[tid] /= repeat_penalty;
-        } else {
-          allLogits[tid] *= repeat_penalty;
-        }
+        factors[tid] = repeat_penalty;
       }
     }
 
-    // Argmax
-    int best = 0;
-    for (uint32_t j = 1; j < vocabSize; ++j) {
-      if (allLogits[j] > allLogits[best]) {
-        best = static_cast<int>(j);
-      }
-    }
-    return best;
+    // Upload factors to pre-allocated GPU buffer
+    runtime_->copyToTensor(penaltyFactorsBuffer_, factors.data(),
+                           vocabSize * sizeof(float));
+
+    // GPU penalty + GPU argmax (graph-recorded, flushed by copyFromTensor)
+    auto penalized = ops_->repetitionPenalty(logits, penaltyFactorsBuffer_);
+    auto argmaxTensor = ops_->reduce(cut::ReduceArgmax, penalized);
+    float best = 0.0f;
+    runtime_->copyFromTensor(argmaxTensor, &best, sizeof(float));
+    return static_cast<int>(best);
   };
 
   // Process prompt tokens (prefill)

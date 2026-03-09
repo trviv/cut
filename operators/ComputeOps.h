@@ -171,6 +171,11 @@ enum OperatorEnum {
   ReduceAny = OP_REDUCE_ANY,
   ReduceAll = OP_REDUCE_ALL,
 
+  // Statistical reductions
+  ReduceVariance = OP_REDUCE_VARIANCE,
+  ReduceRMS = OP_REDUCE_RMS,
+  ReduceLogSumExp = OP_REDUCE_LOGSUMEXP,
+
   // Argmax/Argmin
   ReduceArgmax = OP_REDUCE_ARGMAX,
   ReduceArgmin = OP_REDUCE_ARGMIN,
@@ -280,6 +285,8 @@ enum OperatorEnum {
   BatchNorm = OP_BATCH_NORM,
   RMSNorm = OP_RMS_NORM,
   ExtendedRMSNorm = OP_EXTENDED_RMS_NORM,
+  Softmax = OP_SOFTMAX,
+  LogSoftmax = OP_LOG_SOFTMAX,
 
   // ===========================================================================
   // Embedding operations (320)
@@ -331,6 +338,18 @@ enum OperatorEnum {
   // ===========================================================================
 
   Dequantize = OP_DEQUANTIZE,
+
+  // ===========================================================================
+  // Sampling operations (400)
+  // ===========================================================================
+
+  RepetitionPenalty = OP_REPETITION_PENALTY,
+
+  // ===========================================================================
+  // Q4 transpose operations (401)
+  // ===========================================================================
+
+  TransposeQ4 = OP_TRANSPOSE_Q4,
 };
 
 /**

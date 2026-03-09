@@ -106,11 +106,35 @@ public:
 
   Tensor variance(const Tensor &a, int correction, std::optional<int> dim = {});
 
+  /// Single-pass variance using Welford's algorithm (GPU shader).
+  Tensor varianceFused(const Tensor &a,
+                       int correction = 0,
+                       std::optional<int> dim = {},
+                       std::optional<uint32_t> spec = {});
+
+  /// Standalone RMS: sqrt(mean(x^2))
+  Tensor rms(const Tensor &a,
+             std::optional<int> dim = {},
+             std::optional<uint32_t> spec = {});
+
+  /// Numerically stable log(sum(exp(x))) using online normalizer algorithm.
+  Tensor logSumExp(const Tensor &a,
+                   std::optional<int> dim = {},
+                   std::optional<uint32_t> spec = {});
+
   // ===== Softmax =====
 
   Tensor softmax(const Tensor &a, int dim);
 
   Tensor logSoftmax(const Tensor &a, int dim);
+
+  /// Fused single-kernel softmax (2-pass: online normalizer + normalize).
+  Tensor
+  softmaxFused(const Tensor &a, int dim, std::optional<uint32_t> spec = {});
+
+  /// Fused single-kernel log-softmax.
+  Tensor
+  logSoftmaxFused(const Tensor &a, int dim, std::optional<uint32_t> spec = {});
 
   // ===== Tensor creation =====
 
@@ -221,6 +245,7 @@ public:
 
   Tensor embedding(const Tensor &indices,
                    const Tensor &weight,
+                   const Tensor &preallocOutput = {},
                    std::optional<uint32_t> spec = {});
 
   // ===== RoPE =====
@@ -264,6 +289,18 @@ public:
              const std::vector<uint32_t> &padWidths,
              float value = 0.0f,
              std::optional<uint32_t> spec = {});
+
+  // ===== Repetition penalty =====
+
+  /// GPU repetition penalty: applies conditional scaling to logits.
+  /// logits and penaltyFactors must be same-shaped Float32 tensors.
+  Tensor repetitionPenalty(const Tensor &logits, const Tensor &penaltyFactors);
+
+  // ===== Q4 nibble transpose =====
+
+  /// GPU Q4_0 nibble transpose: [N, K/2] -> [K, N/2] packed.
+  /// Combines unpack, transpose, and repack in a single dispatch.
+  Tensor transposeQ4(const Tensor &packedInput, uint32_t N, uint32_t K);
 
   // ===== Dequantization =====
 

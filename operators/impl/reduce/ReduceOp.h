@@ -45,6 +45,66 @@ private:
   size_t numElements_;
 };
 
+class VarianceOpNode : public OpNode {
+public:
+  VarianceOpNode(TensorStore &store,
+                 const Tensor &a,
+                 std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+  size_t executionSize() const override;
+  size_t shaderKey() const override;
+
+private:
+  size_t numElements_;
+  uint32_t actualInner_;
+  uint32_t alignedInner_;
+};
+
+class RMSOpNode : public OpNode {
+public:
+  RMSOpNode(TensorStore &store,
+            const Tensor &a,
+            std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+  size_t executionSize() const override;
+  size_t shaderKey() const override;
+
+private:
+  size_t numElements_;
+  uint32_t actualInner_;
+  uint32_t alignedInner_;
+};
+
+class LogSumExpOpNode : public OpNode {
+public:
+  LogSumExpOpNode(TensorStore &store,
+                  const Tensor &a,
+                  std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+  size_t executionSize() const override;
+  size_t shaderKey() const override;
+
+private:
+  size_t numElements_;
+  uint32_t actualInner_;
+  uint32_t alignedInner_;
+};
+
 class DotOpNode : public OpNode {
 public:
   DotOpNode(TensorStore &store,

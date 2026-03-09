@@ -15,5 +15,8 @@ std::optional<std::vector<uint32_t>> compiledFinalReduce(DataType input, DataTyp
 std::optional<std::vector<uint32_t>> compiledCumOp(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledNorm(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledDot(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledReduceVariance(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledReduceRMS(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledReduceLogSumExp(DataType input, DataType output);
 
 } // namespace cut

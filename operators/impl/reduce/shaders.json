@@ -97,6 +97,33 @@
           {"input": "UInt32", "output": "UInt32"}
         ]
       }
+    },
+    {
+      "name": "ReduceVariance",
+      "description": "Single-pass Welford variance",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "ReduceRMS",
+      "description": "Single-pass RMS",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "ReduceLogSumExp",
+      "description": "Single-pass LogSumExp",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
     }
   ]
 }
