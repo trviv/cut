@@ -82,6 +82,7 @@ set(LIB_HEADERS
     core/backends/vulkan/VulkanStructs.h
     core/backends/vulkan/VulkanContainers.h
     core/backends/vulkan/VulkanCompute.h
+    core/backends/vulkan/VulkanStaging.h
     core/backends/vulkan/VulkanCommandBuffer.h
     operators/Shaders.h
     operators/impl/avgpool2d/AvgPool2DOp.h
@@ -130,6 +131,7 @@ set(LIB_SOURCES
     core/backends/vulkan/VulkanCommon.cpp
     core/backends/vulkan/VulkanContainers.cpp
     core/backends/vulkan/VulkanCompute.cpp
+    core/backends/vulkan/VulkanStaging.cpp
     core/backends/vulkan/VulkanCommandBuffer.cpp
     operators/OpNode.cpp
     operators/impl/avgpool2d/AvgPool2DOp.cpp

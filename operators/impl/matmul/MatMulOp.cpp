@@ -142,8 +142,14 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   if (spec.has_value()) {
     spec_ = *spec;
   } else {
-    spec_ = (format_ == QuantFormat::Q8) ? kMatMulQ8DefaultVariant
-                                         : kMatMulQ4DefaultVariant;
+    // Auto-select GEMV variant for M=1 (vector-matrix multiply).
+    if (M_ == 1) {
+      spec_ = (format_ == QuantFormat::Q8) ? (kMatMulQ8VariantCount - 1)
+                                           : (kMatMulQ4VariantCount - 1);
+    } else {
+      spec_ = (format_ == QuantFormat::Q8) ? kMatMulQ8DefaultVariant
+                                           : kMatMulQ4DefaultVariant;
+    }
   }
   inputs_ = {a, packedB, scalesB};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());

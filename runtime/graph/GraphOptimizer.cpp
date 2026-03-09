@@ -564,12 +564,10 @@ bool MatMulBinaryFusionPass::run(Graph &graph, TensorStore &store) {
       }
     }
 
-    // Only fuse when matmul and binary outputs have the same element count.
-    // Shape may differ (e.g. matmul [1,N] vs binary [N]) but memory layout
-    // is identical — NoOpReshapePass already treats these as equivalent.
+    // Only fuse when matmul output shape matches binary output shape.
     auto mmOutShape = matmulNode.op->outputShape();
     auto binOutShape = binNode.op->outputShape();
-    if (actualElementCount(mmOutShape) != actualElementCount(binOutShape)) {
+    if (mmOutShape != binOutShape) {
       skipReason[5]++;
       continue;
     }

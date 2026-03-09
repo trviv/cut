@@ -21,6 +21,7 @@ void ComputeInterface::encode(ComputeDispatch &&dispatch) {
 }
 
 ComputeHandle ComputeInterface::submit() {
+  flushTransfers();
   if (!activeCommandBuffer_) {
     logErr("No command buffer is currently recording. "
            "Call encode() before submit().");
@@ -36,6 +37,7 @@ ComputeHandle ComputeInterface::submit() {
 }
 
 ComputeHandle ComputeInterface::submitReusable() {
+  flushTransfers();
   if (!activeCommandBuffer_) {
     logErr("No command buffer is currently recording. "
            "Call encode() before submitReusable().");

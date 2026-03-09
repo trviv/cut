@@ -2,6 +2,7 @@
 
 #include <ComputeInterface.h>
 #include <VulkanContainers.h>
+#include <VulkanStaging.h>
 #include <VulkanStructs.h>
 
 namespace cut {
@@ -15,6 +16,9 @@ class VulkanCompute : public ComputeInterface {
 public:
   /// Destroys the VulkanCompute instance and releases all Vulkan resources.
   ~VulkanCompute();
+
+  /// Flushes pending batched host-to-device staging transfers.
+  void flushTransfers() override;
 
   /// Creates a GPU buffer with tensor-like shape.
   /// The innermost dimension is rounded up to a multiple of 4 for alignment.
@@ -114,6 +118,9 @@ private:
   IF_VMA_ENABLED_THEN(VmaAllocator allocator_ = VK_NULL_HANDLE);
 
   std::unique_ptr<VulkanContainers> containers_;
+
+  // Batched host-to-device staging transfer manager.
+  std::unique_ptr<VulkanStaging> staging_;
 };
 
 class VulkanInstance : public std::enable_shared_from_this<VulkanInstance> {

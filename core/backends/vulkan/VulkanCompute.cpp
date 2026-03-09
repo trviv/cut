@@ -83,6 +83,12 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   setCommandBufferContainer(std::make_unique<VulkanCommandBufferContainer>(
       device_, computeQueueFamilyIndex_, config.maxCommandBuffers,
       *containers_));
+
+  // Create batched staging transfer manager
+  staging_ = std::make_unique<VulkanStaging>(
+      device_, computeQueueFamilyIndex_,
+      [this](size_t s) { return createStagingBuffer(s); },
+      [this](VulkanBufferStruct &b) { destroyStagingBuffer(b); });
 }
 
 PhysicalDeviceAndQueueIndex
@@ -140,8 +146,12 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
 
 void VulkanCompute::cleanup() {
   if (device_ != VK_NULL_HANDLE) {
+    flushTransfers();
     vkDeviceWaitIdle(device_);
   }
+
+  // Destroy staging transfer manager
+  staging_.reset();
 
   // Destroy command buffer container first — it holds ComputeHandle references
   // into the containers (pipelines, descriptors, etc.)
@@ -157,6 +167,11 @@ void VulkanCompute::cleanup() {
 
 VulkanCompute::~VulkanCompute() {
   cleanup();
+}
+
+void VulkanCompute::flushTransfers() {
+  if (staging_)
+    staging_->flush();
 }
 
 uint32_t
@@ -472,13 +487,13 @@ void VulkanCompute::copyDataToBuffer(const void *srcPtr,
 
   if (localUseStaging) {
     const size_t copySize = isFullCopy ? buffer.calculateAlignedSize() : size;
-    VulkanBufferStruct stagingBuffer = createStagingBuffer(copySize);
 
-    copyActualToAligned(srcPtr, stagingBuffer.data, buffer,
-                        isFullCopy ? 0 : srcOffset, 0, size);
-    executeBufferCopy(stagingBuffer.buffer, buffer.buffer, copySize, 0,
-                      (isFullCopy ? 0 : dstOffset) + buffer.offset);
-    destroyStagingBuffer(stagingBuffer);
+    void *stagingDst = staging_->reserve(copySize);
+    copyActualToAligned(srcPtr, stagingDst, buffer, isFullCopy ? 0 : srcOffset,
+                        0, size);
+    staging_->recordCopy(buffer.buffer,
+                         (isFullCopy ? 0 : dstOffset) + buffer.offset, copySize,
+                         dstBuffer);
   } else {
     // Host-visible buffer - use unified copy function
     copyActualToAligned(srcPtr, buffer.data, buffer, srcOffset, dstOffset,
@@ -517,6 +532,7 @@ void VulkanCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
                                        size_t dstOffset,
                                        bool useStaging,
                                        bool wait) {
+  flushTransfers();
   const auto &buffer = containers_->bufferContainer.getBuffer(srcBuffer);
   const bool localUseStaging = useStaging || (buffer.data == nullptr);
 

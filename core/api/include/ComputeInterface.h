@@ -132,6 +132,13 @@ public:
   virtual size_t bufferOffsetAlignment() const { return 256; }
 
   /**
+   * Flushes any pending batched host-to-device transfers.
+   * Called automatically before compute submission and device-to-host reads.
+   * Override in backends that batch staging buffer uploads.
+   */
+  virtual void flushTransfers() {}
+
+  /**
    * Enables or disables per-dispatch GPU profiling.
    * When enabled, command buffers will record hardware timestamps around each
    * dispatch and log per-operation timing after execution completes.
