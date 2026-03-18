@@ -50,7 +50,7 @@ include_directories(${CUT_ROOT}/operators)
 # Collect CUT library sources
 file(GLOB API_SOURCES ${CUT_ROOT}/core/api/src/*.cpp)
 file(GLOB VULKAN_SOURCES ${CUT_ROOT}/core/backends/vulkan/*.cpp)
-file(GLOB RUNTIME_SOURCES ${CUT_ROOT}/runtime/*.cpp)
+file(GLOB_RECURSE RUNTIME_SOURCES ${CUT_ROOT}/runtime/*.cpp)
 file(GLOB SHADER_SOURCES ${CUT_ROOT}/operators/*.cpp)
 file(GLOB_RECURSE SHADER_IMPL_SOURCES ${CUT_ROOT}/operators/impl/*.cpp)
 list(APPEND SHADER_SOURCES ${SHADER_IMPL_SOURCES})
@@ -66,7 +66,21 @@ pybind11_add_module(_cut_compute
     ${SHADER_SOURCES}
 )
 
+# Find glslang libraries needed by shaderc_combined (static lib)
+find_library(GLSLANG_LIB glslang)
+find_library(SPIRV_LIB SPIRV)
+find_library(GLSLANG_RESOURCE_LIB glslang-default-resource-limits)
+
 target_link_libraries(_cut_compute PRIVATE Vulkan::Vulkan ${SHADERC_LIB})
+if(GLSLANG_LIB)
+    target_link_libraries(_cut_compute PRIVATE ${GLSLANG_LIB})
+endif()
+if(SPIRV_LIB)
+    target_link_libraries(_cut_compute PRIVATE ${SPIRV_LIB})
+endif()
+if(GLSLANG_RESOURCE_LIB)
+    target_link_libraries(_cut_compute PRIVATE ${GLSLANG_RESOURCE_LIB})
+endif()
 
 # Set RPATH and compile options
 if(APPLE)

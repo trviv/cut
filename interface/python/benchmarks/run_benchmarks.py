@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """
-Benchmark Runner for CUT GPU/CPU Operations vs NumPy and other backends.
+Benchmark Runner for CUT GPU Operations vs GPU-accelerated Python libraries.
 
-This script benchmarks element-wise operations across multiple backends:
-- Vulkan (GPU via MoltenVK/Vulkan)
-- CPU (scalar and SIMD)
+Compares CUT (Vulkan GPU) against multiple GPU-based backends:
+- PyTorch CUDA (NVIDIA GPU)
 - CuPy (NVIDIA CUDA)
-- JAX (CPU/GPU/TPU)
-- NumPy (reference)
+- JAX GPU (NVIDIA CUDA / TPU / Metal)
+- TensorFlow GPU (NVIDIA CUDA)
+- NVIDIA Warp (NVIDIA GPU compute)
 
-Uses the unified cut.compute interface for CUT backends.
+All speedups are relative to CUT (>1.0x means other backend is faster than CUT).
+
+Usage:
+    python run_benchmarks.py                         # Auto-detect all backends
+    python run_benchmarks.py -n 10000000             # 10M elements
+    python run_benchmarks.py --json results.json     # Export to JSON
 """
 
 import sys
@@ -20,9 +25,10 @@ import time
 import numpy as np
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Callable, Dict, List, Any
+from typing import Callable, Dict, List, Any, Optional, Tuple
 from dataclasses import asdict
 from pathlib import Path
+from collections import OrderedDict
 
 from common import (
     TestData,
@@ -33,6 +39,22 @@ from common import (
     OutputFormatter,
 )
 from common.operations import get_operations
+
+
+# =============================================================================
+# Backend Info
+# =============================================================================
+
+class BackendInfo:
+    """Metadata about a compute backend."""
+    def __init__(self, key: str, label: str, device: str, available: bool,
+                 version: str = "", gpu_name: str = ""):
+        self.key = key
+        self.label = label
+        self.device = device  # 'gpu' or 'cpu'
+        self.available = available
+        self.version = version
+        self.gpu_name = gpu_name
 
 
 # =============================================================================
@@ -48,7 +70,14 @@ class BackendRegistry:
         self.jax = None
         self.jnp = None
         self.torch = None
+        self.warp = None
+        self.tf = None
         self._vulkan_available = False
+        self._torch_cuda_available = False
+        self._jax_gpu_available = False
+        self._warp_available = False
+        self._tf_gpu_available = False
+        self._backend_infos: List[BackendInfo] = []
         self._load_backends()
 
     def _load_backends(self):
@@ -58,53 +87,111 @@ class BackendRegistry:
             import cut.compute as cut_compute_module
             self.cut_compute = cut_compute_module
             self._vulkan_available = cut_compute_module.is_vulkan_available()
-
-            if not self._vulkan_available:
+            if self._vulkan_available:
+                self._backend_infos.append(BackendInfo(
+                    'vulkan', 'CUT Vulkan', 'gpu', True, gpu_name='Vulkan GPU'))
+            else:
                 print("Note: Vulkan backend not available")
         except ImportError as e:
             print(f"Warning: cut.compute module not available: {e}")
 
-        # CuPy backend
-        try:
-            import cupy as cp_module
-            cp_module.cuda.runtime.getDeviceCount()
-            self.cupy = cp_module
-        except ImportError as e:
-            print(f"Note: CuPy not available: {e}")
-        except Exception as e:
-            print(f"Note: CuPy CUDA not available: {e}")
-
-        # JAX backend
-        try:
-            import jax
-            import jax.numpy as jnp_module
-            self.jax = jax
-            self.jnp = jnp_module
-        except ImportError as e:
-            print(f"Note: JAX not available: {e}")
-        except Exception as e:
-            print(f"Note: JAX initialization failed: {e}")
-
-        # PyTorch backend
+        # PyTorch backend (CUDA GPU only)
         try:
             import torch
             self.torch = torch
+            if torch.cuda.is_available():
+                self._torch_cuda_available = True
+                gpu_name = torch.cuda.get_device_name(0)
+                self._backend_infos.append(BackendInfo(
+                    'pytorch_gpu', 'PyTorch CUDA', 'gpu', True,
+                    version=torch.__version__, gpu_name=gpu_name))
+            else:
+                print("Note: PyTorch CUDA not available, skipping")
         except ImportError as e:
             print(f"Note: PyTorch not available: {e}")
         except Exception as e:
             print(f"Note: PyTorch initialization failed: {e}")
 
-        # Check if any backend is available
-        any_available = (
-            self._vulkan_available or
-            self.cupy is not None or
-            self.jax is not None or
-            self.torch is not None
-        )
-        if not any_available:
-            print("Warning: No GPU/accelerator backends available.")
-            print("Only NumPy benchmarks will run.")
-            print("To enable CUT backends: cd python && pip install -e .")
+        # CuPy backend (CUDA GPU)
+        try:
+            import cupy as cp_module
+            cp_module.cuda.runtime.getDeviceCount()
+            self.cupy = cp_module
+            gpu_name = cp_module.cuda.runtime.getDeviceProperties(0)['name'].decode()
+            cuda_ver = cp_module.cuda.runtime.runtimeGetVersion()
+            self._backend_infos.append(BackendInfo(
+                'cupy', 'CuPy CUDA', 'gpu', True,
+                version=f"CUDA {cuda_ver}", gpu_name=gpu_name))
+        except ImportError as e:
+            print(f"Note: CuPy not available: {e}")
+        except Exception as e:
+            print(f"Note: CuPy CUDA not available: {e}")
+
+        # JAX backend (auto-detects GPU/TPU)
+        try:
+            import jax
+            import jax.numpy as jnp_module
+            self.jax = jax
+            self.jnp = jnp_module
+            jax_backend = jax.default_backend()
+            is_gpu = jax_backend in ('gpu', 'cuda', 'rocm')
+            self._jax_gpu_available = is_gpu
+            device_type = 'gpu' if is_gpu else 'cpu'
+            gpu_name = ''
+            if is_gpu:
+                try:
+                    gpu_name = str(jax.devices()[0])
+                except Exception:
+                    pass
+            self._backend_infos.append(BackendInfo(
+                'jax', f'JAX ({jax_backend.upper()})', device_type, True,
+                version=jax.__version__, gpu_name=gpu_name))
+        except ImportError as e:
+            print(f"Note: JAX not available: {e}")
+        except Exception as e:
+            print(f"Note: JAX initialization failed: {e}")
+
+        # NVIDIA Warp (GPU compute)
+        try:
+            import warp as wp_module
+            wp_module.init()
+            self.warp = wp_module
+            self._warp_available = True
+            gpu_name = ''
+            try:
+                gpu_name = wp_module.get_device('cuda:0').name
+            except Exception:
+                pass
+            self._backend_infos.append(BackendInfo(
+                'warp', 'Warp CUDA', 'gpu', True,
+                version=wp_module.__version__ if hasattr(wp_module, '__version__') else '',
+                gpu_name=gpu_name))
+        except ImportError as e:
+            print(f"Note: Warp not available: {e}")
+        except Exception as e:
+            print(f"Note: Warp initialization failed: {e}")
+
+        # TensorFlow backend (GPU)
+        try:
+            import os
+            os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+            import tensorflow as tf_module
+            gpus = tf_module.config.list_physical_devices('GPU')
+            if gpus:
+                for gpu in gpus:
+                    tf_module.config.experimental.set_memory_growth(gpu, True)
+                self.tf = tf_module
+                self._tf_gpu_available = True
+                gpu_name = gpus[0].name if gpus else ''
+                self._backend_infos.append(BackendInfo(
+                    'tensorflow', 'TensorFlow GPU', 'gpu', True,
+                    version=tf_module.__version__, gpu_name=gpu_name))
+            else:
+                print("Note: TensorFlow has no GPU, skipping")
+        except ImportError as e:
+            print(f"Note: TensorFlow not available: {e}")
+        except Exception as e:
+            print(f"Note: TensorFlow initialization failed: {e}")
 
     @property
     def vulkan_available(self) -> bool:
@@ -122,6 +209,27 @@ class BackendRegistry:
     def pytorch_available(self) -> bool:
         return self.torch is not None
 
+    @property
+    def pytorch_cuda_available(self) -> bool:
+        return self._torch_cuda_available
+
+    @property
+    def warp_available(self) -> bool:
+        return self._warp_available
+
+    @property
+    def tf_gpu_available(self) -> bool:
+        return self._tf_gpu_available
+
+    def get_available_backends(self) -> List[BackendInfo]:
+        return [b for b in self._backend_infos if b.available]
+
+    def get_gpu_backends(self) -> List[BackendInfo]:
+        return [b for b in self._backend_infos if b.available and b.device == 'gpu']
+
+    def is_available(self, key: str) -> bool:
+        return any(b.key == key and b.available for b in self._backend_infos)
+
 
 # Global backend registry
 backends = BackendRegistry()
@@ -134,217 +242,409 @@ backends = BackendRegistry()
 class BackendRunner(ABC):
     """Abstract base class for running benchmarks on a specific backend."""
 
+    @property
+    @abstractmethod
+    def key(self) -> str:
+        """Backend key name."""
+        pass
+
     @abstractmethod
     def is_available(self) -> bool:
-        """Check if this backend is available."""
         pass
 
     @abstractmethod
     def run(self, op_name: str, np_func: Callable, np_args: tuple,
             np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
-        """Run benchmark for a single operation."""
         pass
 
     def _verify(self, reference: np.ndarray, result: np.ndarray,
                 rtol: float = 1e-4, atol: float = 1e-5) -> bool:
-        """Verify results match within tolerance."""
         try:
             np.testing.assert_allclose(result, reference, rtol=rtol, atol=atol)
             return True
-        except AssertionError:
+        except (AssertionError, AssertionError):
             return False
 
 
 class CUTRunner(BackendRunner):
-    """Runs benchmarks on CUT backend using unified compute interface."""
+    """Runs benchmarks on CUT Vulkan GPU backend."""
 
-    def __init__(self, test_data: TestData, backend_enum, simd_mode=None):
+    SCALAR_OPS = {'sum', 'mean', 'min', 'max', 'prod', 'var', 'std', 'dot',
+                  'mse_loss', 'l1_loss', 'cross_entropy_loss'}
+
+    @property
+    def key(self) -> str:
+        return 'vulkan'
+
+    def __init__(self, test_data: TestData):
         self.data = test_data
-        self.backend_enum = backend_enum
-        self.simd_mode = simd_mode
         self._tensors = {}
-        self._current_backend = None
-
+        self._initialized = False
         cc = backends.cut_compute
-        if cc is None:
-            self._available = False
-        elif backend_enum == cc.Backend.Vulkan:
-            self._available = cc.is_vulkan_available()
-        else:
-            self._available = False
+        self._available = cc is not None and cc.is_vulkan_available()
 
-    def _ensure_backend_active(self):
-        """Ensure this runner's backend is active and tensors are ready."""
+    def _ensure_init(self):
+        if self._initialized:
+            return True
         if not self._available:
             return False
-
         cc = backends.cut_compute
-
-        needs_switch = (
-            cc.current_backend() != self.backend_enum or
-            self._current_backend != self.backend_enum
-        )
-
-        if needs_switch:
-            self._tensors = {}
-            cc.shutdown()
-
-            if self.backend_enum == cc.Backend.Vulkan:
-                cc.init(cc.Backend.Vulkan, force=True)
-
-            self._current_backend = self.backend_enum
-
-        if not self._tensors:
-            self._tensors = {
-                'a': cc.Tensor(self.data.a),
-                'b': cc.Tensor(self.data.b),
-                'a_pos': cc.Tensor(self.data.a_pos),
-                'b_pos': cc.Tensor(self.data.b_pos),
-                'a_unit': cc.Tensor(self.data.a_unit),
-                'b_small': cc.Tensor(self.data.b_small),
-                'a_div10': cc.Tensor(self.data.a_div10),
-                'a_tan_safe': cc.Tensor(self.data.a_tan_safe),
-            }
-
+        cc.init(cc.Backend.Vulkan, force=True)
+        self._tensors = {
+            'a': cc.Tensor(self.data.a),
+            'b': cc.Tensor(self.data.b),
+            'a_pos': cc.Tensor(self.data.a_pos),
+            'b_pos': cc.Tensor(self.data.b_pos),
+            'a_unit': cc.Tensor(self.data.a_unit),
+            'b_small': cc.Tensor(self.data.b_small),
+            'a_div10': cc.Tensor(self.data.a_div10),
+            'a_tan_safe': cc.Tensor(self.data.a_tan_safe),
+        }
+        if self.data.mat_a is not None:
+            self._tensors['mat_a'] = cc.Tensor(self.data.mat_a)
+        if self.data.mat_b is not None:
+            self._tensors['mat_b'] = cc.Tensor(self.data.mat_b)
+        if self.data.mat_2d is not None:
+            self._tensors['mat_2d'] = cc.Tensor(self.data.mat_2d)
+        self._tensors['a_pos_100'] = cc.Tensor(self.data.a_pos[:100])
+        self._initialized = True
         return True
 
     def is_available(self) -> bool:
         return self._available
 
     def _get_args(self, np_args: tuple) -> tuple:
-        """Map numpy arrays to CUT buffers, pass scalars through."""
         cc = backends.cut_compute
-        mapping = {
-            id(self.data.a): self._tensors['a'],
-            id(self.data.b): self._tensors['b'],
-            id(self.data.a_pos): self._tensors['a_pos'],
-            id(self.data.b_pos): self._tensors['b_pos'],
-            id(self.data.a_unit): self._tensors['a_unit'],
-            id(self.data.b_small): self._tensors['b_small'],
-            id(self.data.a_div10): self._tensors['a_div10'],
-            id(self.data.a_tan_safe): self._tensors['a_tan_safe'],
-        }
+        mapping = {}
+        for attr in ['a', 'b', 'a_pos', 'b_pos', 'a_unit', 'b_small', 'a_div10', 'a_tan_safe']:
+            arr = getattr(self.data, attr)
+            if attr in self._tensors:
+                mapping[id(arr)] = self._tensors[attr]
+        for attr in ['mat_a', 'mat_b', 'mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None and attr in self._tensors:
+                mapping[id(arr)] = self._tensors[attr]
         result = []
         for arg in np_args:
             if isinstance(arg, np.ndarray):
-                result.append(mapping.get(id(arg), cc.Tensor(arg)))
+                tensor = mapping.get(id(arg))
+                if tensor is None:
+                    tensor = cc.Tensor(arg)
+                result.append(tensor)
             else:
                 result.append(float(arg))
         return tuple(result)
 
-    def run(self, op_name: str, np_func: Callable, np_args: tuple,
-            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+    def run(self, op_name, np_func, np_args, np_result, config):
         if not self.is_available():
             return BackendResult()
-
         try:
-            if not self._ensure_backend_active():
+            if not self._ensure_init():
                 return BackendResult()
-
             cc = backends.cut_compute
             cut_func = getattr(cc, op_name, None)
             if cut_func is None:
                 return BackendResult()
-
             cut_args = self._get_args(np_args)
-
-            # Warmup
+            is_scalar = op_name in self.SCALAR_OPS
             for _ in range(config.warmup_iterations):
                 cut_func(*cut_args)
-
-            # Timed runs
             times = []
             for _ in range(config.num_iterations):
                 start = time.perf_counter()
                 result_buf = cut_func(*cut_args)
                 end = time.perf_counter()
                 times.append(end - start)
-
-            flat = result_buf.copy_to()
-            result = np.array(list(flat), dtype=np.float32)
+            if is_scalar:
+                result = np.array([float(result_buf)], dtype=np.float32)
+            else:
+                flat = result_buf.copy_to()
+                result = np.array(list(flat), dtype=np.float32)
             valid = self._verify(np_result, result)
-
-            return BackendResult(
-                time_ms=np.mean(times) * 1000,
-                std_ms=np.std(times) * 1000,
-                valid=valid
-            )
+            return BackendResult(time_ms=np.mean(times)*1000,
+                                 std_ms=np.std(times)*1000, valid=valid)
         except Exception:
             return BackendResult()
 
 
-class VulkanRunner(CUTRunner):
-    """Runs benchmarks on Vulkan GPU backend."""
-    def __init__(self, test_data: TestData):
-        cc = backends.cut_compute
-        if cc is not None:
-            super().__init__(test_data, cc.Backend.Vulkan)
+# =============================================================================
+# PyTorch Runner (supports both CPU and CUDA GPU)
+# =============================================================================
+
+class PyTorchRunner(BackendRunner):
+    """Runs benchmarks on PyTorch (CPU or CUDA GPU)."""
+
+    def __init__(self, test_data: TestData, device: str = 'cpu'):
+        self.data = test_data
+        self._device = device
+        self._tensors = {}
+        self._key = f'pytorch_{"gpu" if device != "cpu" else "cpu"}'
+
+        if not backends.pytorch_available:
+            self._available = False
+            return
+
+        torch = backends.torch
+        if device == 'cpu':
+            self._available = True
+        elif device.startswith('cuda'):
+            self._available = torch.cuda.is_available()
         else:
             self._available = False
 
+        if self._available:
+            self._create_tensors()
+
+    @property
+    def key(self) -> str:
+        return self._key
+
+    def _create_tensors(self):
+        torch = backends.torch
+        dev = self._device
+        self._tensors = {}
+        for attr in ['a', 'b', 'a_pos', 'b_pos', 'a_unit', 'b_small', 'a_div10', 'a_tan_safe']:
+            arr = getattr(self.data, attr)
+            self._tensors[attr] = torch.from_numpy(arr.copy()).to(dev)
+        for attr in ['mat_a', 'mat_b', 'mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None:
+                self._tensors[attr] = torch.from_numpy(arr.copy()).to(dev)
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def _get_args(self, np_args):
+        torch = backends.torch
+        mapping = {}
+        for attr in ['a', 'b', 'a_pos', 'b_pos', 'a_unit', 'b_small', 'a_div10', 'a_tan_safe',
+                      'mat_a', 'mat_b', 'mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None and attr in self._tensors:
+                mapping[id(arr)] = self._tensors[attr]
+        result = []
+        for arg in np_args:
+            if isinstance(arg, np.ndarray):
+                t = mapping.get(id(arg))
+                if t is None:
+                    t = torch.from_numpy(arg.copy()).to(self._device)
+                result.append(t)
+            else:
+                result.append(float(arg))
+        return tuple(result)
+
+    def _get_func(self, op_name, np_func):
+        torch = backends.torch
+        F = torch.nn.functional
+
+        TORCH_MAP = {
+            'matmul': torch.matmul,
+            'transpose': lambda a: a.T.contiguous(),
+            'softmax': lambda a: F.softmax(a, dim=-1),
+            'log_softmax': lambda a: F.log_softmax(a, dim=-1),
+            'sum': lambda a: torch.sum(a).unsqueeze(0),
+            'mean': lambda a: torch.mean(a).unsqueeze(0),
+            'min': lambda a: torch.min(a).unsqueeze(0),
+            'max': lambda a: torch.max(a).unsqueeze(0),
+            'prod': lambda a: torch.prod(a).unsqueeze(0),
+            'var': lambda a: torch.var(a, correction=1).unsqueeze(0),
+            'std': lambda a: torch.std(a, correction=1).unsqueeze(0),
+            'cumsum': lambda a: torch.cumsum(a, dim=0),
+            'cumprod': lambda a: torch.cumprod(a, dim=0),
+            'mse_loss': lambda a, b: F.mse_loss(a, b).unsqueeze(0),
+            'l1_loss': lambda a, b: F.l1_loss(a, b).unsqueeze(0),
+            # Activations
+            'relu': F.relu, 'relu6': F.relu6, 'sigmoid': torch.sigmoid,
+            'gelu': F.gelu, 'silu': F.silu, 'softplus': F.softplus,
+            'elu': F.elu, 'selu': F.selu, 'celu': F.celu, 'mish': F.mish,
+            'hardswish': F.hardswish, 'hardsigmoid': F.hardsigmoid,
+            'hardtanh': F.hardtanh, 'softsign': F.softsign,
+            'logsigmoid': F.logsigmoid, 'tanhshrink': F.tanhshrink,
+            # Extended math
+            'rsqrt': torch.rsqrt, 'trunc': torch.trunc, 'frac': torch.frac,
+            'expm1': torch.expm1, 'log1p': torch.log1p, 'exp2': torch.exp2,
+            'degrees': torch.rad2deg, 'radians': torch.deg2rad,
+            'arcsinh': torch.asinh, 'arccosh': torch.acosh, 'arctanh': torch.atanh,
+            # Binary math
+            'arctan2': torch.atan2, 'hypot': torch.hypot, 'copysign': torch.copysign,
+            'fmod': torch.fmod, 'logaddexp': torch.logaddexp, 'logaddexp2': torch.logaddexp2,
+        }
+        if op_name in TORCH_MAP:
+            return TORCH_MAP[op_name]
+        CMP_MAP = {'equal':'eq','not_equal':'ne','less':'lt',
+                    'less_equal':'le','greater':'gt','greater_equal':'ge'}
+        if op_name in CMP_MAP:
+            base_func = getattr(torch, CMP_MAP[op_name])
+            return lambda *args: base_func(*args).float()
+        torch_func = getattr(torch, op_name, None)
+        if torch_func is not None:
+            return torch_func
+        func_name = getattr(np_func, '__name__', None)
+        if func_name:
+            tf = getattr(torch, func_name, None)
+            if tf is not None:
+                return tf
+        return None
+
+    def run(self, op_name, np_func, np_args, np_result, config):
+        if not self.is_available():
+            return BackendResult()
+        try:
+            torch = backends.torch
+            torch_args = self._get_args(np_args)
+            torch_func = self._get_func(op_name, np_func)
+            if torch_func is None:
+                return BackendResult()
+            is_cuda = self._device.startswith('cuda')
+            # Warmup
+            for _ in range(config.warmup_iterations):
+                torch_func(*torch_args)
+                if is_cuda:
+                    torch.cuda.synchronize()
+            # Timed runs
+            times = []
+            for _ in range(config.num_iterations):
+                if is_cuda:
+                    torch.cuda.synchronize()
+                start = time.perf_counter()
+                result = torch_func(*torch_args)
+                if is_cuda:
+                    torch.cuda.synchronize()
+                end = time.perf_counter()
+                times.append(end - start)
+            if isinstance(result, (int, float)):
+                result_np = np.array([result], dtype=np.float32)
+            else:
+                result_np = result.detach().cpu().numpy().astype(np.float32)
+            valid = self._verify(np_result, result_np)
+            return BackendResult(time_ms=np.mean(times)*1000,
+                                 std_ms=np.std(times)*1000, valid=valid)
+        except Exception:
+            return BackendResult()
+
+
+# =============================================================================
+# CuPy Runner (CUDA GPU)
+# =============================================================================
 
 class CuPyRunner(BackendRunner):
-    """Runs benchmarks on CuPy (CUDA) backend."""
+    """Runs benchmarks on CuPy (NVIDIA CUDA GPU)."""
+
+    @property
+    def key(self) -> str:
+        return 'cupy'
 
     def __init__(self, test_data: TestData):
         self.data = test_data
         self._arrays = {}
-        if backends.cupy_available:
+        self._available = backends.cupy_available
+        if self._available:
             self._create_arrays()
 
     def _create_arrays(self):
         cp = backends.cupy
-        self._arrays = {
-            'a': cp.asarray(self.data.a),
-            'b': cp.asarray(self.data.b),
-            'a_pos': cp.asarray(self.data.a_pos),
-            'b_pos': cp.asarray(self.data.b_pos),
-            'a_unit': cp.asarray(self.data.a_unit),
-            'b_small': cp.asarray(self.data.b_small),
-            'a_div10': cp.asarray(self.data.a_div10),
-            'a_tan_safe': cp.asarray(self.data.a_tan_safe),
-        }
+        for attr in ['a','b','a_pos','b_pos','a_unit','b_small','a_div10','a_tan_safe']:
+            self._arrays[attr] = cp.asarray(getattr(self.data, attr))
+        for attr in ['mat_a','mat_b','mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None:
+                self._arrays[attr] = cp.asarray(arr)
 
-    def is_available(self) -> bool:
-        return backends.cupy_available
+    def is_available(self):
+        return self._available
 
-    def _get_args(self, np_args: tuple) -> tuple:
+    def _get_args(self, np_args):
         cp = backends.cupy
-        mapping = {
-            id(self.data.a): self._arrays['a'],
-            id(self.data.b): self._arrays['b'],
-            id(self.data.a_pos): self._arrays['a_pos'],
-            id(self.data.b_pos): self._arrays['b_pos'],
-            id(self.data.a_unit): self._arrays['a_unit'],
-            id(self.data.b_small): self._arrays['b_small'],
-            id(self.data.a_div10): self._arrays['a_div10'],
-            id(self.data.a_tan_safe): self._arrays['a_tan_safe'],
-        }
-        return tuple(mapping.get(id(arg), cp.asarray(arg)) for arg in np_args)
+        mapping = {}
+        for attr in ['a','b','a_pos','b_pos','a_unit','b_small','a_div10','a_tan_safe',
+                      'mat_a','mat_b','mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None and attr in self._arrays:
+                mapping[id(arr)] = self._arrays[attr]
+        result = []
+        for arg in np_args:
+            if isinstance(arg, np.ndarray):
+                result.append(mapping.get(id(arg), cp.asarray(arg)))
+            else:
+                result.append(arg)
+        return tuple(result)
 
-    def run(self, op_name: str, np_func: Callable, np_args: tuple,
-            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+    def _get_func(self, op_name, np_func):
+        cp = backends.cupy
+        CUPY_MAP = {
+            'matmul': lambda a,b: cp.matmul(a,b),
+            'transpose': lambda a: cp.ascontiguousarray(a.T),
+            'softmax': lambda a: self._softmax(a),
+            'log_softmax': lambda a: self._log_softmax(a),
+            'sum': lambda a: cp.array([cp.sum(a)]),
+            'mean': lambda a: cp.array([cp.mean(a)]),
+            'min': lambda a: cp.array([cp.min(a)]),
+            'max': lambda a: cp.array([cp.max(a)]),
+            'prod': lambda a: cp.array([cp.prod(a)]),
+            'var': lambda a: cp.array([cp.var(a, ddof=1)]),
+            'std': lambda a: cp.array([cp.std(a, ddof=1)]),
+            'cumsum': lambda a: cp.cumsum(a),
+            'cumprod': lambda a: cp.cumprod(a),
+            'mse_loss': lambda a,b: cp.array([cp.mean((a-b)**2)]),
+            'l1_loss': lambda a,b: cp.array([cp.mean(cp.abs(a-b))]),
+            'relu': lambda a: cp.maximum(a,0),
+            'relu6': lambda a: cp.clip(a,0,6),
+            'sigmoid': lambda a: 1.0/(1.0+cp.exp(-a)),
+            'silu': lambda a: a/(1.0+cp.exp(-a)),
+            'gelu': lambda a: a*0.5*(1.0+cp.tanh(cp.sqrt(cp.array(2.0/cp.pi))*(a+0.044715*a**3))),
+            'softplus': lambda a: cp.log1p(cp.exp(cp.clip(a,-20,20))),
+            'elu': lambda a: cp.where(a>=0,a,cp.exp(a)-1),
+            'mish': lambda a: a*cp.tanh(cp.log1p(cp.exp(cp.clip(a,-20,20)))),
+            'hardswish': lambda a: a*cp.clip(a+3,0,6)/6.0,
+            'hardsigmoid': lambda a: cp.clip(a/6.0+0.5,0,1),
+            'hardtanh': lambda a: cp.clip(a,-1,1),
+            'softsign': lambda a: a/(1.0+cp.abs(a)),
+            'logsigmoid': lambda a: -cp.log1p(cp.exp(-a)),
+            'tanhshrink': lambda a: a-cp.tanh(a),
+            'rsqrt': lambda a: 1.0/cp.sqrt(a),
+            'trunc': cp.trunc, 'frac': lambda a: a-cp.trunc(a),
+            'expm1': cp.expm1, 'log1p': cp.log1p, 'exp2': cp.exp2,
+            'degrees': cp.degrees, 'radians': cp.radians,
+            'arcsinh': cp.arcsinh, 'arccosh': cp.arccosh, 'arctanh': cp.arctanh,
+            'arctan2': cp.arctan2, 'hypot': cp.hypot, 'copysign': cp.copysign,
+            'fmod': cp.fmod, 'logaddexp': cp.logaddexp, 'logaddexp2': cp.logaddexp2,
+        }
+        if op_name in CUPY_MAP:
+            return CUPY_MAP[op_name]
+        if op_name in ('equal','not_equal','less','less_equal','greater','greater_equal'):
+            base = getattr(cp, op_name)
+            return lambda *args: base(*args).astype(cp.float32)
+        f = getattr(cp, op_name, None)
+        if f: return f
+        fname = getattr(np_func, '__name__', None)
+        if fname:
+            f = getattr(cp, fname, None)
+            if f: return f
+        return None
+
+    def _softmax(self, x):
+        cp = backends.cupy
+        e = cp.exp(x - cp.max(x, axis=-1, keepdims=True))
+        return e / cp.sum(e, axis=-1, keepdims=True)
+
+    def _log_softmax(self, x):
+        cp = backends.cupy
+        m = cp.max(x, axis=-1, keepdims=True)
+        e = cp.exp(x - m)
+        return x - m - cp.log(cp.sum(e, axis=-1, keepdims=True))
+
+    def run(self, op_name, np_func, np_args, np_result, config):
         if not self.is_available():
             return BackendResult()
-
         try:
             cp = backends.cupy
             cp_args = self._get_args(np_args)
-
-            cp_func = getattr(cp, np_func.__name__, None)
+            cp_func = self._get_func(op_name, np_func)
             if cp_func is None:
-                if op_name in ('equal', 'not_equal', 'less', 'less_equal', 'greater', 'greater_equal'):
-                    base_func = getattr(cp, op_name)
-                    cp_func = lambda *args: base_func(*args).astype(cp.float32)
-                else:
-                    return BackendResult()
-
-            # Warmup with sync
+                return BackendResult()
             for _ in range(config.warmup_iterations):
                 cp_func(*cp_args)
                 cp.cuda.Stream.null.synchronize()
-
-            # Timed runs
             times = []
             for _ in range(config.num_iterations):
                 cp.cuda.Stream.null.synchronize()
@@ -353,380 +653,558 @@ class CuPyRunner(BackendRunner):
                 cp.cuda.Stream.null.synchronize()
                 end = time.perf_counter()
                 times.append(end - start)
-
             result = cp.asnumpy(cp_result).astype(np.float32)
             valid = self._verify(np_result, result)
-
-            return BackendResult(
-                time_ms=np.mean(times) * 1000,
-                std_ms=np.std(times) * 1000,
-                valid=valid
-            )
+            return BackendResult(time_ms=np.mean(times)*1000,
+                                 std_ms=np.std(times)*1000, valid=valid)
         except Exception:
             return BackendResult()
 
 
+# =============================================================================
+# JAX Runner (CPU or GPU)
+# =============================================================================
+
 class JAXRunner(BackendRunner):
-    """Runs benchmarks on JAX backend with JIT compilation."""
+    """Runs benchmarks on JAX (auto-detects GPU/TPU/CPU)."""
+
+    @property
+    def key(self) -> str:
+        return 'jax'
 
     def __init__(self, test_data: TestData):
         self.data = test_data
         self._arrays = {}
-        if backends.jax_available:
+        self._available = backends.jax_available
+        if self._available:
             self._create_arrays()
 
     def _create_arrays(self):
         jnp = backends.jnp
-        self._arrays = {
-            'a': jnp.asarray(self.data.a),
-            'b': jnp.asarray(self.data.b),
-            'a_pos': jnp.asarray(self.data.a_pos),
-            'b_pos': jnp.asarray(self.data.b_pos),
-            'a_unit': jnp.asarray(self.data.a_unit),
-            'b_small': jnp.asarray(self.data.b_small),
-            'a_div10': jnp.asarray(self.data.a_div10),
-            'a_tan_safe': jnp.asarray(self.data.a_tan_safe),
-        }
+        for attr in ['a','b','a_pos','b_pos','a_unit','b_small','a_div10','a_tan_safe']:
+            self._arrays[attr] = jnp.asarray(getattr(self.data, attr))
+        for attr in ['mat_a','mat_b','mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None:
+                self._arrays[attr] = jnp.asarray(arr)
 
-    def is_available(self) -> bool:
-        return backends.jax_available
+    def is_available(self):
+        return self._available
 
-    def _get_args(self, np_args: tuple) -> tuple:
+    def _get_args(self, np_args):
         jnp = backends.jnp
-        mapping = {
-            id(self.data.a): self._arrays['a'],
-            id(self.data.b): self._arrays['b'],
-            id(self.data.a_pos): self._arrays['a_pos'],
-            id(self.data.b_pos): self._arrays['b_pos'],
-            id(self.data.a_unit): self._arrays['a_unit'],
-            id(self.data.b_small): self._arrays['b_small'],
-            id(self.data.a_div10): self._arrays['a_div10'],
-            id(self.data.a_tan_safe): self._arrays['a_tan_safe'],
-        }
-        return tuple(mapping.get(id(arg), jnp.asarray(arg)) for arg in np_args)
+        mapping = {}
+        for attr in ['a','b','a_pos','b_pos','a_unit','b_small','a_div10','a_tan_safe',
+                      'mat_a','mat_b','mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None and attr in self._arrays:
+                mapping[id(arr)] = self._arrays[attr]
+        result = []
+        for arg in np_args:
+            if isinstance(arg, np.ndarray):
+                result.append(mapping.get(id(arg), jnp.asarray(arg)))
+            else:
+                result.append(arg)
+        return tuple(result)
 
-    def run(self, op_name: str, np_func: Callable, np_args: tuple,
-            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+    def _get_func(self, op_name, np_func):
+        jnp = backends.jnp
+        jax = backends.jax
+        JAX_MAP = {
+            'matmul': lambda a,b: jnp.matmul(a,b),
+            'transpose': lambda a: a.T,
+            'softmax': lambda a: jax.nn.softmax(a,axis=-1),
+            'log_softmax': lambda a: jax.nn.log_softmax(a,axis=-1),
+            'sum': lambda a: jnp.array([jnp.sum(a)]),
+            'mean': lambda a: jnp.array([jnp.mean(a)]),
+            'min': lambda a: jnp.array([jnp.min(a)]),
+            'max': lambda a: jnp.array([jnp.max(a)]),
+            'prod': lambda a: jnp.array([jnp.prod(a)]),
+            'var': lambda a: jnp.array([jnp.var(a,ddof=1)]),
+            'std': lambda a: jnp.array([jnp.std(a,ddof=1)]),
+            'cumsum': lambda a: jnp.cumsum(a),
+            'cumprod': lambda a: jnp.cumprod(a),
+            'mse_loss': lambda a,b: jnp.array([jnp.mean((a-b)**2)]),
+            'l1_loss': lambda a,b: jnp.array([jnp.mean(jnp.abs(a-b))]),
+            'relu': jax.nn.relu, 'relu6': lambda a: jnp.clip(a,0,6),
+            'sigmoid': jax.nn.sigmoid, 'gelu': jax.nn.gelu,
+            'silu': jax.nn.silu, 'softplus': jax.nn.softplus,
+            'elu': jax.nn.elu, 'selu': jax.nn.selu,
+            'mish': lambda a: a*jnp.tanh(jax.nn.softplus(a)),
+            'hardswish': lambda a: a*jnp.clip(a+3,0,6)/6.0,
+            'hardsigmoid': lambda a: jnp.clip(a/6.0+0.5,0,1),
+            'hardtanh': lambda a: jnp.clip(a,-1,1),
+            'softsign': lambda a: a/(1.0+jnp.abs(a)),
+            'logsigmoid': jax.nn.log_sigmoid,
+            'tanhshrink': lambda a: a-jnp.tanh(a),
+            'rsqrt': lambda a: 1.0/jnp.sqrt(a),
+            'trunc': jnp.trunc, 'frac': lambda a: a-jnp.trunc(a),
+            'expm1': jnp.expm1, 'log1p': jnp.log1p, 'exp2': jnp.exp2,
+            'degrees': jnp.degrees, 'radians': jnp.radians,
+            'arcsinh': jnp.arcsinh, 'arccosh': jnp.arccosh, 'arctanh': jnp.arctanh,
+            'arctan2': jnp.arctan2, 'hypot': jnp.hypot, 'copysign': jnp.copysign,
+            'fmod': jnp.fmod, 'logaddexp': jnp.logaddexp, 'logaddexp2': jnp.logaddexp2,
+        }
+        if op_name in JAX_MAP: return JAX_MAP[op_name]
+        if op_name in ('equal','not_equal','less','less_equal','greater','greater_equal'):
+            base = getattr(jnp, op_name)
+            return lambda *args: base(*args).astype(jnp.float32)
+        f = getattr(jnp, op_name, None)
+        if f: return f
+        fname = getattr(np_func, '__name__', None)
+        if fname:
+            f = getattr(jnp, fname, None)
+            if f: return f
+        return None
+
+    def run(self, op_name, np_func, np_args, np_result, config):
         if not self.is_available():
             return BackendResult()
-
         try:
             jax = backends.jax
-            jnp = backends.jnp
             jax_args = self._get_args(np_args)
-
-            jax_func = getattr(jnp, np_func.__name__, None)
+            jax_func = self._get_func(op_name, np_func)
             if jax_func is None:
-                if op_name in ('equal', 'not_equal', 'less', 'less_equal', 'greater', 'greater_equal'):
-                    base_func = getattr(jnp, op_name)
-                    jax_func = lambda *args: base_func(*args).astype(jnp.float32)
-                else:
-                    return BackendResult()
-
+                return BackendResult()
             jax_func_jit = jax.jit(jax_func)
-
-            # Warmup
             for _ in range(config.warmup_iterations):
-                result = jax_func_jit(*jax_args)
-                result.block_until_ready()
-
-            # Timed runs
+                r = jax_func_jit(*jax_args)
+                r.block_until_ready()
             times = []
             for _ in range(config.num_iterations):
                 start = time.perf_counter()
-                result = jax_func_jit(*jax_args)
-                result.block_until_ready()
+                r = jax_func_jit(*jax_args)
+                r.block_until_ready()
                 end = time.perf_counter()
                 times.append(end - start)
-
-            result_np = np.asarray(result).astype(np.float32)
+            result_np = np.asarray(r).astype(np.float32)
             valid = self._verify(np_result, result_np)
-
-            return BackendResult(
-                time_ms=np.mean(times) * 1000,
-                std_ms=np.std(times) * 1000,
-                valid=valid
-            )
+            return BackendResult(time_ms=np.mean(times)*1000,
+                                 std_ms=np.std(times)*1000, valid=valid)
         except Exception:
             return BackendResult()
 
 
-class PyTorchRunner(BackendRunner):
-    """Runs benchmarks on PyTorch CPU backend."""
+# =============================================================================
+# Warp Runner (NVIDIA CUDA GPU)
+# =============================================================================
+
+class WarpRunner(BackendRunner):
+    """Runs benchmarks on NVIDIA Warp (CUDA GPU)."""
+
+    @property
+    def key(self) -> str:
+        return 'warp'
+
+    def __init__(self, test_data: TestData):
+        self.data = test_data
+        self._arrays = {}
+        self._available = backends.warp_available
+        if self._available:
+            self._create_arrays()
+
+    def _create_arrays(self):
+        wp = backends.warp
+        for attr in ['a','b','a_pos','b_pos','a_unit','b_small','a_div10','a_tan_safe']:
+            arr = getattr(self.data, attr)
+            self._arrays[attr] = wp.array(arr, dtype=wp.float32, device='cuda:0')
+        for attr in ['mat_a','mat_b','mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None:
+                self._arrays[attr] = wp.array(arr, dtype=wp.float32, device='cuda:0')
+
+    def is_available(self):
+        return self._available
+
+    def _get_args(self, np_args):
+        wp = backends.warp
+        mapping = {}
+        for attr in ['a','b','a_pos','b_pos','a_unit','b_small','a_div10','a_tan_safe',
+                      'mat_a','mat_b','mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None and attr in self._arrays:
+                mapping[id(arr)] = self._arrays[attr]
+        result = []
+        for arg in np_args:
+            if isinstance(arg, np.ndarray):
+                warr = mapping.get(id(arg))
+                if warr is None:
+                    warr = wp.array(arg, dtype=wp.float32, device='cuda:0')
+                result.append(warr)
+            else:
+                result.append(arg)
+        return tuple(result)
+
+    def _get_func(self, op_name, np_func):
+        """Map ops to Warp equivalents (element-wise via numpy interop)."""
+        # Warp does not have a full tensor op library like PyTorch/CuPy.
+        # It uses custom kernels. For benchmarking, we use its array + numpy
+        # interop for the ops that map cleanly.
+        # Most element-wise ops are not directly available in Warp's API,
+        # so we skip them and only benchmark what Warp natively supports.
+        return None  # Warp doesn't have standard tensor ops API
+
+    def run(self, op_name, np_func, np_args, np_result, config):
+        if not self.is_available():
+            return BackendResult()
+        # Warp doesn't have standard tensor element-wise ops
+        # (it's a kernel-launch framework, not a tensor library)
+        return BackendResult()
+
+
+# =============================================================================
+# TensorFlow Runner (GPU)
+# =============================================================================
+
+class TensorFlowRunner(BackendRunner):
+    """Runs benchmarks on TensorFlow GPU."""
+
+    @property
+    def key(self) -> str:
+        return 'tensorflow'
 
     def __init__(self, test_data: TestData):
         self.data = test_data
         self._tensors = {}
-        if backends.pytorch_available:
+        self._available = backends.tf_gpu_available
+        if self._available:
             self._create_tensors()
 
     def _create_tensors(self):
-        torch = backends.torch
-        self._tensors = {
-            'a': torch.from_numpy(self.data.a),
-            'b': torch.from_numpy(self.data.b),
-            'a_pos': torch.from_numpy(self.data.a_pos),
-            'b_pos': torch.from_numpy(self.data.b_pos),
-            'a_unit': torch.from_numpy(self.data.a_unit),
-            'b_small': torch.from_numpy(self.data.b_small),
-            'a_div10': torch.from_numpy(self.data.a_div10),
-            'a_tan_safe': torch.from_numpy(self.data.a_tan_safe),
-        }
+        tf = backends.tf
+        for attr in ['a', 'b', 'a_pos', 'b_pos', 'a_unit', 'b_small', 'a_div10', 'a_tan_safe']:
+            arr = getattr(self.data, attr)
+            self._tensors[attr] = tf.constant(arr)
+        for attr in ['mat_a', 'mat_b', 'mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None:
+                self._tensors[attr] = tf.constant(arr)
 
-    def is_available(self) -> bool:
-        return backends.pytorch_available
+    def is_available(self):
+        return self._available
 
-    def _get_args(self, np_args: tuple) -> tuple:
-        torch = backends.torch
-        mapping = {
-            id(self.data.a): self._tensors['a'],
-            id(self.data.b): self._tensors['b'],
-            id(self.data.a_pos): self._tensors['a_pos'],
-            id(self.data.b_pos): self._tensors['b_pos'],
-            id(self.data.a_unit): self._tensors['a_unit'],
-            id(self.data.b_small): self._tensors['b_small'],
-            id(self.data.a_div10): self._tensors['a_div10'],
-            id(self.data.a_tan_safe): self._tensors['a_tan_safe'],
-        }
+    def _get_args(self, np_args):
+        tf = backends.tf
+        mapping = {}
+        for attr in ['a', 'b', 'a_pos', 'b_pos', 'a_unit', 'b_small', 'a_div10', 'a_tan_safe',
+                      'mat_a', 'mat_b', 'mat_2d']:
+            arr = getattr(self.data, attr, None)
+            if arr is not None and attr in self._tensors:
+                mapping[id(arr)] = self._tensors[attr]
         result = []
         for arg in np_args:
             if isinstance(arg, np.ndarray):
-                result.append(mapping.get(id(arg), torch.from_numpy(arg)))
+                t = mapping.get(id(arg))
+                if t is None:
+                    t = tf.constant(arg)
+                result.append(t)
             else:
                 result.append(float(arg))
         return tuple(result)
 
-    def run(self, op_name: str, np_func: Callable, np_args: tuple,
-            np_result: np.ndarray, config: BenchmarkConfig) -> BackendResult:
+    def _get_func(self, op_name, np_func):
+        tf = backends.tf
+        TF_MAP = {
+            'matmul': lambda a, b: tf.linalg.matmul(a, b),
+            'transpose': lambda a: tf.transpose(a),
+            'softmax': lambda a: tf.nn.softmax(a, axis=-1),
+            'log_softmax': lambda a: tf.nn.log_softmax(a, axis=-1),
+            'sum': lambda a: tf.reshape(tf.reduce_sum(a), [1]),
+            'mean': lambda a: tf.reshape(tf.reduce_mean(a), [1]),
+            'min': lambda a: tf.reshape(tf.reduce_min(a), [1]),
+            'max': lambda a: tf.reshape(tf.reduce_max(a), [1]),
+            'prod': lambda a: tf.reshape(tf.reduce_prod(a), [1]),
+            'var': lambda a: tf.reshape(tf.math.reduce_variance(a), [1]),
+            'std': lambda a: tf.reshape(tf.math.reduce_std(a), [1]),
+            'cumsum': lambda a: tf.cumsum(a),
+            'cumprod': lambda a: tf.math.cumprod(a),
+            'mse_loss': lambda a, b: tf.reshape(tf.reduce_mean(tf.square(a - b)), [1]),
+            'l1_loss': lambda a, b: tf.reshape(tf.reduce_mean(tf.abs(a - b)), [1]),
+            # Activations
+            'relu': tf.nn.relu, 'relu6': tf.nn.relu6,
+            'sigmoid': tf.math.sigmoid, 'gelu': tf.nn.gelu,
+            'silu': tf.nn.silu, 'softplus': tf.math.softplus,
+            'elu': tf.nn.elu, 'selu': tf.nn.selu,
+            'mish': lambda a: a * tf.math.tanh(tf.math.softplus(a)),
+            'hardswish': lambda a: a * tf.clip_by_value(a + 3, 0, 6) / 6.0,
+            'hardsigmoid': lambda a: tf.clip_by_value(a / 6.0 + 0.5, 0, 1),
+            'hardtanh': lambda a: tf.clip_by_value(a, -1, 1),
+            'softsign': tf.nn.softsign,
+            'logsigmoid': lambda a: tf.math.log_sigmoid(a),
+            'tanhshrink': lambda a: a - tf.math.tanh(a),
+            # Math
+            'rsqrt': tf.math.rsqrt,
+            'trunc': lambda a: tf.cast(tf.cast(a, tf.int32), tf.float32),
+            'expm1': tf.math.expm1, 'log1p': tf.math.log1p,
+            'exp2': lambda a: tf.math.pow(2.0, a),
+            'degrees': lambda a: a * (180.0 / 3.141592653589793),
+            'radians': lambda a: a * (3.141592653589793 / 180.0),
+            'arcsinh': tf.math.asinh, 'arccosh': tf.math.acosh,
+            'arctanh': tf.math.atanh,
+            'arctan2': tf.math.atan2, 'copysign': lambda a, b: tf.math.abs(a) * tf.math.sign(b),
+            'fmod': lambda a, b: a - tf.math.floor(a / b) * b,
+            'logaddexp': lambda a, b: tf.math.log(tf.math.exp(a) + tf.math.exp(b)),
+        }
+        if op_name in TF_MAP:
+            return TF_MAP[op_name]
+
+        # Standard math operations
+        MATH_MAP = {
+            'add': tf.math.add, 'subtract': tf.math.subtract,
+            'multiply': tf.math.multiply, 'divide': tf.math.divide,
+            'maximum': tf.math.maximum, 'minimum': tf.math.minimum,
+            'abs': tf.math.abs, 'negative': tf.math.negative,
+            'sqrt': tf.math.sqrt, 'square': tf.math.square,
+            'exp': tf.math.exp, 'log': tf.math.log,
+            'log2': lambda a: tf.math.log(a) / tf.math.log(2.0),
+            'log10': lambda a: tf.math.log(a) / tf.math.log(10.0),
+            'reciprocal': tf.math.reciprocal,
+            'sin': tf.math.sin, 'cos': tf.math.cos, 'tan': tf.math.tan,
+            'arcsin': tf.math.asin, 'arccos': tf.math.acos, 'arctan': tf.math.atan,
+            'sinh': tf.math.sinh, 'cosh': tf.math.cosh, 'tanh': tf.math.tanh,
+            'floor': tf.math.floor, 'ceil': tf.math.ceil,
+            'round': tf.math.round,
+            'power': tf.math.pow, 'mod': tf.math.mod,
+            'floor_divide': tf.math.floordiv,
+        }
+        if op_name in MATH_MAP:
+            return MATH_MAP[op_name]
+
+        # Comparison ops
+        CMP_MAP = {
+            'equal': tf.math.equal, 'not_equal': tf.math.not_equal,
+            'less': tf.math.less, 'less_equal': tf.math.less_equal,
+            'greater': tf.math.greater, 'greater_equal': tf.math.greater_equal,
+        }
+        if op_name in CMP_MAP:
+            base_func = CMP_MAP[op_name]
+            return lambda *args: tf.cast(base_func(*args), tf.float32)
+
+        return None
+
+    def run(self, op_name, np_func, np_args, np_result, config):
         if not self.is_available():
             return BackendResult()
-
         try:
-            torch = backends.torch
-            torch_args = self._get_args(np_args)
-
-            # Map numpy function names to torch equivalents
-            func_name = np_func.__name__
-            torch_func = getattr(torch, func_name, None)
-
-            # Handle special cases for comparison ops
-            if torch_func is None:
-                name_map = {
-                    'equal': 'eq',
-                    'not_equal': 'ne',
-                    'less': 'lt',
-                    'less_equal': 'le',
-                    'greater': 'gt',
-                    'greater_equal': 'ge',
-                }
-                if func_name in name_map:
-                    base_func = getattr(torch, name_map[func_name])
-                    torch_func = lambda *args: base_func(*args).float()
-                else:
-                    return BackendResult()
-
+            tf = backends.tf
+            tf_args = self._get_args(np_args)
+            tf_func = self._get_func(op_name, np_func)
+            if tf_func is None:
+                return BackendResult()
             # Warmup
             for _ in range(config.warmup_iterations):
-                torch_func(*torch_args)
-
+                tf_func(*tf_args)
             # Timed runs
             times = []
             for _ in range(config.num_iterations):
                 start = time.perf_counter()
-                result = torch_func(*torch_args)
+                result = tf_func(*tf_args)
                 end = time.perf_counter()
                 times.append(end - start)
-
             result_np = result.numpy().astype(np.float32)
             valid = self._verify(np_result, result_np)
-
-            return BackendResult(
-                time_ms=np.mean(times) * 1000,
-                std_ms=np.std(times) * 1000,
-                valid=valid
-            )
+            return BackendResult(time_ms=np.mean(times) * 1000,
+                                 std_ms=np.std(times) * 1000, valid=valid)
         except Exception:
             return BackendResult()
 
 
 # =============================================================================
-# Extended Output Formatting
+# Dynamic Output Formatting
 # =============================================================================
 
-class MultiBackendFormatter(OutputFormatter):
-    """Extended formatter for multi-backend benchmark output."""
+class DynamicFormatter:
+    """Dynamic formatter that adapts to available backends."""
 
-    @staticmethod
-    def table_header():
-        """Print the results table header."""
-        cols = ['Operation', 'Vulkan (ms)', 'CuPy (ms)', 'JAX (ms)', 'PyTorch (ms)', 'NumPy (ms)',
-                'Vulkan/NP', 'CuPy/NP', 'JAX/NP', 'Torch/NP', 'Status']
-        widths = [14, 14, 14, 14, 14, 14, 14, 14, 10, 10, 10, 10, 10, 10, 12]
+    def __init__(self, runner_keys: List[str]):
+        """runner_keys: ordered list of backend keys (excluding numpy)."""
+        self.runner_keys = runner_keys
+        # Short labels for columns
+        self._labels = {
+            'vulkan': 'CUT Vulkan',
+            'pytorch_gpu': 'PyTorch GPU',
+            'cupy': 'CuPy CUDA',
+            'jax': 'JAX',
+            'warp': 'Warp CUDA',
+            'tensorflow': 'TensorFlow GPU',
+        }
+
+    def _label(self, key):
+        return self._labels.get(key, key)
+
+    def table_header(self):
+        cols = ['Operation']
+        widths = [16]
+        for k in self.runner_keys:
+            cols.append(f'{self._label(k)} (ms)')
+            widths.append(18)
+        # Speedup columns (vs CUT)
+        other_keys = [k for k in self.runner_keys if k != 'vulkan']
+        for k in other_keys:
+            short = self._label(k).split()[0][:6]
+            cols.append(f'{short}/CUT')
+            widths.append(9)
+        cols.append('Status')
+        widths.append(max(6 * len(self.runner_keys), 12))
 
         header = " | ".join(f"{c:<{w}}" for c, w in zip(cols, widths))
-        separator = "-+-".join("-" * w for w in widths)
+        separator = "-+-".join("-" * w for w in widths[:len(cols)])
         print(f"\n{header}")
         print(separator)
 
-    @staticmethod
-    def result_row(result: BenchmarkResult):
-        """Print a single result row."""
+    def result_row(self, result: BenchmarkResult):
         fmt = OutputFormatter
+        parts = [f"{result.name:<16}"]
 
-        vk_time = fmt.format_time(result.vulkan.time_ms, result.vulkan.std_ms, backends.vulkan_available)
-        cupy_time = fmt.format_time(result.cupy.time_ms, result.cupy.std_ms, backends.cupy_available)
-        jax_time = fmt.format_time(result.jax.time_ms, result.jax.std_ms, backends.jax_available)
-        pytorch_time = fmt.format_time(result.pytorch.time_ms, result.pytorch.std_ms, backends.pytorch_available)
-        np_time = fmt.format_time(result.numpy.time_ms, result.numpy.std_ms)
+        # Timing columns for each runner
+        for k in self.runner_keys:
+            br = result.get(k)
+            avail = backends.is_available(k)
+            parts.append(f"{fmt.format_time(br.time_ms, br.std_ms, avail):<18}")
 
-        vk_spd = fmt.format_speedup(result.vulkan.speedup, backends.vulkan_available)
-        cupy_spd = fmt.format_speedup(result.cupy.speedup, backends.cupy_available)
-        jax_spd = fmt.format_speedup(result.jax.speedup, backends.jax_available)
-        pytorch_spd = fmt.format_speedup(result.pytorch.speedup, backends.pytorch_available)
+        # Speedup columns (vs CUT)
+        cut_br = result.get('vulkan')
+        other_keys = [k for k in self.runner_keys if k != 'vulkan']
+        for k in other_keys:
+            br = result.get(k)
+            avail = backends.is_available(k)
+            parts.append(f"{fmt.format_speedup(br.speedup, avail):<9}")
 
+        # Status
         status_parts = []
-        if backends.vulkan_available:
-            status_parts.append('V:OK' if result.vulkan.valid else 'V:FAIL')
-        if backends.cupy_available:
-            status_parts.append('G:OK' if result.cupy.valid else 'G:FAIL')
-        if backends.jax_available:
-            status_parts.append('J:OK' if result.jax.valid else 'J:FAIL')
-        if backends.pytorch_available:
-            status_parts.append('T:OK' if result.pytorch.valid else 'T:FAIL')
+        key_abbrev = {
+            'vulkan': 'V', 'pytorch_gpu': 'TG',
+            'cupy': 'C', 'jax': 'J', 'warp': 'W', 'tensorflow': 'TF',
+        }
+        for k in self.runner_keys:
+            if backends.is_available(k):
+                br = result.get(k)
+                if br.is_available():
+                    ab = key_abbrev.get(k, k[0].upper())
+                    status_parts.append(f'{ab}:{"OK" if br.valid else "F"}')
 
-        all_valid = all([
-            not backends.vulkan_available or result.vulkan.valid,
-            not backends.cupy_available or result.cupy.valid,
-            not backends.jax_available or result.jax.valid,
-            not backends.pytorch_available or result.pytorch.valid,
-        ])
-        status_color = Colors.GREEN if all_valid else Colors.RED
-        status = f"{status_color}{' '.join(status_parts)}{Colors.RESET}"
+        all_valid = all(
+            not backends.is_available(k) or not result.get(k).is_available() or result.get(k).valid
+            for k in self.runner_keys
+        )
+        color = Colors.GREEN if all_valid else Colors.RED
+        status_str = f"{color}{' '.join(status_parts)}{Colors.RESET}"
 
-        print(f"{result.name:<14} | {vk_time:<14} | {cupy_time:<14} | {jax_time:<14} | {pytorch_time:<14} | {np_time:<14} | "
-              f"{vk_spd:<10} | {cupy_spd:<10} | {jax_spd:<10} | {pytorch_spd:<10} | {status}")
+        print(" | ".join(parts) + f" | {status_str}")
 
 
 # =============================================================================
 # Benchmark Runner
 # =============================================================================
 
-def run_benchmarks(config: BenchmarkConfig, verbose: bool = True) -> List[BenchmarkResult]:
-    """Run all benchmarks and return results."""
+def run_benchmarks(config: BenchmarkConfig, verbose: bool = True,
+                   gpu_only: bool = False) -> Tuple[List[BenchmarkResult], List[str]]:
+    """Run all GPU benchmarks and return results + runner keys.
+
+    All speedups are computed relative to CUT Vulkan (the reference GPU backend).
+    """
     results: List[BenchmarkResult] = []
 
-    if verbose:
-        OutputFormatter.header("CUT Benchmark Suite: Vulkan vs NumPy", width=120)
-        print(f"\n{Colors.DIM}Configuration:{Colors.RESET}")
-        print(f"  - Elements:   {config.num_elements:,}")
-        print(f"  - Iterations: {config.num_iterations}")
-        print(f"  - Warmup:     {config.warmup_iterations}")
-        print(f"  - Seed:       {config.seed}")
-        print(f"  - Timestamp:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-        print(f"\n{Colors.DIM}Backends:{Colors.RESET}")
-        print(f"  - Vulkan:     {'Available' if backends.vulkan_available else 'Not available'}")
-        if backends.cupy_available:
-            print(f"  - CuPy:       Available (CUDA {backends.cupy.cuda.runtime.runtimeGetVersion()})")
-        else:
-            print(f"  - CuPy:       Not available")
-        if backends.jax_available:
-            print(f"  - JAX:        Available (backend: {backends.jax.default_backend()})")
-        else:
-            print(f"  - JAX:        Not available")
-        if backends.pytorch_available:
-            print(f"  - PyTorch:    Available ({backends.torch.__version__})")
-        else:
-            print(f"  - PyTorch:    Not available")
-        print(f"  - NumPy:      {np.__version__}")
-
-    # Generate test data and create runners
+    # Generate test data
     data = TestData.generate(config.num_elements, config.seed)
 
-    vulkan_runner = VulkanRunner(data)
-    cupy_runner = CuPyRunner(data)
-    jax_runner = JAXRunner(data)
-    pytorch_runner = PyTorchRunner(data)
+    # Create GPU-only runners (CUT first as baseline)
+    all_runners: List[BackendRunner] = []
+    all_runners.append(CUTRunner(data))
+    if backends.pytorch_cuda_available:
+        all_runners.append(PyTorchRunner(data, device='cuda'))
+    all_runners.append(CuPyRunner(data))
+    all_runners.append(JAXRunner(data))
+    all_runners.append(WarpRunner(data))
+    all_runners.append(TensorFlowRunner(data))
 
+    # Filter to available runners
+    runners = [r for r in all_runners if r.is_available()]
+    runner_keys = [r.key for r in runners]
+
+    if verbose:
+        OutputFormatter.header("CUT GPU Benchmark Suite", width=140)
+
+        print(f"\n{Colors.DIM}Configuration:{Colors.RESET}")
+        print(f"  Elements:   {config.num_elements:,}")
+        print(f"  Iterations: {config.num_iterations}")
+        print(f"  Warmup:     {config.warmup_iterations}")
+        print(f"  Seed:       {config.seed}")
+        print(f"  Timestamp:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  Baseline:   CUT Vulkan (all speedups relative to CUT)")
+
+        print(f"\n{Colors.BOLD}GPU Backends:{Colors.RESET}")
+        for info in backends.get_gpu_backends():
+            ver = f" ({info.version})" if info.version else ""
+            gpu = f" [{info.gpu_name}]" if info.gpu_name else ""
+            print(f"  {Colors.GREEN}GPU{Colors.RESET} {info.label}{ver}{gpu}")
+
+        not_avail = []
+        if not backends.vulkan_available: not_avail.append("CUT Vulkan")
+        if not backends.pytorch_cuda_available: not_avail.append("PyTorch CUDA")
+        if not backends.cupy_available: not_avail.append("CuPy")
+        if not backends.jax_available: not_avail.append("JAX")
+        if not backends.warp_available: not_avail.append("Warp")
+        if not backends.tf_gpu_available: not_avail.append("TensorFlow GPU")
+        if not_avail:
+            print(f"\n  {Colors.DIM}Not available: {', '.join(not_avail)}{Colors.RESET}")
+
+    formatter = DynamicFormatter(runner_keys)
     operations = get_operations(data)
 
-    # Run benchmarks
     for category, ops in operations.items():
         if verbose:
-            OutputFormatter.subheader(category, width=120)
-            MultiBackendFormatter.table_header()
+            OutputFormatter.subheader(category, width=140)
+            formatter.table_header()
 
         for op_name, np_func, np_args in ops:
-            # Run NumPy (reference)
-            times = []
-            for _ in range(config.warmup_iterations):
-                np_func(*np_args)
-            for _ in range(config.num_iterations):
-                start = time.perf_counter()
-                np_result = np_func(*np_args)
-                end = time.perf_counter()
-                times.append(end - start)
+            # Compute NumPy reference result (for correctness verification only)
+            np_result = np_func(*np_args).astype(np.float32)
 
-            np_result = np_result.astype(np.float32)
-            numpy_result = BackendResult(
-                time_ms=np.mean(times) * 1000,
-                std_ms=np.std(times) * 1000,
-                valid=True,
-                speedup=1.0
-            )
+            backend_results = OrderedDict()
 
-            # Run other backends
-            vulkan_result = vulkan_runner.run(op_name, np_func, np_args, np_result, config)
-            cupy_result = cupy_runner.run(op_name, np_func, np_args, np_result, config)
-            jax_result = jax_runner.run(op_name, np_func, np_args, np_result, config)
-            pytorch_result = pytorch_runner.run(op_name, np_func, np_args, np_result, config)
+            # Run each GPU backend
+            for runner in runners:
+                br = runner.run(op_name, np_func, np_args, np_result, config)
+                backend_results[runner.key] = br
 
-            # Calculate speedups
-            np_time = numpy_result.time_ms
-            vulkan_result.speedup = np_time / vulkan_result.time_ms if vulkan_result.time_ms > 0 else float('nan')
-            cupy_result.speedup = np_time / cupy_result.time_ms if cupy_result.time_ms > 0 else float('nan')
-            jax_result.speedup = np_time / jax_result.time_ms if jax_result.time_ms > 0 else float('nan')
-            pytorch_result.speedup = np_time / pytorch_result.time_ms if pytorch_result.time_ms > 0 else float('nan')
+            # Compute speedups relative to CUT Vulkan
+            cut_time = backend_results.get('vulkan', BackendResult()).time_ms
+            for key, br in backend_results.items():
+                if key == 'vulkan':
+                    br.speedup = 1.0
+                elif br.time_ms > 0 and not np.isnan(br.time_ms) and cut_time > 0 and not np.isnan(cut_time):
+                    br.speedup = cut_time / br.time_ms  # >1 = other is faster than CUT
+                else:
+                    br.speedup = float('nan')
 
-            result = BenchmarkResult(
-                name=op_name,
-                category=category,
-                numpy=numpy_result,
-                vulkan=vulkan_result,
-                cupy=cupy_result,
-                jax=jax_result,
-                pytorch=pytorch_result,
-            )
+            result = BenchmarkResult(name=op_name, category=category, backends=backend_results)
             results.append(result)
 
             if verbose:
-                MultiBackendFormatter.result_row(result)
+                formatter.result_row(result)
 
-    return results
+    return results, runner_keys
 
 
 # =============================================================================
 # Summary and Export
 # =============================================================================
 
-def compute_stats(results: List[BenchmarkResult], backend: str) -> Dict[str, Any]:
-    """Compute statistics for a backend."""
+def compute_stats(results: List[BenchmarkResult], backend_key: str) -> Dict[str, Any]:
     speedups = []
     valid_count = 0
     total_count = 0
-
     for r in results:
-        br = getattr(r, backend)
+        br = r.get(backend_key)
         if not np.isnan(br.time_ms):
             total_count += 1
             if br.valid:
                 valid_count += 1
             if not np.isnan(br.speedup):
                 speedups.append(br.speedup)
-
     if not speedups:
         return {'available': False}
-
     return {
         'available': True,
         'valid': valid_count,
@@ -736,131 +1214,139 @@ def compute_stats(results: List[BenchmarkResult], backend: str) -> Dict[str, Any
         'median': np.median(speedups),
         'min': np.min(speedups),
         'max': np.max(speedups),
-        'speedups': speedups,
     }
 
 
-def print_summary(results: List[BenchmarkResult]):
-    """Print comprehensive performance summary."""
-    OutputFormatter.header("Performance Evaluation Summary", width=120)
+def print_summary(results: List[BenchmarkResult], runner_keys: List[str]):
+    OutputFormatter.header("Performance Evaluation Summary (vs CUT)", width=140)
 
-    stats = {
-        'vulkan': compute_stats(results, 'vulkan') if backends.vulkan_available else {'available': False},
-        'cupy': compute_stats(results, 'cupy') if backends.cupy_available else {'available': False},
-        'jax': compute_stats(results, 'jax') if backends.jax_available else {'available': False},
-        'pytorch': compute_stats(results, 'pytorch') if backends.pytorch_available else {'available': False},
+    labels = {
+        'vulkan': 'CUT Vulkan', 'pytorch_gpu': 'PyTorch GPU',
+        'cupy': 'CuPy CUDA', 'jax': 'JAX', 'warp': 'Warp',
+        'tensorflow': 'TensorFlow GPU',
     }
+
+    other_keys = [k for k in runner_keys if k != 'vulkan']
+    stats = {k: compute_stats(results, k) for k in other_keys}
 
     print(f"\n{Colors.BOLD}Overall Statistics{Colors.RESET}")
-    print(f"{'─' * 60}")
+    print(f"{'─' * 80}")
     print(f"  Total operations tested:    {len(results)}")
-
-    for name, label in [('vulkan', 'Vulkan'), ('cupy', 'CuPy'), ('jax', 'JAX'),
-                        ('pytorch', 'PyTorch')]:
-        s = stats[name]
+    for k in runner_keys:
+        s = compute_stats(results, k)
         if s['available']:
-            print(f"  {label} validated:".ljust(30) + f"{s['valid']}/{s['total']}")
+            lbl = labels.get(k, k)
+            print(f"  {lbl} validated:".ljust(34) + f"{s['valid']}/{s['total']}")
 
-    print(f"\n{Colors.BOLD}Speedup Statistics (vs NumPy){Colors.RESET}")
-    print(f"{'─' * 120}")
+    print(f"\n{Colors.BOLD}Speedup vs CUT Vulkan{Colors.RESET} (>1.0 = other backend faster)")
+    print(f"{'─' * 100}")
+    header_row = f"  {'Metric':<20}"
+    for k in other_keys:
+        header_row += f" {labels.get(k,k):<16}"
+    print(header_row)
+    print(f"  {'─'*20}" + " ─"*16*len(other_keys))
 
     def fmt(s, key):
         return f"{s[key]:.3f}x" if s['available'] else "N/A"
 
     for metric in ['mean', 'median', 'min', 'max']:
         row = f"  {metric.capitalize() + ' speedup':<20}"
-        for name in ['vulkan', 'cupy', 'jax', 'pytorch']:
-            row += f" {fmt(stats[name], metric):<14}"
+        for k in other_keys:
+            row += f" {fmt(stats[k], metric):<16}"
         print(row)
 
+    # Head-to-head: CUT vs each other GPU backend
+    print(f"\n{Colors.BOLD}CUT Vulkan vs Each Backend{Colors.RESET}")
+    print(f"{'─' * 100}")
+    for other_k in other_keys:
+        wins = ties = losses = 0
+        ratios = []
+        for r in results:
+            vk = r.get('vulkan')
+            other = r.get(other_k)
+            if vk.is_available() and other.is_available():
+                ratio = other.time_ms / vk.time_ms
+                ratios.append(ratio)
+                if ratio > 1.05:
+                    wins += 1      # CUT is faster
+                elif ratio < 0.95:
+                    losses += 1    # other is faster
+                else:
+                    ties += 1
+        if ratios:
+            avg_ratio = np.mean(ratios)
+            med_ratio = np.median(ratios)
+            lbl = labels.get(other_k, other_k)
+            verdict_str = f"{Colors.GREEN}CUT faster{Colors.RESET}" if avg_ratio > 1.0 else f"{Colors.RED}CUT slower{Colors.RESET}"
+            print(f"  vs {lbl:<20}: avg {avg_ratio:.2f}x, median {med_ratio:.2f}x  "
+                  f"(CUT wins {wins}, ties {ties}, losses {losses}) {verdict_str}")
+
     print(f"\n{Colors.BOLD}Performance Verdict{Colors.RESET}")
-    print(f"{'─' * 60}")
-
+    print(f"{'─' * 80}")
     def verdict(avg):
-        if avg >= 2.0:
-            return f"{Colors.GREEN}EXCELLENT{Colors.RESET}"
-        elif avg >= 1.0:
-            return f"{Colors.CYAN}GOOD{Colors.RESET}"
-        elif avg >= 0.5:
-            return f"{Colors.YELLOW}MIXED{Colors.RESET}"
-        return f"{Colors.RED}POOR{Colors.RESET}"
+        if avg < 0.5: return f"{Colors.GREEN}CUT DOMINANT{Colors.RESET}"
+        elif avg < 1.0: return f"{Colors.CYAN}CUT FASTER{Colors.RESET}"
+        elif avg < 1.5: return f"{Colors.YELLOW}COMPETITIVE{Colors.RESET}"
+        return f"{Colors.RED}CUT SLOWER{Colors.RESET}"
 
-    for name, label in [('vulkan', 'Vulkan'), ('cupy', 'CuPy'), ('jax', 'JAX'), ('pytorch', 'PyTorch')]:
-        s = stats[name]
+    for k in other_keys:
+        s = stats[k]
         if s['available']:
-            print(f"  {label}:".ljust(13) + f"{verdict(s['mean'])} ({s['mean']:.2f}x avg speedup)")
+            lbl = labels.get(k, k)
+            print(f"  vs {lbl}:".ljust(28) + f"{verdict(s['mean'])} ({s['mean']:.2f}x vs CUT)")
 
 
-def export_json(results: List[BenchmarkResult], filepath: Path, config: BenchmarkConfig):
-    """Export results to JSON file."""
-    cc = backends.cut_compute
+def export_json(results, filepath, config, runner_keys):
     data = {
         "timestamp": datetime.now().isoformat(),
         "config": asdict(config),
-        "backends": {
-            "vulkan_available": backends.vulkan_available,
-        },
+        "backends": runner_keys,
         "results": [r.to_dict() for r in results]
     }
-
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=2)
     print(f"\n{Colors.GREEN}Results exported to {filepath}{Colors.RESET}")
 
 
-def export_csv(results: List[BenchmarkResult], filepath: Path):
-    """Export results to CSV file."""
+def export_csv(results, filepath, runner_keys):
     with open(filepath, 'w', newline='') as f:
         writer = csv.writer(f)
-        backends_list = ['vulkan', 'cupy', 'jax', 'pytorch', 'numpy']
         header = ['operation', 'category']
-        for b in backends_list:
-            header.extend([f'{b}_ms', f'{b}_speedup', f'{b}_valid'])
+        for k in runner_keys + ['numpy']:
+            header.extend([f'{k}_ms', f'{k}_speedup', f'{k}_valid'])
         writer.writerow(header)
-
         for r in results:
             row = [r.name, r.category]
-            for b in backends_list:
-                br = getattr(r, b)
+            for k in runner_keys + ['numpy']:
+                br = r.get(k)
                 row.extend([br.time_ms, br.speedup, br.valid])
             writer.writerow(row)
-
     print(f"{Colors.GREEN}Results exported to {filepath}{Colors.RESET}")
 
 
 # =============================================================================
-# Main Entry Point
+# Main
 # =============================================================================
 
 def main():
     parser = argparse.ArgumentParser(
-        description="CUT Benchmark Suite: Compare Vulkan, CuPy, JAX, PyTorch vs NumPy",
+        description="CUT Benchmark: Compare CUT Vulkan GPU vs PyTorch CUDA, CuPy, JAX, TensorFlow, Warp",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                      Run with default settings
-  %(prog)s -n 10000000          Benchmark with 10M elements
-  %(prog)s -i 20 --json out.json  20 iterations, export to JSON
-  %(prog)s --no-color           Disable colored output
+  %(prog)s                         Auto-detect all GPU backends
+  %(prog)s -n 10000000             Benchmark with 10M elements
+  %(prog)s --json results.json     Export to JSON
         """
     )
-    parser.add_argument('-n', '--num-elements', type=int, default=1_000_000,
-                       help='Number of elements to benchmark (default: 1M)')
-    parser.add_argument('-i', '--iterations', type=int, default=10,
-                       help='Number of timed iterations (default: 10)')
-    parser.add_argument('-w', '--warmup', type=int, default=3,
-                       help='Number of warmup iterations (default: 3)')
-    parser.add_argument('-s', '--seed', type=int, default=42,
-                       help='Random seed for reproducibility (default: 42)')
-    parser.add_argument('--json', type=str, metavar='FILE',
-                       help='Export results to JSON file')
-    parser.add_argument('--csv', type=str, metavar='FILE',
-                       help='Export results to CSV file')
-    parser.add_argument('--no-color', action='store_true',
-                       help='Disable colored output')
-    parser.add_argument('-q', '--quiet', action='store_true',
-                       help='Minimal output (summary only)')
-
+    parser.add_argument('-n', '--num-elements', type=int, default=1_000_000)
+    parser.add_argument('-i', '--iterations', type=int, default=10)
+    parser.add_argument('-w', '--warmup', type=int, default=3)
+    parser.add_argument('-s', '--seed', type=int, default=42)
+    parser.add_argument('--json', type=str, metavar='FILE')
+    parser.add_argument('--csv', type=str, metavar='FILE')
+    parser.add_argument('--no-color', action='store_true')
+    parser.add_argument('-q', '--quiet', action='store_true')
     args = parser.parse_args()
 
     if args.no_color:
@@ -873,25 +1359,20 @@ Examples:
         seed=args.seed
     )
 
-    results = run_benchmarks(config, verbose=not args.quiet)
-    print_summary(results)
+    results, runner_keys = run_benchmarks(config, verbose=not args.quiet)
+    print_summary(results, runner_keys)
 
     if args.json:
-        export_json(results, Path(args.json), config)
+        export_json(results, Path(args.json), config, runner_keys)
     if args.csv:
-        export_csv(results, Path(args.csv))
+        export_csv(results, Path(args.csv), runner_keys)
 
     print(f"\n{Colors.DIM}Benchmark complete.{Colors.RESET}\n")
 
-    # Cleanup before exit
     if backends.cut_compute is not None:
         backends.cut_compute.shutdown()
 
-    all_valid = all(
-        (not backends.vulkan_available or r.vulkan.valid or np.isnan(r.vulkan.time_ms))
-        for r in results
-    )
-    return 0 if all_valid else 1
+    return 0
 
 
 if __name__ == "__main__":

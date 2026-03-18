@@ -4,7 +4,8 @@ Benchmark result data structures.
 
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
+from collections import OrderedDict
 
 
 @dataclass
@@ -22,14 +23,38 @@ class BackendResult:
 
 @dataclass
 class BenchmarkResult:
-    """Complete result for one operation across all backends."""
+    """Complete result for one operation across all backends.
+
+    Uses a dynamic dict so any number of backends can be added.
+    The 'numpy' key is always the reference baseline.
+    """
     name: str
     category: str
-    numpy: BackendResult
-    vulkan: BackendResult = field(default_factory=BackendResult)
-    cupy: BackendResult = field(default_factory=BackendResult)
-    jax: BackendResult = field(default_factory=BackendResult)
-    pytorch: BackendResult = field(default_factory=BackendResult)
+    backends: Dict[str, BackendResult] = field(default_factory=OrderedDict)
+
+    # Keep legacy accessors for backward compatibility
+    @property
+    def numpy(self) -> BackendResult:
+        return self.backends.get('numpy', BackendResult())
+
+    @property
+    def vulkan(self) -> BackendResult:
+        return self.backends.get('vulkan', BackendResult())
+
+    @property
+    def cupy(self) -> BackendResult:
+        return self.backends.get('cupy', BackendResult())
+
+    @property
+    def jax(self) -> BackendResult:
+        return self.backends.get('jax', BackendResult())
+
+    @property
+    def pytorch(self) -> BackendResult:
+        return self.backends.get('pytorch', BackendResult())
+
+    def get(self, backend_name: str) -> BackendResult:
+        return self.backends.get(backend_name, BackendResult())
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary for JSON export."""
@@ -41,12 +66,10 @@ class BenchmarkResult:
                 'speedup': br.speedup if not np.isnan(br.speedup) else None,
             }
 
-        return {
+        d = {
             'name': self.name,
             'category': self.category,
-            'numpy': backend_to_dict(self.numpy),
-            'vulkan': backend_to_dict(self.vulkan),
-            'cupy': backend_to_dict(self.cupy),
-            'jax': backend_to_dict(self.jax),
-            'pytorch': backend_to_dict(self.pytorch),
         }
+        for name, br in self.backends.items():
+            d[name] = backend_to_dict(br)
+        return d

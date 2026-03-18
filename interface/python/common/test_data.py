@@ -3,7 +3,8 @@ Test data generation for CUT benchmarks and tests.
 """
 
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass
@@ -17,6 +18,10 @@ class TestData:
     b_small: np.ndarray
     a_div10: np.ndarray
     a_tan_safe: np.ndarray
+    # 2D matrix data for matmul/softmax/layernorm benchmarks
+    mat_a: Optional[np.ndarray] = None
+    mat_b: Optional[np.ndarray] = None
+    mat_2d: Optional[np.ndarray] = None
 
     @classmethod
     def generate(cls, num_elements: int, seed: int = 42) -> 'TestData':
@@ -35,6 +40,11 @@ class TestData:
         a = np.random.randn(N).astype(np.float32)
         b = np.random.randn(N).astype(np.float32)
 
+        # Matrix dimensions for matmul benchmarks
+        # Use sqrt-ish dimensions to keep total elements manageable
+        mat_dim = int(np.sqrt(N))
+        mat_dim = max(mat_dim, 64)  # At least 64x64
+
         return cls(
             a=a,
             b=b,
@@ -44,6 +54,9 @@ class TestData:
             b_small=(np.random.randn(N) * 2).astype(np.float32),
             a_div10=(a / 10).astype(np.float32),
             a_tan_safe=np.clip(a, -1.0, 1.0).astype(np.float32),
+            mat_a=np.random.randn(mat_dim, mat_dim).astype(np.float32),
+            mat_b=np.random.randn(mat_dim, mat_dim).astype(np.float32),
+            mat_2d=np.random.randn(mat_dim, mat_dim).astype(np.float32),
         )
 
     def get_array_mapping(self) -> dict:
@@ -53,7 +66,7 @@ class TestData:
         Returns:
             Dictionary mapping id(array) to array name
         """
-        return {
+        mapping = {
             id(self.a): 'a',
             id(self.b): 'b',
             id(self.a_pos): 'a_pos',
@@ -63,3 +76,10 @@ class TestData:
             id(self.a_div10): 'a_div10',
             id(self.a_tan_safe): 'a_tan_safe',
         }
+        if self.mat_a is not None:
+            mapping[id(self.mat_a)] = 'mat_a'
+        if self.mat_b is not None:
+            mapping[id(self.mat_b)] = 'mat_b'
+        if self.mat_2d is not None:
+            mapping[id(self.mat_2d)] = 'mat_2d'
+        return mapping

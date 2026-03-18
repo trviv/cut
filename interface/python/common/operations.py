@@ -5,13 +5,20 @@ This module defines the operations tested across all backends.
 """
 
 import numpy as np
-from typing import Dict, List, Tuple, Callable, Any
+from typing import Dict, List, Tuple, Callable, Any, Optional
 
 from .test_data import TestData
 
 
 # Operation definition type: (name, numpy_function, numpy_args_from_data)
 OperationDef = Tuple[str, Callable, Callable[[TestData], tuple]]
+
+# Try importing scipy for special functions; provide fallbacks
+try:
+    from scipy import special as _sp
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
 
 
 # Binary arithmetic operations
@@ -23,6 +30,16 @@ BINARY_ARITHMETIC_OPS: List[Tuple[str, Callable, str, str]] = [
     ("mod", np.mod, "a_pos", "b_pos"),
     ("power", np.power, "a_pos", "b_small"),
     ("floor_divide", np.floor_divide, "a", "b_pos"),
+]
+
+# Extended binary operations
+BINARY_MATH_OPS: List[Tuple[str, Callable, str, str]] = [
+    ("arctan2", np.arctan2, "a", "b"),
+    ("hypot", np.hypot, "a", "b"),
+    ("copysign", np.copysign, "a", "b"),
+    ("fmod", np.fmod, "a", "b_pos"),
+    ("logaddexp", np.logaddexp, "a_div10", "a_div10"),
+    ("logaddexp2", np.logaddexp2, "a_div10", "a_div10"),
 ]
 
 # Binary comparison operations
@@ -65,6 +82,40 @@ UNARY_OPS: List[Tuple[str, Callable, str]] = [
     ("sign", np.sign, "a"),
     ("reciprocal", np.reciprocal, "a_pos"),
     ("square", np.square, "a"),
+]
+
+# Extended unary math operations
+UNARY_MATH_OPS: List[Tuple[str, Callable, str]] = [
+    ("expm1", np.expm1, "a_div10"),
+    ("log1p", np.log1p, "a_pos"),
+    ("cbrt", np.cbrt, "a"),
+    ("exp2", np.exp2, "a_div10"),
+    ("degrees", np.degrees, "a"),
+    ("radians", np.radians, "a"),
+    ("rsqrt", lambda x: 1.0 / np.sqrt(x), "a_pos"),
+    ("trunc", np.trunc, "a"),
+    ("frac", lambda x: x - np.trunc(x), "a"),
+    ("arcsinh", np.arcsinh, "a"),
+    ("arccosh", np.arccosh, "a_pos"),
+    ("arctanh", np.arctanh, "a_unit"),
+]
+
+# Activation functions (unary)
+ACTIVATION_OPS: List[Tuple[str, Callable, str]] = [
+    ("relu", lambda x: np.maximum(x, 0), "a"),
+    ("relu6", lambda x: np.clip(x, 0, 6), "a"),
+    ("sigmoid", lambda x: 1.0 / (1.0 + np.exp(-x)), "a"),
+    ("gelu", lambda x: x * 0.5 * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (x + 0.044715 * x**3))), "a"),
+    ("silu", lambda x: x / (1.0 + np.exp(-x)), "a"),
+    ("softplus", lambda x: np.log1p(np.exp(np.clip(x, -20, 20))), "a"),
+    ("elu", lambda x: np.where(x >= 0, x, np.exp(x) - 1), "a"),
+    ("mish", lambda x: x * np.tanh(np.log1p(np.exp(np.clip(x, -20, 20)))), "a"),
+    ("hardswish", lambda x: x * np.clip(x + 3, 0, 6) / 6.0, "a"),
+    ("hardsigmoid", lambda x: np.clip(x / 6.0 + 0.5, 0, 1), "a"),
+    ("hardtanh", lambda x: np.clip(x, -1, 1), "a"),
+    ("softsign", lambda x: x / (1.0 + np.abs(x)), "a"),
+    ("logsigmoid", lambda x: -np.log1p(np.exp(-x)), "a"),
+    ("tanhshrink", lambda x: x - np.tanh(x), "a"),
 ]
 
 # Vec-scalar arithmetic operations
@@ -121,6 +172,32 @@ def _make_comparison_func(op_name: str) -> Callable:
     return lambda x, y: np_func(x, y).astype(np.float32)
 
 
+def _softmax_np(x: np.ndarray) -> np.ndarray:
+    """NumPy softmax along last axis."""
+    e = np.exp(x - np.max(x, axis=-1, keepdims=True))
+    return (e / np.sum(e, axis=-1, keepdims=True)).astype(np.float32)
+
+
+def _log_softmax_np(x: np.ndarray) -> np.ndarray:
+    """NumPy log_softmax along last axis."""
+    m = np.max(x, axis=-1, keepdims=True)
+    e = np.exp(x - m)
+    return (x - m - np.log(np.sum(e, axis=-1, keepdims=True))).astype(np.float32)
+
+
+def _layer_norm_np(x: np.ndarray, eps: float = 1e-5) -> np.ndarray:
+    """NumPy layer normalization over last axis."""
+    mean = np.mean(x, axis=-1, keepdims=True)
+    var = np.var(x, axis=-1, keepdims=True)
+    return ((x - mean) / np.sqrt(var + eps)).astype(np.float32)
+
+
+def _rms_norm_np(x: np.ndarray, eps: float = 1e-5) -> np.ndarray:
+    """NumPy RMS normalization over last axis."""
+    rms = np.sqrt(np.mean(x ** 2, axis=-1, keepdims=True) + eps)
+    return (x / rms).astype(np.float32)
+
+
 def get_operations(data: TestData) -> Dict[str, List[Tuple[str, Callable, tuple]]]:
     """
     Get all benchmark operations organized by category.
@@ -139,6 +216,12 @@ def get_operations(data: TestData) -> Dict[str, List[Tuple[str, Callable, tuple]
         for name, np_func, arg1, arg2 in BINARY_ARITHMETIC_OPS
     ]
 
+    # Binary Math (arctan2, hypot, etc.)
+    operations["Binary Math"] = [
+        (name, np_func, (getattr(data, arg1), getattr(data, arg2)))
+        for name, np_func, arg1, arg2 in BINARY_MATH_OPS
+    ]
+
     # Binary Comparison
     operations["Binary Comparison"] = [
         (name, _make_comparison_func(name), (getattr(data, arg1), getattr(data, arg2)))
@@ -155,6 +238,18 @@ def get_operations(data: TestData) -> Dict[str, List[Tuple[str, Callable, tuple]
     operations["Unary Operations"] = [
         (name, np_func, (getattr(data, arr_name),))
         for name, np_func, arr_name in UNARY_OPS
+    ]
+
+    # Extended Unary Math
+    operations["Unary Math (Extended)"] = [
+        (name, np_func, (getattr(data, arr_name),))
+        for name, np_func, arr_name in UNARY_MATH_OPS
+    ]
+
+    # Activation Functions
+    operations["Activation Functions"] = [
+        (name, np_func, (getattr(data, arr_name),))
+        for name, np_func, arr_name in ACTIVATION_OPS
     ]
 
     # Vec-Scalar Arithmetic
@@ -177,6 +272,41 @@ def get_operations(data: TestData) -> Dict[str, List[Tuple[str, Callable, tuple]
          (getattr(data, arr_name), scalar))
         for name, arr_name, scalar in VEC_SCALAR_MINMAX_OPS
     ]
+
+    # Reduction Operations
+    operations["Reduction Operations"] = [
+        ("sum", lambda x: np.array([np.sum(x)], dtype=np.float32), (data.a,)),
+        ("mean", lambda x: np.array([np.mean(x)], dtype=np.float32), (data.a,)),
+        ("min", lambda x: np.array([np.min(x)], dtype=np.float32), (data.a,)),
+        ("max", lambda x: np.array([np.max(x)], dtype=np.float32), (data.a,)),
+        ("prod", lambda x: np.array([np.prod(x[:100])], dtype=np.float32), (data.a_pos[:100],)),
+    ]
+
+    # Statistical Operations
+    operations["Statistical Operations"] = [
+        ("var", lambda x: np.array([np.var(x, ddof=1)], dtype=np.float32), (data.a,)),
+        ("std", lambda x: np.array([np.std(x, ddof=1)], dtype=np.float32), (data.a,)),
+    ]
+
+    # Cumulative Operations
+    operations["Cumulative Operations"] = [
+        ("cumsum", lambda x: np.cumsum(x).astype(np.float32), (data.a,)),
+        ("cumprod", lambda x: np.cumprod(x[:100]).astype(np.float32), (data.a_pos[:100],)),
+    ]
+
+    # Matrix Operations (use mat_a, mat_b)
+    if data.mat_a is not None and data.mat_b is not None:
+        operations["Matrix Operations"] = [
+            ("matmul", lambda a, b: (a @ b).astype(np.float32), (data.mat_a, data.mat_b)),
+            ("transpose", lambda a: a.T.astype(np.float32), (data.mat_a,)),
+        ]
+
+    # Normalization Operations (use mat_2d)
+    if data.mat_2d is not None:
+        operations["Normalization"] = [
+            ("softmax", _softmax_np, (data.mat_2d,)),
+            ("log_softmax", _log_softmax_np, (data.mat_2d,)),
+        ]
 
     # Tensor Creation Operations
     operations["Tensor Creation"] = []
@@ -219,6 +349,12 @@ def get_operations(data: TestData) -> Dict[str, List[Tuple[str, Callable, tuple]
             operations["Norm Operations"].append(
                 ("norm", lambda x: np.array([np.linalg.norm(x, ord=1)], dtype=np.float32), (getattr(data, arr_name),))
             )
+
+    # Loss Functions
+    operations["Loss Functions"] = [
+        ("mse_loss", lambda x, y: np.array([np.mean((x - y) ** 2)], dtype=np.float32), (data.a, data.b)),
+        ("l1_loss", lambda x, y: np.array([np.mean(np.abs(x - y))], dtype=np.float32), (data.a, data.b)),
+    ]
 
     return operations
 
