@@ -439,6 +439,76 @@ std::vector<uint8_t> CumOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+bool CumOpNode::isMultiPass() const {
+  constexpr uint32_t kTileSize = 256 * 8; // WG_SIZE * ELEMS_PER_THREAD
+  return reduceSize_ > kTileSize;
+}
+
+size_t CumOpNode::executionSize() const {
+  return reduceSize_;
+}
+
+void CumOpNode::buildSubOperations() {
+  constexpr uint32_t kWgSize = 256;
+  constexpr uint32_t kTileSize =
+      kWgSize * 8; // matches ELEMS_PER_THREAD in shader
+  uint32_t numScanLines = outerSize_ * innerSize_;
+  uint32_t groupsPerLine = (reduceSize_ + kTileSize - 1) / kTileSize;
+  uint32_t cumOp = (op_ == CumSum) ? 0u : 1u;
+
+  Tensor inputHandle = inputs_[0];
+  Tensor outputHandle = output_;
+
+  // Temp buffer for per-workgroup partial sums
+  Tensor partialSums =
+      store_->acquireTempBuffer(numScanLines * groupsPerLine, dtype_);
+
+  struct CumPerWgPC {
+    uint32_t reduceSize;
+    uint32_t innerSize;
+    uint32_t inOuterStride;
+    uint32_t inReduceStride;
+    uint32_t groupsPerLine;
+    uint32_t cumOp;
+  } perWgPC{reduceSize_,     innerSize_,    inOuterStride_,
+            inReduceStride_, groupsPerLine, cumOp};
+
+  struct CumPartialSumsPC {
+    uint32_t groupsPerLine;
+    uint32_t numScanLines;
+    uint32_t cumOp;
+  } partialPC{groupsPerLine, numScanLines, cumOp};
+
+  struct CumPropagatePC {
+    uint32_t reduceSize;
+    uint32_t innerSize;
+    uint32_t inOuterStride;
+    uint32_t inReduceStride;
+    uint32_t groupsPerLine;
+    uint32_t cumOp;
+  } propPC{reduceSize_,     innerSize_,    inOuterStride_,
+           inReduceStride_, groupsPerLine, cumOp};
+
+  // Pass 1: Per-workgroup inclusive scan along each scan line
+  subOps_.push_back(std::make_unique<InternalOpNode>(
+      InternalCumPerWg, dtype_,
+      std::vector<Tensor>{inputHandle, outputHandle, partialSums},
+      ThreadSize{kWgSize * groupsPerLine, numScanLines, 1}, toBytes(perWgPC),
+      true));
+
+  // Pass 2: Serial exclusive prefix scan of workgroup totals
+  uint32_t partialThreads = ((numScanLines + 255) / 256) * 256;
+  subOps_.push_back(std::make_unique<InternalOpNode>(
+      InternalCumPartialSums, dtype_, std::vector<Tensor>{partialSums},
+      ThreadSize{partialThreads, 1, 1}, toBytes(partialPC), true));
+
+  // Pass 3: Add/multiply workgroup prefix to each element
+  subOps_.push_back(std::make_unique<InternalOpNode>(
+      InternalCumPropagate, dtype_,
+      std::vector<Tensor>{partialSums, outputHandle},
+      ThreadSize{kWgSize * groupsPerLine, numScanLines, 1}, toBytes(propPC)));
+}
+
 // --- DotOpNode::resolveInputDtypes ---
 
 std::vector<DataType>

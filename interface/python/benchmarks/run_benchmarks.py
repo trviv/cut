@@ -1004,14 +1004,24 @@ class TensorFlowRunner(BackendRunner):
             tf_func = self._get_func(op_name, np_func)
             if tf_func is None:
                 return BackendResult()
+            # Use sync_devices() to wait for GPU without copying data to CPU.
+            # Falls back to .numpy() if sync_devices is unavailable.
+            _has_sync = hasattr(tf.test, 'experimental') and hasattr(tf.test.experimental, 'sync_devices')
+            def _tf_sync(r):
+                if _has_sync:
+                    tf.test.experimental.sync_devices()
+                else:
+                    r.numpy()
             # Warmup
             for _ in range(config.warmup_iterations):
-                tf_func(*tf_args)
+                r = tf_func(*tf_args)
+                _tf_sync(r)
             # Timed runs
             times = []
             for _ in range(config.num_iterations):
                 start = time.perf_counter()
                 result = tf_func(*tf_args)
+                _tf_sync(result)
                 end = time.perf_counter()
                 times.append(end - start)
             result_np = result.numpy().astype(np.float32)

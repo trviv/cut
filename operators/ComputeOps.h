@@ -263,6 +263,11 @@ enum OperatorEnum {
   InternalFillUint = OP_INTERNAL_FILL_UINT,
   InternalScanUint = OP_INTERNAL_SCAN_UINT,
 
+  // Cumulative scan (three-pass parallel)
+  InternalCumPerWg = OP_INTERNAL_CUM_PER_WG,
+  InternalCumPartialSums = OP_INTERNAL_CUM_PARTIAL_SUMS,
+  InternalCumPropagate = OP_INTERNAL_CUM_PROPAGATE,
+
   // ===========================================================================
   // Convolution operations (300-301)
   // ===========================================================================

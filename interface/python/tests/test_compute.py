@@ -1437,3 +1437,49 @@ class TestCumsumCumprod:
         a = cc.Tensor([5.0])
         result = list(cc.cumsum(a).copy_to())
         assert result == [5.0]
+
+    def test_cumsum_2d_dim1(self, backend):
+        """Test cumsum along dim 1 on a 2D tensor."""
+        a = cc.Tensor([
+            1.0, 2.0, 3.0, 4.0,
+            5.0, 6.0, 7.0, 8.0,
+            9.0, 10.0, 11.0, 12.0,
+        ], shape=(3, 4))
+        result = list(cc.cumsum(a, dim=1).copy_to())
+        expected = list(np.cumsum(np.array([
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+            [9, 10, 11, 12],
+        ], dtype=np.float32), axis=1).flatten())
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_cumprod_2d_dim1(self, backend):
+        """Test cumprod along dim 1 on a 2D tensor."""
+        a = cc.Tensor([
+            1.0, 2.0, 3.0, 4.0,
+            2.0, 3.0, 1.0, 2.0,
+        ], shape=(2, 4))
+        result = list(cc.cumprod(a, dim=1).copy_to())
+        expected = list(np.cumprod(np.array([
+            [1, 2, 3, 4],
+            [2, 3, 1, 2],
+        ], dtype=np.float32), axis=1).flatten())
+        np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+    def test_cumsum_large(self, backend):
+        """Test cumsum on a large 1D tensor."""
+        data = list(range(1, 1025))
+        a = cc.Tensor([float(x) for x in data])
+        result = list(cc.cumsum(a).copy_to())
+        expected = list(np.cumsum(np.array(data, dtype=np.float32)))
+        np.testing.assert_allclose(result, expected, rtol=1e-4)
+
+    def test_cumsum_3d(self, backend):
+        """Test cumsum on a 3D tensor along each dimension."""
+        data = np.arange(1, 25, dtype=np.float32).reshape(2, 3, 4)
+        a = cc.Tensor(data.flatten().tolist(), shape=(2, 3, 4))
+        for dim in range(3):
+            result = list(cc.cumsum(a, dim=dim).copy_to())
+            expected = list(np.cumsum(data, axis=dim).flatten())
+            np.testing.assert_allclose(result, expected, rtol=1e-5,
+                                       err_msg=f"cumsum failed for dim={dim}")

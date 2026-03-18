@@ -10,3 +10,6 @@
 /.venv
 .aider*
 /references
+__pycache__/
+*.pyc
+*.so

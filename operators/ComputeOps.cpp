@@ -313,6 +313,12 @@ const char *operatorName(OperatorEnum op) {
     return "InternalFillUint";
   case InternalScanUint:
     return "InternalScanUint";
+  case InternalCumPerWg:
+    return "InternalCumPerWg";
+  case InternalCumPartialSums:
+    return "InternalCumPartialSums";
+  case InternalCumPropagate:
+    return "InternalCumPropagate";
 
   // Convolution operations
   case Conv1D:

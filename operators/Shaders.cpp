@@ -114,7 +114,7 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledPartialReduce(datatype, datatype);
   } else if (shader == InternalFinalReduce) {
     compiled = compiledFinalReduce(datatype, datatype);
-  } else if (shader >= InternalScanPerWg && shader <= InternalScanUint) {
+  } else if (shader >= InternalScanPerWg && shader <= InternalCumPropagate) {
     switch (shader) {
     case InternalScanPerWg:
       compiled = compiledScanPerWg(datatype, datatype);
@@ -145,6 +145,15 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
       break;
     case InternalScanUint:
       compiled = compiledScanUint(datatype, datatype);
+      break;
+    case InternalCumPerWg:
+      compiled = compiledCumPerWg(datatype, datatype);
+      break;
+    case InternalCumPartialSums:
+      compiled = compiledCumPartialSums(datatype, datatype);
+      break;
+    case InternalCumPropagate:
+      compiled = compiledCumPropagate(datatype, datatype);
       break;
     default:
       break;

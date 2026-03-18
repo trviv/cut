@@ -75,6 +75,42 @@
       }
     },
     {
+      "name": "CumPerWg",
+      "description": "Per-workgroup cumulative scan",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
+    },
+    {
+      "name": "CumPartialSums",
+      "description": "Cumulative partial sums scan",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
+    },
+    {
+      "name": "CumPropagate",
+      "description": "Cumulative scan propagation",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
+    },
+    {
       "name": "Norm",
       "description": "Normalization",
       "dtype_slots": {

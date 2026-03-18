@@ -139,6 +139,9 @@ public:
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
+  bool isMultiPass() const override;
+  size_t executionSize() const override;
+  void buildSubOperations() override;
 
 private:
   DataType dtype_;

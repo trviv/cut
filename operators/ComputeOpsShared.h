@@ -255,6 +255,11 @@
 #define OP_INTERNAL_FILL_UINT 290
 #define OP_INTERNAL_SCAN_UINT 291
 
+// Cumulative scan (three-pass parallel)
+#define OP_INTERNAL_CUM_PER_WG 292
+#define OP_INTERNAL_CUM_PARTIAL_SUMS 293
+#define OP_INTERNAL_CUM_PROPAGATE 294
+
 // =============================================================================
 // Convolution operations (300-301)
 // =============================================================================

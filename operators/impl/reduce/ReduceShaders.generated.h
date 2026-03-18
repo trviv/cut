@@ -13,6 +13,9 @@ std::optional<std::vector<uint32_t>> compiledReduceDimArg(DataType input, DataTy
 std::optional<std::vector<uint32_t>> compiledPartialReduce(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledFinalReduce(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledCumOp(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledCumPerWg(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledCumPartialSums(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledCumPropagate(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledNorm(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledDot(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledReduceVariance(DataType input, DataType output);
