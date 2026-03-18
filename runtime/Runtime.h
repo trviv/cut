@@ -199,6 +199,16 @@ public:
   void dispatch(std::unique_ptr<OpNode> node);
   void dispatch(OpNode &node);
 
+  /**
+   * Flushes any pending GPU commands and waits for completion.
+   * Used for synchronization (e.g., benchmarking).
+   */
+  void flushPendingCommands();
+
+  /// Eagerly submit pending dispatches without waiting.
+  /// The GPU starts working immediately; call flushPendingCommands() to wait.
+  void eagerSubmit();
+
 private:
   BackendType backendType_ = BackendType::Vulkan;
   std::shared_ptr<VulkanInstance> vulkanInstance_;
@@ -207,6 +217,10 @@ private:
   bool vulkanChecked_ = false;
   bool pendingCommands_ = false;
   bool profilingEnabled_ = false;
+
+  /// Handle to a submitted-but-not-waited command buffer.
+  /// Set by eagerSubmit(), consumed by flushPendingCommands().
+  ComputeHandle pendingCmd_;
 
   // Tensor buffer storage
   std::unique_ptr<TensorStore> store_;
@@ -224,8 +238,6 @@ private:
   ComputeInterface *getInterface();
 
   bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
-
-  void flushPendingCommands();
 };
 
 } // namespace cut

@@ -7,6 +7,7 @@
 #include <array>
 #include <chrono>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace cut {
 
@@ -397,9 +398,29 @@ void VulkanCommandBuffer::end() {
     if (isProfilingEnabled()) {
       recordCommandsStart = Clock::now();
     }
+
+    // Track which buffer handles have been written by prior dispatches
+    // so we only insert barriers when a dispatch reads from a written buffer.
+    std::unordered_set<size_t> writtenHandles;
+    bool needsBarrier = false;
+
+    auto insertBarrierIfNeeded = [&]() {
+      if (!needsBarrier)
+        return;
+      VkMemoryBarrier shaderBarrier{};
+      shaderBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+      shaderBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      shaderBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                           &shaderBarrier, 0, nullptr, 0, nullptr);
+      needsBarrier = false;
+      writtenHandles.clear();
+    };
+
     dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
-      // Handle barrier dispatches: insert a compute-to-compute memory barrier
+      // Handle explicit barrier dispatches
       if (dispatch.isBarrier()) {
         VkMemoryBarrier computeBarrier{};
         computeBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
@@ -410,7 +431,22 @@ void VulkanCommandBuffer::end() {
                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
                              &computeBarrier, 0, nullptr, 0, nullptr);
+        needsBarrier = false;
+        writtenHandles.clear();
         continue; // Do NOT increment dispatchIndex
+      }
+
+      // Check if this dispatch reads from any previously written buffer.
+      // If so, insert a barrier before this dispatch.
+      if (!writtenHandles.empty()) {
+        for (const auto &binding : dispatch.bindings()) {
+          if (binding.isHandle()) {
+            if (writtenHandles.count(binding.getHandle().id())) {
+              insertBarrierIfNeeded();
+              break;
+            }
+          }
+        }
       }
 
       // Bind the compute pipeline
@@ -451,9 +487,6 @@ void VulkanCommandBuffer::end() {
       const uint32_t dtypeVecSize = reflection.dtypeVecSize;
       const auto &tgSize = reflection.tgSize;
 
-      // Scale down dispatch by dtypeVecSize and threadgroup size (ceiling
-      // division) wgSize is the total number of elements to process dispatchX =
-      // ceil(wgSize.x / (dtypeVecSize * tgSize.x))
       const uint32_t scaleX = std::max(dtypeVecSize * tgSize.x, 1u);
       const uint32_t scaleY = std::max(tgSize.y, 1u);
       const uint32_t scaleZ = std::max(tgSize.z, 1u);
@@ -478,15 +511,21 @@ void VulkanCommandBuffer::end() {
                             dispatchIndex * 2 + 1);
       }
 
-      // Insert compute-to-compute barrier so subsequent dispatches see writes
-      VkMemoryBarrier shaderBarrier{};
-      shaderBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-      shaderBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-      shaderBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      vkCmdPipelineBarrier(commandBuffer_,
-                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                           &shaderBarrier, 0, nullptr, 0, nullptr);
+      // Track this dispatch's output handle as written.
+      // If outputHandle is set (from Dispatcher), use it precisely.
+      // Otherwise (raw encode), conservatively track all handle bindings.
+      if (dispatch.outputHandle()) {
+        writtenHandles.insert(dispatch.outputHandle().id());
+        needsBarrier = true;
+      } else {
+        // Conservative fallback: any handle binding could be a write
+        for (const auto &binding : dispatch.bindings()) {
+          if (binding.isHandle()) {
+            writtenHandles.insert(binding.getHandle().id());
+          }
+        }
+        needsBarrier = true;
+      }
 
       ++dispatchIndex;
     }

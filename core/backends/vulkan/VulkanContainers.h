@@ -26,6 +26,8 @@ private:
 };
 
 /// Container managing GPU buffer allocations and their lifecycle.
+/// Includes a buffer cache that recycles freed GPU buffers by size to avoid
+/// repeated vkCreateBuffer / vkAllocateMemory calls.
 class VulkanBufferContainer final
     : public VulkanContainerBase,
       public ComputeDataContainer<VulkanBufferStruct> {
@@ -33,6 +35,9 @@ public:
   /// Constructs a buffer container.
   explicit VulkanBufferContainer(VkDevice device)
       : VulkanContainerBase(device) {}
+
+  /// Destroys all cached buffers on cleanup.
+  ~VulkanBufferContainer();
 
   ComputeHandle create(VulkanBufferStruct &&structData) {
     if (!structData.isView_) {
@@ -49,12 +54,28 @@ public:
   /// Returns total GPU memory actively allocated for buffers (excludes views).
   size_t activeMemoryBytes() const { return activeMemoryBytes_; }
 
+  /// Try to acquire a cached buffer of exactly the given size.
+  /// Returns a moved-out VulkanBufferStruct if found, or nullopt.
+  std::optional<VulkanBufferStruct> tryAcquireCached(size_t alignedSize);
+
+  /// Destroy all cached buffers, freeing GPU memory.
+  void drainCache();
+
 private:
   IF_VMA_ENABLED_THEN(VmaAllocator allocator_);
 
   size_t activeMemoryBytes_ = 0;
 
-  /// Destroys a buffer and frees its associated GPU memory.
+  /// Cache of freed buffers keyed by aligned byte size.
+  /// Uses multimap so multiple buffers of the same size can be pooled.
+  static constexpr size_t kMaxCachedBuffers = 256;
+  std::multimap<size_t, VulkanBufferStruct> bufferCache_;
+
+  /// Destroys a single VulkanBufferStruct's GPU resources.
+  void destroyBufferGPU(VulkanBufferStruct &buffer);
+
+  /// Called when a handle's refcount reaches zero. Caches the buffer
+  /// instead of destroying it immediately.
   void destroyAPIObject(const ComputeHandle &handle) override;
 };
 

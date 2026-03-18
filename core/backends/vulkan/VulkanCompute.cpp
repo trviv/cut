@@ -3,6 +3,7 @@
 #include <VulkanCompute.h>
 
 #include <climits>
+#include <cstdlib>
 #include <cstring>
 #include <type_traits>
 
@@ -172,9 +173,17 @@ void VulkanCompute::cleanup() {
   // Destroy staging transfer manager
   staging_.reset();
 
+  // Destroy persistent transfer resources
+  cleanupTransferResources();
+
   // Destroy command buffer container first — it holds ComputeHandle references
   // into the containers (pipelines, descriptors, etc.)
   setCommandBufferContainer({});
+
+  // Drain the buffer cache before destroying containers
+  if (containers_) {
+    containers_->bufferContainer.drainCache();
+  }
 
   // Now safe to destroy the containers
   containers_.reset();
@@ -219,6 +228,23 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
 
   // Default to device-only for optimal GPU performance
   constexpr bool deviceOnly = true;
+
+  // Try to reuse a cached buffer of matching size (avoids Vulkan allocation)
+  if (!isUniform) {
+    auto cached = containers_->bufferContainer.tryAcquireCached(alignedSize);
+    if (cached) {
+      // Re-stamp the cached buffer with the requested shape and dtype
+      cached->setDtype(dtype);
+      cached->setShape(shape);
+      auto handle = containers_->bufferContainer.create(std::move(*cached));
+      if (srcPtr != nullptr) {
+        const size_t actualSize =
+            ComputeBuffer::calculateActualSize(shape, dtype);
+        copyDataToBuffer(srcPtr, handle, actualSize, 0, 0, deviceOnly);
+      }
+      return handle;
+    }
+  }
 
   VkBufferCreateInfo bufferInfo = {};
   bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -425,65 +451,80 @@ void VulkanCompute::destroyStagingBuffer(VulkanBufferStruct &stagingBuffer) {
   stagingBuffer.data = nullptr;
 }
 
+void VulkanCompute::ensureTransferResources() {
+  if (transferCommandPool_ != VK_NULL_HANDLE)
+    return;
+
+  VkCommandPoolCreateInfo poolInfo = {};
+  poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  poolInfo.queueFamilyIndex = computeQueueFamilyIndex_;
+  poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  VK_CHECK(
+      vkCreateCommandPool(device_, &poolInfo, nullptr, &transferCommandPool_));
+
+  VkCommandBufferAllocateInfo allocInfo = {};
+  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  allocInfo.commandPool = transferCommandPool_;
+  allocInfo.commandBufferCount = 1;
+  VK_CHECK(
+      vkAllocateCommandBuffers(device_, &allocInfo, &transferCommandBuffer_));
+
+  VkFenceCreateInfo fenceInfo = {};
+  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  VK_CHECK(vkCreateFence(device_, &fenceInfo, nullptr, &transferFence_));
+
+  vkGetDeviceQueue(device_, computeQueueFamilyIndex_, 0, &transferQueue_);
+}
+
+void VulkanCompute::cleanupTransferResources() {
+  if (transferFence_ != VK_NULL_HANDLE) {
+    vkDestroyFence(device_, transferFence_, nullptr);
+    transferFence_ = VK_NULL_HANDLE;
+  }
+  if (transferCommandPool_ != VK_NULL_HANDLE) {
+    vkDestroyCommandPool(device_, transferCommandPool_, nullptr);
+    transferCommandPool_ = VK_NULL_HANDLE;
+  }
+  transferCommandBuffer_ = VK_NULL_HANDLE;
+  transferQueue_ = VK_NULL_HANDLE;
+}
+
 void VulkanCompute::executeBufferCopy(VkBuffer srcBuffer,
                                       VkBuffer dstBuffer,
                                       VkDeviceSize size,
                                       VkDeviceSize srcOffset,
                                       VkDeviceSize dstOffset) {
-  // Create a one-shot command buffer for the copy operation
-  VkCommandPoolCreateInfo poolInfo = {};
-  poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  poolInfo.queueFamilyIndex = computeQueueFamilyIndex_;
-  poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+  ensureTransferResources();
 
-  VkCommandPool commandPool;
-  VK_CHECK(vkCreateCommandPool(device_, &poolInfo, nullptr, &commandPool));
-
-  VkCommandBufferAllocateInfo allocInfo = {};
-  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  allocInfo.commandPool = commandPool;
-  allocInfo.commandBufferCount = 1;
-
-  VkCommandBuffer commandBuffer;
-  VK_CHECK(vkAllocateCommandBuffers(device_, &allocInfo, &commandBuffer));
+  // Reset and re-record the persistent command buffer
+  VK_CHECK(vkResetCommandBuffer(transferCommandBuffer_, 0));
 
   VkCommandBufferBeginInfo beginInfo = {};
   beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
   beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-  VK_CHECK(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+  VK_CHECK(vkBeginCommandBuffer(transferCommandBuffer_, &beginInfo));
 
   VkBufferCopy copyRegion = {};
   copyRegion.srcOffset = srcOffset;
   copyRegion.dstOffset = dstOffset;
   copyRegion.size = size;
 
-  vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+  vkCmdCopyBuffer(transferCommandBuffer_, srcBuffer, dstBuffer, 1, &copyRegion);
 
-  VK_CHECK(vkEndCommandBuffer(commandBuffer));
+  VK_CHECK(vkEndCommandBuffer(transferCommandBuffer_));
 
-  // Submit and wait for completion
-  VkQueue queue;
-  vkGetDeviceQueue(device_, computeQueueFamilyIndex_, 0, &queue);
+  // Submit and wait using persistent fence
+  VK_CHECK(vkResetFences(device_, 1, &transferFence_));
 
   VkSubmitInfo submitInfo = {};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submitInfo.commandBufferCount = 1;
-  submitInfo.pCommandBuffers = &commandBuffer;
+  submitInfo.pCommandBuffers = &transferCommandBuffer_;
 
-  VkFenceCreateInfo fenceInfo = {};
-  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-
-  VkFence fence;
-  VK_CHECK(vkCreateFence(device_, &fenceInfo, nullptr, &fence));
-
-  VK_CHECK(vkQueueSubmit(queue, 1, &submitInfo, fence));
-  VK_CHECK(vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX));
-
-  // Cleanup
-  vkDestroyFence(device_, fence, nullptr);
-  vkDestroyCommandPool(device_, commandPool, nullptr);
+  VK_CHECK(vkQueueSubmit(transferQueue_, 1, &submitInfo, transferFence_));
+  VK_CHECK(vkWaitForFences(device_, 1, &transferFence_, VK_TRUE, UINT64_MAX));
 }
 
 void VulkanCompute::copyDataToBuffer(const void *srcPtr,
@@ -662,7 +703,12 @@ debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 }
 
 VulkanInstance::VulkanInstance() {
-  const bool validation = true;
+  // Validation layers add significant overhead (2-10x on Vulkan API calls).
+  // Enable via CUT_VULKAN_VALIDATION=1 environment variable when debugging.
+  const bool validation = [] {
+    const char *env = std::getenv("CUT_VULKAN_VALIDATION");
+    return env && std::string(env) == "1";
+  }();
 
   const char *validationLayerName = "VK_LAYER_KHRONOS_validation";
 

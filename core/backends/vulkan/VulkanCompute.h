@@ -121,6 +121,15 @@ private:
 
   // Batched host-to-device staging transfer manager.
   std::unique_ptr<VulkanStaging> staging_;
+
+  // Persistent transfer resources (reused across executeBufferCopy calls)
+  VkCommandPool transferCommandPool_ = VK_NULL_HANDLE;
+  VkCommandBuffer transferCommandBuffer_ = VK_NULL_HANDLE;
+  VkFence transferFence_ = VK_NULL_HANDLE;
+  VkQueue transferQueue_ = VK_NULL_HANDLE;
+
+  void ensureTransferResources();
+  void cleanupTransferResources();
 };
 
 class VulkanInstance : public std::enable_shared_from_this<VulkanInstance> {

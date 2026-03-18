@@ -82,6 +82,10 @@ void Operations::flush() {
   graph::GraphExecutor executor(*this, *store_);
   executor.execute(*graph_);
 
+  // Eagerly submit the command buffer so the GPU starts working immediately.
+  // flushPendingCommands() will just wait for the fence.
+  runtime_->eagerSubmit();
+
   // Replace with a fresh graph to release OpNode buffer references.
   graph_ = std::make_unique<graph::Graph>();
   castCache_.clear();

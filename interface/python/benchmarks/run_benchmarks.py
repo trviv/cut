@@ -348,13 +348,26 @@ class CUTRunner(BackendRunner):
             cut_args = self._get_args(np_args)
             is_scalar = op_name in self.SCALAR_OPS
             for _ in range(config.warmup_iterations):
-                cut_func(*cut_args)
+                result_buf = cut_func(*cut_args)
+                cc.flush()
+            # Seed the buffer cache: release warmup result so its buffer
+            # is available for reuse during timed iterations.
+            del result_buf
             times = []
             for _ in range(config.num_iterations):
                 start = time.perf_counter()
                 result_buf = cut_func(*cut_args)
+                cc.flush()
                 end = time.perf_counter()
                 times.append(end - start)
+                # Release result so buffer returns to cache for next iteration.
+                # This must happen OUTSIDE the timed region.
+                _tmp = result_buf
+                result_buf = None
+                del _tmp
+            # Re-run once to get a result for verification
+            result_buf = cut_func(*cut_args)
+            cc.flush()
             if is_scalar:
                 result = np.array([float(result_buf)], dtype=np.float32)
             else:

@@ -391,12 +391,19 @@ public:
   /// Returns the label for this dispatch.
   const std::string &label() const { return label_; }
 
+  /// Sets the output buffer handle for dependency tracking.
+  void setOutputHandle(const ComputeHandle &handle) { outputHandle_ = handle; }
+
+  /// Returns the output buffer handle (may be empty).
+  const ComputeHandle &outputHandle() const { return outputHandle_; }
+
 private:
   ThreadSize wgSize_;                    ///< Workgroup dimensions.
   ComputeHandle shader_;                 ///< Bound shader handle.
   std::vector<ComputeBinding> bindings_; ///< All bindings (handles and data).
-  bool isBarrier_ = false; ///< True if this is a barrier-only dispatch.
-  std::string label_;      ///< Human-readable label for profiling.
+  bool isBarrier_ = false;     ///< True if this is a barrier-only dispatch.
+  std::string label_;          ///< Human-readable label for profiling.
+  ComputeHandle outputHandle_; ///< Output buffer for dependency tracking.
 };
 
 /**

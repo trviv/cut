@@ -570,6 +570,17 @@ PYBIND11_MODULE(_cut_compute, m) {
       py::arg("shape"), "Compute product of shape dimensions");
 
   // =========================================================================
+  // Synchronization
+  // =========================================================================
+  m.def(
+      "flush",
+      []() {
+        getRuntime().ops().flush();
+        getRuntime().flushPendingCommands();
+      },
+      "Flush pending graph operations and wait for GPU completion.");
+
+  // =========================================================================
   // Shutdown function for proper cleanup
   // =========================================================================
   m.def(

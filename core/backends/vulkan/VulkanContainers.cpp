@@ -68,22 +68,15 @@ ComputeHandle VulkanCommandBufferContainer::createCommandBuffer() {
       getDevice(), commandBuffer, fence, queue_, containers_));
 }
 
-void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
-  auto &buffer = get(handle);
+VulkanBufferContainer::~VulkanBufferContainer() {
+  drainCache();
+}
 
-  // Views share the parent's VkBuffer — do not destroy GPU resources.
-  // The parentHandle_ ref is released when the struct is reset to default.
-  if (buffer.isView_) {
-    return;
-  }
-
-  activeMemoryBytes_ -= buffer.size();
-
+void VulkanBufferContainer::destroyBufferGPU(VulkanBufferStruct &buffer) {
 #if CUT_USE_VMA
   if (buffer.data != nullptr) {
     vmaUnmapMemory(allocator_, buffer.allocation);
   }
-
   if (buffer.buffer != VK_NULL_HANDLE) {
     vmaDestroyBuffer(allocator_, buffer.buffer, buffer.allocation);
   }
@@ -91,15 +84,73 @@ void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
   if (buffer.data != nullptr) {
     vkUnmapMemory(getDevice(), buffer.memory);
   }
-
   if (buffer.buffer != VK_NULL_HANDLE) {
     vkDestroyBuffer(getDevice(), buffer.buffer, nullptr);
   }
-
   if (buffer.memory != VK_NULL_HANDLE) {
     vkFreeMemory(getDevice(), buffer.memory, nullptr);
   }
 #endif
+}
+
+std::optional<VulkanBufferStruct>
+VulkanBufferContainer::tryAcquireCached(size_t alignedSize) {
+  auto it = bufferCache_.find(alignedSize);
+  if (it != bufferCache_.end()) {
+    VulkanBufferStruct cached = std::move(it->second);
+    bufferCache_.erase(it);
+    return cached;
+  }
+  return std::nullopt;
+}
+
+void VulkanBufferContainer::drainCache() {
+  for (auto &[size, buffer] : bufferCache_) {
+    destroyBufferGPU(buffer);
+  }
+  bufferCache_.clear();
+}
+
+void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
+  auto &buffer = get(handle);
+
+  // Views share the parent's VkBuffer — do not destroy GPU resources.
+  if (buffer.isView_) {
+    return;
+  }
+
+  activeMemoryBytes_ -= buffer.size();
+
+  // Cache device-local buffers for reuse instead of destroying them.
+  // Only cache non-mapped (device-only) buffers; host-visible buffers are rare
+  // and not worth caching.
+  if (buffer.buffer != VK_NULL_HANDLE && buffer.data == nullptr &&
+      bufferCache_.size() < kMaxCachedBuffers) {
+    size_t sz = buffer.size();
+    // Move the struct into the cache. Clear shape/dtype so it's just raw
+    // storage keyed by size.
+    VulkanBufferStruct cached;
+    cached.buffer = buffer.buffer;
+    cached.memory = buffer.memory;
+    cached.isCoherent = buffer.isCoherent;
+    // Preserve size info via shape (1D, size in float32 elements)
+    cached.setDtype(DataType::Float32);
+    cached.setShape({static_cast<uint32_t>((sz + 3) / 4)});
+#if CUT_USE_VMA
+    cached.allocation = buffer.allocation;
+#endif
+    // Prevent the original from being destroyed when its slot is reused
+    buffer.buffer = VK_NULL_HANDLE;
+    buffer.memory = VK_NULL_HANDLE;
+#if CUT_USE_VMA
+    buffer.allocation = VK_NULL_HANDLE;
+#endif
+    bufferCache_.emplace(sz, std::move(cached));
+    return;
+  }
+
+  // Cache is full or buffer is host-visible — destroy immediately.
+  destroyBufferGPU(buffer);
 }
 
 ComputeHandle

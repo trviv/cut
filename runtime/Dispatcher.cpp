@@ -48,6 +48,7 @@ bool Dispatcher::encode(OpNode &node) {
   auto bindings = node.bindings();
   ComputeDispatch dispatch(shader, node.dispatchSize(), bindings);
   dispatch.setLabel(node.displayName());
+  dispatch.setOutputHandle(node.output());
   iface_->encode(std::move(dispatch));
   return true;
 }

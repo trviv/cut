@@ -60,6 +60,9 @@ public:
    */
   void reset();
 
+  /// Returns the internal handle ID (for use in dependency tracking).
+  size_t id() const { return id_; }
+
   /**
    * Retrieves a const reference to the stored data, validating the type at
    * runtime.

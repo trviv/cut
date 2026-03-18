@@ -193,8 +193,35 @@ void Runtime::dispatch(OpNode &node) {
   }
 }
 
+void Runtime::eagerSubmit() {
+  if (!pendingCommands_ || !interface_)
+    return;
+  // Submit the command buffer immediately so the GPU starts working.
+  // The handle is stored so flushPendingCommands() can wait for it.
+  pendingCmd_ = interface_->submit();
+  // pendingCommands_ stays true — cleared by flushPendingCommands().
+}
+
 void Runtime::flushPendingCommands() {
-  if (pendingCommands_ && interface_) {
+  if (!pendingCommands_ || !interface_)
+    return;
+
+  if (pendingCmd_) {
+    // Already submitted (eager path) — just wait.
+    if (profilingEnabled_) {
+      auto t0 = std::chrono::high_resolution_clock::now();
+      interface_->wait(pendingCmd_);
+      auto t1 = std::chrono::high_resolution_clock::now();
+      auto gpuUs =
+          std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0)
+              .count();
+      logMsg("[Runtime] GPU wait: %lld us", gpuUs);
+    } else {
+      interface_->wait(pendingCmd_);
+    }
+    pendingCmd_.reset();
+  } else {
+    // Not yet submitted — do full submit + wait.
     if (profilingEnabled_) {
       auto t0 = std::chrono::high_resolution_clock::now();
       Tensor cmd = interface_->submit();
@@ -213,8 +240,8 @@ void Runtime::flushPendingCommands() {
       Tensor cmd = interface_->submit();
       interface_->wait(cmd);
     }
-    pendingCommands_ = false;
   }
+  pendingCommands_ = false;
 }
 
 ComputeHandle Runtime::submitReusable() {

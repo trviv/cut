@@ -241,6 +241,15 @@ def set_simd_mode(mode: SIMDMode):
     _cut_compute.set_simd_mode(mode)
 
 
+def flush():
+    """
+    Flush pending graph operations and wait for GPU completion.
+    Use this for synchronization (e.g., accurate benchmarking).
+    """
+    _ensure_initialized()
+    _cut_compute.flush()
+
+
 def shutdown():
     """
     Shutdown the compute backend and release all resources.

@@ -1463,8 +1463,8 @@ void testBinaryVecVecFloat16(Runtime *runtime) {
               continue;
             // fp16 pow: GPU may overflow to +inf when expected is near fp16 max
             // (65504) due to exp(b*log(a)) rounding in the shader.
-            if (op == BinaryPow && std::isinf(output[i]) && !std::isinf(expected) &&
-                expected > 32752.0f)
+            if (op == BinaryPow && std::isinf(output[i]) &&
+                !std::isinf(expected) && expected > 32752.0f)
               continue;
             // fp16 has ~3 decimal digits of precision; pow() can accumulate
             // more error via exp(b*log(a)), so use 2% for BinaryPow
