@@ -1,0 +1,3 @@
+leak:libdbus-1.so
+leak:libvulkan.so
+leak:libdrm.so

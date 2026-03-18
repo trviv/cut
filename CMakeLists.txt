@@ -47,6 +47,19 @@ if(NOT SHADERC_LIB)
 endif()
 message(STATUS "shaderc library: ${SHADERC_LIB}")
 
+# Find glslang libraries needed by shaderc_combined
+find_library(GLSLANG_LIB glslang)
+find_library(SPIRV_LIB SPIRV)
+find_library(MACHINE_INDEPENDENT_LIB MachineIndependent)
+find_library(OS_DEPENDENT_LIB OSDependent)
+find_library(GLSLANG_RESOURCE_LIB glslang-default-resource-limits)
+set(GLSLANG_LIBS "")
+foreach(_lib GLSLANG_LIB SPIRV_LIB MACHINE_INDEPENDENT_LIB OS_DEPENDENT_LIB GLSLANG_RESOURCE_LIB)
+    if(${_lib})
+        list(APPEND GLSLANG_LIBS ${${_lib}})
+    endif()
+endforeach()
+
 
 # Shader compilation disabled - using pre-built CompiledShaders.cpp
 include(${CMAKE_CURRENT_LIST_DIR}/shader_loader.cmake)
@@ -191,6 +204,7 @@ endif()
 target_link_libraries(CUTLib PRIVATE
     ${Vulkan_LIBRARIES}
     ${SHADERC_LIB}
+    ${GLSLANG_LIBS}
 )
 
 # Include directories

@@ -1,5 +1,5 @@
 #include "RoPEOp.h"
-#include "RoPEShaders.generated.h"
+#include "RopeShaders.generated.h"
 #include "TensorStore.h"
 
 namespace cut {

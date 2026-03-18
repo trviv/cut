@@ -4,11 +4,7 @@
 
 #define CUT_USE_VMA 0
 
-#ifdef __APPLE__
 #include <vulkan/vulkan.h>
-#else
-#include <vulkan.h>
-#endif
 
 #if CUT_USE_VMA
 #ifdef __APPLE__

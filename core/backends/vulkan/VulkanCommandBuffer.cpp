@@ -4,6 +4,7 @@
 #include <VulkanCommandBuffer.h>
 #include <VulkanContainers.h>
 
+#include <array>
 #include <chrono>
 #include <unordered_map>
 
@@ -476,6 +477,16 @@ void VulkanCommandBuffer::end() {
                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, queryPool_,
                             dispatchIndex * 2 + 1);
       }
+
+      // Insert compute-to-compute barrier so subsequent dispatches see writes
+      VkMemoryBarrier shaderBarrier{};
+      shaderBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+      shaderBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      shaderBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      vkCmdPipelineBarrier(commandBuffer_,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                           &shaderBarrier, 0, nullptr, 0, nullptr);
 
       ++dispatchIndex;
     }

@@ -2,6 +2,8 @@
 #include <VulkanCommandBuffer.h>
 #include <VulkanCompute.h>
 
+#include <climits>
+#include <cstring>
 #include <type_traits>
 
 namespace cut {
@@ -40,10 +42,27 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   features16bit.storageBuffer16BitAccess = VK_TRUE;
   features16bit.uniformAndStorageBuffer16BitAccess = VK_TRUE;
 
-  // Required extensions for MoltenVK
-  const std::vector<const char *> deviceExtensions = {
+  // Build list of device extensions, checking support first
+  const std::vector<const char *> wantedExtensions = {
       "VK_KHR_portability_subset", "VK_KHR_16bit_storage",
       "VK_KHR_shader_float16_int8"};
+
+  uint32_t extCount = 0;
+  vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extCount,
+                                       nullptr);
+  std::vector<VkExtensionProperties> availableExts(extCount);
+  vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extCount,
+                                       availableExts.data());
+
+  std::vector<const char *> deviceExtensions;
+  for (const char *ext : wantedExtensions) {
+    for (const auto &avail : availableExts) {
+      if (strcmp(avail.extensionName, ext) == 0) {
+        deviceExtensions.push_back(ext);
+        break;
+      }
+    }
+  }
 
   VkDeviceCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

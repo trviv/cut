@@ -1,6 +1,8 @@
 #include <ComputeCommon.h>
 
 #include <algorithm>
+#include <cstdarg>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <unordered_map>
