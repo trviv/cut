@@ -823,9 +823,7 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   uint32_t params[2] = {upos, upos + 1};
   runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
 
-  // CPU embedding lookup → direct staging copy to hiddenBuffer_.
-  // This runs before the cached CB check, populating hiddenBuffer_
-  // via a staging transfer that completes before the CB executes.
+  // CPU embedding lookup → direct staging copy to hiddenBuffer_
   const float *embd_row = token_embd_data_.data() + token_id * dim;
   runtime_->copyToTensor(hiddenBuffer_, embd_row, dim * sizeof(float));
 

@@ -88,7 +88,6 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   if (spec.has_value()) {
     spec_ = *spec;
   } else if (M_ == 1) {
-    // GEMV variant for M=1 (vector-matrix multiply)
     constexpr int kGemvVariant = 19; // MatMulGemv
     spec_ = kGemvVariant;
   } else if (shouldUseCoopMat(dtypeA_, dtypeB_, M_, K_, N_)) {

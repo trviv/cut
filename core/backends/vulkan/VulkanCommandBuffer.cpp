@@ -4,6 +4,7 @@
 #include <VulkanCommandBuffer.h>
 #include <VulkanContainers.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <unordered_map>
@@ -614,13 +615,35 @@ void VulkanCommandBuffer::wait() {
     if (result == VK_SUCCESS) {
       const float periodNs = containers_.timestampPeriod;
       double totalUs = 0.0;
+
+      // Aggregate by label for compact output
+      std::unordered_map<std::string, double> labelTotals;
+      std::unordered_map<std::string, int> labelCounts;
       for (uint32_t i = 0; i < queryCount_; ++i) {
         double durationUs =
             static_cast<double>(timestamps[i * 2 + 1] - timestamps[i * 2]) *
             periodNs / 1000.0;
         totalUs += durationUs;
+        std::string label =
+            (i < dispatchLabels_.size() && !dispatchLabels_[i].empty())
+                ? dispatchLabels_[i]
+                : "unknown";
+        labelTotals[label] += durationUs;
+        labelCounts[label]++;
       }
-      logMsg("[GPU Profile] %-30s %9.1f us", "TOTAL", totalUs);
+
+      // Sort by total time descending
+      std::vector<std::pair<std::string, double>> sorted(labelTotals.begin(),
+                                                         labelTotals.end());
+      std::sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) {
+        return a.second > b.second;
+      });
+      for (const auto &[label, us] : sorted) {
+        logMsg("[GPU Profile] %-30s %9.1f us  (%dx)", label.c_str(), us,
+               labelCounts[label]);
+      }
+      logMsg("[GPU Profile] %-30s %9.1f us  (%d dispatches)", "TOTAL", totalUs,
+             queryCount_);
     }
 
     vkDestroyQueryPool(device_, queryPool_, nullptr);
