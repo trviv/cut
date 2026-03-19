@@ -4348,6 +4348,9 @@ TEST_F(MatrixOpsTest, MatMulVariants_Square) {
         expected[i * N + j] += dataA[i * K + k] * dataB[k * N + j];
 
   for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+    // Skip variants that don't support the requested dtype combination
+    if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+      continue;
     SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
     auto bufA = runtime_->createTensor({M, K}, dtype, dataA.data());
@@ -4392,6 +4395,9 @@ TEST_F(MatrixOpsTest, MatMulVariants_Rectangular) {
           expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
 
     for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      // Skip variants that don't support the requested dtype combination
+      if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+        continue;
       SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
       auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
@@ -4438,6 +4444,9 @@ TEST_F(MatrixOpsTest, MatMulVariants_NonMultipleOfTileSize) {
           expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
 
     for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      // Skip variants that don't support the requested dtype combination
+      if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+        continue;
       SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
       auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
@@ -4486,6 +4495,9 @@ TEST_F(MatrixOpsTest, MatMulVariants_LargerMatrices) {
     float tolerance = tc.K * 1e-5f;
 
     for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      // Skip variants that don't support the requested dtype combination
+      if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+        continue;
       SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
       auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
@@ -4518,6 +4530,9 @@ TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
     identity[i * N + i] = 1.0f;
 
   for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+    // Skip variants that don't support the requested dtype combination
+    if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+      continue;
     // Skip fused activation variants (e.g. MatMulUnary) — tested separately
     if (std::string(getMatMulVariantName(vi)).find("SiLU") != std::string::npos)
       continue;

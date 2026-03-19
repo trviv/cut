@@ -34,7 +34,7 @@ echo ""
 # ----------------------------------------------------------------
 # 2. Clone and build llama.cpp
 # ----------------------------------------------------------------
-LLAMA_DIR="/tmp/llama_cpp_vulkan"
+LLAMA_DIR="build/external_runners/llama.cpp"
 
 echo "--- 2. Cloning llama.cpp ---"
 if [ ! -d "$LLAMA_DIR" ]; then
@@ -64,18 +64,20 @@ echo "--- 2b. Building llama.cpp Vulkan GPU ---"
 GLSLC=""
 if command -v glslc &>/dev/null; then
     GLSLC=$(command -v glslc)
-elif [ -f /tmp/glslc_pkg/usr/bin/glslc ]; then
-    GLSLC="/tmp/glslc_pkg/usr/bin/glslc"
+elif [ -f build/external_runners/glslc_pkg/usr/bin/glslc ]; then
+    GLSLC="build/external_runners/glslc_pkg/usr/bin/glslc"
 else
     echo "  glslc not found. Attempting to extract from apt package..."
+    mkdir -p build/external_runners/glslc_pkg
+    pushd build/external_runners/glslc_pkg > /dev/null
     if apt download glslc 2>/dev/null; then
-        mkdir -p /tmp/glslc_pkg
-        dpkg-deb -x glslc*.deb /tmp/glslc_pkg
+        dpkg-deb -x glslc*.deb .
         rm -f glslc*.deb
-        if [ -f /tmp/glslc_pkg/usr/bin/glslc ]; then
-            GLSLC="/tmp/glslc_pkg/usr/bin/glslc"
-            echo "  Extracted glslc to $GLSLC"
-        fi
+    fi
+    popd > /dev/null
+    if [ -f build/external_runners/glslc_pkg/usr/bin/glslc ]; then
+        GLSLC="build/external_runners/glslc_pkg/usr/bin/glslc"
+        echo "  Extracted glslc to $GLSLC"
     fi
 fi
 

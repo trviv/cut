@@ -204,14 +204,16 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
             << " ffn_dim=" << config_.ffn_dim
             << " head_dim=" << config_.head_dim << " vocab_size=";
 
-  // Load token embeddings to GPU for GPU-side embedding lookup.
+  // Load token embeddings — keep CPU copy for fast per-token lookup,
+  // and upload to GPU for graph-based operations.
   // GGML dimensions: [cols=dim, rows=vocab_size]
   {
     auto embd = reader.read_tensor_f32("token_embd.weight");
     const auto &info = reader.get_tensor_info("token_embd.weight");
     config_.vocab_size = static_cast<uint32_t>(info.dimensions[1]);
+    token_embd_data_ = std::move(embd);
     embeddingTable_ =
-        uploadMatrix(embd.data(), config_.vocab_size, config_.dim);
+        uploadMatrix(token_embd_data_.data(), config_.vocab_size, config_.dim);
   }
   std::cout << config_.vocab_size << "\n";
 
@@ -821,10 +823,17 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   uint32_t params[2] = {upos, upos + 1};
   runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
 
-  // GPU embedding lookup
-  uint32_t tid = static_cast<uint32_t>(token_id);
-  runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t));
-  ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
+  // CPU embedding lookup → direct staging copy to hiddenBuffer_.
+  // This runs before the cached CB check, populating hiddenBuffer_
+  // via a staging transfer that completes before the CB executes.
+  const float *embd_row = token_embd_data_.data() + token_id * dim;
+  runtime_->copyToTensor(hiddenBuffer_, embd_row, dim * sizeof(float));
+
+  if (decodeCBCached_) {
+    // Re-submit cached command buffer (no re-recording needed)
+    runtime_->resubmitAndWait(cachedDecodeCB_);
+    return logitsOutput_;
+  }
 
   auto hidden = hiddenBuffer_;
 
@@ -858,6 +867,10 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   // LM head logits (graph template — includes rmsNorm internally)
   auto logit_result = executeGraph(logitsGraph_, {hidden});
   logitsOutput_ = logit_result[0];
+
+  // Cache the command buffer for reuse on subsequent tokens
+  cachedDecodeCB_ = runtime_->submitReusable();
+  decodeCBCached_ = static_cast<bool>(cachedDecodeCB_);
 
   return logitsOutput_;
 }

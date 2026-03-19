@@ -46,7 +46,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   // Build list of device extensions, checking support first
   const std::vector<const char *> wantedExtensions = {
       "VK_KHR_portability_subset", "VK_KHR_16bit_storage",
-      "VK_KHR_shader_float16_int8"};
+      "VK_KHR_shader_float16_int8", "VK_KHR_cooperative_matrix"};
 
   uint32_t extCount = 0;
   vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extCount,
@@ -55,13 +55,42 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extCount,
                                        availableExts.data());
 
+  // First pass: check which extensions are available (defer cooperative matrix)
   std::vector<const char *> deviceExtensions;
+  bool hasCoopMatExt = false;
   for (const char *ext : wantedExtensions) {
     for (const auto &avail : availableExts) {
       if (strcmp(avail.extensionName, ext) == 0) {
-        deviceExtensions.push_back(ext);
+        if (strcmp(ext, "VK_KHR_cooperative_matrix") == 0) {
+          hasCoopMatExt = true; // Don't add yet — verify feature support first
+        } else {
+          deviceExtensions.push_back(ext);
+        }
         break;
       }
+    }
+  }
+
+  // Enable cooperative matrix if extension + feature are both available
+  VkPhysicalDeviceCooperativeMatrixFeaturesKHR coopMatFeatures = {};
+  coopMatFeatures.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR;
+  if (hasCoopMatExt) {
+    VkPhysicalDeviceCooperativeMatrixFeaturesKHR coopMatQuery = {};
+    coopMatQuery.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR;
+    VkPhysicalDeviceFeatures2 features2 = {};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &coopMatQuery;
+    vkGetPhysicalDeviceFeatures2(physicalDevice, &features2);
+
+    if (coopMatQuery.cooperativeMatrix) {
+      coopMatFeatures.cooperativeMatrix = VK_TRUE;
+      DeviceCaps::cooperativeMatrix = true;
+      deviceExtensions.push_back("VK_KHR_cooperative_matrix");
+      // Chain into feature request
+      coopMatFeatures.pNext = featuresFloat16Int8.pNext;
+      featuresFloat16Int8.pNext = &coopMatFeatures;
     }
   }
 
@@ -79,6 +108,20 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 
   vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties_);
   vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties_);
+
+  logMsg("Vulkan device: %s (coopMat: %s, subgroupSize: %u)",
+         deviceProperties_.deviceName,
+         DeviceCaps::cooperativeMatrix ? "yes" : "no",
+         DeviceCaps::subgroupSize);
+
+  // Query subgroup size for cooperative matrix dispatch sizing
+  VkPhysicalDeviceSubgroupProperties subgroupProps = {};
+  subgroupProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+  VkPhysicalDeviceProperties2 props2 = {};
+  props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+  props2.pNext = &subgroupProps;
+  vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
+  DeviceCaps::subgroupSize = subgroupProps.subgroupSize;
 
 #if CUT_USE_VMA
   VmaAllocatorCreateInfo allocatorInfo = {};

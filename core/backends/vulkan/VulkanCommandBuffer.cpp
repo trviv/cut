@@ -512,8 +512,6 @@ void VulkanCommandBuffer::end() {
       }
 
       // Track this dispatch's output handle as written.
-      // If outputHandle is set (from Dispatcher), use it precisely.
-      // Otherwise (raw encode), conservatively track all handle bindings.
       if (dispatch.outputHandle()) {
         writtenHandles.insert(dispatch.outputHandle().id());
         needsBarrier = true;

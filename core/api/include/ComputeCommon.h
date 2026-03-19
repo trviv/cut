@@ -74,6 +74,15 @@ compileShaderToSpirv(const std::string &source,
 std::vector<uint32_t> compileShaderFileToSpirv(const std::string &filepath);
 
 /**
+ * Static device capabilities populated by the backend during initialization.
+ * Operators read these directly without going through ComputeInterface.
+ */
+struct DeviceCaps {
+  static inline bool cooperativeMatrix = false; ///< VK_KHR_cooperative_matrix
+  static inline uint32_t subgroupSize = 32;     ///< Device subgroup/warp size
+};
+
+/**
  * Represents thread dimensions (workgroup or dispatch size).
  */
 struct ThreadSize {

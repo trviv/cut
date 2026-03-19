@@ -301,6 +301,34 @@
               {"input1": "Float32", "input2": "Float16", "output": "Float32"}
             ]
           }
+        },
+        {
+          "name": "CoopMat",
+          "template": "MatMulCoopMat",
+          "compiler": "glsl",
+          "defines": {},
+          "wg": [32, 1],
+          "eff_tile": [16, 16],
+          "description": "CoopMat 16x16 (KHR)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float16", "input2": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "CoopMatTiled",
+          "template": "MatMulCoopMatTiled",
+          "compiler": "glsl",
+          "defines": {},
+          "wg": [128, 1],
+          "eff_tile": [32, 32],
+          "description": "CoopMat 2x2 Tiled (KHR)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float16", "input2": "Float16", "output": "Float32"}
+            ]
+          }
         }
       ]
     },

@@ -82,9 +82,12 @@ void Operations::flush() {
   graph::GraphExecutor executor(*this, *store_);
   executor.execute(*graph_);
 
-  // Eagerly submit the command buffer so the GPU starts working immediately.
-  // flushPendingCommands() will just wait for the fence.
-  runtime_->eagerSubmit();
+  // NOTE: Do NOT submit the command buffer here (no eagerSubmit).
+  // flush() is called mid-forward when inline ops (cacheWrite, attention)
+  // trigger dispatch(). Submitting here would split the active command buffer,
+  // breaking reusable CB caching (submitReusable would only capture the tail).
+  // The full CB is submitted later by submitReusable() or
+  // flushPendingCommands().
 
   // Replace with a fresh graph to release OpNode buffer references.
   graph_ = std::make_unique<graph::Graph>();

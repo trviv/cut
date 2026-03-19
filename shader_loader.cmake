@@ -22,6 +22,23 @@ file(MAKE_DIRECTORY ${SHADER_CACHE_DIR})
 find_program(DXC_EXECUTABLE dxc REQUIRED)
 message(STATUS "DXC compiler: ${DXC_EXECUTABLE}")
 
+# Find GLSL -> SPIR-V compiler for cooperative matrix shaders
+# Prefer glslc (shaderc frontend), fall back to glslangValidator
+find_program(GLSLC_EXECUTABLE glslc)
+if(NOT GLSLC_EXECUTABLE)
+    find_program(GLSLANGVALIDATOR_EXECUTABLE glslangValidator)
+    if(GLSLANGVALIDATOR_EXECUTABLE)
+        set(GLSLC_EXECUTABLE ${GLSLANGVALIDATOR_EXECUTABLE})
+        set(GLSLC_IS_GLSLANGVALIDATOR TRUE)
+        message(STATUS "GLSL compiler: ${GLSLC_EXECUTABLE} (glslangValidator)")
+    else()
+        message(STATUS "GLSL compiler: NOT FOUND — cooperative matrix shaders will be skipped")
+    endif()
+else()
+    set(GLSLC_IS_GLSLANGVALIDATOR FALSE)
+    message(STATUS "GLSL compiler: ${GLSLC_EXECUTABLE} (glslc)")
+endif()
+
 # =============================================================================
 # Function to compile each dtype variant of a shader function to SPIR-V as a
 # separate build step.  Each variant gets its own add_custom_command so CMake's
@@ -34,11 +51,51 @@ function(compile_shader_group FUNC_NAME DTYPES_CSV SOURCE_HASH)
 
     foreach(DTYPE ${DTYPE_LIST})
         set(SPV_OUTPUT ${SHADER_BINARY_DIR}/${FUNC_NAME}_${DTYPE}.spv)
-        set(SHADER_SRC ${GENERATED_SHADER_DIR}/${FUNC_NAME}_${DTYPE}.shader)
 
-        # Per-variant CMake script with caching
-        set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${FUNC_NAME}_${DTYPE}.cmake)
-        set(SCRIPT_CONTENT "# Compile ${FUNC_NAME}_${DTYPE} with caching
+        # Check for GLSL (.comp) or HLSL (.shader) source
+        set(SHADER_SRC_GLSL ${GENERATED_SHADER_DIR}/${FUNC_NAME}_${DTYPE}.comp)
+        set(SHADER_SRC_HLSL ${GENERATED_SHADER_DIR}/${FUNC_NAME}_${DTYPE}.shader)
+
+        if(EXISTS ${SHADER_SRC_GLSL})
+            # GLSL compilation path (cooperative matrix shaders)
+            if(NOT GLSLC_EXECUTABLE)
+                message(STATUS "Skipping GLSL shader ${FUNC_NAME}_${DTYPE} (glslc not found)")
+                continue()
+            endif()
+
+            set(SHADER_SRC ${SHADER_SRC_GLSL})
+            set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${FUNC_NAME}_${DTYPE}.cmake)
+            # Build compiler command based on whether we have glslc or glslangValidator
+            if(GLSLC_IS_GLSLANGVALIDATOR)
+                set(GLSL_COMPILE_ARGS "--target-env vulkan1.1 -V -S comp")
+            else()
+                set(GLSL_COMPILE_ARGS "--target-env=vulkan1.1 --target-spv=spv1.3 -fshader-stage=compute")
+            endif()
+            set(SCRIPT_CONTENT "# Compile GLSL ${FUNC_NAME}_${DTYPE} with caching
+file(MD5 \"${SHADER_SRC}\" SRC_HASH)
+string(MD5 CACHE_KEY \"${SOURCE_HASH}_\${SRC_HASH}\")
+
+if(EXISTS \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\")
+    message(STATUS \"Cache hit: ${FUNC_NAME}_${DTYPE} (GLSL)\")
+    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\" \"${SPV_OUTPUT}\")
+else()
+    message(STATUS \"Compiling ${FUNC_NAME}_${DTYPE} (GLSL)\")
+    separate_arguments(GLSL_ARGS UNIX_COMMAND \"${GLSL_COMPILE_ARGS}\")
+    execute_process(
+        COMMAND ${GLSLC_EXECUTABLE} \${GLSL_ARGS} \"${SHADER_SRC}\" -o \"${SPV_OUTPUT}\"
+        RESULT_VARIABLE result
+    )
+    if(NOT result EQUAL 0)
+        message(FATAL_ERROR \"GLSL shader compilation failed for ${FUNC_NAME}_${DTYPE}\")
+    endif()
+    execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SPV_OUTPUT}\" \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\")
+endif()
+")
+        else()
+            # HLSL compilation path (standard DXC)
+            set(SHADER_SRC ${SHADER_SRC_HLSL})
+            set(COMPILE_SCRIPT ${SHADER_BINARY_DIR}/compile_${FUNC_NAME}_${DTYPE}.cmake)
+            set(SCRIPT_CONTENT "# Compile ${FUNC_NAME}_${DTYPE} with caching
 file(MD5 \"${SHADER_INCLUDE_DIR}/ComputeOpsShared.h\" HEADER_HASH)
 string(MD5 CACHE_KEY \"${SOURCE_HASH}_\${HEADER_HASH}\")
 
@@ -57,12 +114,14 @@ else()
     execute_process(COMMAND \${CMAKE_COMMAND} -E copy \"${SPV_OUTPUT}\" \"${SHADER_CACHE_DIR}/\${CACHE_KEY}_${DTYPE}.spv\")
 endif()
 ")
+        endif()
+
         file(WRITE ${COMPILE_SCRIPT} "${SCRIPT_CONTENT}")
 
         add_custom_command(
             OUTPUT ${SPV_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -P ${COMPILE_SCRIPT}
-            DEPENDS ${SHADER_SRC} ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h
+            DEPENDS ${SHADER_SRC}
             COMMENT "Compiling ${FUNC_NAME}_${DTYPE}.spv"
             VERBATIM
         )

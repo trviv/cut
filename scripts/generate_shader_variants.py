@@ -169,11 +169,22 @@ def full_name_for(cpp_prefix, variant_name):
 # Shader file generation (template expansion + dtype preprocessing)
 # =============================================================================
 
+def _shader_extension(variant):
+    """Return the source file extension based on compiler type."""
+    return ".comp" if variant.get("compiler") == "glsl" else ".shader"
+
+
+def _output_extension(variant):
+    """Return the output file extension based on compiler type."""
+    return _shader_extension(variant)
+
+
 def _load_shader_content(variant, fname, group_dir):
     """Load base shader content for a variant (template or direct file)."""
+    ext = _shader_extension(variant)
     if "template" in variant:
         template_path = os.path.join(group_dir,
-                                     variant["template"] + ".shader")
+                                     variant["template"] + ext)
         if not os.path.exists(template_path):
             print(f"ERROR: Shader template not found: {template_path}",
                   file=sys.stderr)
@@ -184,7 +195,7 @@ def _load_shader_content(variant, fname, group_dir):
             content = content.replace(f"%{key}%", str(value))
         return content
 
-    shader_path = os.path.join(group_dir, fname + ".shader")
+    shader_path = os.path.join(group_dir, fname + ext)
     if not os.path.exists(shader_path):
         print(f"ERROR: Shader source not found: {shader_path}",
               file=sys.stderr)
@@ -209,9 +220,10 @@ def generate_shader_files(config, group_dir, output_dir, impl_dir):
 
         base_content = _load_shader_content(variant, fname, group_dir)
 
-        # Resolve .shaderh includes before dtype substitution
-        base_content = resolve_shaderh_includes(base_content, group_dir,
-                                                impl_dir)
+        # Resolve .shaderh includes before dtype substitution (HLSL only)
+        if variant.get("compiler") != "glsl":
+            base_content = resolve_shaderh_includes(base_content, group_dir,
+                                                    impl_dir)
 
         # Compute source hash (after include resolution, before dtype substitution)
         source_hash = hashlib.md5(base_content.encode()).hexdigest()
@@ -236,8 +248,9 @@ def generate_shader_files(config, group_dir, output_dir, impl_dir):
                     preprocessed, slot, combo[slot])
 
             suffix = "_".join(combo[slot] for slot in slots)
+            ext = _output_extension(variant)
             out_path = os.path.join(output_dir,
-                                    f"{fname}_{suffix}.shader")
+                                    f"{fname}_{suffix}{ext}")
 
             if write_if_changed(out_path, preprocessed):
                 print(f"  Generated {fname}_{suffix}.shader")

@@ -4,6 +4,26 @@
 
 namespace cut {
 
+// Cooperative matrix variant indices (appended after the standard variants)
+static constexpr int kCoopMatVariant = kMatMulVariantCount - 2;
+static constexpr int kCoopMatTiledVariant = kMatMulVariantCount - 1;
+
+// Helper: check if cooperative matrix variant should be auto-selected
+static bool shouldUseCoopMat(
+    DataType dtypeA, DataType dtypeB, uint32_t M, uint32_t K, uint32_t N) {
+  // Requires: fp16 inputs, dimensions aligned to 16, non-trivial size
+  if (dtypeA != DataType::Float16 || dtypeB != DataType::Float16)
+    return false;
+  if (M % 16 != 0 || N % 16 != 0 || K % 16 != 0)
+    return false;
+  if (M < 16 || N < 16 || K < 16)
+    return false;
+  // Check device capability (set by backend during init)
+  if (!DeviceCaps::cooperativeMatrix)
+    return false;
+  return true;
+}
+
 // Helper: map QuantFormat to the base OperatorEnum
 static OperatorEnum matmulEnum(QuantFormat fmt) {
   switch (fmt) {
@@ -67,10 +87,15 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   N_ = shapeB[1];
   if (spec.has_value()) {
     spec_ = *spec;
+  } else if (M_ == 1) {
+    // GEMV variant for M=1 (vector-matrix multiply)
+    constexpr int kGemvVariant = 19; // MatMulGemv
+    spec_ = kGemvVariant;
+  } else if (shouldUseCoopMat(dtypeA_, dtypeB_, M_, K_, N_)) {
+    // Cooperative matrix variant — use tiled (2×2) for larger matrices
+    spec_ = (M_ >= 32 && N_ >= 32) ? kCoopMatTiledVariant : kCoopMatVariant;
   } else {
-    // Auto-select GEMV variant for M=1 (vector-matrix multiply).
-    constexpr int kGemvVariant = kMatMulVariantCount - 1;
-    spec_ = (M_ == 1) ? kGemvVariant : kMatMulDefaultVariant;
+    spec_ = kMatMulDefaultVariant;
   }
   inputs_ = {a, b};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
@@ -201,7 +226,12 @@ std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
     compiled = getCompiledMatMulQ4(*spec_, dtypeA_, dtypeB_, DataType::Float32);
     break;
   default:
-    compiled = getCompiledMatMul(*spec_, dtypeA_, dtypeB_, dtypeA_);
+    // CoopMat variants produce Float32 output from Float16 inputs
+    if (*spec_ == kCoopMatVariant || *spec_ == kCoopMatTiledVariant) {
+      compiled = getCompiledMatMul(*spec_, dtypeA_, dtypeB_, DataType::Float32);
+    } else {
+      compiled = getCompiledMatMul(*spec_, dtypeA_, dtypeB_, dtypeA_);
+    }
     break;
   }
 
@@ -292,16 +322,22 @@ std::vector<ComputeBinding> MatMulOpNode::bindings() const {
 
 std::string MatMulOpNode::displayName() const {
   std::string name;
-  switch (format_) {
-  case QuantFormat::Q8:
-    name = "MatMulQ8";
-    break;
-  case QuantFormat::Q4:
-    name = "MatMulQ4";
-    break;
-  default:
-    name = "MatMul";
-    break;
+  if (*spec_ == kCoopMatVariant) {
+    name = "MatMulCoopMat";
+  } else if (*spec_ == kCoopMatTiledVariant) {
+    name = "MatMulCoopMatTiled";
+  } else {
+    switch (format_) {
+    case QuantFormat::Q8:
+      name = "MatMulQ8";
+      break;
+    case QuantFormat::Q4:
+      name = "MatMulQ4";
+      break;
+    default:
+      name = "MatMul";
+      break;
+    }
   }
   switch (fusion_) {
   case MatMulFusion::Unary:
@@ -331,6 +367,15 @@ std::vector<DataType> MatMulOpNode::resolveInputDtypes(
   // Standard: try various dtype combinations
   DataType dtA = inputDtypes[0];
   DataType dtB = inputDtypes[1];
+
+  // CoopMat variants require Float16 inputs → Float32 output
+  if (*spec_ == kCoopMatVariant || *spec_ == kCoopMatTiledVariant) {
+    std::vector<DataType> result = {DataType::Float16, DataType::Float16};
+    if (fusion_ == MatMulFusion::Binary && inputDtypes.size() > 2) {
+      result.push_back(widenPrecision(inputDtypes[2]));
+    }
+    return result;
+  }
 
   std::vector<DataType> result;
   if (getCompiledMatMul(*spec_, dtA, dtB, dtA).has_value())

@@ -121,9 +121,6 @@ void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
 
   activeMemoryBytes_ -= buffer.size();
 
-  // Cache device-local buffers for reuse instead of destroying them.
-  // Only cache non-mapped (device-only) buffers; host-visible buffers are rare
-  // and not worth caching.
   if (buffer.buffer != VK_NULL_HANDLE && buffer.data == nullptr &&
       bufferCache_.size() < kMaxCachedBuffers) {
     size_t sz = buffer.size();

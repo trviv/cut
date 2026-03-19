@@ -1,0 +1,73 @@
+#version 450
+#extension GL_KHR_cooperative_matrix : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+
+// Tiled cooperative matrix matmul: C[M,N] = A[M,K] * B[K,N]
+// Uses 16x16x16 fp16 cooperative matrix multiply-add with fp32 accumulation.
+// Each workgroup = 4 subgroups (128 threads) processing a 2×2 grid of 16×16
+// tiles = 32×32 effective output tile.
+// Requires M, N, K all multiples of 16.
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;       // rows of A
+    uint K;       // cols of A / rows of B
+    uint N;       // cols of B
+    uint strideA; // padded K (multiple of 4)
+    uint strideB; // padded N for B (multiple of 4)
+    uint strideC; // padded N for output C (multiple of 4)
+};
+
+// A: fp16 input [M, K] — row-major with stride strideA
+layout(set = 0, binding = 0) readonly buffer BufferA { float16_t dataA[]; };
+
+// B: fp16 input [K, N] — row-major with stride strideB
+layout(set = 0, binding = 1) readonly buffer BufferB { float16_t dataB[]; };
+
+// D: fusion input [M, N] — dummy buffer when no fusion active
+layout(set = 0, binding = 2) readonly buffer BufferD { float dataD[]; };
+
+// C: fp32 output [M, N] — row-major with stride strideC
+layout(set = 0, binding = 3) buffer BufferC { float dataC[]; };
+
+void main() {
+    // 4 subgroups arranged as 2×2 grid of 16×16 tiles
+    uint sgId = gl_SubgroupID;
+    if (sgId >= 4) return;
+
+    uint subTileRow = sgId / 2;  // 0 or 1
+    uint subTileCol = sgId % 2;  // 0 or 1
+
+    uint tileRow = gl_WorkGroupID.y * 32 + subTileRow * 16;
+    uint tileCol = gl_WorkGroupID.x * 32 + subTileCol * 16;
+
+    // Bounds check — skip tiles outside the matrix
+    if (tileRow >= M || tileCol >= N) return;
+
+    // Initialize fp32 accumulator to zero
+    coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> acc =
+        coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0.0);
+
+    // K-loop: multiply-accumulate in 16-wide steps
+    for (uint k = 0; k < K; k += 16) {
+        // Load A[tileRow:tileRow+16, k:k+16]
+        coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA> matA;
+        coopMatLoad(matA, dataA, tileRow * strideA + k, strideA,
+                    gl_CooperativeMatrixLayoutRowMajor);
+
+        // Load B[k:k+16, tileCol:tileCol+16]
+        coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> matB;
+        coopMatLoad(matB, dataB, k * strideB + tileCol, strideB,
+                    gl_CooperativeMatrixLayoutRowMajor);
+
+        // C += A * B
+        acc = coopMatMulAdd(matA, matB, acc);
+    }
+
+    // Store result
+    coopMatStore(acc, dataC, tileRow * strideC + tileCol, strideC,
+                 gl_CooperativeMatrixLayoutRowMajor);
+}

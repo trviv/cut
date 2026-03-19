@@ -173,7 +173,8 @@ private:
   cut::Operations *ops_ = nullptr;
 
   // Weights
-  cut::ComputeHandle embeddingTable_; // [vocab_size, dim] on GPU
+  cut::ComputeHandle embeddingTable_;  // [vocab_size, dim] on GPU
+  std::vector<float> token_embd_data_; // CPU copy for fast embedding lookup
   cut::ComputeHandle
       tokenIdBuffer_; // 1-element UInt32 for GPU embedding lookup
   std::vector<LlamaLayer> layers_;

@@ -55,24 +55,11 @@ def run_cut(model_path: str):
     return info if info else None
 
 
-def run_llamacpp_native(model_path: str, max_tokens: int = 32):
-    """Run native llama.cpp bench (CPU, optimized C++)."""
-    exe = "/tmp/llama_cpp_vulkan/build_cpu/bin/llama-bench"
-    if not os.path.exists(exe):
-        print("  llama-bench not found, skipping")
-        return None
-
-    result = subprocess.run(
-        [exe, "-m", model_path, "-p", "15", "-n", str(max_tokens), "-r", "1"],
-        capture_output=True, text=True, timeout=120
-    )
-    output = result.stdout + result.stderr
-
+def _parse_llama_bench(output: str):
+    """Parse llama-bench table output into an info dict."""
     info = {"text": "(benchmark mode — no text output)"}
 
     for line in output.split("\n"):
-        # | llama 256M F16 | ... | pp15 | 1214.05 ± 0.00 |
-        # | llama 256M F16 | ... | tg32 |   96.02 ± 0.00 |
         if "|" in line and "pp" in line:
             parts = [p.strip() for p in line.split("|")]
             for p in parts:
@@ -96,6 +83,31 @@ def run_llamacpp_native(model_path: str, max_tokens: int = 32):
         info["total_ms"] = info["prefill_ms"] + info["decode_ms"]
         info["total_tokens"] = info.get("prefill_tokens", 0) + info.get("decode_tokens", 0)
     return info if "decode_ms" in info else None
+
+
+def run_llamacpp_bench(model_path: str, max_tokens: int = 32,
+                       vulkan: bool = False, vk_device: int = None):
+    """Run native llama.cpp bench (CPU or Vulkan GPU)."""
+    if vulkan:
+        exe = "build/external_runners/llama.cpp/build_vk/bin/llama-bench"
+    else:
+        exe = "build/external_runners/llama.cpp/build_cpu/bin/llama-bench"
+    if not os.path.exists(exe):
+        kind = "Vulkan" if vulkan else "CPU"
+        print(f"  llama-bench ({kind}) not found at {exe}")
+        print(f"  Run: ./scripts/setup_benchmark_runners.sh")
+        return None
+
+    cmd = [exe, "-m", model_path, "-p", "15", "-n", str(max_tokens), "-r", "1"]
+    if vulkan:
+        cmd += ["-ngl", "99"]
+
+    env = os.environ.copy()
+    if vk_device is not None:
+        env["GGML_VK_DEVICE"] = str(vk_device)
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+    return _parse_llama_bench(result.stdout + result.stderr)
 
 
 def run_llamacpp_python(model_path: str, max_tokens: int = 32):
@@ -177,6 +189,33 @@ def run_transformers(model_name: str, max_tokens: int = 32):
     }
 
 
+def detect_vulkan_devices():
+    """Detect Vulkan devices from llama-bench stderr."""
+    exe = "build/external_runners/llama.cpp/build_vk/bin/llama-bench"
+    if not os.path.exists(exe):
+        return []
+    result = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=10)
+    # Run a quick dummy to get device listing from ggml_vulkan init
+    result = subprocess.run(
+        [exe, "-m", "/dev/null"], capture_output=True, text=True, timeout=10
+    )
+    output = result.stdout + result.stderr
+    devices = []
+    for line in output.split("\n"):
+        # ggml_vulkan: 0 = AMD Ryzen ... | uma: 1 ...
+        # ggml_vulkan: 1 = NVIDIA GeForce RTX 3090 ...
+        if "ggml_vulkan:" in line and "=" in line and "|" in line:
+            try:
+                idx_part = line.split("ggml_vulkan:")[1].strip()
+                idx = int(idx_part.split("=")[0].strip())
+                name = idx_part.split("=")[1].split("(")[0].strip()
+                is_igpu = "uma: 1" in line
+                devices.append({"idx": idx, "name": name, "igpu": is_igpu})
+            except (ValueError, IndexError):
+                pass
+    return devices
+
+
 def print_header(name):
     print("=" * 60)
     print(name)
@@ -231,18 +270,49 @@ def main():
         print("  FAILED")
     print()
 
-    # 2. llama.cpp native CLI (CPU, optimized C++)
-    print_header("2. llama.cpp native CLI (CPU, -march=native)")
-    info = run_llamacpp_native(args.model, args.max_tokens)
+    # 2. llama.cpp Vulkan GPU (each discrete device)
+    vk_devices = detect_vulkan_devices()
+    bench_idx = 2
+    for dev in vk_devices:
+        if dev["igpu"]:
+            continue  # skip integrated GPUs for the main comparison
+        label = f"llama.cpp Vulkan ({dev['name']})"
+        print_header(f"{bench_idx}. {label}")
+        info = run_llamacpp_bench(args.model, args.max_tokens,
+                                  vulkan=True, vk_device=dev["idx"])
+        if info:
+            print_result(info, has_split=True)
+            results[label] = info
+        else:
+            print("  FAILED or not built")
+        print()
+        bench_idx += 1
+
+    # If no discrete GPUs found, try default Vulkan device anyway
+    if not any(not d["igpu"] for d in vk_devices):
+        print_header(f"{bench_idx}. llama.cpp Vulkan GPU (default device)")
+        info = run_llamacpp_bench(args.model, args.max_tokens, vulkan=True)
+        if info:
+            print_result(info, has_split=True)
+            results["llama.cpp Vulkan GPU"] = info
+        else:
+            print("  FAILED or not built — run: ./scripts/setup_benchmark_runners.sh")
+        print()
+        bench_idx += 1
+
+    # 3. llama.cpp CPU
+    print_header(f"{bench_idx}. llama.cpp CPU (-march=native)")
+    info = run_llamacpp_bench(args.model, args.max_tokens, vulkan=False)
     if info:
         print_result(info, has_split=True)
-        results["llama.cpp CLI (CPU)"] = info
+        results["llama.cpp CPU"] = info
     else:
         print("  FAILED or not built")
     print()
+    bench_idx += 1
 
-    # 3. llama-cpp-python (CPU)
-    print_header("3. llama-cpp-python binding (CPU)")
+    # 4. llama-cpp-python (CPU)
+    print_header(f"{bench_idx}. llama-cpp-python binding (CPU)")
     info = run_llamacpp_python(args.model, args.max_tokens)
     if info:
         print_result(info)
@@ -250,9 +320,10 @@ def main():
     else:
         print("  FAILED")
     print()
+    bench_idx += 1
 
-    # 4. HuggingFace transformers (PyTorch CPU)
-    print_header("4. HuggingFace transformers (PyTorch CPU)")
+    # 5. HuggingFace transformers (PyTorch CPU)
+    print_header(f"{bench_idx}. HuggingFace transformers (PyTorch CPU)")
     info = run_transformers(args.hf_model, args.max_tokens)
     if info:
         print_result(info)

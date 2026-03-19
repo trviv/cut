@@ -17,7 +17,7 @@ struct MatMulVariantInfo {
     const char* description;
 };
 
-inline constexpr int kMatMulVariantCount = 20;
+inline constexpr int kMatMulVariantCount = 22;
 inline constexpr int kMatMulDefaultVariant = 5;
 
 inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
@@ -41,6 +41,8 @@ inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
     {"MatMulDblBufT16R4x4", 16, 16, 64, 64, "DblBuf T16 R4x4 (16KB)"},
     {"MatMulLinearT16R4x4", 256, 1, 64, 64, "Linear T16 R4x4 (8KB)"},
     {"MatMulGemv", 256, 1, 1, 256, "GEMV (M=1 vector)"},
+    {"MatMulCoopMat", 32, 1, 16, 16, "CoopMat 16x16 (KHR)"},
+    {"MatMulCoopMatTiled", 128, 1, 32, 32, "CoopMat 2x2 Tiled (KHR)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
@@ -64,6 +66,8 @@ std::optional<std::vector<uint32_t>> compiledMatMulBRegT16R4x4(DataType input1, 
 std::optional<std::vector<uint32_t>> compiledMatMulDblBufT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulLinearT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulGemv(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulCoopMat(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulCoopMatTiled(DataType input1, DataType input2, DataType output);
 
 using CompiledMatMulFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType, DataType);
 
@@ -88,6 +92,8 @@ inline const CompiledMatMulFn kMatMulCompiledFns[kMatMulVariantCount] = {
     compiledMatMulDblBufT16R4x4,
     compiledMatMulLinearT16R4x4,
     compiledMatMulGemv,
+    compiledMatMulCoopMat,
+    compiledMatMulCoopMatTiled,
 };
 
 /// Returns compiled SPIR-V for a matmul variant by index.
