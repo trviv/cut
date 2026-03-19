@@ -821,20 +821,10 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   uint32_t params[2] = {upos, upos + 1};
   runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
 
-  // Update token ID for GPU embedding lookup
+  // GPU embedding lookup
   uint32_t tid = static_cast<uint32_t>(token_id);
   runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t));
-
-  if (decodeCBCached_) {
-    // Re-submit cached command buffer (no re-recording needed)
-    runtime_->resubmitAndWait(cachedDecodeCB_);
-    return logitsOutput_;
-  }
-
-  // First forward: run with pre-allocated buffers, then cache CB
-  // GPU embedding lookup → writes directly to hiddenBuffer_
   ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
-  ops_->flush();
 
   auto hidden = hiddenBuffer_;
 
@@ -868,10 +858,6 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   // LM head logits (graph template — includes rmsNorm internally)
   auto logit_result = executeGraph(logitsGraph_, {hidden});
   logitsOutput_ = logit_result[0];
-
-  // Cache the command buffer for reuse on subsequent tokens
-  cachedDecodeCB_ = runtime_->submitReusable();
-  decodeCBCached_ = static_cast<bool>(cachedDecodeCB_);
 
   return logitsOutput_;
 }
