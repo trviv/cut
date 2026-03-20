@@ -66,6 +66,11 @@ void GraphExecutor::executeNode(Graph &graph, uint32_t nodeIndex) {
     Tensor view = store_->createTensorView(parent, offset, shape, dtype);
     gn.op->rebindOutput(view);
     tensorMap_[nodeIndex] = view;
+    // The view shares the parent's VkBuffer but has a different ComputeHandle,
+    // so the barrier tracker won't see it as the same buffer. Insert a barrier
+    // to ensure prior writes to the parent are visible to subsequent reads
+    // from the view.
+    ops_->barrier();
     return;
   }
 
