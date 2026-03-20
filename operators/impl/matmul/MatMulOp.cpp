@@ -5,8 +5,9 @@
 namespace cut {
 
 // Cooperative matrix variant indices (appended after the standard variants)
-static constexpr int kCoopMatVariant = kMatMulVariantCount - 2;
-static constexpr int kCoopMatTiledVariant = kMatMulVariantCount - 1;
+static constexpr int kCoopMatVariant = kMatMulVariantCount - 3;
+static constexpr int kCoopMatTiledVariant = kMatMulVariantCount - 2;
+static constexpr int kCoopMatGemvVariant = kMatMulVariantCount - 1;
 
 // Helper: check if cooperative matrix variant should be auto-selected
 static bool shouldUseCoopMat(
@@ -19,6 +20,22 @@ static bool shouldUseCoopMat(
   if (M < 16 || N < 16 || K < 16)
     return false;
   // Check device capability (set by backend during init)
+  if (!DeviceCaps::cooperativeMatrix)
+    return false;
+  return true;
+}
+
+// Helper: check if cooperative matrix GEMV variant should be used for M=1.
+// Relaxes the M>=16 requirement — only N and K need to be aligned to 16.
+// A does not need to be Float16: resolveInputDtypes will insert a cast.
+// At M=1 the cast is cheap (single row), and tensor cores are much faster.
+static bool shouldUseCoopMatGemv(DataType dtypeB, uint32_t K, uint32_t N) {
+  if (dtypeB != DataType::Float16)
+    return false;
+  if (N % 16 != 0 || K % 16 != 0)
+    return false;
+  if (N < 16 || K < 16)
+    return false;
   if (!DeviceCaps::cooperativeMatrix)
     return false;
   return true;
@@ -88,6 +105,11 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   if (spec.has_value()) {
     spec_ = *spec;
   } else if (M_ == 1) {
+    // CoopMatGemv (tensor core GEMV) is available but NOT auto-selected:
+    // for M=1, GEMV is memory-bandwidth-bound and the scalar GEMV with
+    // subgroup reduction + vec4 loads is already optimal. Tensor cores add
+    // shared memory staging + barrier overhead without reducing bandwidth.
+    // CoopMatGemv is kept as a manual variant for future batched prefill (M>1).
     constexpr int kGemvVariant = 19; // MatMulGemv
     spec_ = kGemvVariant;
   } else if (shouldUseCoopMat(dtypeA_, dtypeB_, M_, K_, N_)) {
@@ -226,7 +248,8 @@ std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
     break;
   default:
     // CoopMat variants produce Float32 output from Float16 inputs
-    if (*spec_ == kCoopMatVariant || *spec_ == kCoopMatTiledVariant) {
+    if (*spec_ == kCoopMatVariant || *spec_ == kCoopMatTiledVariant ||
+        *spec_ == kCoopMatGemvVariant) {
       compiled = getCompiledMatMul(*spec_, dtypeA_, dtypeB_, DataType::Float32);
     } else {
       compiled = getCompiledMatMul(*spec_, dtypeA_, dtypeB_, dtypeA_);
@@ -325,6 +348,8 @@ std::string MatMulOpNode::displayName() const {
     name = "MatMulCoopMat";
   } else if (*spec_ == kCoopMatTiledVariant) {
     name = "MatMulCoopMatTiled";
+  } else if (*spec_ == kCoopMatGemvVariant) {
+    name = "MatMulCoopMatGemv";
   } else {
     switch (format_) {
     case QuantFormat::Q8:
@@ -368,7 +393,8 @@ std::vector<DataType> MatMulOpNode::resolveInputDtypes(
   DataType dtB = inputDtypes[1];
 
   // CoopMat variants require Float16 inputs → Float32 output
-  if (*spec_ == kCoopMatVariant || *spec_ == kCoopMatTiledVariant) {
+  if (*spec_ == kCoopMatVariant || *spec_ == kCoopMatTiledVariant ||
+      *spec_ == kCoopMatGemvVariant) {
     std::vector<DataType> result = {DataType::Float16, DataType::Float16};
     if (fusion_ == MatMulFusion::Binary && inputDtypes.size() > 2) {
       result.push_back(widenPrecision(inputDtypes[2]));

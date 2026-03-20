@@ -383,6 +383,32 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       layer.w_down = uploadWeightMaybeQuantized(reader, blk + "ffn_down.weight",
                                                 rows, cols);
     }
+
+    // Build fused gate+up weight for non-quantized F16 models.
+    // Row-concatenate gate, up in GGUF-native [N, K] layout, upload once,
+    // transpose once → [K, 2*ffn_dim]. Saves 1 matmul dispatch per layer.
+    if (!layer.w_gate.isQuantized()) {
+      const auto &gi = reader.get_tensor_info(blk + "ffn_gate.weight");
+      if (gi.type == GGMLType::F16) {
+        uint32_t K = static_cast<uint32_t>(gi.dimensions[0]);
+        uint32_t Ngate = static_cast<uint32_t>(gi.dimensions[1]);
+        const auto &ui = reader.get_tensor_info(blk + "ffn_up.weight");
+        uint32_t Nup = static_cast<uint32_t>(ui.dimensions[1]);
+        uint32_t Ntotal = Ngate + Nup;
+
+        auto rawGate = reader.read_tensor_raw(blk + "ffn_gate.weight");
+        auto rawUp = reader.read_tensor_raw(blk + "ffn_up.weight");
+        // Concatenate rows: [Ngate,K] + [Nup,K] → [Ntotal, K]
+        std::vector<uint8_t> combined(Ntotal * K * 2);
+        size_t off = 0;
+        memcpy(combined.data() + off, rawGate.data(), rawGate.size());
+        off += rawGate.size();
+        memcpy(combined.data() + off, rawUp.data(), rawUp.size());
+        auto gpu = runtime_->createTensor({Ntotal, K}, cut::DataType::Float16,
+                                          combined.data());
+        layer.w_gate_up.handle = ops_->transpose(gpu);
+      }
+    }
   }
   {
     auto layersEnd = std::chrono::high_resolution_clock::now();
@@ -705,15 +731,34 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
 
   int32_t ffn = static_cast<int32_t>(config_.ffn_dim);
 
-  auto gate = graphWeight(builder, layer.w_gate, x_2d);
-  // Identity reshape (optimizer: IdentityReshapePass eliminates)
-  auto gate_id = builder.ops().reshape(gate, {1, ffn});
-  auto up = graphWeight(builder, layer.w_up, x_2d);
-  // Identity reshape (optimizer: IdentityReshapePass eliminates)
-  auto up_id = builder.ops().reshape(up, {1, ffn});
+  cut::Tensor gate_up;
+  if (layer.w_gate_up.handle) {
+    // Fused gate+up: single matmul → [1, 2*ffn_dim], then slice into gate/up.
+    auto vGateUp = builder.input(layer.w_gate_up.handle, /*isConstant=*/true);
+    auto gate_up_out = builder.ops().matmul(x_2d, vGateUp);
+    auto gate_up_flat = builder.ops().reshape(gate_up_out, {2 * ffn});
 
-  auto gate_silu = builder.ops().unaryOp(cut::UnarySilu, gate_id);
-  auto gate_up = builder.ops().binaryOp(cut::BinaryMul, gate_silu, up_id);
+    // Zero-copy slice into gate [ffn_dim] and up [ffn_dim]
+    auto gate_slice =
+        builder.ops().slice(gate_up_flat, 0, 0, static_cast<uint32_t>(ffn));
+    auto up_slice =
+        builder.ops().slice(gate_up_flat, 0, static_cast<uint32_t>(ffn),
+                            static_cast<uint32_t>(2 * ffn));
+
+    auto gate_silu = builder.ops().unaryOp(cut::UnarySilu, gate_slice);
+    auto gate_up_1d =
+        builder.ops().binaryOp(cut::BinaryMul, gate_silu, up_slice);
+    gate_up = builder.ops().reshape(gate_up_1d, {1, ffn});
+  } else {
+    // Fallback: 2 separate matmuls (quantized models)
+    auto gate = graphWeight(builder, layer.w_gate, x_2d);
+    auto gate_id = builder.ops().reshape(gate, {1, ffn});
+    auto up = graphWeight(builder, layer.w_up, x_2d);
+    auto up_id = builder.ops().reshape(up, {1, ffn});
+
+    auto gate_silu = builder.ops().unaryOp(cut::UnarySilu, gate_id);
+    gate_up = builder.ops().binaryOp(cut::BinaryMul, gate_silu, up_id);
+  }
 
   auto out = graphWeight(builder, layer.w_down, gate_up);
   // Reshape hidden to [1, dim] so the add operates in the same shape as the
@@ -857,9 +902,9 @@ std::vector<cut::Tensor> LlamaModel::executeGraph(
 }
 
 void LlamaModel::splitQKV(const std::vector<cut::Tensor> &qkv,
-                           cut::ComputeHandle &q,
-                           cut::ComputeHandle &k,
-                           cut::ComputeHandle &v) {
+                          cut::ComputeHandle &q,
+                          cut::ComputeHandle &k,
+                          cut::ComputeHandle &v) {
   if (qkv.size() == 1) {
     // Fused QKV: split the combined [qdim + 2*kvdim] buffer into Q, K, V
     // views. Explicit barrier needed because the barrier tracker doesn't see
@@ -870,9 +915,9 @@ void LlamaModel::splitQKV(const std::vector<cut::Tensor> &qkv,
                                            cut::DataType::Float32);
     k = runtime_->store().createTensorView(qkv[0], qdim * sizeof(float),
                                            {kvdim}, cut::DataType::Float32);
-    v = runtime_->store().createTensorView(
-        qkv[0], (qdim + kvdim) * sizeof(float), {kvdim},
-        cut::DataType::Float32);
+    v = runtime_->store().createTensorView(qkv[0],
+                                           (qdim + kvdim) * sizeof(float),
+                                           {kvdim}, cut::DataType::Float32);
     ops_->barrier();
   } else {
     q = qkv[0];
@@ -882,7 +927,7 @@ void LlamaModel::splitQKV(const std::vector<cut::Tensor> &qkv,
 }
 
 cut::ComputeHandle LlamaModel::runLayer(uint32_t layerIdx,
-                                         const cut::ComputeHandle &hidden) {
+                                        const cut::ComputeHandle &hidden) {
   auto &lg = layerGraphs_[layerIdx];
 
   auto qkv = executeGraph(lg.qkvProjection, {hidden});

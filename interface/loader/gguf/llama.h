@@ -79,6 +79,10 @@ struct LlamaLayer {
   WeightHandle w_gate;
   WeightHandle w_up;
   WeightHandle w_down;
+
+  // Fused gate+up weight [dim, 2*ffn_dim] — set for non-quantized F16 models.
+  // Enables single matmul + slice instead of 2 separate matmuls.
+  WeightHandle w_gate_up;
 };
 
 /// Per-layer KV cache stored on GPU.

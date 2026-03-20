@@ -1,0 +1,90 @@
+#version 450
+#extension GL_KHR_cooperative_matrix : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+
+// Cooperative matrix GEMV: C[1,N] = A[1,K] * B[K,N]
+// Uses 16x16x16 fp16 cooperative matrix multiply-add with fp32 accumulation.
+// A (single row) is loaded into shared memory and zero-padded to 16 rows,
+// so the tensor core processes a 16×16 tile atomically. Only row 0 of the
+// result is written to global output.
+//
+// Each workgroup = 1 subgroup (32 threads) processing 16 output columns.
+// Requires N, K multiples of 16.
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;       // always 1 for GEMV
+    uint K;       // cols of A / rows of B
+    uint N;       // cols of B
+    uint strideA; // padded K (multiple of 4)
+    uint strideB; // padded N for B (multiple of 4)
+    uint strideC; // padded N for output C (multiple of 4)
+};
+
+// A: fp16 input [1, K] — row-major with stride strideA
+layout(set = 0, binding = 0) readonly buffer BufferA { float16_t dataA[]; };
+
+// B: fp16 input [K, N] — row-major with stride strideB
+layout(set = 0, binding = 1) readonly buffer BufferB { float16_t dataB[]; };
+
+// D: fusion input [M, N] — dummy buffer when no fusion active
+layout(set = 0, binding = 2) readonly buffer BufferD { float dataD[]; };
+
+// C: fp32 output [1, N] — row-major with stride strideC
+layout(set = 0, binding = 3) buffer BufferC { float dataC[]; };
+
+// Shared memory: A tile (16×16 fp16) + C tile (16×16 fp32)
+shared float16_t tileA[16 * 16];   // 512 bytes
+shared float tileC[16 * 16];       // 4096 bytes
+
+void main() {
+    uint tileCol = gl_WorkGroupID.x * 16;
+    if (tileCol >= N) return;
+
+    uint tid = gl_LocalInvocationID.x;  // 0..31
+
+    // Initialize fp32 accumulator to zero
+    coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> acc =
+        coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0.0);
+
+    // K-loop: multiply-accumulate in 16-wide steps
+    for (uint k = 0; k < K; k += 16) {
+        // Zero the 16×16 A tile in shared memory
+        // 32 threads × 8 iterations = 256 elements
+        for (uint i = tid; i < 256; i += 32) {
+            tileA[i] = float16_t(0.0);
+        }
+
+        // Load row 0 of A[0, k:k+16] into shared memory row 0
+        if (tid < 16) {
+            tileA[tid] = dataA[k + tid];
+        }
+
+        barrier();
+
+        // Load padded A tile from shared memory
+        coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA> matA;
+        coopMatLoad(matA, tileA, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+
+        // Load B tile from global memory
+        coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> matB;
+        coopMatLoad(matB, dataB, k * strideB + tileCol, strideB,
+                    gl_CooperativeMatrixLayoutRowMajor);
+
+        // C += A * B (fp16 × fp16 → fp32 accumulate)
+        acc = coopMatMulAdd(matA, matB, acc);
+
+        barrier();
+    }
+
+    // Store 16×16 accumulator to shared memory
+    coopMatStore(acc, tileC, 0, 16, gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+
+    // Write only row 0 of the result to global output
+    if (tid < 16 && (tileCol + tid) < N) {
+        dataC[tileCol + tid] = tileC[tid];
+    }
+}

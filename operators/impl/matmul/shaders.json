@@ -329,6 +329,20 @@
               {"input1": "Float16", "input2": "Float16", "output": "Float32"}
             ]
           }
+        },
+        {
+          "name": "CoopMatGemv",
+          "template": "MatMulCoopMatGemv",
+          "compiler": "glsl",
+          "defines": {},
+          "wg": [32, 1],
+          "eff_tile": [1, 16],
+          "description": "CoopMat GEMV (M=1, tensor core padded A)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float16", "input2": "Float16", "output": "Float32"}
+            ]
+          }
         }
       ]
     },
