@@ -1,7 +1,9 @@
 #include "MemoryPlanner.h"
 #include "TensorStore.h"
+#include "impl/memory/MemoryOp.h"
 
 #include <algorithm>
+#include <unordered_set>
 #include <vector>
 
 namespace cut {
@@ -34,6 +36,21 @@ size_t MemoryPlanner::plan(Graph &graph) {
     }
   }
 
+  // Identify nodes consumed by slice operations. These nodes' buffers must
+  // not be arena-aliased because slice creates zero-copy views that reference
+  // the parent buffer after graph execution completes.
+  std::unordered_set<uint32_t> sliceParents;
+  for (uint32_t idx : order) {
+    auto &gn = graph.nodes()[idx];
+    if (!gn.op || gn.isRemoved)
+      continue;
+    if (dynamic_cast<SliceOpNode *>(gn.op.get())) {
+      for (uint32_t inputId : gn.inputIds) {
+        sliceParents.insert(inputId);
+      }
+    }
+  }
+
   // Step 3: Identify transient nodes and build liveness intervals
   struct LiveInterval {
     uint32_t nodeId;
@@ -49,6 +66,9 @@ size_t MemoryPlanner::plan(Graph &graph) {
     if (!gn.op || gn.isRemoved)
       continue;
     if (gn.isInput || gn.isOutput)
+      continue;
+    // Skip nodes whose buffers are referenced by slice views
+    if (sliceParents.count(idx))
       continue;
 
     size_t sizeBytes = store_->getTensor(gn.op->output()).size();

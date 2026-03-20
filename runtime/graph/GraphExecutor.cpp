@@ -2,6 +2,8 @@
 #include "MemoryPlanner.h"
 #include "OpNode.h"
 #include "Operations.h"
+#include "TensorStore.h"
+#include "impl/memory/MemoryOp.h"
 
 #include <stdexcept>
 
@@ -51,6 +53,20 @@ void GraphExecutor::executeNode(Graph &graph, uint32_t nodeIndex) {
   std::vector<Tensor> realInputs;
   for (uint32_t id : gn.inputIds) {
     realInputs.push_back(tensorMap_[id]);
+  }
+
+  // --- Zero-copy slice: create a view into parent, no GPU dispatch ---
+  auto *sliceOp = dynamic_cast<SliceOpNode *>(gn.op.get());
+  if (sliceOp) {
+    // Parent is the single input — create a buffer view at the slice offset.
+    Tensor parent = realInputs[0];
+    auto shape = sliceOp->outputShape();
+    auto dtype = sliceOp->outputDtype();
+    size_t offset = sliceOp->byteOffset();
+    Tensor view = store_->createTensorView(parent, offset, shape, dtype);
+    gn.op->rebindOutput(view);
+    tensorMap_[nodeIndex] = view;
+    return;
   }
 
   // --- Standard OpNode dispatch ---

@@ -44,18 +44,16 @@ public:
   /// Non-owning overload for graph execution (graph retains node ownership).
   bool encode(OpNode &node);
 
+  /// Encodes a compute-to-compute barrier.
+  /// Ensures prior shader writes are visible to subsequent shader reads.
+  void encodeBarrier();
+
 private:
   TensorStore *store_;
   ComputeInterface *iface_;
 
   /// Shader cache keyed by OpNode::shaderKey().
   std::unordered_map<size_t, Tensor> shaderCache_;
-
-  /**
-   * Encodes a compute-to-compute barrier.
-   * Ensures prior shader writes are visible to subsequent shader reads.
-   */
-  void encodeBarrier();
 
   /**
    * Gets or creates a cached shader module for an OpNode.

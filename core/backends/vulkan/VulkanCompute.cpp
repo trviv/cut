@@ -373,6 +373,74 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
   return handle;
 }
 
+ComputeHandle VulkanCompute::createBufferMapped(
+    const std::vector<uint32_t> &shape, DataType dtype, const void *srcPtr) {
+  if (shape.empty()) {
+    logErr("Cannot create buffer with empty shape");
+  }
+
+  const size_t alignedSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
+
+  VkBufferCreateInfo bufferInfo = {};
+  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bufferInfo.size = alignedSize;
+  bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  VulkanBufferStruct bufferStruct;
+  bufferStruct.setDtype(dtype);
+  bufferStruct.setShape(shape);
+
+#if CUT_USE_VMA
+  VmaAllocationCreateInfo allocInfo = {};
+  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                    VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+  VmaAllocationInfo resultInfo = {};
+  VK_CHECK(vmaCreateBuffer(allocator_, &bufferInfo, &allocInfo,
+                           &bufferStruct.buffer, &bufferStruct.allocation,
+                           &resultInfo));
+  bufferStruct.data = resultInfo.pMappedData;
+  bufferStruct.isCoherent = true; // VMA mapped allocations are coherent
+#else
+  VK_CHECK(vkCreateBuffer(device_, &bufferInfo, nullptr, &bufferStruct.buffer));
+
+  VkMemoryRequirements memReq;
+  vkGetBufferMemoryRequirements(device_, bufferStruct.buffer, &memReq);
+
+  VkMemoryPropertyFlags memFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+  VkMemoryAllocateInfo allocInfo = {};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memReq.size;
+  allocInfo.memoryTypeIndex =
+      findMemoryType(memReq.memoryTypeBits, memoryProperties_, memFlags);
+
+  if (vkAllocateMemory(device_, &allocInfo, nullptr, &bufferStruct.memory) !=
+      VK_SUCCESS) {
+    vkDestroyBuffer(device_, bufferStruct.buffer, nullptr);
+    logErr("Failed to allocate host-visible buffer memory");
+  }
+
+  VK_CHECK(
+      vkBindBufferMemory(device_, bufferStruct.buffer, bufferStruct.memory, 0));
+  VK_CHECK(vkMapMemory(device_, bufferStruct.memory, 0, alignedSize, 0,
+                       &bufferStruct.data));
+  bufferStruct.isCoherent = true;
+#endif
+
+  auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
+
+  if (srcPtr != nullptr) {
+    const size_t actualSize = ComputeBuffer::calculateActualSize(shape, dtype);
+    copyDataToBuffer(srcPtr, handle, actualSize, 0, 0, false);
+  }
+
+  return handle;
+}
+
 ComputeHandle
 VulkanCompute::createBufferView(const ComputeHandle &parent,
                                 size_t byteOffset,
@@ -380,33 +448,39 @@ VulkanCompute::createBufferView(const ComputeHandle &parent,
                                 DataType dtype) {
   const auto &parentBuffer = containers_->bufferContainer.getBuffer(parent);
 
-  // Validate offset alignment against Vulkan device limits
+  // Accumulate offset for nested views (view-of-a-view).
+  // The parent might itself be a view with a non-zero base offset.
+  const size_t totalOffset = parentBuffer.offset + byteOffset;
+
+  // Validate final offset alignment against Vulkan device limits
   const VkDeviceSize minAlignment =
       std::max(static_cast<VkDeviceSize>(kAlignment),
                deviceProperties_.limits.minStorageBufferOffsetAlignment);
-  if (byteOffset % minAlignment != 0) {
-    logErr("Buffer view offset %zu is not aligned to "
+  if (totalOffset % minAlignment != 0) {
+    logErr("Buffer view total offset %zu is not aligned to "
            "minStorageBufferOffsetAlignment (%llu)",
-           byteOffset, static_cast<unsigned long long>(minAlignment));
+           totalOffset, static_cast<unsigned long long>(minAlignment));
   }
 
   const size_t viewSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
-  if (byteOffset + viewSize > parentBuffer.size()) {
+  if (totalOffset + viewSize > parentBuffer.offset + parentBuffer.size()) {
     logErr("Buffer view (offset=%zu + size=%zu) exceeds parent buffer "
-           "size (%zu)",
-           byteOffset, viewSize, parentBuffer.size());
+           "size (%zu from base offset %zu)",
+           byteOffset, viewSize, parentBuffer.size(), parentBuffer.offset);
   }
 
   VulkanBufferStruct viewStruct;
   viewStruct.setDtype(dtype);
   viewStruct.setShape(shape);
   viewStruct.buffer = parentBuffer.buffer;
-  viewStruct.offset = byteOffset;
+  viewStruct.offset = totalOffset;
   viewStruct.isCoherent = parentBuffer.isCoherent;
   viewStruct.isView_ = true;
   viewStruct.parentHandle_ = parent;
 
   if (parentBuffer.data != nullptr) {
+    // parentBuffer.data already includes the parent's own offset,
+    // so only add the child's relative byteOffset.
     viewStruct.data = static_cast<uint8_t *>(parentBuffer.data) + byteOffset;
   }
 

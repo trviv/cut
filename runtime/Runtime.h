@@ -105,6 +105,15 @@ public:
                            bool isUniform = false);
 
   /**
+   * Creates a host-visible coherent tensor. Updates via copyToTensor go
+   * directly to mapped memory — no staging command buffer, no fence wait.
+   * Use for small, frequently-updated per-token buffers.
+   */
+  Tensor createTensorMapped(const std::vector<uint32_t> &shape,
+                            DataType dtype,
+                            const void *srcPtr = nullptr);
+
+  /**
    * Copies data from host memory to a tensor.
    * @param handle Tensor handle.
    * @param srcPtr Source data pointer.
@@ -208,6 +217,9 @@ public:
   /// Eagerly submit pending dispatches without waiting.
   /// The GPU starts working immediately; call flushPendingCommands() to wait.
   void eagerSubmit();
+
+  /// Encode an explicit compute-to-compute pipeline barrier.
+  void encodeBarrier();
 
 private:
   BackendType backendType_ = BackendType::Vulkan;

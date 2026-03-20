@@ -21,6 +21,15 @@
           {"input": "Int8", "output": "Int8"}
         ]
       }
+    },
+    {
+      "name": "FusedAttention",
+      "description": "Fused RoPE + CacheWrite + Attention (saves 4 dispatches/layer)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
     }
   ]
 }

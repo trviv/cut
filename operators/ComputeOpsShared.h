@@ -315,6 +315,7 @@
 
 #define OP_CACHE_WRITE 360
 #define OP_ATTENTION 361
+#define OP_FUSED_ATTENTION 362
 
 // =============================================================================
 // Quantized matmul operations (371)

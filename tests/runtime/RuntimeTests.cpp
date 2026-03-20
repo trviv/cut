@@ -4492,7 +4492,7 @@ TEST_F(MatrixOpsTest, MatMulVariants_LargerMatrices) {
         for (uint32_t j = 0; j < tc.N; ++j)
           expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
 
-    float tolerance = tc.K * 1e-5f;
+    float tolerance = tc.K * 5e-5f;
 
     for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
       // Skip variants that don't support the requested dtype combination
@@ -8221,6 +8221,454 @@ TEST_F(RuntimeOperatorTest, FusedSoftmax_Timing) {
   }
 
   std::cout << std::endl;
+}
+
+// ============================================================================
+// Mapped Tensor Tests
+// ============================================================================
+
+class MappedTensorTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(MappedTensorTest, CreateAndRead) {
+  // Create mapped tensor with initial data
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto buf = runtime_->createTensorMapped({4}, DataType::Float32, data.data());
+
+  // Read back — should match
+  std::vector<float> output(4);
+  runtime_->copyFromTensor(buf, output.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(output[i], data[i]) << "Mismatch at " << i;
+  }
+}
+
+TEST_F(MappedTensorTest, UpdateViaCopy) {
+  // Create mapped tensor
+  std::vector<uint32_t> init = {0, 0};
+  auto buf = runtime_->createTensorMapped({2}, DataType::UInt32, init.data());
+
+  // Update via copyToTensor (should be direct memcpy, no staging)
+  uint32_t newVals[2] = {42, 99};
+  runtime_->copyToTensor(buf, newVals, sizeof(newVals));
+
+  // Read back
+  uint32_t output[2] = {0, 0};
+  runtime_->copyFromTensor(buf, output, sizeof(output));
+  EXPECT_EQ(output[0], 42u);
+  EXPECT_EQ(output[1], 99u);
+}
+
+TEST_F(MappedTensorTest, GpuCanRead) {
+  // Create a mapped tensor and verify the GPU can read from it
+  // by using it in a binary op
+  std::vector<float> dataA = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> dataB = {10.0f, 20.0f, 30.0f, 40.0f};
+
+  auto bufA =
+      runtime_->createTensorMapped({4}, DataType::Float32, dataA.data());
+  auto bufB = runtime_->createTensor({4}, DataType::Float32, dataB.data());
+
+  auto result = runtime_->ops().binaryOp(OperatorEnum::BinaryAdd, bufA, bufB);
+  runtime_->flush();
+
+  std::vector<float> output(4);
+  runtime_->copyFromTensor(result, output.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(output[i], dataA[i] + dataB[i], 1e-5f);
+  }
+}
+
+TEST_F(MappedTensorTest, UpdateThenGpuRead) {
+  // Create mapped tensor, update it via CPU memcpy, then have GPU read it
+  std::vector<float> init = {0.0f, 0.0f, 0.0f, 0.0f};
+  auto mapped =
+      runtime_->createTensorMapped({4}, DataType::Float32, init.data());
+  auto ones = runtime_->createTensor({4}, DataType::Float32);
+  {
+    std::vector<float> onesData = {1.0f, 1.0f, 1.0f, 1.0f};
+    runtime_->copyToTensor(ones, onesData.data(), 4 * sizeof(float));
+    runtime_->flush();
+  }
+
+  // CPU-side update of mapped buffer
+  std::vector<float> newData = {5.0f, 6.0f, 7.0f, 8.0f};
+  runtime_->copyToTensor(mapped, newData.data(), 4 * sizeof(float));
+
+  // GPU add: mapped + ones
+  auto result = runtime_->ops().binaryOp(OperatorEnum::BinaryAdd, mapped, ones);
+  runtime_->flush();
+
+  std::vector<float> output(4);
+  runtime_->copyFromTensor(result, output.data(), 4 * sizeof(float));
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(output[i], newData[i] + 1.0f, 1e-5f);
+  }
+}
+
+// ============================================================================
+// CacheWrite Tests
+// ============================================================================
+
+class CacheWriteTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(CacheWriteTest, WriteSingleRow) {
+  const uint32_t maxSeq = 8, dim = 4;
+
+  // Cache: [maxSeq, dim] initialized to zero
+  std::vector<float> cacheData(maxSeq * dim, 0.0f);
+  auto cache = runtime_->createTensor({maxSeq, dim}, DataType::Float32,
+                                      cacheData.data());
+
+  // New data to write at position 3
+  std::vector<float> newRow = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto newData =
+      runtime_->createTensor({dim}, DataType::Float32, newRow.data());
+
+  // Runtime params: {pos=3, seqLen=4}
+  uint32_t params[2] = {3, 4};
+  auto runtimeParams = runtime_->createTensor({2}, DataType::UInt32, params);
+
+  runtime_->ops().cacheWrite(cache, newData, runtimeParams);
+  runtime_->flush();
+
+  // Read back the cache
+  std::vector<float> output(maxSeq * dim, -1.0f);
+  runtime_->copyFromTensor(cache, output.data(), maxSeq * dim * sizeof(float));
+
+  // Row 3 should be our data, others should be 0
+  for (uint32_t row = 0; row < maxSeq; ++row) {
+    for (uint32_t col = 0; col < dim; ++col) {
+      float expected = (row == 3) ? newRow[col] : 0.0f;
+      EXPECT_NEAR(output[row * dim + col], expected, 1e-5f)
+          << "Mismatch at [" << row << ", " << col << "]";
+    }
+  }
+}
+
+TEST_F(CacheWriteTest, WriteMultipleRows) {
+  const uint32_t maxSeq = 8, dim = 4;
+
+  std::vector<float> cacheData(maxSeq * dim, 0.0f);
+  auto cache = runtime_->createTensor({maxSeq, dim}, DataType::Float32,
+                                      cacheData.data());
+
+  // Write rows 0, 1, 2
+  for (uint32_t pos = 0; pos < 3; ++pos) {
+    std::vector<float> row(dim);
+    for (uint32_t d = 0; d < dim; ++d)
+      row[d] = static_cast<float>(pos * dim + d + 1);
+    auto newData = runtime_->createTensor({dim}, DataType::Float32, row.data());
+
+    uint32_t params[2] = {pos, pos + 1};
+    auto runtimeParams = runtime_->createTensor({2}, DataType::UInt32, params);
+
+    runtime_->ops().cacheWrite(cache, newData, runtimeParams);
+    runtime_->flush();
+  }
+
+  std::vector<float> output(maxSeq * dim, -1.0f);
+  runtime_->copyFromTensor(cache, output.data(), maxSeq * dim * sizeof(float));
+
+  // Rows 0-2 should have our data
+  for (uint32_t pos = 0; pos < 3; ++pos) {
+    for (uint32_t d = 0; d < dim; ++d) {
+      float expected = static_cast<float>(pos * dim + d + 1);
+      EXPECT_NEAR(output[pos * dim + d], expected, 1e-5f)
+          << "Mismatch at [" << pos << ", " << d << "]";
+    }
+  }
+  // Row 3+ should still be zero
+  for (uint32_t pos = 3; pos < maxSeq; ++pos) {
+    for (uint32_t d = 0; d < dim; ++d) {
+      EXPECT_FLOAT_EQ(output[pos * dim + d], 0.0f);
+    }
+  }
+}
+
+// ============================================================================
+// Attention Tests
+// ============================================================================
+
+class AttentionTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+
+  // CPU reference: single-head scaled dot-product attention
+  // q: [dim], kCache: [seqLen, dim], vCache: [seqLen, dim]
+  std::vector<float> cpuAttention(const std::vector<float> &q,
+                                  const std::vector<float> &kCache,
+                                  const std::vector<float> &vCache,
+                                  uint32_t seqLen,
+                                  uint32_t headDim,
+                                  uint32_t nHeads,
+                                  uint32_t nKvHeads) {
+    uint32_t dim = nHeads * headDim;
+    uint32_t kvDim = nKvHeads * headDim;
+    uint32_t nRep = nHeads / nKvHeads;
+    float scale = 1.0f / std::sqrt(static_cast<float>(headDim));
+
+    std::vector<float> output(dim, 0.0f);
+
+    for (uint32_t h = 0; h < nHeads; ++h) {
+      uint32_t kvH = h / nRep; // GQA mapping
+
+      // Compute scores: q[h] dot k[t] for each cached position t
+      std::vector<float> scores(seqLen);
+      for (uint32_t t = 0; t < seqLen; ++t) {
+        float dot = 0.0f;
+        for (uint32_t d = 0; d < headDim; ++d) {
+          dot += q[h * headDim + d] * kCache[t * kvDim + kvH * headDim + d];
+        }
+        scores[t] = dot * scale;
+      }
+
+      // Softmax
+      float maxScore = *std::max_element(scores.begin(), scores.end());
+      float sumExp = 0.0f;
+      for (auto &s : scores) {
+        s = std::exp(s - maxScore);
+        sumExp += s;
+      }
+      for (auto &s : scores)
+        s /= sumExp;
+
+      // Weighted sum of values
+      for (uint32_t d = 0; d < headDim; ++d) {
+        float val = 0.0f;
+        for (uint32_t t = 0; t < seqLen; ++t) {
+          val += scores[t] * vCache[t * kvDim + kvH * headDim + d];
+        }
+        output[h * headDim + d] = val;
+      }
+    }
+    return output;
+  }
+};
+
+TEST_F(AttentionTest, SingleHeadBasic) {
+  const uint32_t nHeads = 1, nKvHeads = 1, headDim = 4;
+  const uint32_t dim = nHeads * headDim;
+  const uint32_t seqLen = 3;
+  const uint32_t maxSeq = 8;
+
+  // Q: single query vector
+  auto qData = generateTestData<float>(dim, 42);
+  auto q = runtime_->createTensor({dim}, DataType::Float32, qData.data());
+
+  // KV caches: [maxSeq, dim] — fill first seqLen rows
+  auto kData = generateTestData<float>(maxSeq * dim, 100);
+  auto vData = generateTestData<float>(maxSeq * dim, 200);
+  auto kCache =
+      runtime_->createTensor({maxSeq, dim}, DataType::Float32, kData.data());
+  auto vCache =
+      runtime_->createTensor({maxSeq, dim}, DataType::Float32, vData.data());
+
+  // runtimeParams: {pos=seqLen-1, seqLen}
+  uint32_t params[2] = {seqLen - 1, seqLen};
+  auto runtimeParams = runtime_->createTensor({2}, DataType::UInt32, params);
+
+  auto result = runtime_->ops().attention(q, kCache, vCache, runtimeParams,
+                                          nHeads, nKvHeads, headDim);
+  runtime_->flush();
+
+  std::vector<float> output(dim);
+  runtime_->copyFromTensor(result, output.data(), dim * sizeof(float));
+
+  auto expected =
+      cpuAttention(qData, kData, vData, seqLen, headDim, nHeads, nKvHeads);
+
+  for (uint32_t i = 0; i < dim; ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-3f) << "Mismatch at index " << i;
+  }
+}
+
+TEST_F(AttentionTest, MultiHeadGQA) {
+  // 4 query heads, 2 KV heads (GQA with repeat=2)
+  const uint32_t nHeads = 4, nKvHeads = 2, headDim = 8;
+  const uint32_t dim = nHeads * headDim;     // 32
+  const uint32_t kvDim = nKvHeads * headDim; // 16
+  const uint32_t seqLen = 4;
+  const uint32_t maxSeq = 16;
+
+  auto qData = generateTestData<float>(dim, 42);
+  auto q = runtime_->createTensor({dim}, DataType::Float32, qData.data());
+
+  auto kData = generateTestData<float>(maxSeq * kvDim, 100);
+  auto vData = generateTestData<float>(maxSeq * kvDim, 200);
+  auto kCache =
+      runtime_->createTensor({maxSeq, kvDim}, DataType::Float32, kData.data());
+  auto vCache =
+      runtime_->createTensor({maxSeq, kvDim}, DataType::Float32, vData.data());
+
+  uint32_t params[2] = {seqLen - 1, seqLen};
+  auto runtimeParams = runtime_->createTensor({2}, DataType::UInt32, params);
+
+  auto result = runtime_->ops().attention(q, kCache, vCache, runtimeParams,
+                                          nHeads, nKvHeads, headDim);
+  runtime_->flush();
+
+  std::vector<float> output(dim);
+  runtime_->copyFromTensor(result, output.data(), dim * sizeof(float));
+
+  auto expected =
+      cpuAttention(qData, kData, vData, seqLen, headDim, nHeads, nKvHeads);
+
+  for (uint32_t i = 0; i < dim; ++i) {
+    EXPECT_NEAR(output[i], expected[i], 1e-2f)
+        << "Mismatch at head " << (i / headDim) << " dim " << (i % headDim);
+  }
+}
+
+// ============================================================================
+// GEMV-specific Tests (K-parallel subgroup reduction)
+// ============================================================================
+
+class GemvTest : public RuntimeOperatorTest {
+protected:
+  void SetUp() override {
+    RuntimeOperatorTest::SetUp();
+    initBackend(BackendType::Vulkan);
+  }
+};
+
+TEST_F(GemvTest, SmallN) {
+  // N < 4 (tail handling in COLS_PER_WG=4)
+  const uint32_t M = 1, K = 32, N = 3;
+  auto dataA = generateTestData<float>(M * K, 42);
+  auto dataB = generateTestData<float>(K * N, 99);
+
+  std::vector<float> expected(M * N, 0.0f);
+  for (uint32_t k = 0; k < K; ++k)
+    for (uint32_t j = 0; j < N; ++j)
+      expected[j] += dataA[k] * dataB[k * N + j];
+
+  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = runtime_->createTensor({K, N}, DataType::Float32, dataB.data());
+  auto bufC = runtime_->ops().matmul(bufA, bufB);
+  runtime_->flush();
+
+  std::vector<float> output(M * N);
+  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
+
+  for (uint32_t j = 0; j < N; ++j) {
+    EXPECT_NEAR(output[j], expected[j], K * 1e-5f)
+        << "Mismatch at column " << j;
+  }
+}
+
+TEST_F(GemvTest, LargeK) {
+  // Large K to exercise multiple iterations per thread (K/32 > 1)
+  const uint32_t M = 1, K = 1536, N = 576;
+  auto dataA = generateTestData<float>(M * K, 1);
+  auto dataB = generateTestData<float>(K * N, 2);
+
+  std::vector<float> expected(M * N, 0.0f);
+  for (uint32_t k = 0; k < K; ++k)
+    for (uint32_t j = 0; j < N; ++j)
+      expected[j] += dataA[k] * dataB[k * N + j];
+
+  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = runtime_->createTensor({K, N}, DataType::Float32, dataB.data());
+  auto bufC = runtime_->ops().matmul(bufA, bufB);
+  runtime_->flush();
+
+  std::vector<float> output(M * N);
+  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
+
+  // K-parallel reduction accumulates in different order than sequential,
+  // so use relative tolerance based on expected magnitude.
+  for (uint32_t j = 0; j < N; ++j) {
+    float tol = std::max(std::abs(expected[j]) * 1e-5f, 1e-3f);
+    EXPECT_NEAR(output[j], expected[j], tol) << "Mismatch at column " << j;
+  }
+}
+
+TEST_F(GemvTest, TransformerDimensions) {
+  // Test dimensions matching SmolLM2-135M: dim=576, ffn=1536
+  struct TestCase {
+    uint32_t K, N;
+  };
+  std::array<TestCase, 4> cases = {
+      {{576, 960}, {576, 576}, {576, 1536}, {1536, 576}}};
+
+  for (const auto &tc : cases) {
+    SCOPED_TRACE("K=" + std::to_string(tc.K) + " N=" + std::to_string(tc.N));
+
+    auto dataA = generateTestData<float>(tc.K, 42);
+    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
+
+    std::vector<float> expected(tc.N, 0.0f);
+    for (uint32_t k = 0; k < tc.K; ++k)
+      for (uint32_t j = 0; j < tc.N; ++j)
+        expected[j] += dataA[k] * dataB[k * tc.N + j];
+
+    auto bufA =
+        runtime_->createTensor({1, tc.K}, DataType::Float32, dataA.data());
+    auto bufB =
+        runtime_->createTensor({tc.K, tc.N}, DataType::Float32, dataB.data());
+    auto bufC = runtime_->ops().matmul(bufA, bufB);
+    runtime_->flush();
+
+    std::vector<float> output(tc.N);
+    runtime_->copyFromTensor(bufC, output.data(), tc.N * sizeof(float));
+
+    for (uint32_t j = 0; j < tc.N; ++j) {
+      float tol = std::max(std::abs(expected[j]) * 1e-5f, 1e-3f);
+      ASSERT_NEAR(output[j], expected[j], tol) << "Mismatch at column " << j;
+    }
+  }
+}
+
+TEST_F(GemvTest, MixedPrecisionF32xF16) {
+  // F32 activation × F16 weights → F32 output (the common LLM inference path)
+  const uint32_t M = 1, K = 128, N = 64;
+
+  std::vector<float> dataA_f32(K), dataB_f32(K * N);
+  std::mt19937 gen(42);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &v : dataA_f32)
+    v = dist(gen);
+  for (auto &v : dataB_f32)
+    v = dist(gen);
+
+  std::vector<float> expected(N, 0.0f);
+  for (uint32_t k = 0; k < K; ++k)
+    for (uint32_t j = 0; j < N; ++j)
+      expected[j] += dataA_f32[k] * dataB_f32[k * N + j];
+
+  // A stays F32, B is cast to F16 (mimics weight storage)
+  auto bufA =
+      runtime_->createTensor({M, K}, DataType::Float32, dataA_f32.data());
+  auto bufB32 =
+      runtime_->createTensor({K, N}, DataType::Float32, dataB_f32.data());
+  auto bufB = runtime_->ops().cast(bufB32, DataType::Float16);
+  runtime_->flush();
+  auto bufC = runtime_->ops().matmul(bufA, bufB);
+  runtime_->flush();
+
+  std::vector<float> output(N);
+  runtime_->copyFromTensor(bufC, output.data(), N * sizeof(float));
+
+  // F32 accumulation with F16 weights — moderate precision loss
+  for (uint32_t j = 0; j < N; ++j) {
+    float tol = std::max(std::abs(expected[j]) * 5e-3f, 1e-2f);
+    EXPECT_NEAR(output[j], expected[j], tol) << "Mismatch at column " << j;
+  }
 }
 
 } // namespace

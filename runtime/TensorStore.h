@@ -32,6 +32,12 @@ public:
                            DataType dtype,
                            bool isUniform = false);
 
+  /// Creates a host-visible coherent tensor (no staging needed for updates).
+  /// Writes via copyToTensor go directly to mapped memory — zero fence waits.
+  Tensor createTensorMapped(const std::vector<uint32_t> &shape,
+                            DataType dtype,
+                            const void *srcPtr = nullptr);
+
   /// Creates a tensor view referencing a sub-region of an existing tensor.
   /// The view shares the parent's GPU buffer at the given byte offset.
   Tensor createTensorView(const Tensor &parent,

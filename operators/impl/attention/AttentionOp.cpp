@@ -111,4 +111,69 @@ std::vector<uint8_t> AttentionOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+// --- FusedAttentionOpNode ---
+
+FusedAttentionOpNode::FusedAttentionOpNode(TensorStore &store,
+                                           const Tensor &q,
+                                           const Tensor &k,
+                                           const Tensor &v,
+                                           const Tensor &kCache,
+                                           const Tensor &vCache,
+                                           const Tensor &runtimeParams,
+                                           const Tensor &cosTable,
+                                           const Tensor &sinTable,
+                                           uint32_t nHeads,
+                                           uint32_t nKvHeads,
+                                           uint32_t headDim,
+                                           const Tensor &preallocOutput,
+                                           std::optional<uint32_t> spec)
+    : OpNode(FusedAttention, store, spec) {
+  dtype_ = store.getTensor(q).getDtype();
+  nHeads_ = nHeads;
+  nKvHeads_ = nKvHeads;
+  headDim_ = headDim;
+  kvDim_ = nKvHeads * headDim;
+  alignedKvDim_ = (kvDim_ + 3) & ~static_cast<uint32_t>(3);
+  nRep_ = nHeads / nKvHeads;
+  scale_ = 1.0f / std::sqrt(static_cast<float>(headDim));
+
+  outShape_ = {nHeads * headDim};
+
+  // Order: q, k, v, kCache, vCache, runtimeParams, cosTable, sinTable
+  inputs_ = {q, k, v, kCache, vCache, runtimeParams, cosTable, sinTable};
+  output_ = preallocOutput ? preallocOutput
+                           : store.createTensorEmpty(outShape_, dtype_);
+}
+
+DataType FusedAttentionOpNode::outputDtype() const {
+  return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> FusedAttentionOpNode::shader() const {
+  return compiledFusedAttention(dtype_, dtype_);
+}
+
+std::vector<uint32_t> FusedAttentionOpNode::outputShape() const {
+  return outShape_;
+}
+
+ThreadSize FusedAttentionOpNode::dispatchSize() const {
+  return {nHeads_ * 256, 1, 1};
+}
+
+std::vector<uint8_t> FusedAttentionOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t nHeads;
+    uint32_t nKvHeads;
+    uint32_t headDim;
+    uint32_t kvDim;
+    uint32_t alignedKvDim;
+    uint32_t nRep;
+    float scale;
+    uint32_t halfDim; // headDim / 2 for RoPE
+  } pc{nHeads_,       nKvHeads_, headDim_, kvDim_,
+       alignedKvDim_, nRep_,     scale_,   headDim_ / 2};
+  return toBytes(pc);
+}
+
 } // namespace cut

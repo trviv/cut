@@ -107,4 +107,38 @@ private:
   ExpandParams params_;
 };
 
+/// Zero-copy slice along a 1D tensor. Returns a view into the parent buffer
+/// at a byte offset. No GPU dispatch — the graph executor skips this node
+/// and uses the pre-created view handle directly.
+class SliceOpNode : public OpNode {
+public:
+  SliceOpNode(TensorStore &store,
+              const Tensor &src,
+              uint32_t dim,
+              uint32_t start,
+              uint32_t end);
+
+  bool isSliceNode() const { return true; }
+  LogicalOpType logicalType() const override { return LogicalOpType::Other; }
+  std::string displayName() const override { return "Slice"; }
+
+  DataType outputDtype() const override { return dtype_; }
+  std::vector<uint32_t> outputShape() const override { return outShape_; }
+  ThreadSize dispatchSize() const override { return {0, 0, 0}; }
+  std::optional<std::vector<uint32_t>> shader() const override {
+    return std::nullopt;
+  }
+
+  /// Returns the byte offset into the parent tensor for creating the view.
+  size_t byteOffset() const { return byteOffset_; }
+
+protected:
+  std::vector<uint8_t> pushConstants() const override { return {}; }
+
+private:
+  DataType dtype_;
+  std::vector<uint32_t> outShape_;
+  size_t byteOffset_;
+};
+
 } // namespace cut

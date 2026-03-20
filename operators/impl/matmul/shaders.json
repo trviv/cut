@@ -291,9 +291,9 @@
           "name": "Gemv",
           "template": "MatMulGemv",
           "defines": {},
-          "wg": [256, 1],
-          "eff_tile": [1, 256],
-          "description": "GEMV (M=1 vector)",
+          "wg": [32, 1],
+          "eff_tile": [1, 4],
+          "description": "GEMV (M=1, K-parallel subgroup reduction)",
           "dtype_slots": {
             "combos": [
               {"input1": "Float32", "input2": "Float32", "output": "Float32"},

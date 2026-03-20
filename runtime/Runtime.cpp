@@ -136,6 +136,12 @@ Tensor Runtime::createTensorEmpty(const std::vector<uint32_t> &shape,
   return store_->createTensorEmpty(shape, dtype, isUniform);
 }
 
+Tensor Runtime::createTensorMapped(const std::vector<uint32_t> &shape,
+                                   DataType dtype,
+                                   const void *srcPtr) {
+  return store_->createTensorMapped(shape, dtype, srcPtr);
+}
+
 void Runtime::copyToTensor(Tensor handle,
                            const void *srcPtr,
                            size_t size,
@@ -190,6 +196,13 @@ void Runtime::dispatch(OpNode &node) {
   } else {
     Tensor cmd = getInterface()->submit();
     getInterface()->wait(cmd);
+  }
+}
+
+void Runtime::encodeBarrier() {
+  if (dispatcher_) {
+    dispatcher_->encodeBarrier();
+    pendingCommands_ = true;
   }
 }
 

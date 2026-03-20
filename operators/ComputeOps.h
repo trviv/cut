@@ -323,6 +323,7 @@ enum OperatorEnum {
 
   CacheWrite = OP_CACHE_WRITE,
   Attention = OP_ATTENTION,
+  FusedAttention = OP_FUSED_ATTENTION,
 
   // ===========================================================================
   // Quantized matmul operations (371)

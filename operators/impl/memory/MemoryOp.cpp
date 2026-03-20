@@ -272,4 +272,42 @@ std::vector<uint8_t> ExpandOpNode::pushConstants() const {
   return toBytes(params_);
 }
 
+// --- SliceOpNode ---
+
+SliceOpNode::SliceOpNode(TensorStore &store,
+                         const Tensor &src,
+                         uint32_t dim,
+                         uint32_t start,
+                         uint32_t end)
+    : OpNode(Copy, store) { // Reuse Copy enum — this node never dispatches
+  const auto &buf = store.getTensor(src);
+  dtype_ = buf.getDtype();
+  auto srcShape = buf.getShape();
+
+  if (dim != 0 || srcShape.size() != 1) {
+    throw std::runtime_error(
+        "SliceOpNode currently only supports 1D tensors along dim 0");
+  }
+  if (start >= end || end > srcShape[0]) {
+    throw std::runtime_error(
+        "SliceOpNode: invalid range [" + std::to_string(start) + ", " +
+        std::to_string(end) + ") for shape " + std::to_string(srcShape[0]));
+  }
+
+  uint32_t sliceLen = end - start;
+  outShape_ = {sliceLen};
+
+  // Compute byte offset. The source tensor's innermost dim is aligned to
+  // multiple of 4 elements. For a 1D tensor, the aligned stride is
+  // (shape[0] + 3) & ~3. The byte offset for element `start` is:
+  size_t elemSize = dataTypeSize(buf.getDtype());
+  byteOffset_ = static_cast<size_t>(start) * elemSize;
+
+  inputs_ = {src};
+  // Output will be created as a view during graph execution (not here,
+  // because the parent tensor may be an arena-planned view itself).
+  // For now, allocate a placeholder that gets replaced at execution time.
+  output_ = store.createTensorEmpty(outShape_, dtype_);
+}
+
 } // namespace cut

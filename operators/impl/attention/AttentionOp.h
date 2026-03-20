@@ -61,4 +61,43 @@ private:
   std::vector<uint32_t> outShape_;
 };
 
+/// Fused RoPE + CacheWrite + Attention in a single dispatch.
+/// Saves 4 dispatches per layer (2 RoPE + 2 CacheWrite).
+/// Inputs: q [nHeads*headDim], k [kvDim], v [kvDim],
+///         kCache, vCache, runtimeParams, cosTable, sinTable.
+class FusedAttentionOpNode : public OpNode {
+public:
+  FusedAttentionOpNode(TensorStore &store,
+                       const Tensor &q,
+                       const Tensor &k,
+                       const Tensor &v,
+                       const Tensor &kCache,
+                       const Tensor &vCache,
+                       const Tensor &runtimeParams,
+                       const Tensor &cosTable,
+                       const Tensor &sinTable,
+                       uint32_t nHeads,
+                       uint32_t nKvHeads,
+                       uint32_t headDim,
+                       const Tensor &preallocOutput = {},
+                       std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+
+private:
+  DataType dtype_;
+  uint32_t nHeads_;
+  uint32_t nKvHeads_;
+  uint32_t headDim_;
+  uint32_t kvDim_;
+  uint32_t alignedKvDim_;
+  uint32_t nRep_;
+  float scale_;
+  std::vector<uint32_t> outShape_;
+};
+
 } // namespace cut

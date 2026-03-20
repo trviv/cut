@@ -48,6 +48,19 @@ public:
                                      bool immutable = false) = 0;
 
   /**
+   * Creates a host-visible, coherent buffer for CPU-GPU shared data.
+   * Writes via copyDataToBuffer go directly to mapped memory (no staging,
+   * no fence wait). Ideal for small, frequently-updated per-token params.
+   */
+  virtual ComputeHandle
+  createBufferMapped(const std::vector<uint32_t> &shape,
+                     DataType dtype,
+                     const void *hostSourcePtr = nullptr) {
+    // Default implementation falls back to regular buffer.
+    return createBuffer(shape, dtype, hostSourcePtr, false);
+  }
+
+  /**
    * Creates a buffer view referencing a sub-region of an existing buffer.
    * The view shares the parent's GPU buffer but binds at a non-zero offset.
    * The parent is kept alive via ref-counting.

@@ -63,6 +63,10 @@ struct LlamaLayer {
   WeightHandle wv;
   WeightHandle wo;
 
+  // Fused QKV weight [dim, q_dim + 2*kv_dim] — set for non-quantized,
+  // non-biased models. Enables single matmul + slice instead of 3 matmuls.
+  WeightHandle wqkv;
+
   // Attention biases (optional, used by Qwen2 etc.)
   cut::ComputeHandle bq; // [dim] or empty
   cut::ComputeHandle bk; // [kv_dim] or empty
@@ -126,8 +130,12 @@ public:
   /// Run a single forward pass for one token at the given position.
   /// @param token_id The input token ID.
   /// @param pos The sequence position (0-indexed).
-  /// @return ComputeHandle to logits tensor [1, vocab_size].
+  /// @return ComputeHandle to argmax result buffer.
   cut::ComputeHandle forward(int token_id, int pos);
+
+  /// Prefill: process all prompt tokens in one command buffer submission.
+  /// Populates KV cache for all positions. Returns argmax of last token.
+  int prefill(const std::vector<int> &tokens);
 
   /// Autoregressive generation from prompt tokens.
   /// @param prompt_tokens Input token IDs.
@@ -173,8 +181,7 @@ private:
   cut::Operations *ops_ = nullptr;
 
   // Weights
-  cut::ComputeHandle embeddingTable_;  // [vocab_size, dim] on GPU
-  std::vector<float> token_embd_data_; // CPU copy for fast embedding lookup
+  cut::ComputeHandle embeddingTable_; // [vocab_size, dim] on GPU
   cut::ComputeHandle
       tokenIdBuffer_; // 1-element UInt32 for GPU embedding lookup
   std::vector<LlamaLayer> layers_;
@@ -223,6 +230,7 @@ private:
   cut::ComputeHandle attnOutBuffer_;        // [n_heads * head_dim] Float32
   cut::ComputeHandle logitsOutput_;         // stable logits handle
   cut::ComputeHandle penaltyFactorsBuffer_; // [vocab_size] Float32
+  cut::ComputeHandle argmaxResultBuffer_;   // [1] Float32 — argmax output
 
   // Command buffer caching for decode phase
   cut::ComputeHandle cachedDecodeCB_;
@@ -281,6 +289,18 @@ private:
   std::vector<cut::Tensor>
   executeGraph(GraphTemplate &tpl,
                const std::vector<cut::ComputeHandle> &dynamicHandles);
+
+  /// Split fused QKV output into Q, K, V views (with barrier),
+  /// or pass through separate Q/K/V from the graph.
+  void splitQKV(const std::vector<cut::Tensor> &qkv,
+                cut::ComputeHandle &q,
+                cut::ComputeHandle &k,
+                cut::ComputeHandle &v);
+
+  /// Run one transformer layer: QKV projection → attention → FFN → residual.
+  /// Returns the updated hidden state.
+  cut::ComputeHandle runLayer(uint32_t layerIdx,
+                              const cut::ComputeHandle &hidden);
 };
 
 } // namespace gguf

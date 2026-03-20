@@ -277,11 +277,31 @@ public:
                    const Tensor &preallocOutput = {},
                    std::optional<uint32_t> spec = {});
 
+  /// Fused RoPE + CacheWrite + Attention (saves 4 dispatches/layer).
+  void fusedAttention(const Tensor &q,
+                      const Tensor &k,
+                      const Tensor &v,
+                      const Tensor &kCache,
+                      const Tensor &vCache,
+                      const Tensor &runtimeParams,
+                      const Tensor &cosTable,
+                      const Tensor &sinTable,
+                      uint32_t nHeads,
+                      uint32_t nKvHeads,
+                      uint32_t headDim,
+                      const Tensor &preallocOutput = {});
+
   // ===== Expand (broadcast) =====
 
   Tensor expand(const Tensor &a,
                 const std::vector<uint32_t> &targetShape,
                 std::optional<uint32_t> spec = {});
+
+  // ===== Slice (zero-copy view) =====
+
+  /// Extracts a contiguous slice [start, end) along `dim` of a 1D tensor.
+  /// Returns a zero-copy buffer view — no GPU dispatch.
+  Tensor slice(const Tensor &a, uint32_t dim, uint32_t start, uint32_t end);
 
   // ===== Padding ops =====
 
@@ -346,6 +366,11 @@ public:
   /// Flush the internal graph: optimize, execute, and write results into
   /// placeholder buffers. No-op if the graph is empty or already executed.
   void flush();
+
+  /// Insert an explicit compute-to-compute barrier in the command buffer.
+  /// Used when buffer views (which share a parent buffer) need a barrier
+  /// that the automatic dependency tracker can't infer.
+  void barrier();
 
   /// Move the current graph out and replace with a fresh one.
   /// Used by GraphBuilder to obtain the recorded graph.

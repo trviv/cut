@@ -204,16 +204,14 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
             << " ffn_dim=" << config_.ffn_dim
             << " head_dim=" << config_.head_dim << " vocab_size=";
 
-  // Load token embeddings — keep CPU copy for fast per-token lookup,
-  // and upload to GPU for graph-based operations.
+  // Load token embeddings to GPU for GPU-side embedding lookup.
   // GGML dimensions: [cols=dim, rows=vocab_size]
   {
     auto embd = reader.read_tensor_f32("token_embd.weight");
     const auto &info = reader.get_tensor_info("token_embd.weight");
     config_.vocab_size = static_cast<uint32_t>(info.dimensions[1]);
-    token_embd_data_ = std::move(embd);
     embeddingTable_ =
-        uploadMatrix(token_embd_data_.data(), config_.vocab_size, config_.dim);
+        uploadMatrix(embd.data(), config_.vocab_size, config_.dim);
   }
   std::cout << config_.vocab_size << "\n";
 
@@ -303,12 +301,44 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       layer.wv =
           uploadWeightMaybeQuantized(reader, blk + "attn_v.weight", rows, cols);
     }
+
     {
       const auto &info = reader.get_tensor_info(blk + "attn_output.weight");
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
       layer.wo = uploadWeightMaybeQuantized(reader, blk + "attn_output.weight",
                                             rows, cols);
+    }
+
+    // Build fused QKV weight for non-quantized F16 models.
+    // Row-concatenate Q, K, V in GGUF-native [N, K] layout, upload once,
+    // transpose once → [K, Nq+Nk+Nv]. Saves 2 matmul dispatches per layer.
+    if (!layer.wq.isQuantized()) {
+      const auto &qi = reader.get_tensor_info(blk + "attn_q.weight");
+      if (qi.type == GGMLType::F16) {
+        uint32_t K = static_cast<uint32_t>(qi.dimensions[0]);
+        uint32_t Nq = static_cast<uint32_t>(qi.dimensions[1]);
+        const auto &ki = reader.get_tensor_info(blk + "attn_k.weight");
+        uint32_t Nk = static_cast<uint32_t>(ki.dimensions[1]);
+        const auto &vi = reader.get_tensor_info(blk + "attn_v.weight");
+        uint32_t Nv = static_cast<uint32_t>(vi.dimensions[1]);
+        uint32_t Ntotal = Nq + Nk + Nv;
+
+        auto rawQ = reader.read_tensor_raw(blk + "attn_q.weight");
+        auto rawK = reader.read_tensor_raw(blk + "attn_k.weight");
+        auto rawV = reader.read_tensor_raw(blk + "attn_v.weight");
+        // Concatenate rows: [Nq,K] + [Nk,K] + [Nv,K] → [Ntotal, K]
+        std::vector<uint8_t> combined(Ntotal * K * 2);
+        size_t off = 0;
+        memcpy(combined.data() + off, rawQ.data(), rawQ.size());
+        off += rawQ.size();
+        memcpy(combined.data() + off, rawK.data(), rawK.size());
+        off += rawK.size();
+        memcpy(combined.data() + off, rawV.data(), rawV.size());
+        auto gpu = runtime_->createTensor({Ntotal, K}, cut::DataType::Float16,
+                                          combined.data());
+        layer.wqkv.handle = ops_->transpose(gpu);
+      }
     }
 
     // Attention biases (optional, e.g. Qwen2)
@@ -390,10 +420,12 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
         {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
   }
 
-  // Pre-allocate buffers for command buffer reuse
+  // Pre-allocate buffers for command buffer reuse.
+  // Use mapped (host-visible) memory for small per-token params to avoid
+  // staging command buffer + fence wait overhead on every token.
   runtimeParamsBuffer_ =
-      runtime_->createTensorEmpty({2}, cut::DataType::UInt32);
-  tokenIdBuffer_ = runtime_->createTensorEmpty({1}, cut::DataType::UInt32);
+      runtime_->createTensorMapped({2}, cut::DataType::UInt32);
+  tokenIdBuffer_ = runtime_->createTensorMapped({1}, cut::DataType::UInt32);
   hiddenBuffer_ =
       runtime_->createTensorEmpty({config_.dim}, cut::DataType::Float32);
   ropeQOutBuffer_ = runtime_->createTensorEmpty(
@@ -402,8 +434,14 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       runtime_->createTensorEmpty({config_.kv_dim}, cut::DataType::Float32);
   attnOutBuffer_ = runtime_->createTensorEmpty(
       {config_.n_heads * config_.head_dim}, cut::DataType::Float32);
-  penaltyFactorsBuffer_ = runtime_->createTensorEmpty({1, config_.vocab_size},
-                                                      cut::DataType::Float32);
+  // Initialize penalty factors to 1.0 (no penalty) for the first forward pass
+  {
+    std::vector<float> ones(config_.vocab_size, 1.0f);
+    penaltyFactorsBuffer_ = runtime_->createTensorMapped(
+        {1, config_.vocab_size}, cut::DataType::Float32, ones.data());
+  }
+  argmaxResultBuffer_ =
+      runtime_->createTensorEmpty({1}, cut::DataType::Float32);
 
   // Precompute RoPE tables
   precomputeRoPE();
@@ -550,40 +588,54 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
 
   auto normed_2d = builder.ops().reshape(vNormed, {1, dim});
 
-  auto q = graphWeight(builder, layer.wq, normed_2d);
-  // Identity reshape (optimizer: IdentityReshapePass eliminates)
-  auto q_id = builder.ops().reshape(q, {1, dim});
-  // Reshape chain with above (optimizer: ReshapeChainPass collapses)
-  auto q_flat = builder.ops().reshape(
-      q_id, {static_cast<int32_t>(config_.n_heads * config_.head_dim)});
-  // Add bias if present (e.g. Qwen2)
-  if (layer.bq) {
-    auto vBq = builder.input(layer.bq, /*isConstant=*/true);
-    q_flat = builder.ops().binaryOp(cut::BinaryAdd, q_flat, vBq);
-  }
+  cut::Tensor q_flat, k_flat, v_flat;
 
-  auto k = graphWeight(builder, layer.wk, normed_2d);
-  auto k_id =
-      builder.ops().reshape(k, {1, static_cast<int32_t>(config_.kv_dim)});
-  auto k_flat =
-      builder.ops().reshape(k_id, {static_cast<int32_t>(config_.kv_dim)});
-  if (layer.bk) {
-    auto vBk = builder.input(layer.bk, /*isConstant=*/true);
-    k_flat = builder.ops().binaryOp(cut::BinaryAdd, k_flat, vBk);
-  }
+  if (layer.wqkv.handle && !layer.bq) {
+    // Fused QKV: single matmul → outputs [qdim + 2*kvdim] combined buffer.
+    // The caller splits Q/K/V using createTensorView after graph execution.
+    int32_t qdim = static_cast<int32_t>(config_.n_heads * config_.head_dim);
+    int32_t kvdim = static_cast<int32_t>(config_.kv_dim);
+    int32_t total = qdim + 2 * kvdim;
 
-  auto v = graphWeight(builder, layer.wv, normed_2d);
-  auto v_id =
-      builder.ops().reshape(v, {1, static_cast<int32_t>(config_.kv_dim)});
-  auto v_flat =
-      builder.ops().reshape(v_id, {static_cast<int32_t>(config_.kv_dim)});
-  if (layer.bv) {
-    auto vBv = builder.input(layer.bv, /*isConstant=*/true);
-    v_flat = builder.ops().binaryOp(cut::BinaryAdd, v_flat, vBv);
-  }
+    auto vQKV = builder.input(layer.wqkv.handle, /*isConstant=*/true);
+    auto qkv_out = builder.ops().matmul(normed_2d, vQKV);
+    auto qkv_flat = builder.ops().reshape(qkv_out, {total});
 
-  // Dead code: result never used (optimizer: DeadCodePass removes)
-  builder.ops().transpose(q);
+    builder.markOutput(qkv_flat);
+    auto graph = builder.build();
+
+    GraphTemplate tpl;
+    tpl.dynamicInputIds = {graph->nodeId(vHidden)};
+    tpl.preOptGraph = graph->clone();
+    auto optimizer = cut::graph::GraphOptimizer::createDefault();
+    optimizer.optimize(*graph, runtime_->store());
+    tpl.stats = optimizer.stats();
+    tpl.graph = std::move(graph);
+    return tpl;
+  } else {
+    // Fallback: 3 separate matmuls (quantized, or models with bias)
+    auto q = graphWeight(builder, layer.wq, normed_2d);
+    q_flat = builder.ops().reshape(
+        q, {static_cast<int32_t>(config_.n_heads * config_.head_dim)});
+    if (layer.bq) {
+      auto vBq = builder.input(layer.bq, /*isConstant=*/true);
+      q_flat = builder.ops().binaryOp(cut::BinaryAdd, q_flat, vBq);
+    }
+
+    auto k = graphWeight(builder, layer.wk, normed_2d);
+    k_flat = builder.ops().reshape(k, {static_cast<int32_t>(config_.kv_dim)});
+    if (layer.bk) {
+      auto vBk = builder.input(layer.bk, /*isConstant=*/true);
+      k_flat = builder.ops().binaryOp(cut::BinaryAdd, k_flat, vBk);
+    }
+
+    auto v = graphWeight(builder, layer.wv, normed_2d);
+    v_flat = builder.ops().reshape(v, {static_cast<int32_t>(config_.kv_dim)});
+    if (layer.bv) {
+      auto vBv = builder.input(layer.bv, /*isConstant=*/true);
+      v_flat = builder.ops().binaryOp(cut::BinaryAdd, v_flat, vBv);
+    }
+  }
 
   builder.markOutput(q_flat);
   builder.markOutput(k_flat);
@@ -608,21 +660,17 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
 
   // Dynamic inputs — each must use a DIFFERENT placeholder tensor so that
   // Operations can distinguish them during graph construction.
-  // Using the same handle for both would cause the residual add to read from
-  // the wrong input (attn_out instead of hidden).
   auto vAttnOut = builder.input(layer.attn_norm, /*isConstant=*/false);
   auto vHidden = builder.input(layer.ffn_norm, /*isConstant=*/false);
 
   auto attn_2d = builder.ops().reshape(vAttnOut, {1, dim});
+  // Reshape hidden to [1, dim] so the add operates in the same shape as the
+  // matmul output — this allows MatMulBinaryFusionPass to fuse matmul+add
+  // into a single dispatch.
+  auto hidden_2d = builder.ops().reshape(vHidden, {1, dim});
   auto proj = graphWeight(builder, layer.wo, attn_2d);
-  // Identity reshape (optimizer: IdentityReshapePass eliminates)
-  auto proj_id = builder.ops().reshape(proj, {1, dim});
-  // Reshape chain (optimizer: ReshapeChainPass collapses)
-  auto proj_1d = builder.ops().reshape(proj_id, {dim});
-  auto result = builder.ops().binaryOp(cut::BinaryAdd, vHidden, proj_1d);
-
-  // Dead code: unused transpose (optimizer: DeadCodePass removes)
-  builder.ops().transpose(proj);
+  auto result_2d = builder.ops().binaryOp(cut::BinaryAdd, proj, hidden_2d);
+  auto result = builder.ops().reshape(result_2d, {dim});
 
   builder.markOutput(result);
 
@@ -668,14 +716,11 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   auto gate_up = builder.ops().binaryOp(cut::BinaryMul, gate_silu, up_id);
 
   auto out = graphWeight(builder, layer.w_down, gate_up);
-  // Identity reshape + reshape chain (optimizer eliminates both)
-  auto out_id = builder.ops().reshape(out, {1, dim});
-  auto out_1d = builder.ops().reshape(out_id, {dim});
-
-  // Dead code: unused transpose (optimizer: DeadCodePass removes)
-  builder.ops().transpose(gate);
-
-  auto result = builder.ops().binaryOp(cut::BinaryAdd, vHidden, out_1d);
+  // Reshape hidden to [1, dim] so the add operates in the same shape as the
+  // matmul output — enables MatMulBinaryFusionPass to fuse matmul+add.
+  auto hidden_2d = builder.ops().reshape(vHidden, {1, dim});
+  auto result_2d = builder.ops().binaryOp(cut::BinaryAdd, out, hidden_2d);
+  auto result = builder.ops().reshape(result_2d, {dim});
 
   builder.markOutput(result);
 
@@ -811,66 +856,136 @@ std::vector<cut::Tensor> LlamaModel::executeGraph(
   return executor_->execute(*tpl.graph);
 }
 
+void LlamaModel::splitQKV(const std::vector<cut::Tensor> &qkv,
+                           cut::ComputeHandle &q,
+                           cut::ComputeHandle &k,
+                           cut::ComputeHandle &v) {
+  if (qkv.size() == 1) {
+    // Fused QKV: split the combined [qdim + 2*kvdim] buffer into Q, K, V
+    // views. Explicit barrier needed because the barrier tracker doesn't see
+    // views as sharing the matmul's parent buffer.
+    uint32_t qdim = config_.n_heads * config_.head_dim;
+    uint32_t kvdim = config_.kv_dim;
+    q = runtime_->store().createTensorView(qkv[0], 0, {qdim},
+                                           cut::DataType::Float32);
+    k = runtime_->store().createTensorView(qkv[0], qdim * sizeof(float),
+                                           {kvdim}, cut::DataType::Float32);
+    v = runtime_->store().createTensorView(
+        qkv[0], (qdim + kvdim) * sizeof(float), {kvdim},
+        cut::DataType::Float32);
+    ops_->barrier();
+  } else {
+    q = qkv[0];
+    k = qkv[1];
+    v = qkv[2];
+  }
+}
+
+cut::ComputeHandle LlamaModel::runLayer(uint32_t layerIdx,
+                                         const cut::ComputeHandle &hidden) {
+  auto &lg = layerGraphs_[layerIdx];
+
+  auto qkv = executeGraph(lg.qkvProjection, {hidden});
+
+  cut::ComputeHandle q, k, v;
+  splitQKV(qkv, q, k, v);
+
+  auto &cache = kv_caches_[layerIdx];
+  ops_->fusedAttention(q, k, v, cache.k_cache, cache.v_cache,
+                       runtimeParamsBuffer_, rope_cos_gpu_, rope_sin_gpu_,
+                       config_.n_heads, config_.n_kv_heads, config_.head_dim,
+                       attnOutBuffer_);
+
+  auto attn_result =
+      executeGraph(lg.attnOutputResidual, {attnOutBuffer_, hidden});
+  auto ffn_result = executeGraph(lg.ffnResidual, {attn_result[0]});
+  return ffn_result[0];
+}
+
 // ============================================================================
 // Forward pass
 // ============================================================================
 
 cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
-  uint32_t dim = config_.dim;
   uint32_t upos = static_cast<uint32_t>(pos);
 
   // Update runtime params buffer: {pos, seqLen}
   uint32_t params[2] = {upos, upos + 1};
   runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
 
-  // CPU embedding lookup → direct staging copy to hiddenBuffer_
-  const float *embd_row = token_embd_data_.data() + token_id * dim;
-  runtime_->copyToTensor(hiddenBuffer_, embd_row, dim * sizeof(float));
+  // Update token ID for GPU embedding lookup
+  uint32_t tid = static_cast<uint32_t>(token_id);
+  runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t));
 
   if (decodeCBCached_) {
-    // Re-submit cached command buffer (no re-recording needed)
+    // Resubmit cached CB: embedding → layers → logits → penalty → argmax.
+    // Mapped buffers (runtimeParams, tokenId, penaltyFactors) were updated
+    // via direct memcpy above — no staging fence needed.
     runtime_->resubmitAndWait(cachedDecodeCB_);
-    return logitsOutput_;
+    return argmaxResultBuffer_;
   }
+
+  // --- First forward: record all dispatches into one reusable CB ---
+
+  ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
 
   auto hidden = hiddenBuffer_;
+  for (uint32_t i = 0; i < config_.n_layers; ++i)
+    hidden = runLayer(i, hidden);
 
-  // Transformer layers
-  for (uint32_t i = 0; i < config_.n_layers; ++i) {
-    auto &lg = layerGraphs_[i];
-
-    // QKV projection (graph template — includes rmsNorm internally)
-    auto qkv = executeGraph(lg.qkvProjection, {hidden});
-    auto q = qkv[0]; // [n_heads * head_dim]
-    auto k = qkv[1]; // [kv_dim]
-    auto v = qkv[2]; // [kv_dim]
-
-    // Apply RoPE (GPU) with pre-allocated output buffers
-    q = applyRoPE(q, ropeQOutBuffer_);
-    k = applyRoPE(k, ropeKOutBuffer_);
-
-    // Attention with GPU KV cache (writes to attnOutBuffer_)
-    attention(q, k, v, i);
-
-    // Output projection + residual (graph template)
-    auto attn_result =
-        executeGraph(lg.attnOutputResidual, {attnOutBuffer_, hidden});
-    hidden = attn_result[0];
-
-    // FFN + residual (graph template — includes rmsNorm internally)
-    auto ffn_result = executeGraph(lg.ffnResidual, {hidden});
-    hidden = ffn_result[0];
-  }
-
-  // LM head logits (graph template — includes rmsNorm internally)
+  // LM head logits
   auto logit_result = executeGraph(logitsGraph_, {hidden});
   logitsOutput_ = logit_result[0];
+
+  // Include penalty + argmax in the cached CB so sampling needs no extra
+  // submit. penaltyFactorsBuffer_ is updated via memcpy before each resubmit.
+  auto penalized =
+      ops_->repetitionPenalty(logitsOutput_, penaltyFactorsBuffer_);
+  argmaxResultBuffer_ = ops_->reduce(cut::ReduceArgmax, penalized);
 
   // Cache the command buffer for reuse on subsequent tokens
   cachedDecodeCB_ = runtime_->submitReusable();
   decodeCBCached_ = static_cast<bool>(cachedDecodeCB_);
 
-  return logitsOutput_;
+  return argmaxResultBuffer_;
+}
+
+int LlamaModel::prefill(const std::vector<int> &tokens) {
+  // Record all prompt tokens into a single command buffer — no intermediate
+  // fence waits. This replaces N separate forward() + wait cycles with
+  // a single submit + wait, eliminating (N-1) * ~3ms fence overhead.
+  for (size_t i = 0; i < tokens.size(); ++i) {
+    uint32_t upos = static_cast<uint32_t>(i);
+    uint32_t params[2] = {upos, upos + 1};
+    runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
+
+    uint32_t tid = static_cast<uint32_t>(tokens[i]);
+    runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t));
+
+    ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
+
+    auto hidden = hiddenBuffer_;
+    for (uint32_t l = 0; l < config_.n_layers; ++l)
+      hidden = runLayer(l, hidden);
+
+    // Only compute logits + argmax for the last token
+    if (i == tokens.size() - 1) {
+      auto logit_result = executeGraph(logitsGraph_, {hidden});
+      logitsOutput_ = logit_result[0];
+
+      auto penalized =
+          ops_->repetitionPenalty(logitsOutput_, penaltyFactorsBuffer_);
+      argmaxResultBuffer_ = ops_->reduce(cut::ReduceArgmax, penalized);
+    }
+  }
+
+  // Single submit + wait for the entire prefill
+  runtime_->flushPendingCommands();
+
+  // Read back the argmax result (4 bytes)
+  float best = 0.0f;
+  runtime_->copyFromTensor(argmaxResultBuffer_, &best, sizeof(float));
+  return static_cast<int>(best);
 }
 
 // ============================================================================
@@ -890,17 +1005,14 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
   int next_token = 0;
   uint32_t vocabSize = config_.vocab_size;
 
-  // Sample with GPU repetition penalty + GPU argmax.
-  // Only copies 4 bytes (argmax result) back from GPU.
-  auto sample = [&](const cut::ComputeHandle &logits) -> int {
-    if (repeat_penalty == 1.0f || tokens.empty()) {
-      auto argmaxTensor = ops_->reduce(cut::ReduceArgmax, logits);
-      float best = 0.0f;
-      runtime_->copyFromTensor(argmaxTensor, &best, sizeof(float));
-      return static_cast<int>(best);
-    }
-
-    // Build penalty factors on CPU: 1.0 = no penalty, >1.0 = penalize
+  // Upload penalty factors BEFORE forward() so they're part of the cached CB's
+  // staging transfers. The cached CB includes: penalty → argmax.
+  // When penalty is 1.0, the factors buffer stays all-ones (initialized in
+  // load) and the penalty shader is a no-op, so we skip the upload entirely.
+  bool hasPenalty = (repeat_penalty != 1.0f);
+  auto uploadPenaltyFactors = [&]() {
+    if (!hasPenalty)
+      return;
     std::vector<float> factors(vocabSize, 1.0f);
     size_t start = 0;
     if (repeat_last_n > 0 &&
@@ -913,27 +1025,30 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
         factors[tid] = repeat_penalty;
       }
     }
-
-    // Upload factors to pre-allocated GPU buffer
     runtime_->copyToTensor(penaltyFactorsBuffer_, factors.data(),
                            vocabSize * sizeof(float));
+  };
 
-    // GPU penalty + GPU argmax (graph-recorded, flushed by copyFromTensor)
-    auto penalized = ops_->repetitionPenalty(logits, penaltyFactorsBuffer_);
-    auto argmaxTensor = ops_->reduce(cut::ReduceArgmax, penalized);
+  // Read argmax result from GPU (4 bytes) after forward completes.
+  auto readArgmax = [&](const cut::ComputeHandle &argmaxBuf) -> int {
     float best = 0.0f;
-    runtime_->copyFromTensor(argmaxTensor, &best, sizeof(float));
+    runtime_->copyFromTensor(argmaxBuf, &best, sizeof(float));
     return static_cast<int>(best);
   };
 
   // Process prompt tokens (prefill)
   auto prefillStart = std::chrono::high_resolution_clock::now();
   for (size_t i = 0; i < prompt_tokens.size(); ++i) {
-    auto logits = forward(prompt_tokens[i], static_cast<int>(i));
-
-    // Only sample from last prompt token
+    // Upload penalty factors for last token only (used by argmax in the CB)
     if (i == prompt_tokens.size() - 1) {
-      next_token = sample(logits);
+      uploadPenaltyFactors();
+    }
+
+    auto argmaxBuf = forward(prompt_tokens[i], static_cast<int>(i));
+
+    // Only read argmax from last prompt token
+    if (i == prompt_tokens.size() - 1) {
+      next_token = readArgmax(argmaxBuf);
     }
   }
   auto prefillEnd = std::chrono::high_resolution_clock::now();
@@ -966,9 +1081,13 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
   auto genStart = std::chrono::high_resolution_clock::now();
   for (int step = 0; step < max_new_tokens - 1; ++step) {
     int pos = static_cast<int>(prompt_tokens.size()) + step;
-    auto logits = forward(next_token, pos);
 
-    next_token = sample(logits);
+    // Upload penalty factors before forward (staged, flushed by resubmit)
+    uploadPenaltyFactors();
+
+    auto argmaxBuf = forward(next_token, pos);
+
+    next_token = readArgmax(argmaxBuf);
     tokens.push_back(next_token);
 
     std::cout << "Generated token: " << next_token << "\n";

@@ -40,7 +40,7 @@ inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
     {"MatMulBRegT16R4x4", 16, 16, 64, 64, "BReg T16 R4x4 (8KB)"},
     {"MatMulDblBufT16R4x4", 16, 16, 64, 64, "DblBuf T16 R4x4 (16KB)"},
     {"MatMulLinearT16R4x4", 256, 1, 64, 64, "Linear T16 R4x4 (8KB)"},
-    {"MatMulGemv", 256, 1, 1, 256, "GEMV (M=1 vector)"},
+    {"MatMulGemv", 32, 1, 1, 4, "GEMV (M=1, K-parallel subgroup reduction)"},
     {"MatMulCoopMat", 32, 1, 16, 16, "CoopMat 16x16 (KHR)"},
     {"MatMulCoopMatTiled", 128, 1, 32, 32, "CoopMat 2x2 Tiled (KHR)"},
 };

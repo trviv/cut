@@ -57,6 +57,11 @@ DataType Operations::getDtype(const Tensor &h) const {
 // Graph mode helpers
 // =========================================================================
 
+void Operations::barrier() {
+  flush();
+  runtime_->encodeBarrier();
+}
+
 void Operations::flush() {
   if (graph_->size() == 0 || graph_->isExecuted())
     return;
@@ -1082,6 +1087,24 @@ Tensor Operations::attention(const Tensor &q,
   return recordOrEncode(std::move(node));
 }
 
+void Operations::fusedAttention(const Tensor &q,
+                                const Tensor &k,
+                                const Tensor &v,
+                                const Tensor &kCache,
+                                const Tensor &vCache,
+                                const Tensor &runtimeParams,
+                                const Tensor &cosTable,
+                                const Tensor &sinTable,
+                                uint32_t nHeads,
+                                uint32_t nKvHeads,
+                                uint32_t headDim,
+                                const Tensor &preallocOutput) {
+  auto node = std::make_unique<FusedAttentionOpNode>(
+      *store_, q, k, v, kCache, vCache, runtimeParams, cosTable, sinTable,
+      nHeads, nKvHeads, headDim, preallocOutput);
+  dispatch(std::move(node));
+}
+
 // =========================================================================
 // Expand
 // =========================================================================
@@ -1090,6 +1113,16 @@ Tensor Operations::expand(const Tensor &a,
                           const std::vector<uint32_t> &targetShape,
                           std::optional<uint32_t> spec) {
   auto node = std::make_unique<ExpandOpNode>(*store_, a, targetShape, spec);
+  return recordOrEncode(std::move(node));
+}
+
+// =========================================================================
+// Slice (zero-copy view)
+// =========================================================================
+
+Tensor
+Operations::slice(const Tensor &a, uint32_t dim, uint32_t start, uint32_t end) {
+  auto node = std::make_unique<SliceOpNode>(*store_, a, dim, start, end);
   return recordOrEncode(std::move(node));
 }
 

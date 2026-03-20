@@ -28,6 +28,11 @@ public:
                const void *srcPtr = nullptr,       // Host source ptr
                bool isUniform = false) override;   // Is uniform buffer
 
+  /// Creates a host-visible coherent buffer (no staging needed for updates).
+  ComputeHandle createBufferMapped(const std::vector<uint32_t> &shape,
+                                   DataType dtype,
+                                   const void *srcPtr = nullptr) override;
+
   /// Copies data from host memory to a GPU buffer.
   void copyDataToBuffer(
       const void *srcPtr,             // Host source ptr
