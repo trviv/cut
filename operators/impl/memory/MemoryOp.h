@@ -118,8 +118,7 @@ public:
               uint32_t start,
               uint32_t end);
 
-  bool isSliceNode() const { return true; }
-  LogicalOpType logicalType() const override { return LogicalOpType::Other; }
+  LogicalOpType logicalType() const override { return LogicalOpType::Slice; }
   std::string displayName() const override { return "Slice"; }
 
   DataType outputDtype() const override { return dtype_; }

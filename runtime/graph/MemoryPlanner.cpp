@@ -1,6 +1,5 @@
 #include "MemoryPlanner.h"
 #include "TensorStore.h"
-#include "impl/memory/MemoryOp.h"
 
 #include <algorithm>
 #include <unordered_set>
@@ -44,7 +43,7 @@ size_t MemoryPlanner::plan(Graph &graph) {
     auto &gn = graph.nodes()[idx];
     if (!gn.op || gn.isRemoved)
       continue;
-    if (dynamic_cast<SliceOpNode *>(gn.op.get())) {
+    if (gn.logicalType == LogicalOpType::Slice) {
       for (uint32_t inputId : gn.inputIds) {
         sliceParents.insert(inputId);
       }
@@ -148,8 +147,8 @@ size_t MemoryPlanner::plan(Graph &graph) {
   // Step 8: Create views and rebind outputs
   for (auto &alloc : allocations) {
     auto &gn = graph.nodes()[alloc.nodeId];
-    auto shape = gn.op->outputShape();
-    auto dtype = gn.op->outputDtype();
+    const auto &shape = gn.outputShape;
+    auto dtype = gn.outputDtype;
     Tensor view = store_->createTensorView(arena, alloc.offset, shape, dtype);
     gn.op->rebindOutput(view);
   }

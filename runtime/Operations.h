@@ -15,6 +15,7 @@
 
 namespace cut {
 
+class MatMulOpNode;
 class OpNode;
 class Runtime;
 class TensorStore;
@@ -412,6 +413,23 @@ private:
   /// Returns the (possibly cast) inputs. Uses castCache_ for deduplication.
   std::vector<Tensor> resolveAndCastInputs(const OpNode &node,
                                            const std::vector<Tensor> &inputs);
+
+  /// Widen two inputs to matching dtype if they differ.
+  /// Used by conv1d/conv2d before node construction.
+  std::pair<Tensor, Tensor> widenToMatch(const Tensor &a, const Tensor &b);
+
+  /// Create a standard MatMulOpNode with dtype resolution applied.
+  /// Constructs the node once, resolves dtypes, and only reconstructs
+  /// if inputs actually needed casting.
+  std::unique_ptr<MatMulOpNode> createMatMulResolved(
+      const Tensor &a, const Tensor &b, std::optional<uint32_t> spec);
+
+  /// Create a quantized MatMulOpNode with dtype resolution applied.
+  std::unique_ptr<MatMulOpNode>
+  createMatMulResolved(const Tensor &a,
+                       const Tensor &packedB,
+                       const Tensor &scales,
+                       std::optional<uint32_t> spec);
 };
 
 } // namespace cut

@@ -21,7 +21,7 @@ class TensorStore;
 // LogicalOpType — coarse classification for graph optimizer passes
 // ============================================================================
 
-enum class LogicalOpType { Input, Reshape, Transpose, Other };
+enum class LogicalOpType { Input, Reshape, Transpose, Slice, Other };
 
 // ============================================================================
 // Utility functions shared across OpNode subclasses
@@ -227,39 +227,6 @@ private:
   std::vector<uint32_t> shape_;
   DataType dtype_;
   bool isConstant_;
-};
-
-// ============================================================================
-// StubOpNode — non-executable placeholder for cloned/reporting graphs
-// ============================================================================
-
-class StubOpNode : public OpNode {
-public:
-  StubOpNode(OperatorEnum opEnum,
-             const std::vector<uint32_t> &shape,
-             DataType dtype,
-             std::string name,
-             std::string detail,
-             bool isConstant = false);
-
-  std::string displayName() const override { return name_; }
-
-  std::vector<uint32_t> outputShape() const override { return shape_; }
-  DataType outputDtype() const override { return dtype_; }
-  ThreadSize dispatchSize() const override { return {0, 0, 0}; }
-
-  const std::string &detail() const { return detail_; }
-  bool isConstant() const { return isConstant_; }
-
-protected:
-  std::vector<uint8_t> pushConstants() const override { return {}; }
-
-private:
-  std::vector<uint32_t> shape_;
-  DataType dtype_;
-  std::string name_;
-  std::string detail_;
-  bool isConstant_ = false;
 };
 
 } // namespace cut

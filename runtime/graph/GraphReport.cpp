@@ -1,5 +1,4 @@
 #include "GraphReport.h"
-#include "OpNode.h"
 
 #include <ComputeCommon.h>
 
@@ -43,10 +42,7 @@ static std::string dtypeToString(DataType dtype) {
 }
 
 static std::string nodeDetailStr(const GraphNode &gn) {
-  auto *stub = dynamic_cast<const StubOpNode *>(gn.op.get());
-  if (stub)
-    return stub->detail();
-  return "";
+  return gn.detail;
 }
 
 static std::string formatShape(const std::vector<uint32_t> &shape) {
@@ -100,7 +96,7 @@ std::string renderGraphSVG(const Graph &graph, const std::string &graphId) {
     const auto &n = nodes[idx];
     int maxInputLevel = -1;
     for (uint32_t inpId : n.inputIds) {
-      if (inpId < nodes.size() && nodes[inpId].op && !nodes[inpId].isRemoved) {
+      if (inpId < nodes.size() && !nodes[inpId].isRemoved) {
         maxInputLevel = std::max(maxInputLevel, level[inpId]);
       }
     }
@@ -167,7 +163,7 @@ std::string renderGraphSVG(const Graph &graph, const std::string &graphId) {
     const auto &n = nodes[idx];
     for (size_t inputIdx = 0; inputIdx < n.inputIds.size(); ++inputIdx) {
       uint32_t inpId = n.inputIds[inputIdx];
-      if (inpId < nodes.size() && nodes[inpId].op && !nodes[inpId].isRemoved) {
+      if (inpId < nodes.size() && !nodes[inpId].isRemoved) {
         int x1 = pos[inpId].x + nodeW / 2;
         int y1 = pos[inpId].y + nodeH;
         int x2 = pos[idx].x + nodeW / 2;
@@ -178,7 +174,7 @@ std::string renderGraphSVG(const Graph &graph, const std::string &graphId) {
                "marker-end=\"url(#"
             << markerId << ")\"/>\n";
 
-        auto dtype = nodes[inpId].op->outputDtype();
+        auto dtype = nodes[inpId].outputDtype;
         std::string dtypeStr = dtypeToString(dtype);
         int mx = (x1 + x2) / 2;
         int my = (y1 + y2) / 2;
@@ -235,7 +231,7 @@ std::string renderGraphSVG(const Graph &graph, const std::string &graphId) {
     }
 
     // Shape annotation to the right of the node.
-    auto shape = n.op->outputShape();
+    const auto &shape = n.outputShape;
     if (!shape.empty()) {
       svg << "<text x=\"" << (x + nodeW + 5) << "\" y=\""
           << (ny + nodeH / 2 + 4)

@@ -8,6 +8,20 @@
 namespace cut {
 namespace graph {
 
+// Populate cached metadata from the OpNode into the GraphNode.
+static void populateMetadata(GraphNode &gn) {
+  gn.logicalType = gn.op->logicalType();
+  gn.isInput = gn.op->isInputNode();
+  gn.displayName = gn.op->displayName();
+  gn.outputShape = gn.op->outputShape();
+  gn.outputDtype = gn.op->outputDtype();
+  // Detail for input nodes (constant vs dynamic)
+  if (gn.isInput) {
+    auto *inp = dynamic_cast<const InputOpNode *>(gn.op.get());
+    gn.detail = (inp && inp->isConstant()) ? "constant" : "dynamic";
+  }
+}
+
 uint32_t Graph::addNode(std::unique_ptr<OpNode> node,
                         const Tensor &outputTensor,
                         std::vector<uint32_t> inputIds) {
@@ -22,12 +36,10 @@ uint32_t Graph::addNode(std::unique_ptr<OpNode> node,
 
   GraphNode gn;
   gn.op = std::move(node);
-  gn.logicalType = gn.op->logicalType();
-  gn.isInput = gn.op->isInputNode();
-  gn.displayName = gn.op->displayName();
   gn.inputIds = std::move(inputIds);
+  populateMetadata(gn);
   nodes_.push_back(std::move(gn));
-  tensorToNodeId_.emplace_back(outputTensor, idx);
+  tensorToNodeId_[outputTensor.id()] = idx;
   return idx;
 }
 
@@ -44,10 +56,8 @@ uint32_t Graph::addNode(std::unique_ptr<OpNode> node,
 
   GraphNode gn;
   gn.op = std::move(node);
-  gn.logicalType = gn.op->logicalType();
-  gn.isInput = gn.op->isInputNode();
-  gn.displayName = gn.op->displayName();
   gn.inputIds = std::move(inputIds);
+  populateMetadata(gn);
   nodes_.push_back(std::move(gn));
   return idx;
 }
@@ -75,18 +85,16 @@ const GraphNode &Graph::node(const Tensor &t) const {
 }
 
 uint32_t Graph::nodeId(const Tensor &t) const {
-  for (const auto &p : tensorToNodeId_) {
-    if (p.first == t)
-      return p.second;
-  }
+  auto it = tensorToNodeId_.find(t.id());
+  if (it != tensorToNodeId_.end())
+    return it->second;
   throw std::out_of_range("No node found for tensor");
 }
 
 std::optional<uint32_t> Graph::tryNodeId(const Tensor &t) const {
-  for (const auto &p : tensorToNodeId_) {
-    if (p.first == t)
-      return p.second;
-  }
+  auto it = tensorToNodeId_.find(t.id());
+  if (it != tensorToNodeId_.end())
+    return it->second;
   return std::nullopt;
 }
 
@@ -188,13 +196,20 @@ void Graph::recomputeRefCounts() {
 std::vector<uint32_t> Graph::topologicalOrder() const {
   size_t n = nodes_.size();
 
-  // Compute in-degrees (only from non-removed nodes)
+  // A node is valid if it's not removed and either has an OpNode (live graph)
+  // or has metadata (cloned graph for reporting).
+  auto isValid = [&](uint32_t i) -> bool {
+    return !nodes_[i].isRemoved &&
+           (nodes_[i].op || !nodes_[i].displayName.empty());
+  };
+
+  // Compute in-degrees (only from valid nodes)
   std::vector<uint32_t> inDegree(n, 0);
   for (uint32_t i = 0; i < n; ++i) {
-    if (!nodes_[i].op || nodes_[i].isRemoved)
+    if (!isValid(i))
       continue;
     for (uint32_t inputId : nodes_[i].inputIds) {
-      if (inputId < n && nodes_[inputId].op && !nodes_[inputId].isRemoved) {
+      if (inputId < n && isValid(inputId)) {
         inDegree[i]++;
       }
     }
@@ -203,7 +218,7 @@ std::vector<uint32_t> Graph::topologicalOrder() const {
   // Start with nodes that have no inputs (in-degree 0)
   std::queue<uint32_t> ready;
   for (uint32_t i = 0; i < n; ++i) {
-    if (nodes_[i].op && !nodes_[i].isRemoved && inDegree[i] == 0) {
+    if (isValid(i) && inDegree[i] == 0) {
       ready.push(i);
     }
   }
@@ -215,10 +230,10 @@ std::vector<uint32_t> Graph::topologicalOrder() const {
   // Build adjacency: for each node, which nodes depend on it
   std::vector<std::vector<uint32_t>> dependents(n);
   for (uint32_t i = 0; i < n; ++i) {
-    if (!nodes_[i].op || nodes_[i].isRemoved)
+    if (!isValid(i))
       continue;
     for (uint32_t inputId : nodes_[i].inputIds) {
-      if (inputId < n && nodes_[inputId].op && !nodes_[inputId].isRemoved) {
+      if (inputId < n && isValid(inputId)) {
         dependents[inputId].push_back(i);
       }
     }
@@ -243,22 +258,14 @@ Graph Graph::clone() const {
   Graph copy;
   copy.nodes_.reserve(nodes_.size());
   for (const auto &n : nodes_) {
+    GraphNode gn;
     if (!n.op) {
-      copy.nodes_.push_back(GraphNode{});
+      // Empty slot — mark as removed so topology traversal skips it.
+      gn.isRemoved = true;
+      copy.nodes_.push_back(std::move(gn));
       continue;
     }
-
-    // Determine detail string for reporting
-    std::string detail;
-    if (n.isInput) {
-      auto *inp = dynamic_cast<const InputOpNode *>(n.op.get());
-      detail = (inp && inp->isConstant()) ? "constant" : "dynamic";
-    }
-
-    GraphNode gn;
-    gn.op = std::make_unique<StubOpNode>(n.op->op(), n.op->outputShape(),
-                                         n.op->outputDtype(), n.displayName,
-                                         detail);
+    // Copy all metadata — no OpNode needed for reporting/visualization.
     gn.inputIds = n.inputIds;
     gn.refCount = n.refCount;
     gn.isOutput = n.isOutput;
@@ -266,7 +273,9 @@ Graph Graph::clone() const {
     gn.logicalType = n.logicalType;
     gn.isInput = n.isInput;
     gn.displayName = n.displayName;
-
+    gn.outputShape = n.outputShape;
+    gn.outputDtype = n.outputDtype;
+    gn.detail = n.detail;
     copy.nodes_.push_back(std::move(gn));
   }
   copy.outputs_ = outputs_;

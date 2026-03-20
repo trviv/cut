@@ -211,33 +211,21 @@ Tensor Operations::reduce(OperatorEnum op,
 Tensor Operations::matmul(const Tensor &a,
                           const Tensor &b,
                           std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulOpNode>(*store_, a, b, spec);
-  auto inputs = resolveAndCastInputs(*node, {a, b});
-  if (inputs[0] != a || inputs[1] != b)
-    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], inputs[1], spec);
-  return recordOrEncode(std::move(node));
+  return recordOrEncode(createMatMulResolved(a, b, spec));
 }
 
 Tensor Operations::matmul(const Tensor &a,
                           const Tensor &packedB,
                           const Tensor &scales,
                           std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulOpNode>(*store_, a, packedB, scales, spec);
-  auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
-  if (inputs[0] != a)
-    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], packedB, scales,
-                                          spec);
-  return recordOrEncode(std::move(node));
+  return recordOrEncode(createMatMulResolved(a, packedB, scales, spec));
 }
 
 Tensor Operations::matmulUnary(OperatorEnum unaryOp,
                                const Tensor &a,
                                const Tensor &b,
                                std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulOpNode>(*store_, a, b, spec);
-  auto inputs = resolveAndCastInputs(*node, {a, b});
-  if (inputs[0] != a || inputs[1] != b)
-    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], inputs[1], spec);
+  auto node = createMatMulResolved(a, b, spec);
   node->setFusion(MatMulFusion::Unary, unaryOp);
   return recordOrEncode(std::move(node));
 }
@@ -247,11 +235,7 @@ Tensor Operations::matmulUnary(OperatorEnum unaryOp,
                                const Tensor &packedB,
                                const Tensor &scales,
                                std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulOpNode>(*store_, a, packedB, scales, spec);
-  auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
-  if (inputs[0] != a)
-    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], packedB, scales,
-                                          spec);
+  auto node = createMatMulResolved(a, packedB, scales, spec);
   node->setFusion(MatMulFusion::Unary, unaryOp);
   return recordOrEncode(std::move(node));
 }
@@ -262,12 +246,11 @@ Tensor Operations::matmulBinary(OperatorEnum binaryOp,
                                 const Tensor &scales,
                                 const Tensor &d,
                                 std::optional<uint32_t> spec) {
-  auto node = std::make_unique<MatMulOpNode>(*store_, a, packedB, scales, spec);
-  auto inputs = resolveAndCastInputs(*node, {a, packedB, scales, d});
-  if (inputs[0] != a)
-    node = std::make_unique<MatMulOpNode>(*store_, inputs[0], packedB, scales,
-                                          spec);
-  node->setFusion(MatMulFusion::Binary, binaryOp, inputs[3]);
+  auto node = createMatMulResolved(a, packedB, scales, spec);
+  // Cast d separately — it's not a matmul input, just the fusion operand
+  auto dtD = getDtype(d);
+  Tensor castD = (dtD != DataType::Float32) ? cast(d, widenPrecision(dtD)) : d;
+  node->setFusion(MatMulFusion::Binary, binaryOp, castD);
   return recordOrEncode(std::move(node));
 }
 
@@ -793,12 +776,9 @@ Tensor Operations::conv1d(const Tensor &input,
                           uint32_t stride,
                           uint32_t padding,
                           std::optional<uint32_t> spec) {
-  auto node = std::make_unique<Conv1DOpNode>(*store_, input, weight, stride,
-                                             padding, spec);
-  auto inputs = resolveAndCastInputs(*node, {input, weight});
-  if (inputs[0] != input || inputs[1] != weight)
-    node = std::make_unique<Conv1DOpNode>(*store_, inputs[0], inputs[1], stride,
-                                          padding, spec);
+  auto [ci, cw] = widenToMatch(input, weight);
+  auto node =
+      std::make_unique<Conv1DOpNode>(*store_, ci, cw, stride, padding, spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -809,12 +789,9 @@ Tensor Operations::conv2d(const Tensor &input,
                           uint32_t padH,
                           uint32_t padW,
                           std::optional<uint32_t> spec) {
-  auto node = std::make_unique<Conv2DOpNode>(*store_, input, weight, strideH,
-                                             strideW, padH, padW, spec);
-  auto inputs = resolveAndCastInputs(*node, {input, weight});
-  if (inputs[0] != input || inputs[1] != weight)
-    node = std::make_unique<Conv2DOpNode>(*store_, inputs[0], inputs[1],
-                                          strideH, strideW, padH, padW, spec);
+  auto [ci, cw] = widenToMatch(input, weight);
+  auto node = std::make_unique<Conv2DOpNode>(*store_, ci, cw, strideH, strideW,
+                                             padH, padW, spec);
   return recordOrEncode(std::move(node));
 }
 
@@ -1127,7 +1104,7 @@ Operations::slice(const Tensor &a, uint32_t dim, uint32_t start, uint32_t end) {
 }
 
 // =========================================================================
-// Dtype resolution helper
+// Dtype resolution helpers
 // =========================================================================
 
 std::vector<Tensor>
@@ -1142,11 +1119,46 @@ Operations::resolveAndCastInputs(const OpNode &node,
     return inputs;
 
   std::vector<Tensor> result;
-  for (size_t i = 0; i < inputs.size(); ++i) {
+  for (size_t i = 0; i < inputs.size() && i < resolved.size(); ++i) {
     result.push_back(resolved[i] != actual[i] ? cast(inputs[i], resolved[i])
                                               : inputs[i]);
   }
+  // Pass through any extra inputs that resolveInputDtypes didn't cover
+  for (size_t i = resolved.size(); i < inputs.size(); ++i) {
+    result.push_back(inputs[i]);
+  }
   return result;
+}
+
+std::pair<Tensor, Tensor> Operations::widenToMatch(const Tensor &a,
+                                                   const Tensor &b) {
+  auto dtA = getDtype(a);
+  auto dtB = getDtype(b);
+  if (dtA == dtB)
+    return {a, b};
+  return {cast(a, widenPrecision(dtA)), cast(b, widenPrecision(dtB))};
+}
+
+std::unique_ptr<MatMulOpNode> Operations::createMatMulResolved(
+    const Tensor &a, const Tensor &b, std::optional<uint32_t> spec) {
+  auto node = std::make_unique<MatMulOpNode>(*store_, a, b, spec);
+  auto inputs = resolveAndCastInputs(*node, {a, b});
+  if (inputs[0] != a || inputs[1] != b)
+    return std::make_unique<MatMulOpNode>(*store_, inputs[0], inputs[1], spec);
+  return node;
+}
+
+std::unique_ptr<MatMulOpNode>
+Operations::createMatMulResolved(const Tensor &a,
+                                 const Tensor &packedB,
+                                 const Tensor &scales,
+                                 std::optional<uint32_t> spec) {
+  auto node = std::make_unique<MatMulOpNode>(*store_, a, packedB, scales, spec);
+  auto inputs = resolveAndCastInputs(*node, {a, packedB, scales});
+  if (inputs[0] != a)
+    return std::make_unique<MatMulOpNode>(*store_, inputs[0], packedB, scales,
+                                          spec);
+  return node;
 }
 
 // =========================================================================

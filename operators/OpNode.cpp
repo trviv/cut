@@ -146,17 +146,4 @@ std::string InputOpNode::displayName() const {
   return "Input";
 }
 
-// ============================================================================
-// StubOpNode
-// ============================================================================
-
-StubOpNode::StubOpNode(OperatorEnum opEnum,
-                       const std::vector<uint32_t> &shape,
-                       DataType dtype,
-                       std::string name,
-                       std::string detail,
-                       bool isConstant)
-    : OpNode(opEnum), shape_(shape), dtype_(dtype), name_(std::move(name)),
-      detail_(std::move(detail)), isConstant_(isConstant) {}
-
 } // namespace cut

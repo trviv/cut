@@ -84,7 +84,7 @@ bool IdentityReshapePass::run(Graph &graph, TensorStore &store) {
 
     uint32_t inputId = n.inputIds[0];
     const auto &inputNode = graph.node(inputId);
-    if (n.op->outputShape() == inputNode.op->outputShape()) {
+    if (n.outputShape == inputNode.outputShape) {
       // This reshape is a no-op — rewire consumers to use the input directly
       graph.replaceAllUses(i, inputId);
       changed = true;
@@ -149,8 +149,8 @@ bool NoOpReshapePass::run(Graph &graph, TensorStore &store) {
     uint32_t inputId = n.inputIds[0];
     const auto &inputNode = graph.node(inputId);
 
-    auto srcShape = inputNode.op->outputShape();
-    auto dstShape = n.op->outputShape();
+    const auto &srcShape = inputNode.outputShape;
+    const auto &dstShape = n.outputShape;
 
     // IdentityReshapePass already handles identical shapes
     if (srcShape == dstShape)
@@ -399,8 +399,8 @@ bool MatMulUnaryFusionPass::run(Graph &graph, TensorStore &store) {
       auto &bNode = graph.nodes()[bId];
       if (!aNode.op || !bNode.op)
         continue;
-      auto shapeA = aNode.op->outputShape();
-      auto shapeB = bNode.op->outputShape();
+      auto shapeA = aNode.outputShape;
+      auto shapeB = bNode.outputShape;
       if (shapeA.size() != 2 || shapeB.size() != 2) {
         skipReason[4]++;
         continue;
@@ -422,7 +422,7 @@ bool MatMulUnaryFusionPass::run(Graph &graph, TensorStore &store) {
       auto &sNode = graph.nodes()[sId];
       if (!aNode.op || !bNode.op || !sNode.op)
         continue;
-      auto shapeA = aNode.op->outputShape();
+      auto shapeA = aNode.outputShape;
       // Accept 1D A (treated as [1, K]) — NoOpReshapePass may have removed
       // the [dim] → [1, dim] reshape when memory layout is identical.
       if (shapeA.size() < 1 || shapeA.size() > 2) {
@@ -488,8 +488,8 @@ bool MatMulBinaryFusionPass::run(Graph &graph, TensorStore &store) {
     auto &inp1 = nodes[binNode.inputIds[1]];
     if (!inp0.op || !inp1.op)
       continue;
-    if (actualElementCount(inp0.op->outputShape()) !=
-        actualElementCount(inp1.op->outputShape()))
+    if (actualElementCount(inp0.outputShape) !=
+        actualElementCount(inp1.outputShape))
       continue;
 
     binaryCount++;
@@ -549,7 +549,7 @@ bool MatMulBinaryFusionPass::run(Graph &graph, TensorStore &store) {
       continue;
     }
 
-    auto shapeA = nodes[matmulNode.inputIds[0]].op->outputShape();
+    auto shapeA = nodes[matmulNode.inputIds[0]].outputShape;
     // Standard matmul requires 2D inputs; quantized accepts 1D A (treated as
     // [1,K])
     if (isStandard) {
@@ -565,8 +565,8 @@ bool MatMulBinaryFusionPass::run(Graph &graph, TensorStore &store) {
     }
 
     // Only fuse when matmul output shape matches binary output shape.
-    auto mmOutShape = matmulNode.op->outputShape();
-    auto binOutShape = binNode.op->outputShape();
+    auto mmOutShape = matmulNode.outputShape;
+    auto binOutShape = binNode.outputShape;
     if (mmOutShape != binOutShape) {
       skipReason[5]++;
       continue;
@@ -638,8 +638,8 @@ static bool isVecVecNode(const GraphNode &node,
   auto &inp1 = nodes[node.inputIds[1]];
   if (!inp0.op || !inp1.op)
     return false;
-  return actualElementCount(inp0.op->outputShape()) ==
-         actualElementCount(inp1.op->outputShape());
+  return actualElementCount(inp0.outputShape) ==
+         actualElementCount(inp1.outputShape);
 }
 
 bool FusedBinaryPass::run(Graph &graph, TensorStore &store) {
@@ -661,7 +661,7 @@ bool FusedBinaryPass::run(Graph &graph, TensorStore &store) {
       auto &node1 = graph.nodes()[node1Id];
       if (!canFuseProducer(node1))
         continue;
-      if (node1.op->outputDtype() != node2.op->outputDtype())
+      if (node1.outputDtype != node2.outputDtype)
         continue;
 
       OperatorEnum op1 = node1.op->op();
@@ -710,7 +710,7 @@ bool FusedBinaryPass::run(Graph &graph, TensorStore &store) {
         if (!n1inp0.op || !n1inp1.op)
           continue;
         // VecScalarBuf: second input has element count 1
-        if (actualElementCount(n1inp1.op->outputShape()) != 1)
+        if (actualElementCount(n1inp1.outputShape) != 1)
           continue;
 
         uint32_t aId = node1.inputIds[0];
@@ -741,7 +741,7 @@ bool FusedBinaryPass::run(Graph &graph, TensorStore &store) {
       auto &node1 = graph.nodes()[node1Id];
       if (!canFuseProducer(node1))
         continue;
-      if (node1.op->outputDtype() != node2.op->outputDtype())
+      if (node1.outputDtype != node2.outputDtype)
         continue;
 
       OperatorEnum op1 = node1.op->op();
@@ -776,14 +776,14 @@ bool FusedBinaryPass::run(Graph &graph, TensorStore &store) {
       auto &n2inp1 = graph.nodes()[node2.inputIds[1]];
       if (!n2inp1.op)
         continue;
-      if (actualElementCount(n2inp1.op->outputShape()) != 1)
+      if (actualElementCount(n2inp1.outputShape) != 1)
         continue;
 
       uint32_t node1Id = node2.inputIds[0];
       auto &node1 = graph.nodes()[node1Id];
       if (!canFuseProducer(node1))
         continue;
-      if (node1.op->outputDtype() != node2.op->outputDtype())
+      if (node1.outputDtype != node2.outputDtype)
         continue;
 
       OperatorEnum op1 = node1.op->op();
@@ -819,7 +819,7 @@ bool FusedBinaryPass::run(Graph &graph, TensorStore &store) {
       auto &node1 = graph.nodes()[node1Id];
       if (!canFuseProducer(node1))
         continue;
-      if (node1.op->outputDtype() != node2.op->outputDtype())
+      if (node1.outputDtype != node2.outputDtype)
         continue;
 
       OperatorEnum op1 = node1.op->op();

@@ -56,8 +56,8 @@ void GraphExecutor::executeNode(Graph &graph, uint32_t nodeIndex) {
   }
 
   // --- Zero-copy slice: create a view into parent, no GPU dispatch ---
-  auto *sliceOp = dynamic_cast<SliceOpNode *>(gn.op.get());
-  if (sliceOp) {
+  if (gn.logicalType == LogicalOpType::Slice) {
+    auto *sliceOp = static_cast<SliceOpNode *>(gn.op.get());
     // Parent is the single input — create a buffer view at the slice offset.
     Tensor parent = realInputs[0];
     auto shape = sliceOp->outputShape();

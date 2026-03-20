@@ -2,13 +2,14 @@
 
 #include "OpNode.h"
 
+#include <ComputeCommon.h>
 #include <ComputeHandle.h>
 
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
+#include <unordered_map>
 #include <vector>
 
 namespace cut {
@@ -17,6 +18,9 @@ namespace graph {
 
 /// Wraps an OpNode with graph-level topology and metadata.
 /// OpNode handles GPU dispatch; GraphNode handles DAG structure.
+/// Metadata fields (outputShape, outputDtype, detail) are cached at addNode()
+/// time so that optimizer passes and reporting can access them without reaching
+/// through to the OpNode.
 struct GraphNode {
   std::unique_ptr<OpNode> op;
   std::vector<uint32_t> inputIds;
@@ -26,6 +30,10 @@ struct GraphNode {
   LogicalOpType logicalType = LogicalOpType::Other;
   bool isInput = false;
   std::string displayName;
+  // Cached metadata (populated at addNode, used by clone/report/optimizer):
+  std::vector<uint32_t> outputShape;
+  DataType outputDtype = DataType::Float32;
+  std::string detail; // e.g. "constant"/"dynamic" for inputs
 };
 
 /// Container for a computation DAG. Owns all nodes (as GraphNode wrappers) and
@@ -93,7 +101,7 @@ public:
   /// Skips removed nodes. Uses Kahn's algorithm.
   std::vector<uint32_t> topologicalOrder() const;
 
-  /// Deep-copy the graph structure using StubOpNodes.
+  /// Deep-copy the graph metadata (no OpNodes).
   /// Suitable for snapshots used in reporting/visualization but not execution.
   Graph clone() const;
 
@@ -106,8 +114,8 @@ private:
   std::vector<uint32_t> outputs_;
   bool executed_ = false;
 
-  /// Maps Tensor handle → node index for Tensor-based lookups.
-  std::vector<std::pair<Tensor, uint32_t>> tensorToNodeId_;
+  /// Maps Tensor handle id → node index for O(1) Tensor-based lookups.
+  std::unordered_map<size_t, uint32_t> tensorToNodeId_;
 };
 
 } // namespace graph
