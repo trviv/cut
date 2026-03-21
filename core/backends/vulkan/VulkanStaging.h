@@ -43,6 +43,9 @@ public:
   /// Submit all pending copies, wait for completion, reset for next batch.
   void flush();
 
+  /// Free the staging buffer memory. Next reserve() will reallocate.
+  void releaseStagingMemory();
+
   bool hasPending() const { return recording_; }
 
 private:

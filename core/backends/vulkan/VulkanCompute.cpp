@@ -802,6 +802,19 @@ size_t VulkanCompute::bufferOffsetAlignment() const {
                   deviceProperties_.limits.minStorageBufferOffsetAlignment);
 }
 
+void VulkanCompute::releaseLoadingResources() {
+  // Drain cached (freed but not destroyed) buffers — these are intermediates
+  // from transpose ops etc. that were cached for potential reuse.
+  containers_->bufferContainer.drainCache();
+
+  // Flush and release staging buffer memory. The staging manager remains
+  // alive (lazy-reallocated on next use) but its large buffer is freed.
+  if (staging_) {
+    staging_->flush();
+    staging_->releaseStagingMemory();
+  }
+}
+
 // Debug callback for validation layer messages
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,

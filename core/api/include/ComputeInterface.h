@@ -145,6 +145,12 @@ public:
   virtual size_t bufferOffsetAlignment() const { return 256; }
 
   /**
+   * Release internal caches and staging memory to reduce memory footprint.
+   * Call after bulk loading (e.g. model weights) is complete.
+   */
+  virtual void releaseLoadingResources() {}
+
+  /**
    * Flushes any pending batched host-to-device transfers.
    * Called automatically before compute submission and device-to-host reads.
    * Override in backends that batch staging buffer uploads.

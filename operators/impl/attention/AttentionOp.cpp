@@ -65,7 +65,9 @@ AttentionOpNode::AttentionOpNode(TensorStore &store,
                                  const Tensor &preallocOutput,
                                  std::optional<uint32_t> spec)
     : OpNode(Attention, store, spec) {
-  dtype_ = store.getTensor(q).getDtype();
+  // Shader variant selected by cache dtype (F16 cache = F16 shader with
+  // mixed-precision: Q/output remain F32, only cache reads are F16).
+  dtype_ = store.getTensor(kCache).getDtype();
   nHeads_ = nHeads;
   nKvHeads_ = nKvHeads;
   headDim_ = headDim;
@@ -76,13 +78,16 @@ AttentionOpNode::AttentionOpNode(TensorStore &store,
 
   outShape_ = {nHeads * headDim};
 
+  // Output is always Float32 (attention accumulates in full precision)
+  auto outDtype = store.getTensor(q).getDtype();
   inputs_ = {q, kCache, vCache, runtimeParams};
   output_ = preallocOutput ? preallocOutput
-                           : store.createTensorEmpty(outShape_, dtype_);
+                           : store.createTensorEmpty(outShape_, outDtype);
 }
 
 DataType AttentionOpNode::outputDtype() const {
-  return dtype_;
+  // Output dtype matches Q (Float32), not cache dtype
+  return store_->getTensor(output_).getDtype();
 }
 
 std::optional<std::vector<uint32_t>> AttentionOpNode::shader() const {
@@ -128,7 +133,8 @@ FusedAttentionOpNode::FusedAttentionOpNode(TensorStore &store,
                                            const Tensor &preallocOutput,
                                            std::optional<uint32_t> spec)
     : OpNode(FusedAttention, store, spec) {
-  dtype_ = store.getTensor(q).getDtype();
+  // Shader variant selected by cache dtype (F16 cache = F16 shader).
+  dtype_ = store.getTensor(kCache).getDtype();
   nHeads_ = nHeads;
   nKvHeads_ = nKvHeads;
   headDim_ = headDim;
@@ -139,14 +145,16 @@ FusedAttentionOpNode::FusedAttentionOpNode(TensorStore &store,
 
   outShape_ = {nHeads * headDim};
 
+  // Output is always Float32 (attention accumulates in full precision)
+  auto outDtype = store.getTensor(q).getDtype();
   // Order: q, k, v, kCache, vCache, runtimeParams, cosTable, sinTable
   inputs_ = {q, k, v, kCache, vCache, runtimeParams, cosTable, sinTable};
   output_ = preallocOutput ? preallocOutput
-                           : store.createTensorEmpty(outShape_, dtype_);
+                           : store.createTensorEmpty(outShape_, outDtype);
 }
 
 DataType FusedAttentionOpNode::outputDtype() const {
-  return dtype_;
+  return store_->getTensor(output_).getDtype();
 }
 
 std::optional<std::vector<uint32_t>> FusedAttentionOpNode::shader() const {

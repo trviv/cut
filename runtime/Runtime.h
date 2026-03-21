@@ -164,6 +164,12 @@ public:
   size_t activeBufferMemoryBytes() const;
 
   /**
+   * Release internal caches and staging memory to reduce memory footprint.
+   * Call after bulk loading (e.g. model weights) is complete.
+   */
+  void releaseLoadingResources();
+
+  /**
    * Flushes any pending GPU commands.
    * Submits and waits for all batched operations to complete.
    */

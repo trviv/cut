@@ -9,21 +9,37 @@
  *
  * Run:
  *   ./gguf_example [model.gguf] [max_tokens] [prompt] [repeat_penalty]
+ *                  [--ctx-size N] [--no-chat]
  */
 
 #include "Runtime.h"
 #include "llama.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <iostream>
 #include <string>
 #include <vector>
 
 int main(int argc, char *argv[]) {
-  std::string filePath;
+  // Separate positional args from --flags
+  bool noChat = false;
+  uint32_t ctxSize = 0; // 0 = use default (512, matching llama.cpp)
+  std::vector<std::string> positional;
+  for (int i = 1; i < argc; ++i) {
+    if (std::strcmp(argv[i], "--no-chat") == 0) {
+      noChat = true;
+    } else if (std::strcmp(argv[i], "--ctx-size") == 0 && i + 1 < argc) {
+      ctxSize = static_cast<uint32_t>(std::atoi(argv[++i]));
+    } else {
+      positional.push_back(argv[i]);
+    }
+  }
 
-  if (argc >= 2) {
-    filePath = argv[1];
+  std::string filePath;
+  if (!positional.empty()) {
+    filePath = positional[0];
   } else {
 #ifdef MODELS_DIR
     filePath = std::string(MODELS_DIR) + "/llm.gguf";
@@ -39,34 +55,27 @@ int main(int argc, char *argv[]) {
 
     // Load model
     gguf::LlamaModel model;
-    model.load(filePath, runtime);
+    model.load(filePath, runtime, ctxSize);
 
     const auto &cfg = model.config();
     std::cout << "\nModel ready:\n";
     std::cout << "  dim=" << cfg.dim << " layers=" << cfg.n_layers
               << " heads=" << cfg.n_heads << " vocab=" << cfg.vocab_size
-              << "\n\n";
+              << " ctx=" << cfg.max_seq_len << "\n\n";
 
     int max_new_tokens = 32;
-    if (argc >= 3) {
-      max_new_tokens = std::atoi(argv[2]);
+    if (positional.size() >= 2) {
+      max_new_tokens = std::atoi(positional[1].c_str());
     }
 
     // Tokenize prompt from CLI or use default
     std::string prompt_text = "Hello, how are you?";
-    if (argc >= 4) {
-      prompt_text = argv[3];
+    if (positional.size() >= 3) {
+      prompt_text = positional[2];
     }
 
     // For instruct/chat models, wrap in ChatML template if special tokens
     // exist. Skip if --no-chat flag is passed as any argument.
-    bool noChat = false;
-    for (int i = 1; i < argc; ++i) {
-      if (std::string(argv[i]) == "--no-chat") {
-        noChat = true;
-      }
-    }
-
     int im_start = model.tokenId("<|im_start|>");
     int im_end = model.tokenId("<|im_end|>");
     std::string tokenizer_input = prompt_text;
@@ -90,8 +99,8 @@ int main(int argc, char *argv[]) {
     std::cout << "]\n";
 
     float repeat_penalty = 1.05f;
-    if (argc >= 5) {
-      repeat_penalty = static_cast<float>(std::atof(argv[4]));
+    if (positional.size() >= 4) {
+      repeat_penalty = static_cast<float>(std::atof(positional[3].c_str()));
     }
 
     std::cout << "Generating " << max_new_tokens

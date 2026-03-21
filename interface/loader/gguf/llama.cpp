@@ -31,6 +31,32 @@ LlamaModel::uploadMatrix(const float *data, uint32_t rows, uint32_t cols) {
 }
 
 cut::ComputeHandle
+LlamaModel::uploadFusedF16(const GGUFReader &reader,
+                           const std::vector<std::string> &names) {
+  // Read multiple F16 tensors, concatenate rows, upload once, transpose once.
+  // All tensors must share the same innermost dimension K (= cols in GGUF).
+  uint32_t K = static_cast<uint32_t>(
+      reader.get_tensor_info(names[0]).dimensions[0]);
+  uint32_t totalRows = 0;
+  for (const auto &name : names) {
+    totalRows +=
+        static_cast<uint32_t>(reader.get_tensor_info(name).dimensions[1]);
+  }
+
+  std::vector<uint8_t> combined(totalRows * K * 2);
+  size_t off = 0;
+  for (const auto &name : names) {
+    auto raw = reader.read_tensor_raw(name);
+    memcpy(combined.data() + off, raw.data(), raw.size());
+    off += raw.size();
+  }
+
+  auto gpu = runtime_->createTensor({totalRows, K}, cut::DataType::Float16,
+                                    combined.data());
+  return ops_->transpose(gpu);
+}
+
+cut::ComputeHandle
 LlamaModel::uploadWeight(const GGUFReader &reader,
                          const std::string &name,
                          const std::vector<uint32_t> &shape) {
@@ -152,7 +178,9 @@ cut::Tensor LlamaModel::graphWeight(cut::graph::GraphBuilder &builder,
 // Loading
 // ============================================================================
 
-void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
+void LlamaModel::load(const std::string &gguf_path,
+                      cut::Runtime &runtime,
+                      uint32_t n_ctx) {
   runtime_ = &runtime;
   ops_ = &runtime.ops();
 
@@ -179,7 +207,20 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       meta.get_as<float>(prefix + "rope.freq_base", 10000.0f);
   config_.norm_eps =
       meta.get_as<float>(prefix + "attention.layer_norm_rms_epsilon", 1e-5f);
-  config_.max_seq_len = meta.get_as<uint32_t>(prefix + "context_length", 2048);
+
+  // Context size: use n_ctx if provided, otherwise keep struct default (512).
+  // Cap to model's context_length so RoPE tables and KV cache stay in bounds.
+  uint32_t model_ctx =
+      meta.get_as<uint32_t>(prefix + "context_length", 2048);
+  if (n_ctx > 0) {
+    config_.max_seq_len = n_ctx;
+  }
+  if (config_.max_seq_len > model_ctx) {
+    std::cout << "WARNING: n_ctx=" << config_.max_seq_len
+              << " exceeds model context_length=" << model_ctx
+              << ", capping\n";
+    config_.max_seq_len = model_ctx;
+  }
 
   if (config_.dim == 0 || config_.n_layers == 0 || config_.n_heads == 0) {
     throw std::runtime_error("Failed to read model config from GGUF metadata");
@@ -202,7 +243,8 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
             << " n_heads=" << config_.n_heads
             << " n_kv_heads=" << config_.n_kv_heads
             << " ffn_dim=" << config_.ffn_dim
-            << " head_dim=" << config_.head_dim << " vocab_size=";
+            << " head_dim=" << config_.head_dim
+            << " ctx=" << config_.max_seq_len << " vocab_size=";
 
   // Load token embeddings to GPU for GPU-side embedding lookup.
   // GGML dimensions: [cols=dim, rows=vocab_size]
@@ -276,30 +318,49 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
       layer.attn_norm = uploadVector(data);
     }
 
+    // Attention biases (optional, e.g. Qwen2)
+    bool hasBias = reader.has_tensor(blk + "attn_q.bias");
+    if (hasBias) {
+      layer.bq = uploadVector(reader.read_tensor_f32(blk + "attn_q.bias"));
+      layer.bk = uploadVector(reader.read_tensor_f32(blk + "attn_k.bias"));
+      layer.bv = uploadVector(reader.read_tensor_f32(blk + "attn_v.bias"));
+    }
+
     // Attention weights — GGUF/GGML dimensions are [cols, rows] (innermost
-    // first). For non-quantized: upload as [rows, cols] and transpose on GPU.
-    // For Q8_0: CPU-transpose separated Int8 values + F16 scales to [K, N]
-    // to match the regular matmul layout convention.
+    // first). For F16 without bias, build fused QKV directly (single upload +
+    // single transpose) instead of uploading Q/K/V separately. This halves
+    // attention weight GPU memory vs the old approach.
     {
-      const auto &info = reader.get_tensor_info(blk + "attn_q.weight");
-      uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
-      uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      layer.wq =
-          uploadWeightMaybeQuantized(reader, blk + "attn_q.weight", rows, cols);
-    }
-    {
-      const auto &info = reader.get_tensor_info(blk + "attn_k.weight");
-      uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
-      uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      layer.wk =
-          uploadWeightMaybeQuantized(reader, blk + "attn_k.weight", rows, cols);
-    }
-    {
-      const auto &info = reader.get_tensor_info(blk + "attn_v.weight");
-      uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
-      uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      layer.wv =
-          uploadWeightMaybeQuantized(reader, blk + "attn_v.weight", rows, cols);
+      const auto &qi = reader.get_tensor_info(blk + "attn_q.weight");
+      bool canFuse = !hasBias && qi.type == GGMLType::F16;
+
+      if (canFuse) {
+        layer.wqkv.handle = uploadFusedF16(reader, {
+            blk + "attn_q.weight",
+            blk + "attn_k.weight",
+            blk + "attn_v.weight",
+        });
+      } else {
+        // Separate Q/K/V (quantized or biased models)
+        uint32_t qCols = static_cast<uint32_t>(qi.dimensions[0]);
+        uint32_t qRows = static_cast<uint32_t>(qi.dimensions[1]);
+        layer.wq = uploadWeightMaybeQuantized(reader, blk + "attn_q.weight",
+                                              qRows, qCols);
+        {
+          const auto &info = reader.get_tensor_info(blk + "attn_k.weight");
+          layer.wk = uploadWeightMaybeQuantized(
+              reader, blk + "attn_k.weight",
+              static_cast<uint32_t>(info.dimensions[1]),
+              static_cast<uint32_t>(info.dimensions[0]));
+        }
+        {
+          const auto &info = reader.get_tensor_info(blk + "attn_v.weight");
+          layer.wv = uploadWeightMaybeQuantized(
+              reader, blk + "attn_v.weight",
+              static_cast<uint32_t>(info.dimensions[1]),
+              static_cast<uint32_t>(info.dimensions[0]));
+        }
+      }
     }
 
     {
@@ -310,103 +371,46 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
                                             rows, cols);
     }
 
-    // Build fused QKV weight for non-quantized F16 models.
-    // Row-concatenate Q, K, V in GGUF-native [N, K] layout, upload once,
-    // transpose once → [K, Nq+Nk+Nv]. Saves 2 matmul dispatches per layer.
-    if (!layer.wq.isQuantized()) {
-      const auto &qi = reader.get_tensor_info(blk + "attn_q.weight");
-      if (qi.type == GGMLType::F16) {
-        uint32_t K = static_cast<uint32_t>(qi.dimensions[0]);
-        uint32_t Nq = static_cast<uint32_t>(qi.dimensions[1]);
-        const auto &ki = reader.get_tensor_info(blk + "attn_k.weight");
-        uint32_t Nk = static_cast<uint32_t>(ki.dimensions[1]);
-        const auto &vi = reader.get_tensor_info(blk + "attn_v.weight");
-        uint32_t Nv = static_cast<uint32_t>(vi.dimensions[1]);
-        uint32_t Ntotal = Nq + Nk + Nv;
-
-        auto rawQ = reader.read_tensor_raw(blk + "attn_q.weight");
-        auto rawK = reader.read_tensor_raw(blk + "attn_k.weight");
-        auto rawV = reader.read_tensor_raw(blk + "attn_v.weight");
-        // Concatenate rows: [Nq,K] + [Nk,K] + [Nv,K] → [Ntotal, K]
-        std::vector<uint8_t> combined(Ntotal * K * 2);
-        size_t off = 0;
-        memcpy(combined.data() + off, rawQ.data(), rawQ.size());
-        off += rawQ.size();
-        memcpy(combined.data() + off, rawK.data(), rawK.size());
-        off += rawK.size();
-        memcpy(combined.data() + off, rawV.data(), rawV.size());
-        auto gpu = runtime_->createTensor({Ntotal, K}, cut::DataType::Float16,
-                                          combined.data());
-        layer.wqkv.handle = ops_->transpose(gpu);
-      }
-    }
-
-    // Attention biases (optional, e.g. Qwen2)
-    if (reader.has_tensor(blk + "attn_q.bias")) {
-      auto data = reader.read_tensor_f32(blk + "attn_q.bias");
-      layer.bq = uploadVector(data);
-    }
-    if (reader.has_tensor(blk + "attn_k.bias")) {
-      auto data = reader.read_tensor_f32(blk + "attn_k.bias");
-      layer.bk = uploadVector(data);
-    }
-    if (reader.has_tensor(blk + "attn_v.bias")) {
-      auto data = reader.read_tensor_f32(blk + "attn_v.bias");
-      layer.bv = uploadVector(data);
-    }
-
     // FFN norm
     {
       auto data = reader.read_tensor_f32(blk + "ffn_norm.weight");
       layer.ffn_norm = uploadVector(data);
     }
 
-    // FFN weights
+    // FFN weights — for F16, build fused gate+up directly (single upload).
     {
-      const auto &info = reader.get_tensor_info(blk + "ffn_gate.weight");
-      uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
-      uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      layer.w_gate = uploadWeightMaybeQuantized(reader, blk + "ffn_gate.weight",
-                                                rows, cols);
-    }
-    {
-      const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
-      uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
-      uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      layer.w_up =
-          uploadWeightMaybeQuantized(reader, blk + "ffn_up.weight", rows, cols);
-    }
-    {
-      const auto &info = reader.get_tensor_info(blk + "ffn_down.weight");
-      uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
-      uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-      layer.w_down = uploadWeightMaybeQuantized(reader, blk + "ffn_down.weight",
-                                                rows, cols);
-    }
-
-    // Build fused gate+up weight for non-quantized F16 models.
-    // Row-concatenate gate, up in GGUF-native [N, K] layout, upload once,
-    // transpose once → [K, 2*ffn_dim]. Saves 1 matmul dispatch per layer.
-    if (!layer.w_gate.isQuantized()) {
       const auto &gi = reader.get_tensor_info(blk + "ffn_gate.weight");
-      if (gi.type == GGMLType::F16) {
-        uint32_t K = static_cast<uint32_t>(gi.dimensions[0]);
-        uint32_t Ngate = static_cast<uint32_t>(gi.dimensions[1]);
-        const auto &ui = reader.get_tensor_info(blk + "ffn_up.weight");
-        uint32_t Nup = static_cast<uint32_t>(ui.dimensions[1]);
-        uint32_t Ntotal = Ngate + Nup;
+      bool canFuseFFN = gi.type == GGMLType::F16;
 
-        auto rawGate = reader.read_tensor_raw(blk + "ffn_gate.weight");
-        auto rawUp = reader.read_tensor_raw(blk + "ffn_up.weight");
-        // Concatenate rows: [Ngate,K] + [Nup,K] → [Ntotal, K]
-        std::vector<uint8_t> combined(Ntotal * K * 2);
-        size_t off = 0;
-        memcpy(combined.data() + off, rawGate.data(), rawGate.size());
-        off += rawGate.size();
-        memcpy(combined.data() + off, rawUp.data(), rawUp.size());
-        auto gpu = runtime_->createTensor({Ntotal, K}, cut::DataType::Float16,
-                                          combined.data());
-        layer.w_gate_up.handle = ops_->transpose(gpu);
+      if (canFuseFFN) {
+        layer.w_gate_up.handle = uploadFusedF16(reader, {
+            blk + "ffn_gate.weight",
+            blk + "ffn_up.weight",
+        });
+      } else {
+        // Separate gate/up (quantized models)
+        {
+          uint32_t cols = static_cast<uint32_t>(gi.dimensions[0]);
+          uint32_t rows = static_cast<uint32_t>(gi.dimensions[1]);
+          layer.w_gate = uploadWeightMaybeQuantized(
+              reader, blk + "ffn_gate.weight", rows, cols);
+        }
+        {
+          const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
+          uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
+          uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
+          layer.w_up = uploadWeightMaybeQuantized(reader, blk + "ffn_up.weight",
+                                                  rows, cols);
+        }
+      }
+
+      // ffn_down always separate (not fused)
+      {
+        const auto &info = reader.get_tensor_info(blk + "ffn_down.weight");
+        uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
+        uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
+        layer.w_down = uploadWeightMaybeQuantized(
+            reader, blk + "ffn_down.weight", rows, cols);
       }
     }
   }
@@ -437,13 +441,15 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
     output_weight_.handle = ops_->transpose(embeddingTable_);
   }
 
-  // Initialize KV caches with pre-allocated GPU buffers
+  // Initialize KV caches with pre-allocated GPU buffers.
+  // Float16 KV cache halves memory (matches llama.cpp default) while
+  // attention computation stays Float32 for numerical stability.
   kv_caches_.resize(config_.n_layers);
   for (auto &cache : kv_caches_) {
     cache.k_cache = runtime_->createTensorEmpty(
-        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16);
     cache.v_cache = runtime_->createTensorEmpty(
-        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16);
   }
 
   // Pre-allocate buffers for command buffer reuse.
@@ -478,6 +484,10 @@ void LlamaModel::load(const std::string &gguf_path, cut::Runtime &runtime) {
   auto graphEnd = std::chrono::high_resolution_clock::now();
 
   runtime_->flush();
+
+  // Release buffer cache and staging memory — all weight uploads are done.
+  runtime_->releaseLoadingResources();
+
   auto flushEnd = std::chrono::high_resolution_clock::now();
   {
     double graphMs =
@@ -1529,11 +1539,11 @@ void LlamaModel::setProfilingEnabled(bool enabled) {
 
 void LlamaModel::resetCache() {
   for (auto &cache : kv_caches_) {
-    // Re-allocate fresh GPU cache buffers
+    // Re-allocate fresh GPU cache buffers (Float16 to match initial allocation)
     cache.k_cache = runtime_->createTensorEmpty(
-        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16);
     cache.v_cache = runtime_->createTensorEmpty(
-        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float32);
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16);
     cache.seq_len = 0;
   }
   // Invalidate cached command buffer (new generation = new KV cache handles)

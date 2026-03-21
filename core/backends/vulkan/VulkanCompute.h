@@ -76,6 +76,9 @@ public:
   /// Returns the minimum byte alignment for buffer view offsets.
   size_t bufferOffsetAlignment() const override;
 
+  /// Release buffer cache and staging memory after bulk loading.
+  void releaseLoadingResources() override;
+
   /// Constructs a VulkanCompute instance with the given Vulkan instance and
   /// configuration.
   VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,

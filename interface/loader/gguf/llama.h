@@ -34,7 +34,7 @@ struct LlamaConfig {
   uint32_t n_rep = 0;      // n_heads / n_kv_heads (GQA repeat factor)
   float rope_freq_base = 10000.0f;
   float norm_eps = 1e-5f;
-  uint32_t max_seq_len = 2048;
+  uint32_t max_seq_len = 512; // default matches llama.cpp n_ctx
 };
 
 /// Weight handle that supports both plain and quantized storage.
@@ -129,7 +129,10 @@ public:
   /// Load model from GGUF file onto GPU.
   /// @param gguf_path Path to the GGUF model file.
   /// @param runtime Initialized CUT runtime.
-  void load(const std::string &gguf_path, cut::Runtime &runtime);
+  /// @param n_ctx Context size (KV cache length). 0 = use default (512).
+  ///              Capped to the model's context_length from GGUF metadata.
+  void
+  load(const std::string &gguf_path, cut::Runtime &runtime, uint32_t n_ctx = 0);
 
   /// Run a single forward pass for one token at the given position.
   /// @param token_id The input token ID.
@@ -251,6 +254,11 @@ private:
   cut::ComputeHandle uploadWeight(const GGUFReader &reader,
                                   const std::string &name,
                                   const std::vector<uint32_t> &shape);
+
+  // Helper: concatenate multiple F16 tensors row-wise, upload, and transpose.
+  // Used for fused QKV and fused gate+up weights.
+  cut::ComputeHandle uploadFusedF16(const GGUFReader &reader,
+                                    const std::vector<std::string> &names);
 
   // Helper: upload weight, using Q8 separated path if Q8_0
   WeightHandle uploadWeightMaybeQuantized(const GGUFReader &reader,

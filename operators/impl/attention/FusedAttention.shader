@@ -17,26 +17,30 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-// Inputs: Q [nHeads * headDim] (pre-RoPE)
+// Inputs: Q [nHeads * headDim] (pre-RoPE) — always float
 [[vk::binding(0, 0)]] StructuredBuffer<float> qIn;
-// K [kvDim] (pre-RoPE)
+// K [kvDim] (pre-RoPE) — always float
 [[vk::binding(1, 0)]] StructuredBuffer<float> kIn;
-// V [kvDim]
+// V [kvDim] — always float
 [[vk::binding(2, 0)]] StructuredBuffer<float> vIn;
-// K cache [maxSeqLen, alignedKvDim]
+// K cache [maxSeqLen, alignedKvDim] — float or half
+#ifdef DTYPE_INPUT_IS_HALF
+[[vk::binding(3, 0)]] RWStructuredBuffer<float16_t> kCache;
+[[vk::binding(4, 0)]] RWStructuredBuffer<float16_t> vCache;
+#else
 [[vk::binding(3, 0)]] RWStructuredBuffer<float> kCache;
-// V cache [maxSeqLen, alignedKvDim]
 [[vk::binding(4, 0)]] RWStructuredBuffer<float> vCache;
+#endif
 // Runtime params [pos, seqLen]
 [[vk::binding(5, 0)]] StructuredBuffer<uint> runtimeParams;
 // Precomputed cos table [maxSeqLen * halfDim]
 [[vk::binding(6, 0)]] StructuredBuffer<float> cosTable;
 // Precomputed sin table [maxSeqLen * halfDim]
 [[vk::binding(7, 0)]] StructuredBuffer<float> sinTable;
-// Output [nHeads * headDim]
+// Output [nHeads * headDim] — always float
 [[vk::binding(8, 0)]] RWStructuredBuffer<float> dataOut;
 
-// Shared memory
+// Shared memory — always float for numerical stability
 groupshared float sharedQ[128];            // Max head_dim (post-RoPE Q for this head)
 groupshared float sharedScores[MAX_SEQ_LEN];
 groupshared float sharedReduce[WG_SIZE];
@@ -70,12 +74,20 @@ void main(uint3 DTid : SV_DispatchThreadID,
                 float sinVal = sinTable[tableBase + pairIdx];
                 kVal = kIn[d - pc.halfDim] * sinVal + kIn[d] * cosVal;
             }
+#ifdef DTYPE_INPUT_IS_HALF
+            kCache[pos * pc.alignedKvDim + d] = float16_t(kVal);
+#else
             kCache[pos * pc.alignedKvDim + d] = kVal;
+#endif
         }
 
         // Write V to V cache at position pos (no RoPE needed for V)
         for (uint d = tid; d < pc.kvDim; d += WG_SIZE) {
+#ifdef DTYPE_INPUT_IS_HALF
+            vCache[pos * pc.alignedKvDim + d] = float16_t(vIn[d]);
+#else
             vCache[pos * pc.alignedKvDim + d] = vIn[d];
+#endif
         }
     }
 
@@ -101,7 +113,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
         float dot = 0.0;
         uint kBase = t * pc.alignedKvDim + kvH * pc.headDim;
         for (uint d = 0; d < pc.headDim; d++) {
-            dot += sharedQ[d] * kCache[kBase + d];
+            dot += sharedQ[d] * float(kCache[kBase + d]);
         }
         sharedScores[t] = dot * pc.scale;
     }
@@ -149,7 +161,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
     if (tid < pc.headDim) {
         float acc = 0.0;
         for (uint t = 0; t < seqLen; t++) {
-            acc += sharedScores[t] * vCache[t * pc.alignedKvDim + kvH * pc.headDim + tid];
+            acc += sharedScores[t] * float(vCache[t * pc.alignedKvDim + kvH * pc.headDim + tid]);
         }
         dataOut[h * pc.headDim + tid] = acc;
     }

@@ -16,18 +16,22 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-// Query vector [nHeads * headDim]
+// Query vector [nHeads * headDim] — always float
 [[vk::binding(0, 0)]] StructuredBuffer<float> query;
-// K cache [maxSeqLen, kvDim] with aligned stride
+// K cache [maxSeqLen, kvDim] — float or half
+#ifdef DTYPE_INPUT_IS_HALF
+[[vk::binding(1, 0)]] StructuredBuffer<float16_t> kCache;
+[[vk::binding(2, 0)]] StructuredBuffer<float16_t> vCache;
+#else
 [[vk::binding(1, 0)]] StructuredBuffer<float> kCache;
-// V cache [maxSeqLen, kvDim] with aligned stride
 [[vk::binding(2, 0)]] StructuredBuffer<float> vCache;
+#endif
 // Runtime params [pos, seqLen]
 [[vk::binding(3, 0)]] StructuredBuffer<uint> runtimeParams;
-// Output [nHeads * headDim]
+// Output [nHeads * headDim] — always float
 [[vk::binding(4, 0)]] RWStructuredBuffer<float> dataOut;
 
-// Shared memory
+// Shared memory — always float for numerical stability
 groupshared float sharedQ[128];            // Max head_dim
 groupshared float sharedScores[MAX_SEQ_LEN];
 groupshared float sharedReduce[WG_SIZE];
@@ -52,7 +56,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
         float dot = 0.0;
         uint kBase = t * pc.alignedKvDim + kvH * pc.headDim;
         for (uint d = 0; d < pc.headDim; d++) {
-            dot += sharedQ[d] * kCache[kBase + d];
+            dot += sharedQ[d] * float(kCache[kBase + d]);
         }
         sharedScores[t] = dot * pc.scale;
     }
@@ -100,7 +104,7 @@ void main(uint3 DTid : SV_DispatchThreadID,
     if (tid < pc.headDim) {
         float acc = 0.0;
         for (uint t = 0; t < seqLen; t++) {
-            acc += sharedScores[t] * vCache[t * pc.alignedKvDim + kvH * pc.headDim + tid];
+            acc += sharedScores[t] * float(vCache[t * pc.alignedKvDim + kvH * pc.headDim + tid]);
         }
         dataOut[h * pc.headDim + tid] = acc;
     }

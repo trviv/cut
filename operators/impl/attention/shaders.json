@@ -8,6 +8,7 @@
       "dtype_slots": {
         "combos": [
           {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
           {"input": "Int8", "output": "Int8"}
         ]
       }
@@ -18,6 +19,7 @@
       "dtype_slots": {
         "combos": [
           {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
           {"input": "Int8", "output": "Int8"}
         ]
       }
@@ -27,7 +29,8 @@
       "description": "Fused RoPE + CacheWrite + Attention (saves 4 dispatches/layer)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"}
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
         ]
       }
     }

@@ -86,6 +86,12 @@ size_t Runtime::activeBufferMemoryBytes() const {
   return interface_->activeBufferMemoryBytes();
 }
 
+void Runtime::releaseLoadingResources() {
+  if (interface_) {
+    interface_->releaseLoadingResources();
+  }
+}
+
 void Runtime::flush() {
   if (operations_) {
     operations_->flush();

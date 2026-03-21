@@ -8,12 +8,16 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-// New vector to write [kvDim]
+// New vector to write [kvDim] — always float (from matmul output)
 [[vk::binding(0, 0)]] StructuredBuffer<float> newData;
 // Runtime params [pos, seqLen]
 [[vk::binding(1, 0)]] StructuredBuffer<uint> runtimeParams;
-// Cache buffer [maxSeqLen, kvDim] (read-write, modified in place)
+// Cache buffer [maxSeqLen, kvDim] — float or half depending on dtype
+#ifdef DTYPE_INPUT_IS_HALF
+[[vk::binding(2, 0)]] RWStructuredBuffer<float16_t> cache;
+#else
 [[vk::binding(2, 0)]] RWStructuredBuffer<float> cache;
+#endif
 
 [numthreads(256, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID) {
@@ -21,5 +25,9 @@ void main(uint3 DTid : SV_DispatchThreadID) {
     if (gid >= pc.kvDim) return;
 
     uint pos = runtimeParams[0];
+#ifdef DTYPE_INPUT_IS_HALF
+    cache[pos * pc.alignedKvDim + gid] = float16_t(newData[gid]);
+#else
     cache[pos * pc.alignedKvDim + gid] = newData[gid];
+#endif
 }

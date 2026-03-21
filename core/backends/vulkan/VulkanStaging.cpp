@@ -113,4 +113,12 @@ void VulkanStaging::flush() {
   recording_ = false;
 }
 
+void VulkanStaging::releaseStagingMemory() {
+  if (capacity_ > 0) {
+    destroyStagingFn_(staging_);
+    capacity_ = 0;
+    offset_ = 0;
+  }
+}
+
 } // namespace cut
