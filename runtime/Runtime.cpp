@@ -212,6 +212,13 @@ void Runtime::encodeBarrier() {
   }
 }
 
+void Runtime::updateBufferInline(Tensor handle, const void *data, size_t size) {
+  if (!interface_)
+    return;
+  interface_->encode(ComputeDispatch::createBufferUpdate(handle, data, size));
+  pendingCommands_ = true;
+}
+
 void Runtime::eagerSubmit() {
   if (!pendingCommands_ || !interface_)
     return;

@@ -325,6 +325,29 @@ public:
    */
   bool isBarrier() const { return isBarrier_; }
 
+  /**
+   * Creates a buffer-update dispatch that inlines small data updates into the
+   * command buffer (via vkCmdUpdateBuffer). Max 65536 bytes, must be multiple
+   * of 4. A transfer→compute barrier is inserted automatically after the
+   * update.
+   */
+  static ComputeDispatch createBufferUpdate(const ComputeHandle &target,
+                                            const void *data,
+                                            size_t size);
+
+  /**
+   * Returns true if this dispatch is an inline buffer update.
+   */
+  bool isBufferUpdate() const { return isBufferUpdate_; }
+
+  /// Returns the target buffer handle for a buffer update dispatch.
+  const ComputeHandle &bufferUpdateTarget() const { return outputHandle_; }
+
+  /// Returns the inline data for a buffer update dispatch.
+  const std::vector<uint8_t> &bufferUpdateData() const {
+    return bufferUpdateData_;
+  }
+
   /** Deleted copy constructor. */
   ComputeDispatch(const ComputeDispatch &) = delete;
 
@@ -401,7 +424,9 @@ private:
   ThreadSize wgSize_;                    ///< Workgroup dimensions.
   ComputeHandle shader_;                 ///< Bound shader handle.
   std::vector<ComputeBinding> bindings_; ///< All bindings (handles and data).
-  bool isBarrier_ = false;     ///< True if this is a barrier-only dispatch.
+  bool isBarrier_ = false;      ///< True if this is a barrier-only dispatch.
+  bool isBufferUpdate_ = false; ///< True if this is an inline buffer update.
+  std::vector<uint8_t> bufferUpdateData_; ///< Inline data for buffer updates.
   std::string label_;          ///< Human-readable label for profiling.
   ComputeHandle outputHandle_; ///< Output buffer for dependency tracking.
 };

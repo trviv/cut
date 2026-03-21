@@ -130,6 +130,20 @@ ComputeDispatch ComputeDispatch::createBarrier() {
   return barrier;
 }
 
+ComputeDispatch ComputeDispatch::createBufferUpdate(const ComputeHandle &target,
+                                                    const void *data,
+                                                    size_t size) {
+  ComputeDispatch update;
+  update.isBufferUpdate_ = true;
+  update.outputHandle_ = target;
+  update.bufferUpdateData_.assign(static_cast<const uint8_t *>(data),
+                                  static_cast<const uint8_t *>(data) + size);
+  // Pad to multiple of 4 bytes (vkCmdUpdateBuffer requirement)
+  while (update.bufferUpdateData_.size() % 4 != 0)
+    update.bufferUpdateData_.push_back(0);
+  return update;
+}
+
 void ComputeDispatch::bindShader(const ComputeHandle &shaderHandle) {
   shader_ = shaderHandle;
 }

@@ -399,7 +399,8 @@ ComputeHandle VulkanCompute::createBufferMapped(
   VkBufferCreateInfo bufferInfo = {};
   bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   bufferInfo.size = alignedSize;
-  bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  bufferInfo.usage =
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VulkanBufferStruct bufferStruct;

@@ -1004,17 +1004,41 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   return argmaxResultBuffer_;
 }
 
+void LlamaModel::forwardPrefill(int token_id, int pos) {
+  uint32_t upos = static_cast<uint32_t>(pos);
+  uint32_t params[2] = {upos, upos + 1};
+  runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
+
+  uint32_t tid = static_cast<uint32_t>(token_id);
+  runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t));
+
+  if (prefillCBCached_) {
+    runtime_->resubmitAndWait(cachedPrefillCB_);
+    return;
+  }
+
+  // Record prefill CB: embedding → layers (no logits/penalty/argmax)
+  ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
+
+  auto hidden = hiddenBuffer_;
+  for (uint32_t i = 0; i < config_.n_layers; ++i)
+    hidden = runLayer(i, hidden);
+
+  cachedPrefillCB_ = runtime_->submitReusable();
+  prefillCBCached_ = static_cast<bool>(cachedPrefillCB_);
+}
+
 int LlamaModel::prefill(const std::vector<int> &tokens) {
-  // Record all prompt tokens into a single command buffer — no intermediate
-  // fence waits. This replaces N separate forward() + wait cycles with
-  // a single submit + wait, eliminating (N-1) * ~3ms fence overhead.
+  // Record all prompt tokens into a single command buffer using inline buffer
+  // updates (vkCmdUpdateBuffer) for runtimeParams and tokenId. This eliminates
+  // N-1 fence waits by batching everything into one CB submission.
   for (size_t i = 0; i < tokens.size(); ++i) {
     uint32_t upos = static_cast<uint32_t>(i);
     uint32_t params[2] = {upos, upos + 1};
-    runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
+    runtime_->updateBufferInline(runtimeParamsBuffer_, params, sizeof(params));
 
     uint32_t tid = static_cast<uint32_t>(tokens[i]);
-    runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t));
+    runtime_->updateBufferInline(tokenIdBuffer_, &tid, sizeof(uint32_t));
 
     ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
 
@@ -1090,21 +1114,21 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
     return static_cast<int>(best);
   };
 
-  // Process prompt tokens (prefill)
+  // Process prompt tokens (prefill).
+  // Non-last tokens use forwardPrefill() which skips logits/penalty/argmax
+  // (~25% less GPU work per token) via a separate cached command buffer.
+  // Last token uses full forward() to set up the reusable decode CB.
   auto prefillStart = std::chrono::high_resolution_clock::now();
-  for (size_t i = 0; i < prompt_tokens.size(); ++i) {
-    // Upload penalty factors for last token only (used by argmax in the CB)
-    if (i == prompt_tokens.size() - 1) {
-      uploadPenaltyFactors();
-    }
 
-    auto argmaxBuf = forward(prompt_tokens[i], static_cast<int>(i));
-
-    // Only read argmax from last prompt token
-    if (i == prompt_tokens.size() - 1) {
-      next_token = readArgmax(argmaxBuf);
-    }
+  for (size_t i = 0; i + 1 < prompt_tokens.size(); ++i) {
+    forwardPrefill(prompt_tokens[i], static_cast<int>(i));
   }
+
+  uploadPenaltyFactors();
+  auto argmaxBuf =
+      forward(prompt_tokens.back(), static_cast<int>(prompt_tokens.size() - 1));
+  next_token = readArgmax(argmaxBuf);
+
   auto prefillEnd = std::chrono::high_resolution_clock::now();
   result.prefillMs =
       std::chrono::duration<double, std::milli>(prefillEnd - prefillStart)
@@ -1545,9 +1569,11 @@ void LlamaModel::resetCache() {
         {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16);
     cache.seq_len = 0;
   }
-  // Invalidate cached command buffer (new generation = new KV cache handles)
+  // Invalidate cached command buffers (new generation = new KV cache handles)
   cachedDecodeCB_.reset();
   decodeCBCached_ = false;
+  cachedPrefillCB_.reset();
+  prefillCBCached_ = false;
 }
 
 } // namespace gguf

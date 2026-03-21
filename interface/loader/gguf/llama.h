@@ -243,6 +243,14 @@ private:
   cut::ComputeHandle cachedDecodeCB_;
   bool decodeCBCached_ = false;
 
+  // Command buffer caching for prefill phase (no logits/argmax)
+  cut::ComputeHandle cachedPrefillCB_;
+  bool prefillCBCached_ = false;
+
+  /// Prefill forward: embedding + layers only (no logits/penalty/argmax).
+  /// Uses a separate cached CB from decode. Populates KV cache at pos.
+  void forwardPrefill(int token_id, int pos);
+
   // Helper: upload 1D float vector to GPU
   cut::ComputeHandle uploadVector(const std::vector<float> &data);
 

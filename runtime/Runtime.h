@@ -227,6 +227,11 @@ public:
   /// Encode an explicit compute-to-compute pipeline barrier.
   void encodeBarrier();
 
+  /// Record an inline buffer update into the active command buffer.
+  /// Uses vkCmdUpdateBuffer — max 65536 bytes, size must be multiple of 4.
+  /// Inserts a transfer→compute barrier after the update.
+  void updateBufferInline(Tensor handle, const void *data, size_t size);
+
 private:
   BackendType backendType_ = BackendType::Vulkan;
   std::shared_ptr<VulkanInstance> vulkanInstance_;

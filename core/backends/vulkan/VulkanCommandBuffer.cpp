@@ -57,8 +57,8 @@ createDescriptorSets(const std::vector<ComputeDispatch> &dispatches,
     allLayoutBindings.reserve(dispatches.size());
 
     for (const auto &dispatch : dispatches) {
-      if (dispatch.isBarrier()) {
-        continue; // Skip barrier dispatches — no shader or descriptors
+      if (dispatch.isBarrier() || dispatch.isBufferUpdate()) {
+        continue; // Skip non-shader dispatches — no shader or descriptors
       }
 
       const auto &reflection = shaderContainer.getReflection(dispatch.shader());
@@ -144,8 +144,8 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
 
   size_t layoutIndex = 0;
   for (size_t i = 0; i < dispatches.size(); ++i) {
-    if (dispatches[i].isBarrier()) {
-      continue; // Skip barrier dispatches — no shader or pipeline
+    if (dispatches[i].isBarrier() || dispatches[i].isBufferUpdate()) {
+      continue; // Skip non-shader dispatches — no shader or pipeline
     }
 
     const auto &reflection =
@@ -189,8 +189,8 @@ createComputePipelines(const std::vector<ComputeDispatch> &dispatches,
   shaderStages.reserve(dispatches.size());
 
   for (size_t i = 0; i < dispatches.size(); ++i) {
-    if (dispatches[i].isBarrier()) {
-      continue; // Skip barrier dispatches
+    if (dispatches[i].isBarrier() || dispatches[i].isBufferUpdate()) {
+      continue; // Skip non-shader dispatches
     }
 
     VkPipelineShaderStageCreateInfo stageInfo{};
@@ -293,8 +293,8 @@ void VulkanCommandBuffer::end() {
 
     size_t dispatchIndex = 0;
     for (const auto &dispatch : dispatches()) {
-      if (dispatch.isBarrier()) {
-        continue; // Skip barrier dispatches — no descriptors to update
+      if (dispatch.isBarrier() || dispatch.isBufferUpdate()) {
+        continue; // Skip non-shader dispatches — no descriptors to update
       }
 
       const auto &reflection =
@@ -377,7 +377,7 @@ void VulkanCommandBuffer::end() {
       queryCount_ = 0;
       dispatchLabels_.clear();
       for (const auto &d : dispatches()) {
-        if (!d.isBarrier()) {
+        if (!d.isBarrier() && !d.isBufferUpdate()) {
           queryCount_++;
           dispatchLabels_.push_back(d.label());
         }
@@ -432,6 +432,33 @@ void VulkanCommandBuffer::end() {
                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
                              &computeBarrier, 0, nullptr, 0, nullptr);
+        needsBarrier = false;
+        writtenHandles.clear();
+        continue; // Do NOT increment dispatchIndex
+      }
+
+      // Handle inline buffer update dispatches
+      if (dispatch.isBufferUpdate()) {
+        // Insert compute→transfer barrier if prior compute wrote to buffers
+        if (needsBarrier) {
+          insertBarrierIfNeeded();
+        }
+
+        const auto &targetBuffer = containers_.bufferContainer.getBuffer(
+            dispatch.bufferUpdateTarget());
+        const auto &data = dispatch.bufferUpdateData();
+        vkCmdUpdateBuffer(commandBuffer_, targetBuffer.buffer,
+                          targetBuffer.offset,
+                          static_cast<VkDeviceSize>(data.size()), data.data());
+
+        // Transfer→compute barrier so subsequent shaders see the update
+        VkMemoryBarrier transferBarrier{};
+        transferBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        transferBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        transferBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(commandBuffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                             &transferBarrier, 0, nullptr, 0, nullptr);
         needsBarrier = false;
         writtenHandles.clear();
         continue; // Do NOT increment dispatchIndex
