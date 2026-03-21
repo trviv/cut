@@ -14,7 +14,7 @@ PROMPT = "Hello, how are you?"
 CHAT_PROMPT = f"<|im_start|>user\n{PROMPT}<|im_end|>\n<|im_start|>assistant\n"
 
 
-def run_cut(model_path: str, device_index: int = None):
+def run_cut(model_path: str, max_tokens: int = 32, device_index: int = None):
     """Run CUT gguf_example and parse timing."""
     exe = "build/interface/loader/gguf/gguf_example"
     if not os.path.exists(exe):
@@ -25,7 +25,8 @@ def run_cut(model_path: str, device_index: int = None):
     if device_index is not None:
         env["CUT_VULKAN_DEVICE"] = str(device_index)
 
-    result = subprocess.run([exe, model_path], capture_output=True, text=True,
+    result = subprocess.run([exe, model_path, str(max_tokens)],
+                            capture_output=True, text=True,
                             timeout=120, env=env)
     output = result.stdout + result.stderr
 
@@ -325,7 +326,7 @@ def main():
         for dev in cut_discrete:
             label = f"CUT Vulkan ({dev['name']})"
             print_header(f"{bench_idx}. {label}")
-            info = run_cut(args.model, device_index=dev["idx"])
+            info = run_cut(args.model, args.max_tokens, device_index=dev["idx"])
             if info:
                 print_result(info, has_split=True)
                 results[label] = info
@@ -336,7 +337,7 @@ def main():
     else:
         # Fallback: run CUT without device selection
         print_header(f"{bench_idx}. CUT (Vulkan GPU)")
-        info = run_cut(args.model)
+        info = run_cut(args.model, args.max_tokens)
         if info:
             print_result(info, has_split=True)
             results["CUT (Vulkan GPU)"] = info
@@ -409,25 +410,34 @@ def main():
     # --- Summary Table ---
     if len(results) > 1:
         print_header("SUMMARY")
-        # Calculate decode tok/s for each
         rows = []
         for name, info in results.items():
+            prefill_ms = info.get("prefill_ms", 0)
+            prefill_tps = info.get("prefill_tps", 0)
+            decode_ms = info.get("decode_ms", 0)
             decode_tps = info.get("decode_tps", 0)
+            decode_tokens = info.get("decode_tokens", 0)
             if decode_tps == 0 and "total_ms" in info:
                 decode_tps = info.get("overall_tps", 0)
             total_ms = info.get("total_ms",
-                                info.get("prefill_ms", 0) + info.get("decode_ms", 0))
-            rows.append((name, total_ms, decode_tps))
+                                prefill_ms + decode_ms)
+            rows.append((name, prefill_ms, prefill_tps, decode_tokens, decode_ms, decode_tps, total_ms))
 
         # Sort by total time
-        rows.sort(key=lambda r: r[1])
-        baseline_ms = rows[-1][1]  # slowest
+        rows.sort(key=lambda r: r[6])
+        baseline_ms = rows[-1][6]  # slowest
 
-        print(f"  {'Runner':<35} {'Total ms':>10} {'Decode tok/s':>14} {'vs slowest':>12}")
-        print(f"  {'-'*35} {'-'*10} {'-'*14} {'-'*12}")
-        for name, total_ms, decode_tps in rows:
+        nw = max(len(r[0]) for r in rows)  # runner name column width
+        nw = max(nw, len("Runner"))
+        print(f"  {'Runner':<{nw}} {'Prefill ms':>10} {'Prefill tok/s':>13} {'Decode toks':>11} {'Decode ms':>10} {'Decode tok/s':>13} {'Total ms':>10} {'vs slowest':>12}")
+        print(f"  {'-'*nw} {'-'*10} {'-'*13} {'-'*11} {'-'*10} {'-'*13} {'-'*10} {'-'*12}")
+        for name, prefill_ms, prefill_tps, decode_tokens, decode_ms, decode_tps, total_ms in rows:
             speedup = baseline_ms / total_ms if total_ms > 0 else 0
-            print(f"  {name:<35} {total_ms:>10.1f} {decode_tps:>14.1f} {speedup:>11.1f}x")
+            pfill_ms_str = f"{prefill_ms:.1f}" if prefill_ms > 0 else "-"
+            pfill_tps_str = f"{prefill_tps:.1f}" if prefill_tps > 0 else "-"
+            dec_toks_str = str(decode_tokens) if decode_tokens > 0 else "-"
+            dec_ms_str = f"{decode_ms:.1f}" if decode_ms > 0 else "-"
+            print(f"  {name:<{nw}} {pfill_ms_str:>10} {pfill_tps_str:>13} {dec_toks_str:>11} {dec_ms_str:>10} {decode_tps:>13.1f} {total_ms:>10.1f} {speedup:>11.1f}x")
 
 
 if __name__ == "__main__":

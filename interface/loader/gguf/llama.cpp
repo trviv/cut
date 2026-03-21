@@ -35,8 +35,8 @@ LlamaModel::uploadFusedF16(const GGUFReader &reader,
                            const std::vector<std::string> &names) {
   // Read multiple F16 tensors, concatenate rows, upload once, transpose once.
   // All tensors must share the same innermost dimension K (= cols in GGUF).
-  uint32_t K = static_cast<uint32_t>(
-      reader.get_tensor_info(names[0]).dimensions[0]);
+  uint32_t K =
+      static_cast<uint32_t>(reader.get_tensor_info(names[0]).dimensions[0]);
   uint32_t totalRows = 0;
   for (const auto &name : names) {
     totalRows +=
@@ -210,15 +210,13 @@ void LlamaModel::load(const std::string &gguf_path,
 
   // Context size: use n_ctx if provided, otherwise keep struct default (512).
   // Cap to model's context_length so RoPE tables and KV cache stay in bounds.
-  uint32_t model_ctx =
-      meta.get_as<uint32_t>(prefix + "context_length", 2048);
+  uint32_t model_ctx = meta.get_as<uint32_t>(prefix + "context_length", 2048);
   if (n_ctx > 0) {
     config_.max_seq_len = n_ctx;
   }
   if (config_.max_seq_len > model_ctx) {
     std::cout << "WARNING: n_ctx=" << config_.max_seq_len
-              << " exceeds model context_length=" << model_ctx
-              << ", capping\n";
+              << " exceeds model context_length=" << model_ctx << ", capping\n";
     config_.max_seq_len = model_ctx;
   }
 
@@ -336,10 +334,10 @@ void LlamaModel::load(const std::string &gguf_path,
 
       if (canFuse) {
         layer.wqkv.handle = uploadFusedF16(reader, {
-            blk + "attn_q.weight",
-            blk + "attn_k.weight",
-            blk + "attn_v.weight",
-        });
+                                                       blk + "attn_q.weight",
+                                                       blk + "attn_k.weight",
+                                                       blk + "attn_v.weight",
+                                                   });
       } else {
         // Separate Q/K/V (quantized or biased models)
         uint32_t qCols = static_cast<uint32_t>(qi.dimensions[0]);
@@ -383,10 +381,11 @@ void LlamaModel::load(const std::string &gguf_path,
       bool canFuseFFN = gi.type == GGMLType::F16;
 
       if (canFuseFFN) {
-        layer.w_gate_up.handle = uploadFusedF16(reader, {
-            blk + "ffn_gate.weight",
-            blk + "ffn_up.weight",
-        });
+        layer.w_gate_up.handle =
+            uploadFusedF16(reader, {
+                                       blk + "ffn_gate.weight",
+                                       blk + "ffn_up.weight",
+                                   });
       } else {
         // Separate gate/up (quantized models)
         {
