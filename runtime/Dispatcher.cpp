@@ -34,6 +34,7 @@ bool Dispatcher::encode(OpNode &node) {
       auto bindings = subOp->bindings();
       ComputeDispatch dispatch(shader, subOp->dispatchSize(), bindings);
       dispatch.setLabel(subOp->displayName());
+      dispatch.setOutputHandle(subOp->output());
       iface_->encode(std::move(dispatch));
       if (subOp->needsBarrierAfter()) {
         encodeBarrier();

@@ -56,7 +56,7 @@ void PrefixScanOpNode::buildSubOperations() {
     subOps_.push_back(std::make_unique<InternalOpNode>(
         InternalScanPerWg, DataType::Float32,
         std::vector<Tensor>{inputHandle, outputHandle, partialSums},
-        ThreadSize{256, 1, 1}, toBytes(scanPC)));
+        outputHandle, ThreadSize{256, 1, 1}, toBytes(scanPC)));
     return;
   }
 
@@ -66,19 +66,19 @@ void PrefixScanOpNode::buildSubOperations() {
   // Pass 1: Per-workgroup scan
   subOps_.push_back(std::make_unique<InternalOpNode>(
       InternalScanPerWg, DataType::Float32,
-      std::vector<Tensor>{inputHandle, outputHandle, partialSums},
+      std::vector<Tensor>{inputHandle, outputHandle, partialSums}, outputHandle,
       ThreadSize{256 * groupCount, 1, 1}, toBytes(scanPC), true));
 
   // Pass 2: Exclusive scan on partial sums (single thread)
   subOps_.push_back(std::make_unique<InternalOpNode>(
       InternalScanPartialSums, DataType::Float32,
-      std::vector<Tensor>{partialSums}, ThreadSize{1, 1, 1},
+      std::vector<Tensor>{partialSums}, partialSums, ThreadSize{1, 1, 1},
       toBytes(groupCount), true));
 
   // Pass 3: Add group prefix to each element
   subOps_.push_back(std::make_unique<InternalOpNode>(
       InternalScanPropagate, DataType::Float32,
-      std::vector<Tensor>{partialSums, outputHandle},
+      std::vector<Tensor>{partialSums, outputHandle}, outputHandle,
       ThreadSize{256 * groupCount, 1, 1}, toBytes(numElements)));
 }
 

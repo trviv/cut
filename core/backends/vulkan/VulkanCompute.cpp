@@ -168,10 +168,18 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
   vkEnumeratePhysicalDevices(instance, &physicalDeviceCount,
                              instPhysDevices.data());
 
+  // Check for explicit device index override via CUT_VULKAN_DEVICE env var.
+  const char *deviceEnv = std::getenv("CUT_VULKAN_DEVICE");
+  int requestedIndex = -1;
+  if (deviceEnv) {
+    requestedIndex = std::atoi(deviceEnv);
+  }
+
   VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
   uint32_t computeQueueFamilyIndex = UINT_MAX;
 
-  for (const auto &device : instPhysDevices) {
+  for (uint32_t devIdx = 0; devIdx < physicalDeviceCount; devIdx++) {
+    const auto &device = instPhysDevices[devIdx];
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(device, &properties);
 
@@ -185,18 +193,25 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
                                              queueFamilies.data());
 
     for (uint32_t i = 0; i < queueFamilyCount; i++) {
-      // Only proceed if device supports compute
-      if ((queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT) == 0) {
+      if ((queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT) == 0)
         continue;
+
+      // Explicit device index requested via CUT_VULKAN_DEVICE —
+      // skip default selection and only match the requested index.
+      if (requestedIndex >= 0) {
+        if (static_cast<int>(devIdx) == requestedIndex)
+          return {device, i};
+        break;
       }
 
-      // Use the first compute device, if no other have been found yet
+      // Default selection: first compute device, prefer matching type
       if (physicalDevice == VK_NULL_HANDLE) {
         physicalDevice = device;
         computeQueueFamilyIndex = i;
       } else if (properties.deviceType == type) {
         return {device, i};
       }
+      break;
     }
   }
 

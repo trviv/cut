@@ -179,6 +179,7 @@ public:
   InternalOpNode(OperatorEnum op,
                  DataType dtype,
                  std::vector<Tensor> inputs,
+                 Tensor output,
                  ThreadSize threadSize,
                  std::vector<uint8_t> pushConstants,
                  bool barrierAfter = false);
@@ -187,6 +188,7 @@ public:
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
+  std::vector<ComputeBinding> bindings() const override;
   bool needsBarrierAfter() const override;
 
 private:

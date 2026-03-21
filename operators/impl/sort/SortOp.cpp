@@ -76,7 +76,8 @@ void BitonicSortOpNode::buildSubOperations() {
     subOps_.push_back(std::make_unique<InternalOpNode>(
         InternalBitonicPadInit, DataType::Float32,
         std::vector<Tensor>{keysHandle, valsHandle, sortKeys, sortVals},
-        ThreadSize{((n + 255) / 256) * 256, 1, 1}, toBytes(initPC), true));
+        sortKeys, ThreadSize{((n + 255) / 256) * 256, 1, 1}, toBytes(initPC),
+        true));
   }
 
   uint32_t dispatchThreads = ((n + 255) / 256) * 256;
@@ -90,7 +91,7 @@ void BitonicSortOpNode::buildSubOperations() {
       } pc{n, k, j};
       subOps_.push_back(std::make_unique<InternalOpNode>(
           InternalBitonicStep, DataType::Float32,
-          std::vector<Tensor>{sortKeys, sortVals},
+          std::vector<Tensor>{sortKeys, sortVals}, sortKeys,
           ThreadSize{dispatchThreads, 1, 1}, toBytes(pc), true));
     }
   }
@@ -99,7 +100,7 @@ void BitonicSortOpNode::buildSubOperations() {
     subOps_.push_back(std::make_unique<InternalOpNode>(
         InternalBitonicCopyBack, DataType::Float32,
         std::vector<Tensor>{sortKeys, sortVals, keysHandle, valsHandle},
-        ThreadSize{((numElements + 255) / 256) * 256, 1, 1},
+        keysHandle, ThreadSize{((numElements + 255) / 256) * 256, 1, 1},
         toBytes(numElements)));
   }
 }
@@ -168,22 +169,23 @@ void RadixSortOpNode::buildSubOperations() {
       uint32_t groupCount;
     } pc{numElements, bitOffset, groupCount};
 
-    // Step 1: Histogram
+    // Step 1: Histogram — reads curKeys, writes histogram
     subOps_.push_back(std::make_unique<InternalOpNode>(
         InternalRadixHistogram, DataType::Float32,
-        std::vector<Tensor>{curKeys, histogram},
+        std::vector<Tensor>{curKeys, histogram}, histogram,
         ThreadSize{256 * groupCount, 1, 1}, toBytes(pc), true));
 
-    // Step 2: Exclusive prefix scan on histogram (single thread)
+    // Step 2: Exclusive prefix scan on histogram (in-place)
     subOps_.push_back(std::make_unique<InternalOpNode>(
         InternalScanUint, DataType::Float32, std::vector<Tensor>{histogram},
-        ThreadSize{1, 1, 1}, toBytes(histSize), true));
+        histogram, ThreadSize{1, 1, 1}, toBytes(histSize), true));
 
-    // Step 3: Scatter (single thread for stability)
+    // Step 3: Scatter — reads curKeys, curVals, histogram; writes dstKeys,
+    // dstVals
     subOps_.push_back(std::make_unique<InternalOpNode>(
         InternalRadixScatter, DataType::Float32,
         std::vector<Tensor>{curKeys, curVals, dstKeys, dstVals, histogram},
-        ThreadSize{1, 1, 1}, toBytes(pc), true));
+        dstKeys, ThreadSize{1, 1, 1}, toBytes(pc), true));
   }
 }
 

@@ -92,12 +92,14 @@ const std::vector<std::unique_ptr<OpNode>> &OpNode::subOperations() {
 InternalOpNode::InternalOpNode(OperatorEnum op,
                                DataType dtype,
                                std::vector<Tensor> inputs,
+                               Tensor output,
                                ThreadSize threadSize,
                                std::vector<uint8_t> pushConstants,
                                bool barrierAfter)
     : OpNode(op), dtype_(dtype), threadSize_(threadSize),
       pushConstants_(std::move(pushConstants)), barrierAfter_(barrierAfter) {
   inputs_ = std::move(inputs);
+  output_ = output;
 }
 
 DataType InternalOpNode::outputDtype() const {
@@ -114,6 +116,23 @@ ThreadSize InternalOpNode::dispatchSize() const {
 
 std::vector<uint8_t> InternalOpNode::pushConstants() const {
   return pushConstants_;
+}
+
+std::vector<ComputeBinding> InternalOpNode::bindings() const {
+  // All tensors (including the write target) are in inputs_ to preserve the
+  // binding order expected by the shader. output_ is set separately for the
+  // barrier tracker only — it must NOT appear as an extra binding.
+  std::vector<ComputeBinding> result;
+  uint32_t idx = 0;
+  for (const auto &h : inputs_) {
+    result.emplace_back(idx++, h);
+  }
+  auto pc = pushConstants();
+  if (!pc.empty()) {
+    result.emplace_back(
+        idx, DataReference(pc.data(), static_cast<uint32_t>(pc.size())));
+  }
+  return result;
 }
 
 bool InternalOpNode::needsBarrierAfter() const {

@@ -41,6 +41,68 @@ static bool shouldUseCoopMatGemv(DataType dtypeB, uint32_t K, uint32_t N) {
   return true;
 }
 
+// ============================================================================
+// Shape-based variant selection for standard (non-quantized) matmul.
+//
+// Built from autotune benchmark data (matmul_autotune.cpp) on RTX 3090.
+// The heuristic groups shapes by M size and total work (M*K*N) to select
+// the variant that performed best across representative shapes.
+//
+// Variant key:
+//   1  = MatMul          (SharedMem 16x16, good for small matrices)
+//   4  = MatMulT8R2x2    (T8 R2x2, good for small M + large K*N)
+//   5  = MatMulT8R4x4    (T8 R4x4, default — good general-purpose)
+//   7  = MatMulT16R8x8   (T16 R8x8, best for large matrices)
+//   15 = MatMulVecBRegT16R4x4 (Vec4+BReg, good for medium-large)
+//   19 = MatMulGemv       (GEMV for M=1)
+// ============================================================================
+
+static int selectStandardVariant(uint32_t M, uint32_t K, uint32_t N) {
+  constexpr int kGemv = 19;
+  constexpr int kSharedMem = 1; // MatMul (SharedMem 16x16)
+  constexpr int kT8R2x2 = 4;    // MatMulT8R2x2
+  constexpr int kT8R4x4 = 5;    // MatMulT8R4x4 (current default)
+  constexpr int kT16R8x8 = 7;   // MatMulT16R8x8
+  constexpr int kVecBReg = 15;  // MatMulVecBRegT16R4x4
+
+  if (M == 1)
+    return kGemv;
+
+  uint64_t work = static_cast<uint64_t>(M) * K * N;
+
+  // Small M (2-16): shared-memory 16x16 wins for moderate K*N;
+  // T8R2x2 wins when K*N is very large (bandwidth-bound).
+  if (M <= 16) {
+    if (work > 32 * 1024 * 1024)
+      return kT8R2x2;
+    return kSharedMem;
+  }
+
+  // Medium M (17-64): default T8R4x4 is already good.
+  // SharedMem wins for small total work.
+  if (M <= 64) {
+    if (work < 4 * 1024 * 1024)
+      return kSharedMem;
+    return kT8R4x4;
+  }
+
+  // Large M (65-255): T16R8x8 starts winning for large K*N.
+  // VecBReg is competitive at medium sizes.
+  if (M <= 255) {
+    if (work > 128 * 1024 * 1024)
+      return kT16R8x8;
+    if (work > 16 * 1024 * 1024)
+      return kVecBReg;
+    return kT8R4x4;
+  }
+
+  // Very large M (256+): T16R8x8 dominates.
+  if (work > 8 * 1024 * 1024)
+    return kT16R8x8;
+
+  return kT8R4x4;
+}
+
 // Helper: map QuantFormat to the base OperatorEnum
 static OperatorEnum matmulEnum(QuantFormat fmt) {
   switch (fmt) {
@@ -104,19 +166,12 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   N_ = shapeB[1];
   if (spec.has_value()) {
     spec_ = *spec;
-  } else if (M_ == 1) {
-    // CoopMatGemv (tensor core GEMV) is available but NOT auto-selected:
-    // for M=1, GEMV is memory-bandwidth-bound and the scalar GEMV with
-    // subgroup reduction + vec4 loads is already optimal. Tensor cores add
-    // shared memory staging + barrier overhead without reducing bandwidth.
-    // CoopMatGemv is kept as a manual variant for future batched prefill (M>1).
-    constexpr int kGemvVariant = 19; // MatMulGemv
-    spec_ = kGemvVariant;
   } else if (shouldUseCoopMat(dtypeA_, dtypeB_, M_, K_, N_)) {
     // Cooperative matrix variant — use tiled (2×2) for larger matrices
     spec_ = (M_ >= 32 && N_ >= 32) ? kCoopMatTiledVariant : kCoopMatVariant;
   } else {
-    spec_ = kMatMulDefaultVariant;
+    // Shape-based variant selection from autotune data
+    spec_ = selectStandardVariant(M_, K_, N_);
   }
   inputs_ = {a, b};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());

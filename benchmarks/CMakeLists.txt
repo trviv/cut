@@ -16,3 +16,10 @@ add_executable(benchmarks
 )
 target_include_directories(benchmarks PRIVATE ${BENCH_INCLUDE_DIRS})
 target_link_libraries(benchmarks PRIVATE CUTLib)
+
+add_executable(matmul_autotune
+    matmul_autotune.cpp
+)
+target_include_directories(matmul_autotune PRIVATE ${BENCH_INCLUDE_DIRS})
+target_link_libraries(matmul_autotune PRIVATE CUTLib)
+target_compile_options(matmul_autotune PRIVATE -O2)

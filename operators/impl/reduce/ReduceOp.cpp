@@ -111,7 +111,7 @@ void GlobalReduceOpNode::buildSubOperations() {
   } partialPC{numElements, groupCount, static_cast<uint32_t>(op_)};
   subOps_.push_back(std::make_unique<InternalOpNode>(
       InternalPartialReduce, dtype_,
-      std::vector<Tensor>{inputHandle, partialSums},
+      std::vector<Tensor>{inputHandle, partialSums}, partialSums,
       ThreadSize{256 * groupCount, 1, 1}, toBytes(partialPC), true));
 
   // Phase 2: Final reduce — single workgroup reduces partial sums
@@ -122,8 +122,8 @@ void GlobalReduceOpNode::buildSubOperations() {
   } finalPC{groupCount, numElements, static_cast<uint32_t>(op_)};
   subOps_.push_back(std::make_unique<InternalOpNode>(
       InternalFinalReduce, dtype_,
-      std::vector<Tensor>{partialSums, outputHandle}, ThreadSize{256, 1, 1},
-      toBytes(finalPC)));
+      std::vector<Tensor>{partialSums, outputHandle}, outputHandle,
+      ThreadSize{256, 1, 1}, toBytes(finalPC)));
 }
 
 // --- NormOpNode ---
@@ -492,7 +492,7 @@ void CumOpNode::buildSubOperations() {
   // Pass 1: Per-workgroup inclusive scan along each scan line
   subOps_.push_back(std::make_unique<InternalOpNode>(
       InternalCumPerWg, dtype_,
-      std::vector<Tensor>{inputHandle, outputHandle, partialSums},
+      std::vector<Tensor>{inputHandle, outputHandle, partialSums}, outputHandle,
       ThreadSize{kWgSize * groupsPerLine, numScanLines, 1}, toBytes(perWgPC),
       true));
 
@@ -500,12 +500,12 @@ void CumOpNode::buildSubOperations() {
   uint32_t partialThreads = ((numScanLines + 255) / 256) * 256;
   subOps_.push_back(std::make_unique<InternalOpNode>(
       InternalCumPartialSums, dtype_, std::vector<Tensor>{partialSums},
-      ThreadSize{partialThreads, 1, 1}, toBytes(partialPC), true));
+      partialSums, ThreadSize{partialThreads, 1, 1}, toBytes(partialPC), true));
 
   // Pass 3: Add/multiply workgroup prefix to each element
   subOps_.push_back(std::make_unique<InternalOpNode>(
       InternalCumPropagate, dtype_,
-      std::vector<Tensor>{partialSums, outputHandle},
+      std::vector<Tensor>{partialSums, outputHandle}, outputHandle,
       ThreadSize{kWgSize * groupsPerLine, numScanLines, 1}, toBytes(propPC)));
 }
 

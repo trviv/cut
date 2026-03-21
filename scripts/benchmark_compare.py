@@ -14,14 +14,19 @@ PROMPT = "Hello, how are you?"
 CHAT_PROMPT = f"<|im_start|>user\n{PROMPT}<|im_end|>\n<|im_start|>assistant\n"
 
 
-def run_cut(model_path: str):
+def run_cut(model_path: str, device_index: int = None):
     """Run CUT gguf_example and parse timing."""
     exe = "build/interface/loader/gguf/gguf_example"
     if not os.path.exists(exe):
         print("  Binary not found, skipping")
         return None
 
-    result = subprocess.run([exe, model_path], capture_output=True, text=True, timeout=120)
+    env = os.environ.copy()
+    if device_index is not None:
+        env["CUT_VULKAN_DEVICE"] = str(device_index)
+
+    result = subprocess.run([exe, model_path], capture_output=True, text=True,
+                            timeout=120, env=env)
     output = result.stdout + result.stderr
 
     info = {}
@@ -216,6 +221,58 @@ def detect_vulkan_devices():
     return devices
 
 
+def detect_cut_vulkan_devices():
+    """Detect available Vulkan devices by probing CUT with each device index.
+
+    CUT prints 'Vulkan device: <name>' to stderr/stdout. We probe indices
+    0..7 and parse the device name. Stops when it sees a duplicate (meaning
+    the index wrapped around to fallback).
+    """
+    exe = "build/interface/loader/gguf/gguf_example"
+    if not os.path.exists(exe):
+        return []
+
+    seen_names = set()
+    devices = []
+    for idx in range(8):
+        env = os.environ.copy()
+        env["CUT_VULKAN_DEVICE"] = str(idx)
+        try:
+            # Run with a nonexistent model — Vulkan init happens before model
+            # load, so we get the device name even though the run will fail.
+            result = subprocess.run(
+                [exe, "/dev/null"], capture_output=True, text=True,
+                timeout=10, env=env
+            )
+            output = result.stdout + result.stderr
+            found = False
+            for line in output.split("\n"):
+                if "Vulkan device:" in line:
+                    name = line.split("Vulkan device:")[1].strip()
+                    if "(" in name:
+                        name = name[:name.index("(")].strip()
+                    # Stop if we see a device we've already found — means the
+                    # index exceeded the device count and fell back.
+                    if name in seen_names:
+                        return devices
+                    seen_names.add(name)
+                    # Detect integrated GPUs by checking for CPU brand names
+                    # in the Vulkan device name (RADV exposes iGPUs this way)
+                    igpu_keywords = ["Ryzen", "Core", "Celeron", "Pentium",
+                                     "Atom", "RAPHAEL", "REMBRANDT",
+                                     "PHOENIX", "llvmpipe", "SwiftShader"]
+                    is_igpu = any(kw.lower() in name.lower()
+                                  for kw in igpu_keywords)
+                    devices.append({"idx": idx, "name": name, "igpu": is_igpu})
+                    found = True
+                    break
+            if not found:
+                break
+        except (subprocess.TimeoutExpired, Exception):
+            break
+    return devices
+
+
 def print_header(name):
     print("=" * 60)
     print(name)
@@ -259,20 +316,37 @@ def main():
     print()
 
     results = {}
+    bench_idx = 1
 
-    # 1. CUT (Vulkan GPU)
-    print_header("1. CUT (Vulkan GPU)")
-    info = run_cut(args.model)
-    if info:
-        print_result(info, has_split=True)
-        results["CUT (Vulkan GPU)"] = info
+    # 1+. CUT (Vulkan GPU) — run on each detected discrete device
+    cut_devices = detect_cut_vulkan_devices()
+    cut_discrete = [d for d in cut_devices if not d.get("igpu", False)]
+    if cut_discrete:
+        for dev in cut_discrete:
+            label = f"CUT Vulkan ({dev['name']})"
+            print_header(f"{bench_idx}. {label}")
+            info = run_cut(args.model, device_index=dev["idx"])
+            if info:
+                print_result(info, has_split=True)
+                results[label] = info
+            else:
+                print("  FAILED")
+            print()
+            bench_idx += 1
     else:
-        print("  FAILED")
-    print()
+        # Fallback: run CUT without device selection
+        print_header(f"{bench_idx}. CUT (Vulkan GPU)")
+        info = run_cut(args.model)
+        if info:
+            print_result(info, has_split=True)
+            results["CUT (Vulkan GPU)"] = info
+        else:
+            print("  FAILED")
+        print()
+        bench_idx += 1
 
-    # 2. llama.cpp Vulkan GPU (each discrete device)
+    # llama.cpp Vulkan GPU (each discrete device)
     vk_devices = detect_vulkan_devices()
-    bench_idx = 2
     for dev in vk_devices:
         if dev["igpu"]:
             continue  # skip integrated GPUs for the main comparison
