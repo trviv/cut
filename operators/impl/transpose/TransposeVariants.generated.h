@@ -17,7 +17,7 @@ struct TransposeVariantInfo {
     const char* description;
 };
 
-inline constexpr int kTransposeVariantCount = 4;
+inline constexpr int kTransposeVariantCount = 6;
 inline constexpr int kTransposeDefaultVariant = 0;
 
 inline constexpr TransposeVariantInfo kTransposeVariants[kTransposeVariantCount] = {
@@ -25,6 +25,8 @@ inline constexpr TransposeVariantInfo kTransposeVariants[kTransposeVariantCount]
     {"TransposeTiled16", 16, 16, 16, 16, "SharedMem 16x16"},
     {"TransposeTiled32", 32, 32, 32, 32, "SharedMem 32x32"},
     {"TransposeTiled16R4", 16, 16, 64, 16, "SharedMem 16x16 RPT=4"},
+    {"TransposeTiledVec4", 16, 16, 16, 64, "SharedMem Vec4 16x64"},
+    {"TransposeTiledVec4RW", 16, 16, 16, 64, "SharedMem Vec4 R+W 16x64"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
@@ -32,6 +34,8 @@ std::optional<std::vector<uint32_t>> compiledTransposeNaive(DataType input, Data
 std::optional<std::vector<uint32_t>> compiledTransposeTiled16(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledTransposeTiled32(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledTransposeTiled16R4(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledTransposeTiledVec4(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledTransposeTiledVec4RW(DataType input, DataType output);
 
 using CompiledTransposeFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
@@ -40,6 +44,8 @@ inline const CompiledTransposeFn kTransposeCompiledFns[kTransposeVariantCount] =
     compiledTransposeTiled16,
     compiledTransposeTiled32,
     compiledTransposeTiled16R4,
+    compiledTransposeTiledVec4,
+    compiledTransposeTiledVec4RW,
 };
 
 /// Returns compiled SPIR-V for a transpose variant by index.
