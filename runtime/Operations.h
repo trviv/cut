@@ -292,6 +292,27 @@ public:
                       uint32_t headDim,
                       const Tensor &preallocOutput = {});
 
+  /// Batched fused attention for prefill: N tokens in one dispatch.
+  Tensor batchedFusedAttention(const Tensor &q,
+                               const Tensor &k,
+                               const Tensor &v,
+                               const Tensor &kCache,
+                               const Tensor &vCache,
+                               const Tensor &posBuffer,
+                               const Tensor &cosTable,
+                               const Tensor &sinTable,
+                               uint32_t batchSize,
+                               uint32_t nHeads,
+                               uint32_t nKvHeads,
+                               uint32_t headDim,
+                               uint32_t qStride,
+                               uint32_t kStride,
+                               uint32_t vStride,
+                               uint32_t qOffset,
+                               uint32_t kOffset,
+                               uint32_t vOffset,
+                               const Tensor &preallocOutput = {});
+
   // ===== Expand (broadcast) =====
 
   Tensor expand(const Tensor &a,

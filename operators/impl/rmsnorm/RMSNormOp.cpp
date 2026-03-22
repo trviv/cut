@@ -18,11 +18,19 @@ RMSNormOpNode::RMSNormOpNode(TensorStore &store,
 
   dtype_ = bufX.getDtype();
 
-  if (shapeX.size() != 1 || shapeWeight.size() != 1) {
-    throw std::runtime_error("RMSNorm requires 1D tensors");
+  if (shapeX.size() < 1 || shapeX.size() > 2 || shapeWeight.size() != 1) {
+    throw std::runtime_error("RMSNorm requires 1D or 2D input, 1D weight");
   }
 
-  dim_ = shapeX[0];
+  // 2D input [batchSize, dim]: normalize each row independently.
+  // 1D input [dim]: batchSize=1 (backward compatible).
+  if (shapeX.size() == 2) {
+    batchSize_ = shapeX[0];
+    dim_ = shapeX[1];
+  } else {
+    batchSize_ = 1;
+    dim_ = shapeX[0];
+  }
 
   if (shapeWeight[0] != dim_) {
     throw std::runtime_error("RMSNorm: weight dimension must match input");
@@ -49,12 +57,14 @@ std::optional<std::vector<uint32_t>> RMSNormOpNode::shader() const {
 }
 
 std::vector<uint32_t> RMSNormOpNode::outputShape() const {
+  if (batchSize_ > 1)
+    return {batchSize_, dim_};
   return {dim_};
 }
 
 ThreadSize RMSNormOpNode::dispatchSize() const {
-  // Single workgroup with 256 threads (for shared memory reduction)
-  return {256, 1, 1};
+  // One workgroup of 256 threads per row. Y dimension = batchSize.
+  return {256, batchSize_, 1};
 }
 
 std::vector<uint8_t> RMSNormOpNode::pushConstants() const {

@@ -398,8 +398,8 @@ void LlamaModel::load(const std::string &gguf_path,
           const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
           uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
           uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-          layer.w_up = uploadWeightMaybeQuantized(reader, blk + "ffn_up.weight",
-                                                  rows, cols);
+          layer.w_up = uploadWeightMaybeQuantized(
+              reader, blk + "ffn_up.weight", rows, cols);
         }
       }
 
@@ -1066,6 +1066,168 @@ int LlamaModel::prefill(const std::vector<int> &tokens) {
   return static_cast<int>(best);
 }
 
+int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
+  uint32_t N = static_cast<uint32_t>(tokens.size());
+  uint32_t dim = config_.dim;
+  uint32_t qdim = config_.n_heads * config_.head_dim;
+  uint32_t kvdim = config_.kv_dim;
+  uint32_t alignedKvDim = (kvdim + 3) & ~3u;
+
+  // 1. Upload all token IDs [N] and position array [0..N-1]
+  std::vector<uint32_t> tokenIds(tokens.begin(), tokens.end());
+  auto tokenBuf =
+      runtime_->createTensor({N}, cut::DataType::UInt32, tokenIds.data());
+
+  std::vector<uint32_t> positions(N);
+  for (uint32_t i = 0; i < N; ++i)
+    positions[i] = i;
+  auto posBuf =
+      runtime_->createTensor({N}, cut::DataType::UInt32, positions.data());
+
+  // 2. Embedding: [N] → [N, dim]
+  auto hidden = ops_->embedding(tokenBuf, embeddingTable_);
+
+  // 3. Process all layers
+  for (uint32_t l = 0; l < config_.n_layers; ++l) {
+    auto &layer = layers_[l];
+    auto &cache = kv_caches_[l];
+
+    // --- QKV projection: RMSNorm → batched matmul ---
+    auto normed = ops_->rmsNorm(hidden, layer.attn_norm, config_.norm_eps);
+
+    // Use the SAME fused weight as the decode path for numerical equivalence.
+    // Fused: one matmul → [N, qdim+2*kvdim], views index Q/K/V per-row.
+    // Separate: 3 matmuls → [N, qdim], [N, kvdim], [N, kvdim].
+    uint32_t total = qdim + 2 * kvdim;
+    uint32_t alignedTotal = (total + 3) & ~3u;
+    uint32_t alignedQdim = (qdim + 3) & ~3u;
+    bool fusedQKV = layer.wqkv.handle && !layer.bq;
+
+    cut::ComputeHandle qBuf, kBuf, vBuf;
+    uint32_t qRowStride, kRowStride, vRowStride;
+    uint32_t qColOff, kColOff, vColOff;
+
+    if (fusedQKV) {
+      auto qkvOut = ops_->matmul(normed, layer.wqkv.handle);
+      qBuf = qkvOut;
+      kBuf = qkvOut;
+      vBuf = qkvOut;
+      qRowStride = kRowStride = vRowStride = alignedTotal;
+      qColOff = 0;
+      kColOff = qdim;
+      vColOff = qdim + kvdim;
+    } else {
+      qBuf = layer.wq.isQuantized()
+                 ? ops_->matmul(normed, layer.wq.qValues, layer.wq.qScales)
+                 : ops_->matmul(normed, layer.wq.handle);
+      kBuf = layer.wk.isQuantized()
+                 ? ops_->matmul(normed, layer.wk.qValues, layer.wk.qScales)
+                 : ops_->matmul(normed, layer.wk.handle);
+      vBuf = layer.wv.isQuantized()
+                 ? ops_->matmul(normed, layer.wv.qValues, layer.wv.qScales)
+                 : ops_->matmul(normed, layer.wv.handle);
+      if (layer.bq)
+        qBuf = ops_->binaryOp(cut::BinaryAdd, qBuf, layer.bq);
+      if (layer.bk)
+        kBuf = ops_->binaryOp(cut::BinaryAdd, kBuf, layer.bk);
+      if (layer.bv)
+        vBuf = ops_->binaryOp(cut::BinaryAdd, vBuf, layer.bv);
+      qRowStride = alignedQdim;
+      kRowStride = vRowStride = alignedKvDim;
+      qColOff = kColOff = vColOff = 0;
+    }
+
+    // --- Per-token attention ---
+    // Matmuls above are batched (the big win). Attention is per-token because
+    // each token's cache write must complete before subsequent tokens read it.
+    auto attnOut =
+        runtime_->createTensorEmpty({N, qdim}, cut::DataType::Float32);
+    for (uint32_t i = 0; i < N; ++i) {
+      uint32_t params[2] = {i, i + 1};
+      runtime_->updateBufferInline(runtimeParamsBuffer_, params,
+                                   sizeof(params));
+
+      size_t qOff = static_cast<size_t>(i) * qRowStride * sizeof(float) +
+                    qColOff * sizeof(float);
+      size_t kOff = static_cast<size_t>(i) * kRowStride * sizeof(float) +
+                    kColOff * sizeof(float);
+      size_t vOff = static_cast<size_t>(i) * vRowStride * sizeof(float) +
+                    vColOff * sizeof(float);
+      auto qi = runtime_->store().createTensorView(qBuf, qOff, {qdim},
+                                                   cut::DataType::Float32);
+      auto ki = runtime_->store().createTensorView(kBuf, kOff, {kvdim},
+                                                   cut::DataType::Float32);
+      auto vi = runtime_->store().createTensorView(vBuf, vOff, {kvdim},
+                                                   cut::DataType::Float32);
+      auto attnOuti = runtime_->store().createTensorView(
+          attnOut, static_cast<size_t>(i) * alignedQdim * sizeof(float), {qdim},
+          cut::DataType::Float32);
+
+      ops_->fusedAttention(qi, ki, vi, cache.k_cache, cache.v_cache,
+                           runtimeParamsBuffer_, rope_cos_gpu_, rope_sin_gpu_,
+                           config_.n_heads, config_.n_kv_heads,
+                           config_.head_dim, attnOuti);
+    }
+
+    // --- Output projection + residual ---
+    cut::ComputeHandle proj;
+    if (layer.wo.isQuantized()) {
+      proj = ops_->matmul(attnOut, layer.wo.qValues, layer.wo.qScales);
+    } else {
+      proj = ops_->matmul(attnOut, layer.wo.handle);
+    }
+    hidden = ops_->binaryOp(cut::BinaryAdd, proj, hidden);
+
+    // --- FFN ---
+    auto ffnNormed = ops_->rmsNorm(hidden, layer.ffn_norm, config_.norm_eps);
+
+    // FFN: 2 separate gate/up matmuls (avoids 2D column-slicing issues with
+    // fused [N, 2*ffn] output). Still batched [N, dim] @ [dim, ffn].
+    auto gateOut = layer.w_gate.isQuantized()
+                       ? ops_->matmul(ffnNormed, layer.w_gate.qValues,
+                                      layer.w_gate.qScales)
+                       : ops_->matmul(ffnNormed, layer.w_gate.handle);
+    auto upOut = layer.w_up.isQuantized()
+                     ? ops_->matmul(ffnNormed, layer.w_up.qValues,
+                                    layer.w_up.qScales)
+                     : ops_->matmul(ffnNormed, layer.w_up.handle);
+    auto gateSilu = ops_->unaryOp(cut::UnarySilu, gateOut);
+    auto gateUpResult = ops_->binaryOp(cut::BinaryMul, gateSilu, upOut);
+
+    // Down projection + residual
+    cut::ComputeHandle down;
+    if (layer.w_down.isQuantized()) {
+      down = ops_->matmul(gateUpResult, layer.w_down.qValues,
+                          layer.w_down.qScales);
+    } else {
+      down = ops_->matmul(gateUpResult, layer.w_down.handle);
+    }
+    hidden = ops_->binaryOp(cut::BinaryAdd, down, hidden);
+  }
+
+  // 4. Logits on last row only
+  //    Extract row N-1 from [N, dim] → [dim]
+  uint32_t alignedDim = (dim + 3) & ~3u;
+  auto lastRow = runtime_->store().createTensorView(
+      hidden, static_cast<size_t>(N - 1) * alignedDim * sizeof(float), {dim},
+      cut::DataType::Float32);
+
+  // RMSNorm + logits matmul (reuse logits graph for single-row)
+  auto logit_result = executeGraph(logitsGraph_, {lastRow});
+  logitsOutput_ = logit_result[0];
+
+  auto penalized =
+      ops_->repetitionPenalty(logitsOutput_, penaltyFactorsBuffer_);
+  argmaxResultBuffer_ = ops_->reduce(cut::ReduceArgmax, penalized);
+
+  // Single submit + wait
+  runtime_->flushPendingCommands();
+
+  float best = 0.0f;
+  runtime_->copyFromTensor(argmaxResultBuffer_, &best, sizeof(float));
+  return static_cast<int>(best);
+}
+
 // ============================================================================
 // Generation
 // ============================================================================
@@ -1114,16 +1276,17 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
     return static_cast<int>(best);
   };
 
-  // Process prompt tokens (prefill).
-  // Non-last tokens use forwardPrefill() which skips logits/penalty/argmax
-  // (~25% less GPU work per token) via a separate cached command buffer.
-  // Last token uses full forward() to set up the reusable decode CB.
+  // Process prompt tokens using batched prefill — matmuls use M=N GEMM
+  // instead of N sequential M=1 GEMV calls. Attention remains per-token.
   auto prefillStart = std::chrono::high_resolution_clock::now();
+  uploadPenaltyFactors();
 
+  // Per-token prefill: non-last tokens use forwardPrefill() (skips logits,
+  // ~25% faster per token). Last token uses full forward() to set up the
+  // reusable decode CB.
   for (size_t i = 0; i + 1 < prompt_tokens.size(); ++i) {
     forwardPrefill(prompt_tokens[i], static_cast<int>(i));
   }
-
   uploadPenaltyFactors();
   auto argmaxBuf =
       forward(prompt_tokens.back(), static_cast<int>(prompt_tokens.size() - 1));

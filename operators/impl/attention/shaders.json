@@ -33,6 +33,16 @@
           {"input": "Float16", "output": "Float16"}
         ]
       }
+    },
+    {
+      "name": "BatchedFusedAttention",
+      "description": "Batched fused RoPE + CacheWrite + Attention for prefill (N tokens)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
+        ]
+      }
     }
   ]
 }

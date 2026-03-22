@@ -3,8 +3,8 @@
 %DTYPE_DEFINES_INPUT%
 
 struct PushConstants {
-    uint dim;          // Actual vector dimension
-    uint alignedDim;   // Padded to multiple of 4
+    uint dim;          // Actual vector dimension (innermost)
+    uint alignedDim;   // Padded to multiple of 4 (row stride for 2D)
     float eps;         // Normalization epsilon (1e-5)
 };
 [[vk::push_constant]] PushConstants pc;
@@ -15,17 +15,18 @@ struct PushConstants {
 
 groupshared float sharedSumSquares[256];
 
+// Dispatch: (256, batchSize, 1).  Each Y-workgroup normalizes one row.
+// For 1D input (batchSize=1), Gid.y=0 and rowOff=0 — same as before.
 [numthreads(256, 1, 1)]
-void main(uint3 GTid : SV_GroupThreadID, uint3 DTid : SV_DispatchThreadID) {
+void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     uint tid = GTid.x;
-    uint gid = DTid.x;
+    uint row = Gid.y;                     // Row index (0 for 1D)
+    uint rowOff = row * pc.alignedDim;    // Byte-aligned row offset
 
-    // Phase 1: Compute sum of squares via parallel reduction
+    // Phase 1: Compute sum of squares for this row
     float localSum = 0.0;
     for (uint i = tid; i < pc.dim; i += 256) {
-        // Use actual dimension for iteration, aligned dimension for indexing
-        uint idx = i;  // Assuming 1D data, no row/col calculation needed
-        float val = float(x[idx]);
+        float val = float(x[rowOff + i]);
         localSum += val * val;
     }
     sharedSumSquares[tid] = localSum;
@@ -40,21 +41,19 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 DTid : SV_DispatchThreadID) {
     }
 
     // Phase 3: Compute normalization scale
-    // Thread 0 computes: scale = rsqrt(mean(x²) + eps) = rsqrt(sum/dim + eps)
     float scale;
     if (tid == 0) {
         float meanSquare = sharedSumSquares[0] / float(pc.dim);
         scale = rsqrt(meanSquare + pc.eps);
-        sharedSumSquares[0] = scale;  // Store scale for other threads
+        sharedSumSquares[0] = scale;
     }
     GroupMemoryBarrierWithGroupSync();
-    scale = sharedSumSquares[0];  // All threads read the scale
+    scale = sharedSumSquares[0];
 
-    // Phase 4: Apply normalization and weight
+    // Phase 4: Apply normalization and weight (weight is shared across rows)
     for (uint i = tid; i < pc.dim; i += 256) {
-        uint idx = i;
-        float xVal = float(x[idx]);
-        float wVal = float(weight[idx]);
-        output[idx] = (%SCALAR_DTYPE_INPUT%)(xVal * scale * wVal);
+        float xVal = float(x[rowOff + i]);
+        float wVal = float(weight[i]);
+        output[rowOff + i] = (%SCALAR_DTYPE_INPUT%)(xVal * scale * wVal);
     }
 }

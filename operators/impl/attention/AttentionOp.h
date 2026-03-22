@@ -100,4 +100,53 @@ private:
   std::vector<uint32_t> outShape_;
 };
 
+/// Batched fused attention for prefill: processes N tokens in one dispatch.
+/// Inputs: q [N, qStride], k [N, kStride], v [N, vStride],
+///         kCache, vCache, posBuffer [N], cosTable, sinTable.
+/// Output: [N, nHeads * headDim].
+class BatchedFusedAttentionOpNode : public OpNode {
+public:
+  BatchedFusedAttentionOpNode(TensorStore &store,
+                              const Tensor &q,
+                              const Tensor &k,
+                              const Tensor &v,
+                              const Tensor &kCache,
+                              const Tensor &vCache,
+                              const Tensor &posBuffer,
+                              const Tensor &cosTable,
+                              const Tensor &sinTable,
+                              uint32_t batchSize,
+                              uint32_t nHeads,
+                              uint32_t nKvHeads,
+                              uint32_t headDim,
+                              uint32_t qStride,
+                              uint32_t kStride,
+                              uint32_t vStride,
+                              uint32_t qOffset,
+                              uint32_t kOffset,
+                              uint32_t vOffset,
+                              const Tensor &preallocOutput = {},
+                              std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+
+private:
+  DataType dtype_;
+  uint32_t batchSize_;
+  uint32_t nHeads_;
+  uint32_t nKvHeads_;
+  uint32_t headDim_;
+  uint32_t kvDim_;
+  uint32_t alignedKvDim_;
+  uint32_t nRep_;
+  float scale_;
+  uint32_t qStride_, kStride_, vStride_;
+  uint32_t qOffset_, kOffset_, vOffset_;
+  std::vector<uint32_t> outShape_;
+};
+
 } // namespace cut

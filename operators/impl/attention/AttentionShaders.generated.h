@@ -10,5 +10,6 @@ namespace cut {
 std::optional<std::vector<uint32_t>> compiledCacheWrite(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledAttention(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledFusedAttention(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledBatchedFusedAttention(DataType input, DataType output);
 
 } // namespace cut

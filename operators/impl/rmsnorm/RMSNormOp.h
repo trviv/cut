@@ -9,10 +9,10 @@ namespace cut {
 /// Computes: output = x * rsqrt(mean(x²) + eps) * weight
 ///
 /// Inputs:
-///   0: x      — Float32/Float16 vector [dim] (input to normalize)
+///   0: x      — Float32/Float16 [dim] or [batchSize, dim] (input to normalize)
 ///   1: weight — Float32/Float16 vector [dim] (normalization weight)
 /// Output:
-///   Float32/Float16 [dim] (same as input dtype)
+///   Float32/Float16 [dim] or [batchSize, dim] (same shape as input)
 ///
 /// This fuses 4 operations into 1 GPU dispatch:
 ///   1. UnarySquare(x) → squared
@@ -36,6 +36,7 @@ public:
 
 private:
   DataType dtype_;
+  uint32_t batchSize_;
   uint32_t dim_;
   uint32_t alignedDim_;
   float eps_;

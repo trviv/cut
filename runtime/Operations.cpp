@@ -1082,6 +1082,34 @@ void Operations::fusedAttention(const Tensor &q,
   dispatch(std::move(node));
 }
 
+Tensor Operations::batchedFusedAttention(const Tensor &q,
+                                         const Tensor &k,
+                                         const Tensor &v,
+                                         const Tensor &kCache,
+                                         const Tensor &vCache,
+                                         const Tensor &posBuffer,
+                                         const Tensor &cosTable,
+                                         const Tensor &sinTable,
+                                         uint32_t batchSize,
+                                         uint32_t nHeads,
+                                         uint32_t nKvHeads,
+                                         uint32_t headDim,
+                                         uint32_t qStride,
+                                         uint32_t kStride,
+                                         uint32_t vStride,
+                                         uint32_t qOffset,
+                                         uint32_t kOffset,
+                                         uint32_t vOffset,
+                                         const Tensor &preallocOutput) {
+  auto node = std::make_unique<BatchedFusedAttentionOpNode>(
+      *store_, q, k, v, kCache, vCache, posBuffer, cosTable, sinTable,
+      batchSize, nHeads, nKvHeads, headDim, qStride, kStride, vStride, qOffset,
+      kOffset, vOffset, preallocOutput);
+  Tensor out = node->output();
+  dispatch(std::move(node));
+  return out;
+}
+
 // =========================================================================
 // Expand
 // =========================================================================
