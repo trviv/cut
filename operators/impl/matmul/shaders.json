@@ -461,7 +461,7 @@
     {
       "type": "variants",
       "cpp_prefix": "MatMulQ8",
-      "default_variant": "T16R4x4",
+      "default_variant": "VecT16R4x4",
       "variants": [
         {
           "name": "T16R4x4",
@@ -488,6 +488,48 @@
             "combos": [
               {"input1": "Float32", "scales": "Float16", "output": "Float32"},
               {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "VecT16R4x4",
+          "template": "MatMulQ8TiledRegVec",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Q8 Vec4 T16 R4x4 (cooperative packed loading)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "GemvKPar",
+          "template": "MatMulQ8GemvKPar",
+          "defines": {},
+          "wg": [32, 1],
+          "eff_tile": [1, 4],
+          "description": "Q8 GEMV K-parallel (packed dequant, subgroup reduction)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"},
+              {"input1": "Float32", "scales": "Int8", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "CoopMatTiled",
+          "template": "MatMulQ8CoopMatTiled",
+          "compiler": "glsl",
+          "defines": {},
+          "wg": [128, 1],
+          "eff_tile": [32, 32],
+          "description": "Q8 CoopMat 2x2 Tiled (dequant B→fp16, tensor core)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
             ]
           }
         }

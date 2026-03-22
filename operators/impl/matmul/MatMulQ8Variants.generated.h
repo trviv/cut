@@ -17,23 +17,32 @@ struct MatMulQ8VariantInfo {
     const char* description;
 };
 
-inline constexpr int kMatMulQ8VariantCount = 2;
-inline constexpr int kMatMulQ8DefaultVariant = 0;
+inline constexpr int kMatMulQ8VariantCount = 5;
+inline constexpr int kMatMulQ8DefaultVariant = 2;
 
 inline constexpr MatMulQ8VariantInfo kMatMulQ8Variants[kMatMulQ8VariantCount] = {
     {"MatMulQ8T16R4x4", 16, 16, 64, 64, "Q8 T16 R4x4"},
     {"MatMulQ8Gemv", 256, 1, 1, 256, "Q8 GEMV (M=1 vector)"},
+    {"MatMulQ8VecT16R4x4", 16, 16, 64, 64, "Q8 Vec4 T16 R4x4 (cooperative packed loading)"},
+    {"MatMulQ8GemvKPar", 32, 1, 1, 4, "Q8 GEMV K-parallel (packed dequant, subgroup reduction)"},
+    {"MatMulQ8CoopMatTiled", 128, 1, 32, 32, "Q8 CoopMat 2x2 Tiled (dequant B→fp16, tensor core)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
 std::optional<std::vector<uint32_t>> compiledMatMulQ8T16R4x4(DataType input1, DataType scales, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulQ8Gemv(DataType input1, DataType scales, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulQ8VecT16R4x4(DataType input1, DataType scales, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulQ8GemvKPar(DataType input1, DataType scales, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulQ8CoopMatTiled(DataType input1, DataType scales, DataType output);
 
 using CompiledMatMulQ8Fn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType, DataType);
 
 inline const CompiledMatMulQ8Fn kMatMulQ8CompiledFns[kMatMulQ8VariantCount] = {
     compiledMatMulQ8T16R4x4,
     compiledMatMulQ8Gemv,
+    compiledMatMulQ8VecT16R4x4,
+    compiledMatMulQ8GemvKPar,
+    compiledMatMulQ8CoopMatTiled,
 };
 
 /// Returns compiled SPIR-V for a matmulq8 variant by index.

@@ -271,14 +271,23 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
 
   if (spec.has_value()) {
     spec_ = *spec;
-  } else {
-    // Auto-select GEMV variant for M=1 (vector-matrix multiply).
+  } else if (format_ == QuantFormat::Q8) {
     if (M_ == 1) {
-      spec_ = (format_ == QuantFormat::Q8) ? (kMatMulQ8VariantCount - 1)
-                                           : (kMatMulQ4VariantCount - 1);
+      // GEMV: K-parallel variant with packed dequant (index 3)
+      spec_ = 3; // GemvKPar
+    } else if (DeviceCaps::cooperativeMatrix && dtypeB_ == DataType::Float16 &&
+               K_ % 16 == 0 && N_ % 32 == 0 && M_ > 1) {
+      // CoopMat: dequant B→fp16 in shared memory, tensor core compute
+      spec_ = kMatMulQ8VariantCount - 1; // CoopMatTiled (last Q8 variant)
     } else {
-      spec_ = (format_ == QuantFormat::Q8) ? kMatMulQ8DefaultVariant
-                                           : kMatMulQ4DefaultVariant;
+      spec_ = kMatMulQ8DefaultVariant; // VecT16R4x4
+    }
+  } else {
+    // Q4
+    if (M_ == 1) {
+      spec_ = kMatMulQ4VariantCount - 1; // Q4 Gemv (last Q4 variant)
+    } else {
+      spec_ = kMatMulQ4DefaultVariant;
     }
   }
   inputs_ = {a, packedB, scalesB};
