@@ -25,6 +25,17 @@ struct PushConstants {
 // C: output [M, N]
 [[vk::binding(4, 0)]] RWStructuredBuffer<%SCALAR_DTYPE_OUTPUT%> dataC;
 
+// Remap workgroup IDs for better L2 cache locality on the B (weight) matrix.
+#if defined(TILE_SIZE) && defined(TM) && defined(TN)
+uint2 swizzleTileId(uint3 Gid) {
+    uint tilesN = (pc.N + TILE_SIZE * TN - 1) / (TILE_SIZE * TN);
+    uint tilesM = (pc.M + TILE_SIZE * TM - 1) / (TILE_SIZE * TM);
+    if (tilesM <= 1) return uint2(Gid.x, Gid.y);
+    uint linearId = Gid.y * tilesN + Gid.x;
+    return uint2(linearId / tilesM, linearId % tilesM);
+}
+#endif
+
 // Fusion type: 0 = none, 1 = unary, 2 = binary op
 [[vk::constant_id(1)]] const uint FUSION_TYPE = 0;
 // Fusion op selector: unary op code when FUSION_TYPE == 1, binary op code when FUSION_TYPE == 2

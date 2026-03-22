@@ -64,6 +64,7 @@ static int selectStandardVariant(uint32_t M, uint32_t K, uint32_t N) {
   constexpr int kT8R4x4 = 5;    // MatMulT8R4x4 (current default)
   constexpr int kT16R8x8 = 7;   // MatMulT16R8x8
   constexpr int kVecBReg = 15;  // MatMulVecBRegT16R4x4
+  constexpr int kDblBuf = 17;   // MatMulDblBufT16R4x4
 
   if (M == 1)
     return kGemv;
@@ -80,25 +81,35 @@ static int selectStandardVariant(uint32_t M, uint32_t K, uint32_t N) {
 
   // Medium M (17-64): default T8R4x4 is already good.
   // SharedMem wins for small total work.
+  // Double-buffering wins when K-loop is deep (hides load latency).
   if (M <= 64) {
     if (work < 4 * 1024 * 1024)
       return kSharedMem;
+    if (K > 1024 && work > 16 * 1024 * 1024)
+      return kDblBuf;
     return kT8R4x4;
   }
 
   // Large M (65-255): T16R8x8 starts winning for large K*N.
+  // Double-buffering is competitive when K is large (bandwidth-bound).
   // VecBReg is competitive at medium sizes.
   if (M <= 255) {
     if (work > 128 * 1024 * 1024)
       return kT16R8x8;
+    if (K > 1024 && work > 32 * 1024 * 1024)
+      return kDblBuf;
     if (work > 16 * 1024 * 1024)
       return kVecBReg;
     return kT8R4x4;
   }
 
   // Very large M (256+): T16R8x8 dominates.
-  if (work > 8 * 1024 * 1024)
+  // Double-buffering for deep K-loops with moderate total work.
+  if (work > 8 * 1024 * 1024) {
+    if (K > 1024 && work <= 64 * 1024 * 1024)
+      return kDblBuf;
     return kT16R8x8;
+  }
 
   return kT8R4x4;
 }

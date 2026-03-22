@@ -87,6 +87,21 @@ void writeOutput(uint row, uint col, %SCALAR_DTYPE_OUTPUT% value) {
     return dataB[idx >> 2][idx & 3];
 }
 
+// Remap workgroup IDs for better L2 cache locality on the B (weight) matrix.
+// Converts the default row-major tile launch order to column-major so that
+// consecutive workgroups (in GPU launch order) share the same B-matrix columns
+// in L2 cache. For M=1 (GEMV) or single-tile grids this is a no-op.
+// Only available when TILE_SIZE, TM, TN are defined (tiled variants).
+#if defined(TILE_SIZE) && defined(TM) && defined(TN)
+uint2 swizzleTileId(uint3 Gid) {
+    uint tilesN = (pc.N + TILE_SIZE * TN - 1) / (TILE_SIZE * TN);
+    uint tilesM = (pc.M + TILE_SIZE * TM - 1) / (TILE_SIZE * TM);
+    if (tilesM <= 1) return uint2(Gid.x, Gid.y);
+    uint linearId = Gid.y * tilesN + Gid.x;
+    return uint2(linearId / tilesM, linearId % tilesM);
+}
+#endif
+
 // Unchecked variants — skip bounds checks for interior workgroups
 %SCALAR_DTYPE_INPUT1% loadA_fast(uint row, uint col) {
     uint idx = row * pc.strideA + col;

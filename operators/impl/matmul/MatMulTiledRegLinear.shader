@@ -24,8 +24,9 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     uint localRow = GTid.x / TILE_SIZE;
     uint localCol = GTid.x % TILE_SIZE;
 
-    uint blockRowStart = Gid.y * TILE_SIZE * TM;
-    uint blockColStart = Gid.x * TILE_SIZE * TN;
+    uint2 tileId = swizzleTileId(Gid);
+    uint blockRowStart = tileId.y * TILE_SIZE * TM;
+    uint blockColStart = tileId.x * TILE_SIZE * TN;
 
     %SCALAR_DTYPE_OUTPUT% acc[TM][TN];
     [unroll] for (uint m = 0; m < TM; m++)

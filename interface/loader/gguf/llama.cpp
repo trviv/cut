@@ -398,8 +398,8 @@ void LlamaModel::load(const std::string &gguf_path,
           const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
           uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
           uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-          layer.w_up = uploadWeightMaybeQuantized(
-              reader, blk + "ffn_up.weight", rows, cols);
+          layer.w_up = uploadWeightMaybeQuantized(reader, blk + "ffn_up.weight",
+                                                  rows, cols);
         }
       }
 
@@ -1183,16 +1183,18 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
 
     // FFN: 2 separate gate/up matmuls (avoids 2D column-slicing issues with
     // fused [N, 2*ffn] output). Still batched [N, dim] @ [dim, ffn].
-    auto gateOut = layer.w_gate.isQuantized()
-                       ? ops_->matmul(ffnNormed, layer.w_gate.qValues,
-                                      layer.w_gate.qScales)
-                       : ops_->matmul(ffnNormed, layer.w_gate.handle);
-    auto upOut = layer.w_up.isQuantized()
-                     ? ops_->matmul(ffnNormed, layer.w_up.qValues,
-                                    layer.w_up.qScales)
-                     : ops_->matmul(ffnNormed, layer.w_up.handle);
-    auto gateSilu = ops_->unaryOp(cut::UnarySilu, gateOut);
-    auto gateUpResult = ops_->binaryOp(cut::BinaryMul, gateSilu, upOut);
+    // Gate matmul fuses SiLU activation to eliminate a separate dispatch + full
+    // read/write of [N, ffn_dim].
+    auto gateOut =
+        layer.w_gate.isQuantized()
+            ? ops_->matmulUnary(cut::UnarySilu, ffnNormed, layer.w_gate.qValues,
+                                layer.w_gate.qScales)
+            : ops_->matmulUnary(cut::UnarySilu, ffnNormed, layer.w_gate.handle);
+    auto upOut =
+        layer.w_up.isQuantized()
+            ? ops_->matmul(ffnNormed, layer.w_up.qValues, layer.w_up.qScales)
+            : ops_->matmul(ffnNormed, layer.w_up.handle);
+    auto gateUpResult = ops_->binaryOp(cut::BinaryMul, gateOut, upOut);
 
     // Down projection + residual
     cut::ComputeHandle down;
