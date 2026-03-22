@@ -337,6 +337,51 @@
           }
         },
         {
+          "name": "Gemv8",
+          "template": "MatMulGemv8",
+          "defines": {},
+          "wg": [32, 1],
+          "eff_tile": [1, 8],
+          "description": "GEMV8 (M=1, 8 cols/WG, K-unroll x4)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "VecBRegAlignedK8T16R4x4",
+          "template": "MatMulTiledRegVecBRegAlignedK8",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "Vec4+ABReg Aligned K8 T16 R4x4 (8KB, K%16==0 N%64==0)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "DblBufVecAlignedT16R4x4",
+          "template": "MatMulTiledRegDblBufVecAligned",
+          "defines": {"TILE_SIZE": 16, "TM": 4, "TN": 4},
+          "wg": [16, 16],
+          "eff_tile": [64, 64],
+          "description": "DblBuf+Vec4 Aligned K8 T16 R4x4 (16KB, K%16==0 N%64==0)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "input2": "Float32", "output": "Float32"},
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
           "name": "CoopMat",
           "template": "MatMulCoopMat",
           "compiler": "glsl",

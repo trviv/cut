@@ -60,20 +60,24 @@ static bool shouldUseCoopMatGemv(DataType dtypeB, uint32_t K, uint32_t N) {
 
 static int selectStandardVariant(uint32_t M, uint32_t K, uint32_t N) {
   constexpr int kGemv = 20;
-  constexpr int kSharedMem = 1;       // MatMul (SharedMem 16x16)
+  constexpr int kGemv8 = 21;           // MatMulGemv8 (8 cols/WG, K-unroll x4)
+  constexpr int kSharedMem = 1;        // MatMul (SharedMem 16x16)
   constexpr int kT8R2x2 = 4;          // MatMulT8R2x2
   constexpr int kT8R4x4 = 5;          // MatMulT8R4x4 (current default)
   constexpr int kT16R8x8 = 7;         // MatMulT16R8x8
   constexpr int kVecBReg = 15;        // MatMulVecBRegT16R4x4
-  constexpr int kVecBRegAligned = 19; // MatMulVecBRegAlignedT16R4x4
+  constexpr int kVecBRegAligned = 19;  // MatMulVecBRegAlignedT16R4x4
+  constexpr int kVecBRegAlignedK8 = 22; // MatMulVecBRegAlignedK8T16R4x4
   constexpr int kDblBuf = 17;         // MatMulDblBufT16R4x4
+  constexpr int kDblBufVecAligned = 23; // MatMulDblBufVecAlignedT16R4x4
 
   // Aligned variant tile parameters (must match shaders.json)
   constexpr uint32_t kAlignedTileSize = 16;
   constexpr uint32_t kAlignedTN = 4;
 
+  // GEMV: use Gemv8 when N is large enough to benefit from 8-col processing
   if (M == 1)
-    return kGemv;
+    return (N >= 8) ? kGemv8 : kGemv;
 
   uint64_t work = static_cast<uint64_t>(M) * K * N;
 
@@ -94,35 +98,34 @@ static int selectStandardVariant(uint32_t M, uint32_t K, uint32_t N) {
 
   // Medium M (17-64): default T8R4x4 is already good.
   // SharedMem wins for small total work.
-  // Double-buffering wins when K-loop is deep (hides load latency).
-  // Aligned variant wins where VecBReg would be chosen and dims are aligned.
+  // For deep K with aligned dims, use DblBufVecAligned (latency hiding + vec4).
+  // Otherwise K8 aligned variant for aligned dims, DblBuf for unaligned.
   if (M <= 64) {
     if (work < 4 * 1024 * 1024)
       return kSharedMem;
     if (K > 1024 && work > 16 * 1024 * 1024)
-      return canUseAligned ? kVecBRegAligned : kDblBuf;
+      return canUseAligned ? kDblBufVecAligned : kDblBuf;
     return kT8R4x4;
   }
 
   // Large M (65-255): T16R8x8 starts winning for large K*N.
-  // Double-buffering is competitive when K is large (bandwidth-bound).
-  // VecBReg/Aligned is competitive at medium sizes.
+  // DblBufVecAligned for deep K with aligned dims (latency hiding dominant).
+  // K8 aligned variant for medium work with aligned dims.
   if (M <= 255) {
     if (work > 128 * 1024 * 1024)
       return kT16R8x8;
     if (K > 1024 && work > 32 * 1024 * 1024)
-      return canUseAligned ? kVecBRegAligned : kDblBuf;
+      return canUseAligned ? kDblBufVecAligned : kDblBuf;
     if (work > 16 * 1024 * 1024)
-      return canUseAligned ? kVecBRegAligned : kVecBReg;
+      return canUseAligned ? kVecBRegAlignedK8 : kVecBReg;
     return kT8R4x4;
   }
 
   // Very large M (256+): T16R8x8 dominates.
-  // Double-buffering for deep K-loops with moderate total work.
-  // Aligned variant used where VecBReg/DblBuf would be chosen.
+  // DblBufVecAligned for deep K-loops with moderate total work and aligned dims.
   if (work > 8 * 1024 * 1024) {
     if (K > 1024 && work <= 64 * 1024 * 1024)
-      return canUseAligned ? kVecBRegAligned : kDblBuf;
+      return canUseAligned ? kDblBufVecAligned : kDblBuf;
     return kT16R8x8;
   }
 

@@ -17,7 +17,7 @@ struct MatMulVariantInfo {
     const char* description;
 };
 
-inline constexpr int kMatMulVariantCount = 24;
+inline constexpr int kMatMulVariantCount = 27;
 inline constexpr int kMatMulDefaultVariant = 5;
 
 inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
@@ -42,6 +42,9 @@ inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
     {"MatMulLinearT16R4x4", 256, 1, 64, 64, "Linear T16 R4x4 (8KB)"},
     {"MatMulVecBRegAlignedT16R4x4", 16, 16, 64, 64, "Vec4+BReg Aligned T16 R4x4 (8KB, K%16==0 N%64==0)"},
     {"MatMulGemv", 32, 1, 1, 4, "GEMV (M=1, K-parallel subgroup reduction)"},
+    {"MatMulGemv8", 32, 1, 1, 8, "GEMV8 (M=1, 8 cols/WG, K-unroll x4)"},
+    {"MatMulVecBRegAlignedK8T16R4x4", 16, 16, 64, 64, "Vec4+ABReg Aligned K8 T16 R4x4 (8KB, K%16==0 N%64==0)"},
+    {"MatMulDblBufVecAlignedT16R4x4", 16, 16, 64, 64, "DblBuf+Vec4 Aligned K8 T16 R4x4 (16KB, K%16==0 N%64==0)"},
     {"MatMulCoopMat", 32, 1, 16, 16, "CoopMat 16x16 (KHR)"},
     {"MatMulCoopMatTiled", 128, 1, 32, 32, "CoopMat 2x2 Tiled (KHR)"},
     {"MatMulCoopMatGemv", 32, 1, 1, 16, "CoopMat GEMV (M=1, tensor core padded A)"},
@@ -69,6 +72,9 @@ std::optional<std::vector<uint32_t>> compiledMatMulDblBufT16R4x4(DataType input1
 std::optional<std::vector<uint32_t>> compiledMatMulLinearT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulVecBRegAlignedT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulGemv(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulGemv8(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulVecBRegAlignedK8T16R4x4(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulDblBufVecAlignedT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulCoopMat(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulCoopMatTiled(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulCoopMatGemv(DataType input1, DataType input2, DataType output);
@@ -97,6 +103,9 @@ inline const CompiledMatMulFn kMatMulCompiledFns[kMatMulVariantCount] = {
     compiledMatMulLinearT16R4x4,
     compiledMatMulVecBRegAlignedT16R4x4,
     compiledMatMulGemv,
+    compiledMatMulGemv8,
+    compiledMatMulVecBRegAlignedK8T16R4x4,
+    compiledMatMulDblBufVecAlignedT16R4x4,
     compiledMatMulCoopMat,
     compiledMatMulCoopMatTiled,
     compiledMatMulCoopMatGemv,
