@@ -17,7 +17,7 @@ struct MatMulVariantInfo {
     const char* description;
 };
 
-inline constexpr int kMatMulVariantCount = 23;
+inline constexpr int kMatMulVariantCount = 24;
 inline constexpr int kMatMulDefaultVariant = 5;
 
 inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
@@ -40,6 +40,7 @@ inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
     {"MatMulBRegT16R4x4", 16, 16, 64, 64, "BReg T16 R4x4 (8KB)"},
     {"MatMulDblBufT16R4x4", 16, 16, 64, 64, "DblBuf T16 R4x4 (16KB)"},
     {"MatMulLinearT16R4x4", 256, 1, 64, 64, "Linear T16 R4x4 (8KB)"},
+    {"MatMulVecBRegAlignedT16R4x4", 16, 16, 64, 64, "Vec4+BReg Aligned T16 R4x4 (8KB, K%16==0 N%64==0)"},
     {"MatMulGemv", 32, 1, 1, 4, "GEMV (M=1, K-parallel subgroup reduction)"},
     {"MatMulCoopMat", 32, 1, 16, 16, "CoopMat 16x16 (KHR)"},
     {"MatMulCoopMatTiled", 128, 1, 32, 32, "CoopMat 2x2 Tiled (KHR)"},
@@ -66,6 +67,7 @@ std::optional<std::vector<uint32_t>> compiledMatMulVecBRegT16R4x4(DataType input
 std::optional<std::vector<uint32_t>> compiledMatMulBRegT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulDblBufT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulLinearT16R4x4(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulVecBRegAlignedT16R4x4(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulGemv(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulCoopMat(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulCoopMatTiled(DataType input1, DataType input2, DataType output);
@@ -93,6 +95,7 @@ inline const CompiledMatMulFn kMatMulCompiledFns[kMatMulVariantCount] = {
     compiledMatMulBRegT16R4x4,
     compiledMatMulDblBufT16R4x4,
     compiledMatMulLinearT16R4x4,
+    compiledMatMulVecBRegAlignedT16R4x4,
     compiledMatMulGemv,
     compiledMatMulCoopMat,
     compiledMatMulCoopMatTiled,

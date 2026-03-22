@@ -82,7 +82,7 @@ static BenchResult benchVariant(Runtime &runtime,
 }
 
 // Variants to skip (GEMV is for M=1 only, CoopMat needs Float16 + alignment)
-static bool shouldSkipVariant(int vi, uint32_t M) {
+static bool shouldSkipVariant(int vi, uint32_t M, uint32_t K, uint32_t N) {
   const auto &v = kMatMulVariants[vi];
   std::string name(v.name);
   // GEMV only works for M=1
@@ -91,6 +91,11 @@ static bool shouldSkipVariant(int vi, uint32_t M) {
   // CoopMat requires Float16 + device capability — skip in Float32 benchmark
   if (name.find("CoopMat") != std::string::npos)
     return true;
+  // Aligned variant requires K % 16 == 0 and N % 64 == 0
+  if (name.find("Aligned") != std::string::npos) {
+    if (K % 16 != 0 || N % 64 != 0)
+      return true;
+  }
   // Naive is too slow for large shapes
   if (name == "MatMulNaive" && M > 256)
     return true;
@@ -173,13 +178,13 @@ int main(int argc, char *argv[]) {
     double defaultMin = 0;
 
     // Determine which variant would be the current default
-    int defaultVariant = (s.M == 1) ? 19 : kMatMulDefaultVariant;
+    int defaultVariant = (s.M == 1) ? 20 : kMatMulDefaultVariant;
 
     std::cerr << "Benchmarking M=" << s.M << " K=" << s.K << " N=" << s.N
               << " ..." << std::flush;
 
     for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
-      if (shouldSkipVariant(vi, s.M))
+      if (shouldSkipVariant(vi, s.M, s.K, s.N))
         continue;
 
       // Check if this variant has a compiled shader for Float32

@@ -54,22 +54,35 @@ static bool shouldUseCoopMatGemv(DataType dtypeB, uint32_t K, uint32_t N) {
 //   5  = MatMulT8R4x4    (T8 R4x4, default — good general-purpose)
 //   7  = MatMulT16R8x8   (T16 R8x8, best for large matrices)
 //   15 = MatMulVecBRegT16R4x4 (Vec4+BReg, good for medium-large)
-//   19 = MatMulGemv       (GEMV for M=1)
+//   19 = MatMulVecBRegAlignedT16R4x4 (Aligned vec4+BReg, K%16==0 N%64==0)
+//   20 = MatMulGemv       (GEMV for M=1)
 // ============================================================================
 
 static int selectStandardVariant(uint32_t M, uint32_t K, uint32_t N) {
-  constexpr int kGemv = 19;
-  constexpr int kSharedMem = 1; // MatMul (SharedMem 16x16)
-  constexpr int kT8R2x2 = 4;    // MatMulT8R2x2
-  constexpr int kT8R4x4 = 5;    // MatMulT8R4x4 (current default)
-  constexpr int kT16R8x8 = 7;   // MatMulT16R8x8
-  constexpr int kVecBReg = 15;  // MatMulVecBRegT16R4x4
-  constexpr int kDblBuf = 17;   // MatMulDblBufT16R4x4
+  constexpr int kGemv = 20;
+  constexpr int kSharedMem = 1;       // MatMul (SharedMem 16x16)
+  constexpr int kT8R2x2 = 4;          // MatMulT8R2x2
+  constexpr int kT8R4x4 = 5;          // MatMulT8R4x4 (current default)
+  constexpr int kT16R8x8 = 7;         // MatMulT16R8x8
+  constexpr int kVecBReg = 15;        // MatMulVecBRegT16R4x4
+  constexpr int kVecBRegAligned = 19; // MatMulVecBRegAlignedT16R4x4
+  constexpr int kDblBuf = 17;         // MatMulDblBufT16R4x4
+
+  // Aligned variant tile parameters (must match shaders.json)
+  constexpr uint32_t kAlignedTileSize = 16;
+  constexpr uint32_t kAlignedTN = 4;
 
   if (M == 1)
     return kGemv;
 
   uint64_t work = static_cast<uint64_t>(M) * K * N;
+
+  // Check if dimensions qualify for the aligned variant:
+  // K must be a multiple of TILE_SIZE (16) and N must be a multiple of
+  // TILE_SIZE*TN (64). This eliminates partial-K tiles and N-edge
+  // workgroups, allowing vec4 loads everywhere with minimal bounds checks.
+  bool canUseAligned =
+      (K % kAlignedTileSize == 0) && (N % (kAlignedTileSize * kAlignedTN) == 0);
 
   // Small M (2-16): shared-memory 16x16 wins for moderate K*N;
   // T8R2x2 wins when K*N is very large (bandwidth-bound).
@@ -82,32 +95,34 @@ static int selectStandardVariant(uint32_t M, uint32_t K, uint32_t N) {
   // Medium M (17-64): default T8R4x4 is already good.
   // SharedMem wins for small total work.
   // Double-buffering wins when K-loop is deep (hides load latency).
+  // Aligned variant wins where VecBReg would be chosen and dims are aligned.
   if (M <= 64) {
     if (work < 4 * 1024 * 1024)
       return kSharedMem;
     if (K > 1024 && work > 16 * 1024 * 1024)
-      return kDblBuf;
+      return canUseAligned ? kVecBRegAligned : kDblBuf;
     return kT8R4x4;
   }
 
   // Large M (65-255): T16R8x8 starts winning for large K*N.
   // Double-buffering is competitive when K is large (bandwidth-bound).
-  // VecBReg is competitive at medium sizes.
+  // VecBReg/Aligned is competitive at medium sizes.
   if (M <= 255) {
     if (work > 128 * 1024 * 1024)
       return kT16R8x8;
     if (K > 1024 && work > 32 * 1024 * 1024)
-      return kDblBuf;
+      return canUseAligned ? kVecBRegAligned : kDblBuf;
     if (work > 16 * 1024 * 1024)
-      return kVecBReg;
+      return canUseAligned ? kVecBRegAligned : kVecBReg;
     return kT8R4x4;
   }
 
   // Very large M (256+): T16R8x8 dominates.
   // Double-buffering for deep K-loops with moderate total work.
+  // Aligned variant used where VecBReg/DblBuf would be chosen.
   if (work > 8 * 1024 * 1024) {
     if (K > 1024 && work <= 64 * 1024 * 1024)
-      return kDblBuf;
+      return canUseAligned ? kVecBRegAligned : kDblBuf;
     return kT16R8x8;
   }
 

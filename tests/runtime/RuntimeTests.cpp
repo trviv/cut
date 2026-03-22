@@ -4333,6 +4333,17 @@ TEST_F(MatrixOpsTest, MatMul_LargerMatrices) {
 // Matmul variant count and names come from MatMulVariants.generated.h
 // via impl/matmul/MatMul.h (kMatMulVariantCount, getMatMulVariantName)
 
+// Skip variants that require specific dimension alignment.
+// The Aligned variant assumes K % 16 == 0 and N % 64 == 0.
+static bool shouldSkipMatMulVariant(int vi, uint32_t K, uint32_t N) {
+  std::string name(getMatMulVariantName(vi));
+  if (name.find("Aligned") != std::string::npos) {
+    if (K % 16 != 0 || N % 64 != 0)
+      return true;
+  }
+  return false;
+}
+
 TEST_F(MatrixOpsTest, MatMulVariants_Square) {
   const DataType dtype = DataType::Float32;
   const uint32_t M = 32, K = 32, N = 32;
@@ -4350,6 +4361,8 @@ TEST_F(MatrixOpsTest, MatMulVariants_Square) {
   for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
     // Skip variants that don't support the requested dtype combination
     if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+      continue;
+    if (shouldSkipMatMulVariant(vi, K, N))
       continue;
     SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
@@ -4397,6 +4410,8 @@ TEST_F(MatrixOpsTest, MatMulVariants_Rectangular) {
     for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
       // Skip variants that don't support the requested dtype combination
       if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+        continue;
+      if (shouldSkipMatMulVariant(vi, tc.K, tc.N))
         continue;
       SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
@@ -4446,6 +4461,8 @@ TEST_F(MatrixOpsTest, MatMulVariants_NonMultipleOfTileSize) {
     for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
       // Skip variants that don't support the requested dtype combination
       if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+        continue;
+      if (shouldSkipMatMulVariant(vi, tc.K, tc.N))
         continue;
       SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
@@ -4498,6 +4515,8 @@ TEST_F(MatrixOpsTest, MatMulVariants_LargerMatrices) {
       // Skip variants that don't support the requested dtype combination
       if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
         continue;
+      if (shouldSkipMatMulVariant(vi, tc.K, tc.N))
+        continue;
       SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
 
       auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
@@ -4532,6 +4551,8 @@ TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
   for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
     // Skip variants that don't support the requested dtype combination
     if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+      continue;
+    if (shouldSkipMatMulVariant(vi, N, N))
       continue;
     // Skip fused activation variants (e.g. MatMulUnary) — tested separately
     if (std::string(getMatMulVariantName(vi)).find("SiLU") != std::string::npos)
