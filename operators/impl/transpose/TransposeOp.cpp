@@ -1,5 +1,6 @@
 #include "TransposeOp.h"
 #include "TensorStore.h"
+#include "VariantSelector.h"
 
 namespace cut {
 
@@ -15,7 +16,8 @@ TransposeOpNode::TransposeOpNode(TensorStore &store,
   }
   M_ = shape[0];
   N_ = shape[1];
-  spec_ = spec.value_or(kTransposeDefaultVariant);
+  spec_ = spec.value_or(VariantSelector::instance().select(
+      "Transpose", {M_, N_}, kTransposeDefaultVariant));
   inputs_ = {a};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }

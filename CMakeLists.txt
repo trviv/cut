@@ -177,6 +177,7 @@ set(LIB_SOURCES
     runtime/TensorStore.cpp
     runtime/Operations.cpp
     runtime/ShapeUtils.cpp
+    runtime/VariantSelector.cpp
     runtime/graph/Graph.cpp
     runtime/graph/GraphBuilder.cpp
     runtime/graph/GraphOptimizer.cpp

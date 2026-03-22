@@ -3,6 +3,7 @@
 #include "Dispatcher.h"
 #include "OpNode.h"
 #include "Operations.h"
+#include "VariantSelector.h"
 #include "VulkanCompute.h"
 
 #include <ComputeCommon.h>
@@ -49,6 +50,9 @@ void Runtime::init(BackendType backend) {
 
   // Create operations object
   operations_ = std::make_unique<Operations>(*this);
+
+  // Try to load tuning data for variant selection (non-fatal if absent)
+  VariantSelector::instance().loadTuningData();
 }
 
 void Runtime::shutdown() {
