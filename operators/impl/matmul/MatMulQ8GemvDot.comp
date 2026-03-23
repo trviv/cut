@@ -1,0 +1,198 @@
+#version 450
+
+#extension GL_EXT_integer_dot_product : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+
+// Q8 GEMV using hardware integer dot product (dotPacked4x8EXT).
+// C[M, N] = A[M, K] * dequant(B[K, N])   (typically M=1)
+//
+// Strategy: Quantize float32 A to int8 on-the-fly per 32-element K-block,
+// then use dotPacked4x8EXT between quantized A and int8 B weights.
+//
+// 32 threads = 8 groups of 4. Each group handles 4 K-elements.
+// Each lane (within group) handles 1 output column.
+// Grid X: ceil(N/4) workgroups, Grid Y: M workgroups.
+//
+// Shared memory cooperative loading:
+//   sA[32]: one float per thread → 32 A values loaded in one step
+//   sB[32][4]: one uint32 unpack per thread → 32×4 int8 B values loaded in one step
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint N;
+    uint strideA;
+    uint strideBN;
+    uint strideC;
+    uint scaleStride;
+};
+
+layout(set = 0, binding = 0) readonly buffer BufferA { float dataA[]; };
+layout(set = 0, binding = 1) readonly buffer BufferB { uint packedB[]; };
+layout(set = 0, binding = 2) readonly buffer BufferS { float16_t scalesB[]; };
+layout(set = 0, binding = 3) readonly buffer BufferD { float dataD[]; };
+layout(set = 0, binding = 4) buffer BufferC { float dataC[]; };
+
+layout(constant_id = 1) const uint FUSION_TYPE = 0;
+layout(constant_id = 2) const uint FUSION_OP = 0;
+
+shared float sA[32];
+shared int8_t sB[32][4];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint baseN = gl_WorkGroupID.x * 4;
+    uint m = gl_WorkGroupID.y;
+
+    if (baseN >= N || m >= M) return;
+
+    uint group = tid >> 2;   // 0..7
+    uint lane = tid & 3;     // 0..3
+    uint col = baseN + lane;
+    bool colValid = (col < N);
+
+    float acc = 0.0;
+
+    uint numBlocks = K / 32;
+
+    for (uint blk = 0; blk < numBlocks; blk++) {
+        uint k_base = blk * 32;
+
+        // Load A[m, k_base + tid] into shared memory
+        sA[tid] = dataA[m * strideA + k_base + tid];
+
+        // Load B[k_base + tid, baseN..baseN+3] into shared memory
+        // baseN is 4-aligned, strideBN is 4-aligned → one clean uint32 load
+        uint byteIdx = (k_base + tid) * strideBN + baseN;
+        uint packed = packedB[byteIdx >> 2];
+        int sp = int(packed);
+        sB[tid][0] = int8_t((sp << 24) >> 24);
+        sB[tid][1] = int8_t((sp << 16) >> 24);
+        sB[tid][2] = int8_t((sp << 8) >> 24);
+        sB[tid][3] = int8_t(sp >> 24);
+
+        barrier();
+
+        // Quantize A: find max absolute value across 32-element block
+        float a_abs = abs(sA[tid]);
+        float a_max = subgroupMax(a_abs);
+        float a_scale = a_max / 127.0;
+        float a_scale_inv = (a_max > 0.0) ? (127.0 / a_max) : 0.0;
+        int a_qi = clamp(int(round(sA[tid] * a_scale_inv)), -127, 127);
+
+        // Pack 4 A values for this group's K chunk using subgroup broadcast
+        int aq0 = subgroupShuffle(a_qi, group * 4 + 0);
+        int aq1 = subgroupShuffle(a_qi, group * 4 + 1);
+        int aq2 = subgroupShuffle(a_qi, group * 4 + 2);
+        int aq3 = subgroupShuffle(a_qi, group * 4 + 3);
+        uint a_packed = pack32(i8vec4(int8_t(aq0), int8_t(aq1), int8_t(aq2), int8_t(aq3)));
+
+        // Load 4 K-consecutive B values for this lane's column from shared memory
+        int8_t bv0 = sB[group * 4 + 0][lane];
+        int8_t bv1 = sB[group * 4 + 1][lane];
+        int8_t bv2 = sB[group * 4 + 2][lane];
+        int8_t bv3 = sB[group * 4 + 3][lane];
+        uint b_packed = pack32(i8vec4(bv0, bv1, bv2, bv3));
+
+        // Hardware integer dot product
+        int dot = int(dotPacked4x8EXT(a_packed, b_packed));
+
+        // Scale: contribution = dot * a_scale * b_scale
+        float b_scale = colValid ? float(scalesB[blk * scaleStride + col]) : 0.0;
+        acc += float(dot) * a_scale * b_scale;
+
+        barrier();
+    }
+
+    // Handle partial K block (K not multiple of 32)
+    uint partialK = K - numBlocks * 32;
+    if (partialK > 0) {
+        uint k_base = numBlocks * 32;
+
+        // Load A (bounds-checked)
+        sA[tid] = (tid < partialK) ? dataA[m * strideA + k_base + tid] : 0.0;
+
+        // Load B (bounds-checked)
+        if (tid < partialK) {
+            uint byteIdx = (k_base + tid) * strideBN + baseN;
+            uint packed = packedB[byteIdx >> 2];
+            int sp = int(packed);
+            sB[tid][0] = int8_t((sp << 24) >> 24);
+            sB[tid][1] = int8_t((sp << 16) >> 24);
+            sB[tid][2] = int8_t((sp << 8) >> 24);
+            sB[tid][3] = int8_t(sp >> 24);
+        } else {
+            sB[tid][0] = int8_t(0);
+            sB[tid][1] = int8_t(0);
+            sB[tid][2] = int8_t(0);
+            sB[tid][3] = int8_t(0);
+        }
+
+        barrier();
+
+        // Quantize
+        float a_abs = (tid < partialK) ? abs(sA[tid]) : 0.0;
+        float a_max = subgroupMax(a_abs);
+        float a_scale = a_max / 127.0;
+        float a_scale_inv = (a_max > 0.0) ? (127.0 / a_max) : 0.0;
+        int a_qi = (tid < partialK) ? clamp(int(round(sA[tid] * a_scale_inv)), -127, 127) : 0;
+
+        uint k0 = k_base + group * 4;
+        bool groupValid = (k0 < K);
+
+        int aq0 = subgroupShuffle(a_qi, group * 4 + 0);
+        int aq1 = subgroupShuffle(a_qi, group * 4 + 1);
+        int aq2 = subgroupShuffle(a_qi, group * 4 + 2);
+        int aq3 = subgroupShuffle(a_qi, group * 4 + 3);
+        uint a_packed = pack32(i8vec4(int8_t(aq0), int8_t(aq1), int8_t(aq2), int8_t(aq3)));
+
+        int8_t bv0 = sB[group * 4 + 0][lane];
+        int8_t bv1 = sB[group * 4 + 1][lane];
+        int8_t bv2 = sB[group * 4 + 2][lane];
+        int8_t bv3 = sB[group * 4 + 3][lane];
+        uint b_packed = pack32(i8vec4(bv0, bv1, bv2, bv3));
+
+        int dot = int(dotPacked4x8EXT(a_packed, b_packed));
+        float b_scale = (colValid && groupValid) ? float(scalesB[numBlocks * scaleStride + col]) : 0.0;
+        acc += float(dot) * a_scale * b_scale;
+
+        barrier();
+    }
+
+    // Reduction: sum across 8 groups for each column (lane)
+    // XOR butterfly with stride 4, 8, 16 sums groups while preserving lanes
+    acc += subgroupShuffleXor(acc, 4u);
+    acc += subgroupShuffleXor(acc, 8u);
+    acc += subgroupShuffleXor(acc, 16u);
+
+    // Threads 0..3 have final results for columns 0..3
+    if (tid < 4 && colValid) {
+        float value = acc;
+        uint outIdx = m * strideC + col;
+
+        // Fusion via specialization constants (dead-code-eliminated by driver)
+        if (FUSION_TYPE == 1) {
+            if (FUSION_OP == 130) { // RELU
+                value = max(0.0, value);
+            } else if (FUSION_OP == 132) { // GELU
+                value = value * 0.5 * (1.0 + tanh(sqrt(2.0 / 3.14159265) * (value + 0.044715 * value * value * value)));
+            } else if (FUSION_OP == 133) { // SILU
+                value = value / (1.0 + exp(-value));
+            }
+        } else if (FUSION_TYPE == 2) {
+            float d = dataD[outIdx];
+            if (FUSION_OP == 0) { // ADD
+                value = value + d;
+            }
+        }
+
+        dataC[outIdx] = value;
+    }
+}

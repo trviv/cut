@@ -1,0 +1,288 @@
+#version 450
+
+#extension GL_EXT_integer_dot_product : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+
+// Q8 Tiled Matmul with dotPacked4x8EXT
+// C[M, N] = A[M, K] * dequant(B[K, N])  (M > 1)
+//
+// WG = 256 threads, effective tile = 32 rows x 64 cols
+// K-tile = 32 (matches quantization block size)
+// Grid: X=ceil(N/64), Y=ceil(M/32)
+//
+// Thread layout (tid = 0..255):
+//   A loading: a_row = tid>>3 (0..31), a_k_local = (tid&7)<<2 (0,4,...,28)
+//   B loading: b_row = tid>>3 (0..31), b_col = (tid&7)<<3 (0,8,...,56)
+//   Output: localRow = tid>>4 (0..15), localCol = tid&15 (0..15)
+//     computes rows {localRow, localRow+16}, cols {localCol, localCol+16, localCol+32, localCol+48}
+//   Row-max reduction: subgroupShuffleXor with masks 4,2,1 (8 consecutive lanes per row)
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint N;
+    uint strideA;
+    uint strideBN;
+    uint strideC;
+    uint scaleStride;
+};
+
+layout(set = 0, binding = 0) readonly buffer BufferA { float dataA[]; };
+layout(set = 0, binding = 1) readonly buffer BufferB { uint packedB[]; };
+layout(set = 0, binding = 2) readonly buffer BufferS { float16_t scalesB[]; };
+layout(set = 0, binding = 3) readonly buffer BufferD { float dataD[]; };
+layout(set = 0, binding = 4) buffer BufferC { float dataC[]; };
+
+layout(constant_id = 1) const uint FUSION_TYPE = 0;
+layout(constant_id = 2) const uint FUSION_OP = 0;
+
+shared int8_t tileA[32][32];
+shared int8_t tileB[32][64];
+shared float a_scales[32];
+shared float b_scales[64];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint tileN = gl_WorkGroupID.x * 64u;
+    uint tileM = gl_WorkGroupID.y * 32u;
+
+    if (tileN >= N || tileM >= M) return;
+
+    uint a_row     = tid >> 3;
+    uint a_k_local = (tid & 7u) << 2;
+    uint b_row     = tid >> 3;
+    uint b_col     = (tid & 7u) << 3;
+    uint localRow  = tid >> 4;
+    uint localCol  = tid & 15u;
+
+    // Float accumulators (accumulate across ALL K-tiles)
+    float acc[2][4];
+    for (uint m = 0; m < 2u; m++)
+        for (uint n = 0; n < 4u; n++)
+            acc[m][n] = 0.0;
+
+    uint numBlocks = K / 32u;
+
+    for (uint blk = 0u; blk < numBlocks; blk++) {
+        uint k_base = blk * 32u;
+
+        // --- STEP 1: Load B int8 tile ---
+        // Each thread loads 8 int8 values: tileB[b_row][b_col..b_col+7]
+        // from B[k_base+b_row, tileN+b_col..tileN+b_col+7]
+        // Uses 2 uint32 loads (4 int8 each). Check k and N bounds.
+        {
+            bool kValid = (k_base + b_row < K);
+            uint byteIdx = (k_base + b_row) * strideBN + tileN + b_col;
+            uint p0 = (kValid && tileN + b_col < N) ? packedB[byteIdx >> 2] : 0u;
+            uint p1 = (kValid && tileN + b_col + 4u < N) ? packedB[(byteIdx + 4u) >> 2] : 0u;
+            int sp0 = int(p0);
+            int sp1 = int(p1);
+            tileB[b_row][b_col + 0u] = int8_t((sp0 << 24) >> 24);
+            tileB[b_row][b_col + 1u] = int8_t((sp0 << 16) >> 24);
+            tileB[b_row][b_col + 2u] = int8_t((sp0 <<  8) >> 24);
+            tileB[b_row][b_col + 3u] = int8_t(sp0 >> 24);
+            tileB[b_row][b_col + 4u] = int8_t((sp1 << 24) >> 24);
+            tileB[b_row][b_col + 5u] = int8_t((sp1 << 16) >> 24);
+            tileB[b_row][b_col + 6u] = int8_t((sp1 <<  8) >> 24);
+            tileB[b_row][b_col + 7u] = int8_t(sp1 >> 24);
+        }
+
+        // --- STEP 2: Load B scales ---
+        // Threads 0..63 each load one float16 scale into b_scales[tid]
+        if (tid < 64u) {
+            b_scales[tid] = (tileN + tid < N) ? float(scalesB[blk * scaleStride + tileN + tid]) : 0.0;
+        }
+
+        // --- STEP 3: Load A float, quantize per-row to int8 ---
+        {
+            bool rowValid = (tileM + a_row < M);
+            uint aBase = (tileM + a_row) * strideA + k_base + a_k_local;
+            float a0 = rowValid ? dataA[aBase + 0u] : 0.0;
+            float a1 = rowValid ? dataA[aBase + 1u] : 0.0;
+            float a2 = rowValid ? dataA[aBase + 2u] : 0.0;
+            float a3 = rowValid ? dataA[aBase + 3u] : 0.0;
+
+            float lm = max(max(abs(a0), abs(a1)), max(abs(a2), abs(a3)));
+            // Row-max reduction: XOR masks 4,2,1 stay within 8-lane row group
+            lm = max(lm, subgroupShuffleXor(lm, 4u));
+            lm = max(lm, subgroupShuffleXor(lm, 2u));
+            lm = max(lm, subgroupShuffleXor(lm, 1u));
+
+            float a_scale_inv = (lm > 0.0) ? (127.0 / lm) : 0.0;
+            if ((tid & 7u) == 0u) a_scales[a_row] = lm / 127.0;
+
+            tileA[a_row][a_k_local + 0u] = int8_t(clamp(int(round(a0 * a_scale_inv)), -127, 127));
+            tileA[a_row][a_k_local + 1u] = int8_t(clamp(int(round(a1 * a_scale_inv)), -127, 127));
+            tileA[a_row][a_k_local + 2u] = int8_t(clamp(int(round(a2 * a_scale_inv)), -127, 127));
+            tileA[a_row][a_k_local + 3u] = int8_t(clamp(int(round(a3 * a_scale_inv)), -127, 127));
+        }
+
+        barrier();
+
+        // --- STEP 4: Compute integer dot products for this K-tile ---
+        // int32 accumulator scoped to this tile (reset implicitly on declaration)
+        {
+            int acc_int[2][4];
+            for (uint m = 0; m < 2u; m++)
+                for (uint n = 0; n < 4u; n++)
+                    acc_int[m][n] = 0;
+
+            for (uint k = 0u; k < 32u; k += 4u) {
+                uint a_p0 = pack32(i8vec4(tileA[localRow][k],      tileA[localRow][k+1u],      tileA[localRow][k+2u],      tileA[localRow][k+3u]));
+                uint a_p1 = pack32(i8vec4(tileA[localRow+16u][k],  tileA[localRow+16u][k+1u],  tileA[localRow+16u][k+2u],  tileA[localRow+16u][k+3u]));
+                uint b_p0 = pack32(i8vec4(tileB[k][localCol],      tileB[k+1u][localCol],      tileB[k+2u][localCol],      tileB[k+3u][localCol]));
+                uint b_p1 = pack32(i8vec4(tileB[k][localCol+16u],  tileB[k+1u][localCol+16u],  tileB[k+2u][localCol+16u],  tileB[k+3u][localCol+16u]));
+                uint b_p2 = pack32(i8vec4(tileB[k][localCol+32u],  tileB[k+1u][localCol+32u],  tileB[k+2u][localCol+32u],  tileB[k+3u][localCol+32u]));
+                uint b_p3 = pack32(i8vec4(tileB[k][localCol+48u],  tileB[k+1u][localCol+48u],  tileB[k+2u][localCol+48u],  tileB[k+3u][localCol+48u]));
+
+                acc_int[0][0] += int(dotPacked4x8EXT(a_p0, b_p0));
+                acc_int[0][1] += int(dotPacked4x8EXT(a_p0, b_p1));
+                acc_int[0][2] += int(dotPacked4x8EXT(a_p0, b_p2));
+                acc_int[0][3] += int(dotPacked4x8EXT(a_p0, b_p3));
+                acc_int[1][0] += int(dotPacked4x8EXT(a_p1, b_p0));
+                acc_int[1][1] += int(dotPacked4x8EXT(a_p1, b_p1));
+                acc_int[1][2] += int(dotPacked4x8EXT(a_p1, b_p2));
+                acc_int[1][3] += int(dotPacked4x8EXT(a_p1, b_p3));
+            }
+
+            // Apply per-tile scales: acc_float += int32_dot * a_scale * b_scale
+            for (uint m = 0; m < 2u; m++) {
+                float as = a_scales[localRow + m * 16u];
+                for (uint n = 0; n < 4u; n++) {
+                    float bs = b_scales[localCol + n * 16u];
+                    acc[m][n] += float(acc_int[m][n]) * as * bs;
+                }
+            }
+        }
+
+        barrier();
+    }
+
+    // --- Handle partial K block (K not multiple of 32) ---
+    {
+        uint partialK = K - numBlocks * 32u;
+        if (partialK > 0u) {
+            uint k_base = numBlocks * 32u;
+
+            // Load B (bounds-check both K and N)
+            {
+                bool kValid = (k_base + b_row < K);
+                uint byteIdx = (k_base + b_row) * strideBN + tileN + b_col;
+                uint p0 = (kValid && tileN + b_col < N) ? packedB[byteIdx >> 2] : 0u;
+                uint p1 = (kValid && tileN + b_col + 4u < N) ? packedB[(byteIdx + 4u) >> 2] : 0u;
+                int sp0 = int(p0);
+                int sp1 = int(p1);
+                tileB[b_row][b_col + 0u] = int8_t((sp0 << 24) >> 24);
+                tileB[b_row][b_col + 1u] = int8_t((sp0 << 16) >> 24);
+                tileB[b_row][b_col + 2u] = int8_t((sp0 <<  8) >> 24);
+                tileB[b_row][b_col + 3u] = int8_t(sp0 >> 24);
+                tileB[b_row][b_col + 4u] = int8_t((sp1 << 24) >> 24);
+                tileB[b_row][b_col + 5u] = int8_t((sp1 << 16) >> 24);
+                tileB[b_row][b_col + 6u] = int8_t((sp1 <<  8) >> 24);
+                tileB[b_row][b_col + 7u] = int8_t(sp1 >> 24);
+            }
+
+            // Load B scales
+            if (tid < 64u) {
+                b_scales[tid] = (tileN + tid < N) ? float(scalesB[numBlocks * scaleStride + tileN + tid]) : 0.0;
+            }
+
+            // Load A (bounds-check K dimension too)
+            {
+                bool rowValid = (tileM + a_row < M);
+                uint aBase = (tileM + a_row) * strideA + k_base + a_k_local;
+                float a0 = (rowValid && k_base + a_k_local + 0u < K) ? dataA[aBase + 0u] : 0.0;
+                float a1 = (rowValid && k_base + a_k_local + 1u < K) ? dataA[aBase + 1u] : 0.0;
+                float a2 = (rowValid && k_base + a_k_local + 2u < K) ? dataA[aBase + 2u] : 0.0;
+                float a3 = (rowValid && k_base + a_k_local + 3u < K) ? dataA[aBase + 3u] : 0.0;
+
+                float lm = max(max(abs(a0), abs(a1)), max(abs(a2), abs(a3)));
+                lm = max(lm, subgroupShuffleXor(lm, 4u));
+                lm = max(lm, subgroupShuffleXor(lm, 2u));
+                lm = max(lm, subgroupShuffleXor(lm, 1u));
+
+                float a_scale_inv = (lm > 0.0) ? (127.0 / lm) : 0.0;
+                if ((tid & 7u) == 0u) a_scales[a_row] = lm / 127.0;
+
+                tileA[a_row][a_k_local + 0u] = int8_t(clamp(int(round(a0 * a_scale_inv)), -127, 127));
+                tileA[a_row][a_k_local + 1u] = int8_t(clamp(int(round(a1 * a_scale_inv)), -127, 127));
+                tileA[a_row][a_k_local + 2u] = int8_t(clamp(int(round(a2 * a_scale_inv)), -127, 127));
+                tileA[a_row][a_k_local + 3u] = int8_t(clamp(int(round(a3 * a_scale_inv)), -127, 127));
+            }
+
+            barrier();
+
+            // Compute (zeros in tileA/tileB cancel out invalid K positions)
+            {
+                int acc_int[2][4];
+                for (uint m = 0; m < 2u; m++)
+                    for (uint n = 0; n < 4u; n++)
+                        acc_int[m][n] = 0;
+
+                for (uint k = 0u; k < 32u; k += 4u) {
+                    uint a_p0 = pack32(i8vec4(tileA[localRow][k],      tileA[localRow][k+1u],      tileA[localRow][k+2u],      tileA[localRow][k+3u]));
+                    uint a_p1 = pack32(i8vec4(tileA[localRow+16u][k],  tileA[localRow+16u][k+1u],  tileA[localRow+16u][k+2u],  tileA[localRow+16u][k+3u]));
+                    uint b_p0 = pack32(i8vec4(tileB[k][localCol],      tileB[k+1u][localCol],      tileB[k+2u][localCol],      tileB[k+3u][localCol]));
+                    uint b_p1 = pack32(i8vec4(tileB[k][localCol+16u],  tileB[k+1u][localCol+16u],  tileB[k+2u][localCol+16u],  tileB[k+3u][localCol+16u]));
+                    uint b_p2 = pack32(i8vec4(tileB[k][localCol+32u],  tileB[k+1u][localCol+32u],  tileB[k+2u][localCol+32u],  tileB[k+3u][localCol+32u]));
+                    uint b_p3 = pack32(i8vec4(tileB[k][localCol+48u],  tileB[k+1u][localCol+48u],  tileB[k+2u][localCol+48u],  tileB[k+3u][localCol+48u]));
+
+                    acc_int[0][0] += int(dotPacked4x8EXT(a_p0, b_p0));
+                    acc_int[0][1] += int(dotPacked4x8EXT(a_p0, b_p1));
+                    acc_int[0][2] += int(dotPacked4x8EXT(a_p0, b_p2));
+                    acc_int[0][3] += int(dotPacked4x8EXT(a_p0, b_p3));
+                    acc_int[1][0] += int(dotPacked4x8EXT(a_p1, b_p0));
+                    acc_int[1][1] += int(dotPacked4x8EXT(a_p1, b_p1));
+                    acc_int[1][2] += int(dotPacked4x8EXT(a_p1, b_p2));
+                    acc_int[1][3] += int(dotPacked4x8EXT(a_p1, b_p3));
+                }
+
+                for (uint m = 0; m < 2u; m++) {
+                    float as = a_scales[localRow + m * 16u];
+                    for (uint n = 0; n < 4u; n++) {
+                        float bs = b_scales[localCol + n * 16u];
+                        acc[m][n] += float(acc_int[m][n]) * as * bs;
+                    }
+                }
+            }
+
+            barrier();
+        }
+    }
+
+    // --- Write outputs ---
+    for (uint m = 0; m < 2u; m++) {
+        uint outRow = tileM + localRow + m * 16u;
+        if (outRow >= M) continue;
+        for (uint n = 0; n < 4u; n++) {
+            uint outCol = tileN + localCol + n * 16u;
+            if (outCol >= N) continue;
+            float value = acc[m][n];
+            uint outIdx = outRow * strideC + outCol;
+
+            if (FUSION_TYPE == 1u) {
+                if (FUSION_OP == 130u) {
+                    value = max(0.0, value);
+                } else if (FUSION_OP == 132u) {
+                    value = value * 0.5 * (1.0 + tanh(sqrt(2.0 / 3.14159265) * (value + 0.044715 * value * value * value)));
+                } else if (FUSION_OP == 133u) {
+                    value = value / (1.0 + exp(-value));
+                }
+            } else if (FUSION_TYPE == 2u) {
+                float d = dataD[outIdx];
+                if (FUSION_OP == 0u) {
+                    value = value + d;
+                }
+            }
+
+            dataC[outIdx] = value;
+        }
+    }
+}

@@ -46,7 +46,8 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   // Build list of device extensions, checking support first
   const std::vector<const char *> wantedExtensions = {
       "VK_KHR_portability_subset", "VK_KHR_16bit_storage",
-      "VK_KHR_shader_float16_int8", "VK_KHR_cooperative_matrix"};
+      "VK_KHR_shader_float16_int8", "VK_KHR_cooperative_matrix",
+      "VK_KHR_shader_integer_dot_product"};
 
   uint32_t extCount = 0;
   vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extCount,
@@ -63,6 +64,9 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
       if (strcmp(avail.extensionName, ext) == 0) {
         if (strcmp(ext, "VK_KHR_cooperative_matrix") == 0) {
           hasCoopMatExt = true; // Don't add yet — verify feature support first
+        } else if (strcmp(ext, "VK_KHR_shader_integer_dot_product") == 0) {
+          DeviceCaps::integerDotProduct = true;
+          deviceExtensions.push_back(ext);
         } else {
           deviceExtensions.push_back(ext);
         }
@@ -109,9 +113,10 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties_);
   vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties_);
 
-  logMsg("Vulkan device: %s (coopMat: %s, subgroupSize: %u)",
+  logMsg("Vulkan device: %s (coopMat: %s, intDot: %s, subgroupSize: %u)",
          deviceProperties_.deviceName,
          DeviceCaps::cooperativeMatrix ? "yes" : "no",
+         DeviceCaps::integerDotProduct ? "yes" : "no",
          DeviceCaps::subgroupSize);
 
   // Query subgroup size for cooperative matrix dispatch sizing

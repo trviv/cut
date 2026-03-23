@@ -273,12 +273,20 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
     spec_ = *spec;
   } else if (format_ == QuantFormat::Q8) {
     if (M_ == 1) {
-      // GEMV: K-parallel variant with packed dequant (index 3)
-      spec_ = 3; // GemvKPar
+      // GEMV: 8-col K-parallel variant with K-unroll x4 (index 4)
+      // Falls back to 4-col variant for very small N
+      // Note: GemvDot (index 5) is NOT auto-selected — GEMV is memory-bound,
+      // dotPacked4x8EXT overhead outweighs savings for M=1.
+      spec_ = (N_ >= 8) ? 4 : 3; // GemvKPar8 or GemvKPar
     } else if (DeviceCaps::cooperativeMatrix && dtypeB_ == DataType::Float16 &&
-               K_ % 16 == 0 && N_ % 32 == 0 && M_ > 1) {
-      // CoopMat: dequant B→fp16 in shared memory, tensor core compute
+               K_ % 16 == 0 && N_ % 32 == 0) {
+      // CoopMat: dequant B→fp16 in shared memory, tensor core compute (best)
       spec_ = kMatMulQ8VariantCount - 1; // CoopMatTiled (last Q8 variant)
+    } else if (DeviceCaps::integerDotProduct && dtypeB_ == DataType::Float16 &&
+               N_ >= 64 && M_ >= 32) {
+      // TiledDot: dotPacked4x8EXT with on-the-fly A quantization
+      // Only for full tiles: shader tile is 32×64, so require M>=32, N>=64
+      spec_ = 6; // TiledDot
     } else {
       spec_ = kMatMulQ8DefaultVariant; // VecT16R4x4
     }

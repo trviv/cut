@@ -17,7 +17,7 @@ struct MatMulQ8VariantInfo {
     const char* description;
 };
 
-inline constexpr int kMatMulQ8VariantCount = 5;
+inline constexpr int kMatMulQ8VariantCount = 8;
 inline constexpr int kMatMulQ8DefaultVariant = 2;
 
 inline constexpr MatMulQ8VariantInfo kMatMulQ8Variants[kMatMulQ8VariantCount] = {
@@ -25,6 +25,9 @@ inline constexpr MatMulQ8VariantInfo kMatMulQ8Variants[kMatMulQ8VariantCount] = 
     {"MatMulQ8Gemv", 256, 1, 1, 256, "Q8 GEMV (M=1 vector)"},
     {"MatMulQ8VecT16R4x4", 16, 16, 64, 64, "Q8 Vec4 T16 R4x4 (cooperative packed loading)"},
     {"MatMulQ8GemvKPar", 32, 1, 1, 4, "Q8 GEMV K-parallel (packed dequant, subgroup reduction)"},
+    {"MatMulQ8GemvKPar8", 32, 1, 1, 8, "Q8 GEMV K-parallel 8col (packed dequant, K-unroll x4)"},
+    {"MatMulQ8GemvDot", 32, 1, 1, 4, "Q8 GEMV dotPacked4x8EXT (on-the-fly A quantization)"},
+    {"MatMulQ8TiledDot", 256, 1, 32, 64, "Q8 TiledDot dotPacked4x8EXT (on-the-fly A quant, int8 shmem B)"},
     {"MatMulQ8CoopMatTiled", 128, 1, 32, 32, "Q8 CoopMat 2x2 Tiled (dequant B→fp16, tensor core)"},
 };
 
@@ -33,6 +36,9 @@ std::optional<std::vector<uint32_t>> compiledMatMulQ8T16R4x4(DataType input1, Da
 std::optional<std::vector<uint32_t>> compiledMatMulQ8Gemv(DataType input1, DataType scales, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulQ8VecT16R4x4(DataType input1, DataType scales, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulQ8GemvKPar(DataType input1, DataType scales, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulQ8GemvKPar8(DataType input1, DataType scales, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulQ8GemvDot(DataType input1, DataType scales, DataType output);
+std::optional<std::vector<uint32_t>> compiledMatMulQ8TiledDot(DataType input1, DataType scales, DataType output);
 std::optional<std::vector<uint32_t>> compiledMatMulQ8CoopMatTiled(DataType input1, DataType scales, DataType output);
 
 using CompiledMatMulQ8Fn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType, DataType);
@@ -42,6 +48,9 @@ inline const CompiledMatMulQ8Fn kMatMulQ8CompiledFns[kMatMulQ8VariantCount] = {
     compiledMatMulQ8Gemv,
     compiledMatMulQ8VecT16R4x4,
     compiledMatMulQ8GemvKPar,
+    compiledMatMulQ8GemvKPar8,
+    compiledMatMulQ8GemvDot,
+    compiledMatMulQ8TiledDot,
     compiledMatMulQ8CoopMatTiled,
 };
 
