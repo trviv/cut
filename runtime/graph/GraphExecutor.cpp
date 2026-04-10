@@ -14,16 +14,23 @@ GraphExecutor::GraphExecutor(Operations &ops, TensorStore &store)
     : ops_(&ops), store_(&store) {}
 
 std::vector<Tensor> GraphExecutor::execute(Graph &graph) {
-  // Plan transient tensor memory before execution
-  MemoryPlanner planner(*store_);
-  planner.plan(graph);
+  // Cache topological order and memory plan per graph template.
+  // Graph templates are immutable after construction, so the plan and
+  // order are always the same. This eliminates per-execution overhead
+  // that dominates prefill with many tokens.
+  auto &cached = cachedPlans_[&graph];
+  if (!cached.planned) {
+    MemoryPlanner planner(*store_);
+    planner.plan(graph);
+    cached.order = graph.topologicalOrder();
+    cached.planned = true;
+  }
 
   tensorMap_.clear();
   tensorMap_.resize(graph.size());
 
-  // Execute in topological order
-  auto order = graph.topologicalOrder();
-  for (uint32_t idx : order) {
+  // Execute in cached topological order
+  for (uint32_t idx : cached.order) {
     executeNode(graph, idx);
   }
 

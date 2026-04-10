@@ -1310,14 +1310,12 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
     return static_cast<int>(best);
   };
 
-  // Process prompt tokens using batched prefill — matmuls use M=N GEMM
-  // instead of N sequential M=1 GEMV calls. Attention remains per-token.
+  // Per-token prefill with cached CB resubmission. The CB is recorded once
+  // on the first token and resubmitted for remaining tokens (mapped buffers
+  // for runtimeParams/tokenId are updated via memcpy between resubmits).
+  // Last token uses full forward() to set up the reusable decode CB.
   auto prefillStart = std::chrono::high_resolution_clock::now();
   uploadPenaltyFactors();
-
-  // Per-token prefill: non-last tokens use forwardPrefill() (skips logits,
-  // ~25% faster per token). Last token uses full forward() to set up the
-  // reusable decode CB.
   for (size_t i = 0; i + 1 < prompt_tokens.size(); ++i) {
     forwardPrefill(prompt_tokens[i], static_cast<int>(i));
   }
