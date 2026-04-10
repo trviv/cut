@@ -452,7 +452,7 @@ def main():
     results = {}
 
     # ── 1. CUT ────────────────────────────────────────────────────────────
-    cut_exe = "build/interface/loader/gguf/gguf_example"
+    cut_exe = "build/interface/runner/llama/gguf_example"
     print("=" * 60)
     print("1. CUT (Vulkan GPU)")
     print("=" * 60)

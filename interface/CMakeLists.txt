@@ -1,2 +1,3 @@
-# Interface module - contains loaders and other interface utilities
+# Interface module - contains loaders, model runners, and other interface utilities
 add_subdirectory(loader)
+add_subdirectory(runner)

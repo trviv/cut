@@ -16,7 +16,7 @@ CHAT_PROMPT = f"<|im_start|>user\n{PROMPT}<|im_end|>\n<|im_start|>assistant\n"
 
 def run_cut(model_path: str, max_tokens: int = 32, device_index: int = None):
     """Run CUT gguf_example and parse timing."""
-    exe = "build/interface/loader/gguf/gguf_example"
+    exe = "build/interface/runner/llama/gguf_example"
     if not os.path.exists(exe):
         print("  Binary not found, skipping")
         return None
@@ -229,7 +229,7 @@ def detect_cut_vulkan_devices():
     0..7 and parse the device name. Stops when it sees a duplicate (meaning
     the index wrapped around to fallback).
     """
-    exe = "build/interface/loader/gguf/gguf_example"
+    exe = "build/interface/runner/llama/gguf_example"
     if not os.path.exists(exe):
         return []
 
