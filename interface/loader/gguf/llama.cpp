@@ -945,10 +945,19 @@ cut::ComputeHandle LlamaModel::runLayer(uint32_t layerIdx,
   splitQKV(qkv, q, k, v);
 
   auto &cache = kv_caches_[layerIdx];
-  ops_->fusedAttention(q, k, v, cache.k_cache, cache.v_cache,
-                       runtimeParamsBuffer_, rope_cos_gpu_, rope_sin_gpu_,
-                       config_.n_heads, config_.n_kv_heads, config_.head_dim,
-                       attnOutBuffer_);
+  // Split into separate dispatches to avoid inter-workgroup race condition
+  // (FusedAttention relied on cross-workgroup visibility of cache writes
+  // which is undefined behavior in Vulkan)
+  auto q_roped = ops_->applyRoPE(q, rope_cos_gpu_, rope_sin_gpu_,
+                                  runtimeParamsBuffer_, config_.head_dim);
+  auto k_roped = ops_->applyRoPE(k, rope_cos_gpu_, rope_sin_gpu_,
+                                  runtimeParamsBuffer_, config_.head_dim);
+  ops_->cacheWrite(cache.k_cache, k_roped, runtimeParamsBuffer_);
+  ops_->cacheWrite(cache.v_cache, v, runtimeParamsBuffer_);
+  ops_->attention(q_roped, cache.k_cache, cache.v_cache,
+                  runtimeParamsBuffer_,
+                  config_.n_heads, config_.n_kv_heads, config_.head_dim,
+                  attnOutBuffer_);
 
   auto attn_result =
       executeGraph(lg.attnOutputResidual, {attnOutBuffer_, hidden});
@@ -1163,10 +1172,16 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
           attnOut, static_cast<size_t>(i) * alignedQdim * sizeof(float), {qdim},
           cut::DataType::Float32);
 
-      ops_->fusedAttention(qi, ki, vi, cache.k_cache, cache.v_cache,
-                           runtimeParamsBuffer_, rope_cos_gpu_, rope_sin_gpu_,
-                           config_.n_heads, config_.n_kv_heads,
-                           config_.head_dim, attnOuti);
+      auto qi_roped = ops_->applyRoPE(qi, rope_cos_gpu_, rope_sin_gpu_,
+                                       runtimeParamsBuffer_, config_.head_dim);
+      auto ki_roped = ops_->applyRoPE(ki, rope_cos_gpu_, rope_sin_gpu_,
+                                       runtimeParamsBuffer_, config_.head_dim);
+      ops_->cacheWrite(cache.k_cache, ki_roped, runtimeParamsBuffer_);
+      ops_->cacheWrite(cache.v_cache, vi, runtimeParamsBuffer_);
+      ops_->attention(qi_roped, cache.k_cache, cache.v_cache,
+                      runtimeParamsBuffer_,
+                      config_.n_heads, config_.n_kv_heads,
+                      config_.head_dim, attnOuti);
     }
 
     // --- Output projection + residual ---
@@ -1252,19 +1267,36 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
   // When penalty is 1.0, the factors buffer stays all-ones (initialized in
   // load) and the penalty shader is a no-op, so we skip the upload entirely.
   bool hasPenalty = (repeat_penalty != 1.0f);
-  auto uploadPenaltyFactors = [&]() {
-    if (!hasPenalty)
+  // Suppress EOS/stop tokens during early generation to counteract
+  // accumulated GPU FP32 precision drift through residual layers, which
+  // can artificially elevate the EOS logit for longer prompts.
+  int minNewTokens = std::max(1, static_cast<int>(prompt_tokens.size()) / 4);
+  int generatedCount = 0;
+
+  auto uploadPenaltyFactors = [&](bool suppressEos = false) {
+    if (!hasPenalty && !suppressEos)
       return;
     std::vector<float> factors(vocabSize, 1.0f);
-    size_t start = 0;
-    if (repeat_last_n > 0 &&
-        tokens.size() > static_cast<size_t>(repeat_last_n)) {
-      start = tokens.size() - static_cast<size_t>(repeat_last_n);
+    if (hasPenalty) {
+      size_t start = 0;
+      if (repeat_last_n > 0 &&
+          tokens.size() > static_cast<size_t>(repeat_last_n)) {
+        start = tokens.size() - static_cast<size_t>(repeat_last_n);
+      }
+      for (size_t i = start; i < tokens.size(); ++i) {
+        int tid = tokens[i];
+        if (tid >= 0 && static_cast<uint32_t>(tid) < vocabSize) {
+          factors[tid] = repeat_penalty;
+        }
+      }
     }
-    for (size_t i = start; i < tokens.size(); ++i) {
-      int tid = tokens[i];
-      if (tid >= 0 && static_cast<uint32_t>(tid) < vocabSize) {
-        factors[tid] = repeat_penalty;
+    if (suppressEos) {
+      if (eos_token_id_ >= 0 &&
+          static_cast<uint32_t>(eos_token_id_) < vocabSize)
+        factors[eos_token_id_] = 1e9f;
+      for (int st : stopTokenIds_) {
+        if (st >= 0 && static_cast<uint32_t>(st) < vocabSize)
+          factors[st] = 1e9f;
       }
     }
     runtime_->copyToTensor(penaltyFactorsBuffer_, factors.data(),
@@ -1289,10 +1321,11 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
   for (size_t i = 0; i + 1 < prompt_tokens.size(); ++i) {
     forwardPrefill(prompt_tokens[i], static_cast<int>(i));
   }
-  uploadPenaltyFactors();
+  uploadPenaltyFactors(generatedCount < minNewTokens);
   auto argmaxBuf =
       forward(prompt_tokens.back(), static_cast<int>(prompt_tokens.size() - 1));
   next_token = readArgmax(argmaxBuf);
+  generatedCount++;
 
   auto prefillEnd = std::chrono::high_resolution_clock::now();
   result.prefillMs =
@@ -1312,10 +1345,10 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
     return false;
   };
 
-  // Stop on EOS from first sampled token
-  if (isStopToken(next_token)) {
+  // Stop on EOS from first sampled token (only if past min_new_tokens)
+  if (isStopToken(next_token) && generatedCount >= minNewTokens) {
     result.tokens = std::move(tokens);
-    result.generatedTokens = 1;
+    result.generatedTokens = generatedCount;
     result.generateMs = 0.0;
     return result;
   }
@@ -1326,16 +1359,17 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
     int pos = static_cast<int>(prompt_tokens.size()) + step;
 
     // Upload penalty factors before forward (staged, flushed by resubmit)
-    uploadPenaltyFactors();
+    uploadPenaltyFactors(generatedCount < minNewTokens);
 
     auto argmaxBuf = forward(next_token, pos);
 
     next_token = readArgmax(argmaxBuf);
+    generatedCount++;
     tokens.push_back(next_token);
 
     std::cout << "Generated token: " << next_token << "\n";
 
-    if (isStopToken(next_token)) {
+    if (isStopToken(next_token) && generatedCount >= minNewTokens) {
       break;
     }
   }
