@@ -293,7 +293,10 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   } else {
     // Q4
     if (M_ == 1) {
-      spec_ = kMatMulQ4VariantCount - 1; // Q4 Gemv (last Q4 variant)
+      // GEMV: 8-col K-parallel variant with K-unroll x4
+      // Falls back to 4-col variant for very small N
+      spec_ = (N_ >= 8) ? kMatMulQ4VariantCount - 1  // GemvKPar8
+                         : kMatMulQ4VariantCount - 2; // GemvKPar
     } else {
       spec_ = kMatMulQ4DefaultVariant;
     }

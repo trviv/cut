@@ -455,6 +455,32 @@
               {"input1": "Float32", "scales": "Float16", "output": "Float32"}
             ]
           }
+        },
+        {
+          "name": "GemvKPar",
+          "template": "MatMulQ4GemvKPar",
+          "defines": {},
+          "wg": [32, 1],
+          "eff_tile": [1, 4],
+          "description": "Q4 GEMV K-parallel (nibble unpack, subgroup reduction)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
+            ]
+          }
+        },
+        {
+          "name": "GemvKPar8",
+          "template": "MatMulQ4GemvKPar8",
+          "defines": {},
+          "wg": [32, 1],
+          "eff_tile": [1, 8],
+          "description": "Q4 GEMV K-parallel 8col (nibble unpack, K-unroll x4)",
+          "dtype_slots": {
+            "combos": [
+              {"input1": "Float32", "scales": "Float16", "output": "Float32"}
+            ]
+          }
         }
       ]
     },

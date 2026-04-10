@@ -354,6 +354,10 @@ std::vector<float> GGUFReader::read_tensor_f32(const std::string &name) const {
     dequantize_q4_0(raw_data.data(), result.data(), n_elements);
     break;
 
+  case GGMLType::Q4_1:
+    dequantize_q4_1(raw_data.data(), result.data(), n_elements);
+    break;
+
   case GGMLType::Q8_0:
     dequantize_q8_0(raw_data.data(), result.data(), n_elements);
     break;
@@ -534,36 +538,71 @@ void GGUFReader::dequantize_q4_0(const uint8_t *data,
                                  float *output,
                                  size_t n_elements) {
   constexpr size_t block_size = 32;
+  constexpr size_t half_block = block_size / 2; // 16
   size_t n_blocks = (n_elements + block_size - 1) / block_size;
 
   size_t offset = 0;
-  size_t out_idx = 0;
 
-  for (size_t i = 0; i < n_blocks && out_idx < n_elements; ++i) {
+  for (size_t i = 0; i < n_blocks; ++i) {
     // Read scale (float16)
     uint16_t scale_bits;
     std::memcpy(&scale_bits, data + offset, sizeof(scale_bits));
     offset += 2;
 
     float scale = f16_to_f32(scale_bits);
+    size_t base = i * block_size;
 
-    // Read and dequantize 32 values (16 bytes, 4 bits each)
-    for (size_t j = 0; j < 16 && out_idx < n_elements; ++j) {
+    // GGML layout: lower nibbles → first half, upper nibbles → second half
+    for (size_t j = 0; j < half_block; ++j) {
       uint8_t byte = data[offset + j];
+      int x0 = (byte & 0x0F) - 8;
+      int x1 = ((byte >> 4) & 0x0F) - 8;
 
-      // Lower 4 bits
-      if (out_idx < n_elements) {
-        int8_t val = (byte & 0x0F) - 8;
-        output[out_idx++] = static_cast<float>(val) * scale;
-      }
-
-      // Upper 4 bits
-      if (out_idx < n_elements) {
-        int8_t val = ((byte >> 4) & 0x0F) - 8;
-        output[out_idx++] = static_cast<float>(val) * scale;
-      }
+      if (base + j < n_elements)
+        output[base + j] = static_cast<float>(x0) * scale;
+      if (base + j + half_block < n_elements)
+        output[base + j + half_block] = static_cast<float>(x1) * scale;
     }
-    offset += 16;
+    offset += half_block;
+  }
+}
+
+void GGUFReader::dequantize_q4_1(const uint8_t *data,
+                                 float *output,
+                                 size_t n_elements) {
+  constexpr size_t block_size = 32;
+  constexpr size_t half_block = block_size / 2; // 16
+  size_t n_blocks = (n_elements + block_size - 1) / block_size;
+
+  size_t offset = 0;
+
+  for (size_t i = 0; i < n_blocks; ++i) {
+    // Read scale (float16)
+    uint16_t scale_bits;
+    std::memcpy(&scale_bits, data + offset, sizeof(scale_bits));
+    offset += 2;
+
+    // Read min (float16)
+    uint16_t min_bits;
+    std::memcpy(&min_bits, data + offset, sizeof(min_bits));
+    offset += 2;
+
+    float scale = f16_to_f32(scale_bits);
+    float min = f16_to_f32(min_bits);
+    size_t base = i * block_size;
+
+    // GGML layout: lower nibbles → first half, upper nibbles → second half
+    for (size_t j = 0; j < half_block; ++j) {
+      uint8_t byte = data[offset + j];
+      int x0 = byte & 0x0F;
+      int x1 = (byte >> 4) & 0x0F;
+
+      if (base + j < n_elements)
+        output[base + j] = static_cast<float>(x0) * scale + min;
+      if (base + j + half_block < n_elements)
+        output[base + j + half_block] = static_cast<float>(x1) * scale + min;
+    }
+    offset += half_block;
   }
 }
 
