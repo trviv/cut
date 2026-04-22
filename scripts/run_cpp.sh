@@ -25,5 +25,5 @@ else
 
   echo ""
   echo "==> Running C++ tests"
-  LSAN_OPTIONS="suppressions=$ROOT_DIR/lsan.supp" "$BUILD_DIR/tests/tests"
+  LSAN_OPTIONS="suppressions=$ROOT_DIR/lsan.supp:fast_unwind_on_malloc=0" "$BUILD_DIR/tests/tests"
 fi
