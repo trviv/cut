@@ -358,6 +358,10 @@ std::vector<float> GGUFReader::read_tensor_f32(const std::string &name) const {
     dequantize_q4_1(raw_data.data(), result.data(), n_elements);
     break;
 
+  case GGMLType::Q5_0:
+    dequantize_q5_0(raw_data.data(), result.data(), n_elements);
+    break;
+
   case GGMLType::Q8_0:
     dequantize_q8_0(raw_data.data(), result.data(), n_elements);
     break;
@@ -603,6 +607,55 @@ void GGUFReader::dequantize_q4_1(const uint8_t *data,
         output[base + j + half_block] = static_cast<float>(x1) * scale + min;
     }
     offset += half_block;
+  }
+}
+
+void GGUFReader::dequantize_q5_0(const uint8_t *data,
+                                 float *output,
+                                 size_t n_elements) {
+  constexpr size_t block_size = 32;
+  constexpr size_t half_block = block_size / 2; // 16
+  size_t n_blocks = (n_elements + block_size - 1) / block_size;
+
+  size_t offset = 0;
+
+  for (size_t i = 0; i < n_blocks; ++i) {
+    // Read scale (float16). Use memcpy — the data pointer is not aligned.
+    uint16_t scale_bits;
+    std::memcpy(&scale_bits, data + offset, sizeof(scale_bits));
+    offset += 2;
+
+    // Read the 4 high-bit bytes as a single uint32_t (little-endian host assumed).
+    uint32_t qh_u32;
+    std::memcpy(&qh_u32, data + offset, sizeof(qh_u32));
+    offset += 4;
+
+    float scale = f16_to_f32(scale_bits);
+    size_t base = i * block_size;
+
+    // GGML Q5_0 packing (same nibble layout as Q4_0):
+    //   low nibble  of qs[j] → element (base + j)          for j in [0, 16)
+    //   high nibble of qs[j] → element (base + j + 16)     for j in [0, 16)
+    // Additionally, bit j of qh_u32 is the 5th (high) bit for element (base + j),
+    // bit (j + 16) of qh_u32 is the 5th bit for element (base + j + 16).
+    for (size_t j = 0; j < half_block; ++j) {
+      uint8_t byte = data[offset + j];
+      int low_lo = byte & 0x0F;
+      int low_hi = (byte >> 4) & 0x0F;
+
+      int hbit_lo = (qh_u32 >> j) & 1;
+      int hbit_hi = (qh_u32 >> (j + half_block)) & 1;
+
+      int q5_lo = low_lo | (hbit_lo << 4);       // 5-bit, range [0, 31]
+      int q5_hi = low_hi | (hbit_hi << 4);
+
+      // Center to signed range [-16, 15] and scale.
+      if (base + j < n_elements)
+        output[base + j] = static_cast<float>(q5_lo - 16) * scale;
+      if (base + j + half_block < n_elements)
+        output[base + j + half_block] = static_cast<float>(q5_hi - 16) * scale;
+    }
+    offset += half_block;   // advance past the 16 bytes of qs
   }
 }
 

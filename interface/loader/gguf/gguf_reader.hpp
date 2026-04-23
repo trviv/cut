@@ -110,6 +110,8 @@ private:
   static void
   dequantize_q4_1(const uint8_t *data, float *output, size_t n_elements);
   static void
+  dequantize_q5_0(const uint8_t *data, float *output, size_t n_elements);
+  static void
   dequantize_q4_k(const uint8_t *data, float *output, size_t n_elements);
   static void
   dequantize_q5_k(const uint8_t *data, float *output, size_t n_elements);
