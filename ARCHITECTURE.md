@@ -16,19 +16,22 @@ Operations  (runtime/Operations.h/cpp)     ── high-level tensor ops
 Runtime     (runtime/Runtime.h/cpp)         ── lifecycle, caching, tensor management
     │
     ▼
-Dispatcher  (runtime/Dispatcher.h/cpp)      ── GPU command encoding & multi-pass algorithms
+Graph       (runtime/graph/)                ── op graph, optimizer, memory planner, executor
     │
     ▼
-ComputeInterface  (core/api/)              ── abstract compute API
+Dispatcher  (runtime/Dispatcher.h/cpp)      ── GPU command encoding
     │
     ▼
-VulkanCompute     (core/backends/vulkan/)  ── Vulkan implementation
+Operators   (operators/impl/ + operators/runtime/)  ── per-op classes + shader registry
     │
     ▼
-Shader Generation (shaders/)               ── template-based GLSL → SPIR-V
+ComputeInterface  (core/api/)               ── abstract compute API
     │
     ▼
-GPU (Vulkan / MoltenVK on macOS)
+VulkanCompute     (core/backends/vulkan/)   ── Vulkan implementation
+    │
+    ▼
+GPU  (Vulkan; MoltenVK on macOS, native on Linux)
 ```
 
 ---
@@ -37,34 +40,79 @@ GPU (Vulkan / MoltenVK on macOS)
 
 ```
 cut/
+├── ARCHITECTURE.md           # This file
+├── README.md
+├── LICENSE
+├── CMakeLists.txt            # Root build configuration
+├── .clang-format             # C/C++ style config
+├── cmake/                    # Build helpers
+│   ├── shader_loader.cmake   # Shader compilation pipeline (DXC + glslc)
+│   └── lsan.supp             # LeakSanitizer suppressions
 ├── core/
 │   ├── api/
-│   │   ├── include/          # Public headers (ComputeInterface, Handle, Container, Structs, Ops)
+│   │   ├── include/          # Public headers (ComputeInterface, Handle, Container, Structs)
 │   │   └── src/              # Implementations
 │   └── backends/
-│       └── vulkan/           # Vulkan backend (Compute, CommandBuffer, Containers, Structs)
+│       └── vulkan/           # Vulkan backend (Compute, CommandBuffer, Containers, Structs, Staging)
 ├── runtime/
 │   ├── Runtime.h/cpp         # Central coordinator
-│   ├── Operations.h/cpp      # High-level tensor operations
-│   └── Dispatcher.h/cpp      # GPU command encoding engine
-├── shaders/
-│   ├── ShaderUtils.h/cpp     # Template engine & shader templates
-│   ├── Shaders.h/cpp         # Public shader API & validation
-│   ├── ShadersGenerated.cpp  # Entry point with SPIR-V cache
-│   ├── ShadersBasicOps.cpp   # Basic op generators (~30 ops)
-│   ├── ShadersAdvancedOps.cpp# Advanced op generators (~40 ops)
-│   └── CompiledShaders.cpp   # Pre-compiled SPIR-V cache
+│   ├── Operations.h/cpp      # High-level tensor operations (consumed by Python)
+│   ├── Dispatcher.h/cpp      # GPU command encoding
+│   ├── TensorStore.h/cpp     # Tensor allocation + buffer-view recycling
+│   ├── ShapeUtils.h/cpp      # Shape arithmetic helpers
+│   ├── VariantSelector.h/cpp # Picks best shader variant for dispatch size
+│   └── graph/                # Graph IR
+│       ├── Graph.h/cpp
+│       ├── GraphBuilder.h/cpp
+│       ├── GraphExecutor.h/cpp
+│       ├── GraphOptimizer.h/cpp  # Fusion rules (matmul+silu, fused binary, etc.)
+│       ├── MemoryPlanner.h/cpp   # Buffer reuse across graph nodes
+│       └── GraphReport.h/cpp     # Diagnostic dump
+├── operators/
+│   ├── runtime/              # Shader infrastructure (used by all op families)
+│   │   ├── Shaders.h/cpp     # Shader registry + lookup API
+│   │   ├── ShaderUtils.h/cpp # Compilation helpers
+│   │   ├── CompiledShaders.cpp  # Generated SPIR-V blobs (build artifact)
+│   │   ├── ComputeOps.h/cpp     # OperatorEnum and Operator metadata
+│   │   ├── ComputeOpsShared.h   # Shared by C++ and HLSL/GLSL shaders
+│   │   └── OpNode.h/cpp      # Base class for all operator nodes
+│   └── impl/                 # Per-op-family implementations
+│       ├── matmul/           # MatMulOp + 20+ shader variants (Q4, Q8, CoopMat, GEMV, …)
+│       ├── binary/           # BinaryOp + fused binary ops + shader variants
+│       ├── unary/            # UnaryOp + 60+ unary ops in one shader
+│       ├── reduce/           # ReduceOp + ReduceRMS/Variance/LogSumExp variants
+│       ├── reducedim/        # ReduceDimOp (per-dimension reduction)
+│       ├── conv1d/, conv2d/  # Convolution ops with tiled variants
+│       ├── attention/        # Attention + FusedAttention + BatchedFusedAttention
+│       ├── rmsnorm/          # RMSNorm + ExtendedRMSNorm
+│       ├── softmax/          # Softmax + LogSoftmax
+│       ├── dequant/          # GPU dequant for BF16, Q4_K, Q5_K, Q6_K
+│       ├── memory/           # Copy, Pad, Embedding, Expand
+│       ├── transpose/        # Naive, tiled, vec4 variants
+│       ├── sort/             # Bitonic + radix
+│       ├── scan/             # Per-wg + propagate prefix scan
+│       ├── ternary/          # Clamp, Select
+│       ├── cast/             # Tensor dtype conversion
+│       ├── creation/         # Arange, Fill
+│       ├── rope/             # Rotary position embedding
+│       ├── sampling/         # Repetition penalty
+│       ├── q4transpose/      # Nibble-aware Q4 transpose
+│       └── pool/, avgpool2d/, maxpool2d/, scan/
 ├── interface/
-│   ├── python/
-│   │   ├── cut/              # Python package (compute.py, _ops.py, _compute_bindings.cpp)
-│   │   ├── tests/            # pytest suite
-│   │   └── benchmarks/       # Performance benchmarks
-│   └── loader/
-│       ├── gguf/             # GGUF model loader
-│       └── safetensor/       # SafeTensor model loader
+│   ├── loader/
+│   │   ├── gguf/             # GGUF model reader + dequant
+│   │   └── safetensor/       # SafeTensor model reader
+│   ├── runner/llama/         # Llama-family model runner (example.cpp, server, client)
+│   └── python/
+│       ├── cut/              # Python package (compute.py, _ops.py, _compute_bindings.cpp)
+│       ├── tests/            # pytest suite
+│       └── benchmarks/       # Performance benchmarks vs PyTorch/NumPy/JAX/CuPy
+├── examples/                 # Standalone inference scripts (gguf, safetensor, llm)
 ├── tests/                    # C++ Google Test suite
-├── CMakeLists.txt            # Root build configuration
-└── setup.sh                  # macOS setup script
+│   ├── api/, runtime/, vulkan/, combined/, graph/
+├── benchmarks/               # C++ benchmarks (matmul autotune, end-to-end)
+├── docs/                     # Reference docs (operators.md, pytorch_comparison.md)
+└── scripts/                  # Build, format, benchmark helpers
 ```
 
 ---
@@ -223,109 +271,98 @@ Extends `ComputeBuffer` with:
 
 ---
 
-## Shader Generation (`shaders/`)
+## Operators (`operators/`)
 
-All shaders are **GLSL 4.50 compute shaders**, compiled to SPIR-V at runtime.
+Shaders are authored as standalone **HLSL** (`*.shader`) or **GLSL** (`*.comp`)
+files under `operators/impl/<family>/` and compiled to SPIR-V **at build time**.
+The build system pre-generates per-datatype variants, embeds the SPIR-V into
+`operators/runtime/CompiledShaders.cpp`, and the runtime selects a variant by
+key at dispatch time.
 
-### The `opFunc` Pattern
+### `operators/runtime/` — Shader Infrastructure
 
-Every element-wise shader follows the same template structure:
+| File | Purpose |
+|------|---------|
+| `Shaders.h/cpp` | Shader registry; `getShader(OperatorEnum, DataType, variant)` returns SPIR-V |
+| `CompiledShaders.cpp` | Build-generated; embeds every (op, dtype, variant) SPIR-V blob |
+| `ShaderUtils.h/cpp` | Helpers used by `OpNode` subclasses (dispatch sizing, push-constant packing) |
+| `ComputeOps.h` | `OperatorEnum` and operator metadata table |
+| `ComputeOpsShared.h` | Constants shared between C++ and shader source (`#include`d from both) |
+| `OpNode.h/cpp` | Abstract base class. Each per-op subclass returns its shader, push constants, and execution size |
+
+### `operators/impl/<family>/` — Per-Op Implementations
+
+Each operator family lives in its own subdirectory containing:
+
+- `<Name>Op.h/cpp`: the C++ class derived from `OpNode`
+- `<Name>.shader` / `<Name>.comp`: one or more compute shader source files
+- `<Name>Common.shaderh`: shader-side header (shared snippets)
+- `<Name>Variants.generated.h`: build-generated variant registry
+- `<Name>Shaders.generated.h`: build-generated SPIR-V binding helper
+- `shaders.json`: variant manifest (dtypes, function names, slot names)
+
+### Build-Time Shader Pipeline
 
 ```
-┌──────────────────────────────────────────────┐
-│ 1. HEADER                                    │
-│    #version 450                              │
-│    layout(local_size_x = 256) in;            │
-│    layout(constant_id = 0) const uint        │
-│         dtype_vec_size = 4;                  │
-├──────────────────────────────────────────────┤
-│ 2. PUSH CONSTANTS                            │
-│    Varies by op type:                        │
-│    - {numElements}                           │
-│    - {scalar, numElements}                   │
-│    - {minVal, maxVal, numElements}            │
-├──────────────────────────────────────────────┤
-│ 3. opFunc()  ← ONLY THIS CHANGES            │
-│    e.g. return a + b;                        │
-│    e.g. return sin(a);                       │
-├──────────────────────────────────────────────┤
-│ 4. BUFFER LAYOUTS (standardised per type)    │
-│    layout(binding=0) readonly  buffer A {};  │
-│    layout(binding=1) readonly  buffer B {};  │
-│    layout(binding=2) writeonly buffer Out {}; │
-├──────────────────────────────────────────────┤
-│ 5. main()  — read → opFunc → write          │
-└──────────────────────────────────────────────┘
+operators/impl/<family>/<Name>.shader  (HLSL with #include "ComputeOpsShared.h")
+         │
+         ▼  scripts/generate_shader_variants.py  ── reads shaders.json
+         │   produces per-datatype variants:  <Name>_Float32.shader, <Name>_UInt32.shader, …
+         ▼
+   <build>/generated_shaders/<Name>_<Dtype>.shader
+         │
+         ▼  DXC  (HLSL → SPIR-V)            or  glslc  (GLSL → SPIR-V; cooperative-matrix shaders)
+         │
+         ▼
+   <build>/operators/<Name>_<Dtype>.spv
+         │
+         ▼  CMake script (in cmake/shader_loader.cmake)
+         │   reads every .spv, emits one `compiled<Name>(…)` function returning
+         │   `std::optional<std::vector<uint32_t>>` selecting on dtype.
+         ▼
+operators/runtime/CompiledShaders.cpp   ← linked into CUTLib
 ```
 
-Data flow is **static** (defined in templates). Only the computation in `opFunc()` changes per operation.
+A `.shader_cache/` keyed by source hash skips recompilation on clean builds.
 
-### Shader Templates (`ShaderUtils.cpp`)
+### Dispatch Flow
 
-| Template | Workgroup | Shared Memory | Use |
-|----------|-----------|---------------|-----|
-| `templateBinaryVecVec` | 256×1×1 | None | `a ⊕ b` element-wise |
-| `templateBinaryVecScalar` | 256×1×1 | None | `a ⊕ scalar` |
-| `templateUnary` | 256×1×1 | None | `f(a)` |
-| `templateTernaryClamp` | 256×1×1 | None | `clamp(a, min, max)` |
-| `matmulShaderTemplate` | 16×16 | `float tileA/B[16][16]` | Tiled matrix multiply |
-| `transposeShaderTemplate` | 16×16 | None | Dimension swap |
-| `dotShaderTemplate` | 256×1×1 | `sharedData[256]` | Dot product with atomics |
-| `reductionShaderTemplate` | 256×1×1 | `sharedData[256]` | Tree reduction |
-| `reductionDimShaderTemplate` | 256×1×1 | `sharedData[256]` | Per-dimension reduction |
-| `kPartialReduceTemplate` | 256×1×1 | `sharedData[256]` | Multi-workgroup phase 1 |
-| `kFinalReduceTemplate` | 256×1×1 | `sharedData[256]` | Multi-workgroup phase 2 |
-| `kScanPerWgTemplate` | 256×1×1 | `sharedData[256]` | Prefix scan per workgroup |
-| `kScanPartialSumsTemplate` | 1×1×1 | None | Scan partial sums |
-| `kScanPropagateTemplate` | 256×1×1 | None | Propagate prefix |
-| `kBitonicStepTemplate` | 256×1×1 | None | Bitonic sort compare-swap |
-| `kRadixHistogramTemplate` | 256×1×1 | `sharedHist[16]` | Radix sort histogram |
-| `kRadixScatterTemplate` | 256×1×1 | None | Radix sort scatter |
+```
+runtime/Operations.cpp     :  caller picks an OpNode subclass (e.g. MatMulOp)
+        │
+        ▼
+operators/impl/matmul/MatMulOp.cpp  : picks a *variant* using VariantSelector
+        │                              (dispatch size + dtype + alignment)
+        ▼
+operators/runtime/Shaders.cpp       : looks up the compiled SPIR-V for that variant
+        │
+        ▼
+runtime/Dispatcher.cpp              : encodes ComputeDispatch (shader, push constants,
+        │                              bindings, workgroup size) into the active
+        │                              command buffer
+        ▼
+core/backends/vulkan/VulkanCommandBuffer.cpp  :  vkCmdDispatch on submit
+```
 
 ### Vectorisation
 
-Each thread processes a **vec4** (4 elements). Supported dtype mappings:
+Each thread processes a **vec4** (4 elements) for element-wise ops. Supported dtype mappings:
 
-| DataType | Vector Type | Scalar Type |
-|----------|-------------|-------------|
-| Float32  | `vec4`      | `float`     |
-| Float16  | `f16vec4`   | `float16_t` |
-| UInt32   | `uvec4`     | `uint`      |
-| Int32    | `ivec4`     | `int`       |
+| DataType | HLSL Vector | GLSL Vector | Scalar |
+|----------|-------------|-------------|--------|
+| Float32  | `float4`    | `vec4`      | `float`     |
+| Float16  | `half4`     | `f16vec4`   | `float16_t` |
+| UInt32   | `uint4`     | `uvec4`     | `uint`      |
+| Int32    | `int4`      | `ivec4`     | `int`       |
 
-### Generation Flow
+### Adding a New Operator
 
-```
-getGeneratedShader(OperatorEnum, DataType)
-    │
-    ├─ Cache hit? → return cached SPIR-V
-    │
-    ├─ Try generateBasicOpShader()     [ShadersBasicOps.cpp]
-    │   └─ Lookup in OpEntry table → generator(op, arg, dtype) → GLSL
-    │
-    ├─ Try generateAdvancedOpShader()  [ShadersAdvancedOps.cpp]
-    │   └─ Lookup in OpEntry table or special-case logic → GLSL
-    │
-    ├─ compileShaderToSpirv(glsl) → SPIR-V
-    ├─ Cache result: shaderCache[key] = spirv
-    └─ Return SPIR-V
-```
+1. Create `operators/impl/<family>/` with `<Name>Op.h/cpp`, one or more `.shader` files, and `shaders.json`.
+2. Add the `OperatorEnum` value in `operators/runtime/ComputeOps.h`.
+3. List the new sources in `CMakeLists.txt`.
+4. Wire it through `runtime/Operations.cpp` and (optionally) the Python bindings.
 
-Cache key: `makeCacheKey(OperatorEnum, DataType)` — a combined 64-bit value.
-
-### Operation Dispatch Tables
-
-Operations are registered as `OpEntry` structs:
-
-```cpp
-struct OpEntry {
-    ShaderGenFn generator;  // e.g. generateBinaryVecVecOpShader
-    const char *arg;        // e.g. "+" or "sin(a)"
-    const char *name;       // e.g. "binary_vec_vec_add"
-};
-```
-
-Adding a new element-wise op requires one table entry.
+The build system picks up the new `shaders.json` automatically and emits the per-dtype variant binaries.
 
 ---
 
@@ -453,8 +490,8 @@ Operations::binaryOp(BinaryVecVecAdd, a_handle, b_handle)
   │  Creates output buffer with same shape/dtype
   ▼
 Runtime::encodeOperator(BinaryVecVecAdd, [a, b, output], dtype)
-  │  Resolves shader: getOrCreateShader(BinaryVecVecAdd, Float32)
-  │    → ShadersGenerated: header + "return a + b" opFunc + vec-vec template → SPIR-V
+  │  Resolves shader: BinaryOp::resolve(variant) → operators/runtime/Shaders.cpp
+  │    → returns precompiled SPIR-V from CompiledShaders.cpp for (op, dtype)
   │  Computes executionSize = a.executionSize()
   ▼
 Dispatcher::encode(BinaryVecVecAdd, bindings, shader, size, Float32)
@@ -485,9 +522,9 @@ Python receives result
 
 ## Key Design Decisions
 
-### 1. Runtime Shader Generation
+### 1. Build-Time Shader Compilation with Per-Op Variants
 
-Shaders are generated as GLSL and compiled to SPIR-V at runtime via shaderc, then cached. This enables 163+ ops × 4 dtypes without shipping thousands of precompiled binaries. The `opFunc` template pattern means adding a new element-wise op is a single table entry.
+Shaders live as standalone HLSL/GLSL files under `operators/impl/<family>/`. At build time, `scripts/generate_shader_variants.py` produces per-dtype variants, DXC/glslc compiles each to SPIR-V, and CMake emits `operators/runtime/CompiledShaders.cpp` with the embedded blobs. The runtime then performs a constant-time lookup by `(op, dtype, variant)` — no compilation on the hot path. A persistent `.shader_cache/` keyed by source hash skips rebuilds.
 
 ### 2. Handle-Based Resource Management
 
@@ -501,11 +538,12 @@ Vulkan descriptor sets and compute pipelines are not created during dispatch rec
 
 | Level | What | Keyed By |
 |-------|------|----------|
-| Runtime | SPIR-V bytecode | `(OperatorEnum, DataType)` |
-| Dispatcher | Internal shader SPIR-V | GLSL source hash or op enum |
+| Build | Compiled SPIR-V on disk | Source-file hash (`.shader_cache/`) |
+| Runtime | SPIR-V → `VkShaderModule` | `(OperatorEnum, DataType, Variant)` |
 | VulkanContainers | Descriptor set layouts | Binding signature |
 | VulkanContainers | Compute pipelines | Shader + layout pair |
 | Vulkan | Pipeline cache | Vulkan-internal |
+| Graph | Execution plan (topological order + memory plan) | Graph identity |
 
 ### 5. Vec4 Vectorisation with Transparent Alignment
 
@@ -523,10 +561,12 @@ Variance and softmax use a hybrid approach: GPU computes reductions (mean, max p
 
 ## Build System
 
-- **C++ build:** CMake 3.16+, C++17, targeting macOS with MoltenVK
-- **Dependencies:** Vulkan SDK (with shaderc), pybind11, Google Test (auto-fetched)
-- **Python build:** scikit-build-core + pybind11 → `_cut_compute` extension module
-- **Sanitisers:** Optional AddressSanitizer and UBSan via `-DENABLE_ASAN=ON` / `-DENABLE_UBSAN=ON`
+- **C++ build:** CMake 3.16+, C++17. Targets Linux (native Vulkan) and macOS (MoltenVK).
+- **Dependencies:** Vulkan SDK (with shaderc + SPIRV-Tools + glslang), DXC (DirectX Shader Compiler) for HLSL, optional glslc for GLSL compute, pybind11, Google Test (auto-fetched).
+- **Shader pipeline:** `cmake/shader_loader.cmake` runs `scripts/generate_shader_variants.py` to produce per-dtype variants, compiles them with DXC/glslc, and emits `operators/runtime/CompiledShaders.cpp` containing embedded SPIR-V.
+- **Python build:** scikit-build-core + pybind11 → `_cut_compute` extension module.
+- **Sanitisers:** AddressSanitizer / LeakSanitizer suppressions in `cmake/lsan.supp`.
+- **Linux setup:** `scripts/setup_linux.sh` installs apt packages, DXC, and the LunarG Vulkan SDK.
 
 ### Supported Data Types
 

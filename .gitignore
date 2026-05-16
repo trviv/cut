@@ -2,7 +2,7 @@
 /.shader_cache/
 /build/
 /build_python/
-/operators/CompiledShaders.cpp
+/operators/runtime/CompiledShaders.cpp
 .DS_Store
 /interface/python/.pytest_cache
 /interface/python/build

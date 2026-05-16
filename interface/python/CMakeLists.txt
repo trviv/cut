@@ -46,12 +46,13 @@ include_directories(${CUT_ROOT}/core/api/include)
 include_directories(${CUT_ROOT}/core/backends/vulkan)
 include_directories(${CUT_ROOT}/runtime)
 include_directories(${CUT_ROOT}/operators)
+include_directories(${CUT_ROOT}/operators/runtime)
 
 # Collect CUT library sources
 file(GLOB API_SOURCES ${CUT_ROOT}/core/api/src/*.cpp)
 file(GLOB VULKAN_SOURCES ${CUT_ROOT}/core/backends/vulkan/*.cpp)
 file(GLOB_RECURSE RUNTIME_SOURCES ${CUT_ROOT}/runtime/*.cpp)
-file(GLOB SHADER_SOURCES ${CUT_ROOT}/operators/*.cpp)
+file(GLOB SHADER_SOURCES ${CUT_ROOT}/operators/runtime/*.cpp)
 file(GLOB_RECURSE SHADER_IMPL_SOURCES ${CUT_ROOT}/operators/impl/*.cpp)
 list(APPEND SHADER_SOURCES ${SHADER_IMPL_SOURCES})
 

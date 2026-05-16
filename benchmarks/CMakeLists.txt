@@ -8,6 +8,7 @@ set(BENCH_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/core/api/include
     ${CMAKE_SOURCE_DIR}/core/backends/vulkan
     ${CMAKE_SOURCE_DIR}/operators
+    ${CMAKE_SOURCE_DIR}/operators/runtime
     ${CMAKE_SOURCE_DIR}/runtime
 )
 

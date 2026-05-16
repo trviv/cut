@@ -2,6 +2,11 @@
 
 Complete list of all operations with arguments and implementation status.
 
+Each operator is implemented as an `OpNode` subclass under
+`operators/impl/<family>/`. The base class and shader infrastructure live in
+`operators/runtime/`. See [ARCHITECTURE.md](../ARCHITECTURE.md) for the
+end-to-end dispatch flow and the build-time shader pipeline.
+
 ## Status Legend
 
 - **Y** = Implemented

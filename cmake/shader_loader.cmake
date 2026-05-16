@@ -6,13 +6,13 @@ set(SHADER_SOURCE_DIR ${CMAKE_SOURCE_DIR}/operators/impl)
 
 set(SHADER_FILE_NAME CompiledShaders)
 
-set(SHADERS_SOURCE_FILE ${CMAKE_SOURCE_DIR}/operators/${SHADER_FILE_NAME}.cpp)
+set(SHADERS_SOURCE_FILE ${CMAKE_SOURCE_DIR}/operators/runtime/${SHADER_FILE_NAME}.cpp)
 
 set(COMPILED_SHADERS "")
 set(EMBEDDED_SHADERS "")
 
-# Include paths for shader headers
-set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/operators)
+# Include paths for shader headers (ComputeOpsShared.h, etc. live in operators/runtime/)
+set(SHADER_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/operators/runtime)
 
 # Persistent cache directory for compiled SPIR-V (survives clean builds)
 set(SHADER_CACHE_DIR ${CMAKE_SOURCE_DIR}/.shader_cache)

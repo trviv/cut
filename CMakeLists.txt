@@ -63,8 +63,10 @@ foreach(_lib GLSLANG_LIB SPIRV_LIB MACHINE_INDEPENDENT_LIB OS_DEPENDENT_LIB GLSL
 endforeach()
 
 
-# Shader compilation disabled - using pre-built CompiledShaders.cpp
-include(${CMAKE_CURRENT_LIST_DIR}/shader_loader.cmake)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
+
+# Shader compilation
+include(shader_loader)
 
 if (OPENL_CL_WITH_VULKAN)
     # Check for clspv (OpenCL to SPIR-V compiler)
@@ -99,7 +101,7 @@ set(LIB_HEADERS
     core/backends/vulkan/VulkanCompute.h
     core/backends/vulkan/VulkanStaging.h
     core/backends/vulkan/VulkanCommandBuffer.h
-    operators/Shaders.h
+    operators/runtime/Shaders.h
     operators/impl/avgpool2d/AvgPool2DOp.h
     operators/impl/binary/BinaryOp.h
     operators/impl/cast/CastOp.h
@@ -135,11 +137,11 @@ set(LIB_HEADERS
 
 # Source files
 set(LIB_SOURCES
-    operators/Shaders.cpp
-    operators/CompiledShaders.cpp
+    operators/runtime/Shaders.cpp
+    operators/runtime/CompiledShaders.cpp
     core/api/src/ComputeCommon.cpp
     core/api/src/ComputeHandle.cpp
-    operators/ComputeOps.cpp
+    operators/runtime/ComputeOps.cpp
     core/api/src/ComputeStructs.cpp
     core/api/src/ComputeContainer.cpp
     core/api/src/ComputeInterface.cpp
@@ -148,7 +150,7 @@ set(LIB_SOURCES
     core/backends/vulkan/VulkanCompute.cpp
     core/backends/vulkan/VulkanStaging.cpp
     core/backends/vulkan/VulkanCommandBuffer.cpp
-    operators/OpNode.cpp
+    operators/runtime/OpNode.cpp
     operators/impl/avgpool2d/AvgPool2DOp.cpp
     operators/impl/binary/BinaryOp.cpp
     operators/impl/binary/FusedBinaryOp.cpp
@@ -216,6 +218,7 @@ target_include_directories(CUTLib PRIVATE
     ${CMAKE_SOURCE_DIR}/core/api/include
     ${CMAKE_SOURCE_DIR}/core/backends/vulkan
     ${CMAKE_SOURCE_DIR}/operators
+    ${CMAKE_SOURCE_DIR}/operators/runtime
     ${CMAKE_SOURCE_DIR}/runtime
 )
 
@@ -248,6 +251,7 @@ if(TARGET benchmarks)
         ${CMAKE_SOURCE_DIR}/core/api/include
         ${CMAKE_SOURCE_DIR}/core/backends/vulkan
         ${CMAKE_SOURCE_DIR}/operators
+        ${CMAKE_SOURCE_DIR}/operators/runtime
         ${CMAKE_SOURCE_DIR}/benchmarks
     )
 

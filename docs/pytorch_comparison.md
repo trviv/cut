@@ -2,6 +2,12 @@
 
 Comprehensive comparison of PyTorch operators (with argument variations) against CUT's implementation status. Scope: all ops relevant to inference/training of common models (CNNs, transformers, MLPs).
 
+In the source tree, every CUT operator lives under `operators/impl/<family>/`
+(e.g. `operators/impl/matmul/`, `operators/impl/reduce/`,
+`operators/impl/attention/`). The shader infrastructure that backs them sits
+in `operators/runtime/`. See [ARCHITECTURE.md](../ARCHITECTURE.md) for the
+dispatch flow and shader compilation pipeline.
+
 ## Status Legend
 
 - **Y** = Implemented in CUT

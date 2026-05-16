@@ -18,6 +18,7 @@ target_include_directories(gguf_loader PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/core/api/include
     ${CMAKE_SOURCE_DIR}/operators
+    ${CMAKE_SOURCE_DIR}/operators/runtime
     ${CMAKE_SOURCE_DIR}/runtime
 )
 
