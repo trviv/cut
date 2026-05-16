@@ -1,6 +1,6 @@
 # CUT — Compute Unified Toolkit
 
-A GPU-accelerated tensor compute library built on Vulkan. CUT provides a PyTorch-like Python API backed by runtime-generated GLSL compute shaders compiled to SPIR-V.
+A Vulkan-based GPU compute toolkit: cross-vendor, from-scratch shader pipeline, LLM-inference and general tensor ops on top. PyTorch-like Python API backed by precompiled SPIR-V kernels.
 
 ## Features
 

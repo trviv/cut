@@ -226,7 +226,7 @@ py::object reshapeToNested(const void *data,
 } // namespace
 
 PYBIND11_MODULE(_cut_compute, m) {
-  m.doc() = "CUT (Compute Unified Toolkit) - Unified Compute Interface Python Bindings";
+  m.doc() = "CUT (Compute Unified Toolkit) - Vulkan GPU compute toolkit Python bindings";
 
   // =========================================================================
   // Backend Type Enum

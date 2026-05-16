@@ -1,6 +1,6 @@
 # CUT — Architecture & Structural Reference
 
-CUT is a GPU-accelerated tensor compute library with a Vulkan backend and a PyTorch-like Python API. It supports 163+ operations across element-wise math, reductions, linear algebra, activations, and sorting — all driven by runtime-generated GLSL compute shaders compiled to SPIR-V.
+CUT (Compute Unified Toolkit) is a Vulkan-based GPU compute toolkit with a PyTorch-like Python API. It ships 163+ operators across element-wise math, reductions, linear algebra, activations, sorting, and attention — backed by precompiled HLSL/GLSL kernels and a graph-execution runtime, with LLM inference (GGUF, llama-family) as the primary showcase application.
 
 ---
 

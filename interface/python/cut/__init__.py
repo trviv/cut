@@ -1,7 +1,7 @@
 """
-CUT (Compute Unified Toolkit) - GPU Compute Library
+CUT (Compute Unified Toolkit) - Vulkan GPU compute toolkit
 
-A Python library for compute operations using Vulkan backend.
+A Python library for GPU compute operations using a Vulkan backend.
 Uses native Python types (no numpy dependency).
 
 Example:

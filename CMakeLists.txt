@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 3.16)
 set(OPENL_CL_WITH_VULKAN FALSE CACHE BOOL "Enable opencl shader usage with Vulkan")
 
 # Project configuration
-project(CUT VERSION 1.0.0 LANGUAGES CXX)
+project(CUT VERSION 1.0.0 LANGUAGES CXX
+    DESCRIPTION "Compute Unified Toolkit — Vulkan GPU compute toolkit")
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)

@@ -1,6 +1,6 @@
 # CUT Python Interface & GPU Benchmarks
 
-Python bindings for the CUT (Compute Unified Toolkit) Vulkan GPU compute library, with a
+Python bindings for the CUT (Compute Unified Toolkit) Vulkan GPU compute toolkit, with a
 multi-backend benchmark suite comparing against PyTorch CUDA, CuPy, JAX,
 NVIDIA Warp, and NumPy.
 
