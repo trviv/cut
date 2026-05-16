@@ -1539,10 +1539,17 @@ TEST_F(VulkanBackendTest, UnaryOperators_Float32) {
         std::vector<float> output(elements);
         runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
 
+        // Inverse trig ops use polynomial approximations on GPU that drift
+        // slightly more than the default tolerance, especially near domain
+        // boundaries (e.g. asin(0.9)).
+        const float tol =
+            (op == UnaryAsin || op == UnaryAcos || op == UnaryAtan) ? 1e-3f
+                                                                    : 1e-4f;
+
         for (uint32_t i = 0; i < elements; ++i) {
           float expected = unaryRef(op, dataIn[i]);
           if (std::isfinite(expected)) {
-            ASSERT_NEAR(output[i], expected, 1e-4f)
+            ASSERT_NEAR(output[i], expected, tol)
                 << "Mismatch at index " << i << " for " << operatorName(op);
           }
         }
