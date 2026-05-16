@@ -274,4 +274,161 @@ std::vector<uint8_t> BatchedFusedAttentionOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+// --- BatchedKVCacheWriteOpNode ---
+
+BatchedKVCacheWriteOpNode::BatchedKVCacheWriteOpNode(
+    TensorStore &store,
+    const Tensor &k,
+    const Tensor &v,
+    const Tensor &kCache,
+    const Tensor &vCache,
+    const Tensor &positions,
+    const Tensor &cosTable,
+    const Tensor &sinTable,
+    uint32_t batchSize,
+    uint32_t nKvHeads,
+    uint32_t headDim,
+    uint32_t kStride,
+    uint32_t vStride,
+    uint32_t kOffset,
+    uint32_t vOffset,
+    std::optional<uint32_t> spec)
+    : OpNode(CacheWrite, store, spec) {
+  dtype_ = store.getTensor(kCache).getDtype();
+  batchSize_ = batchSize;
+  headDim_ = headDim;
+  halfDim_ = headDim / 2;
+  kvDim_ = nKvHeads * headDim;
+  alignedKvDim_ = (kvDim_ + 3) & ~static_cast<uint32_t>(3);
+  kStride_ = kStride;
+  vStride_ = vStride;
+  kOffset_ = kOffset;
+  vOffset_ = vOffset;
+
+  inputs_ = {k, v, kCache, vCache, positions, cosTable, sinTable};
+  // No fresh output: writes into the supplied caches. Use kCache as the
+  // "output" handle for the runtime's barrier tracker — both kCache and
+  // vCache get RWStructuredBuffer access in the shader, so any subsequent
+  // dispatch reading either of them will see the writes.
+  output_ = kCache;
+}
+
+DataType BatchedKVCacheWriteOpNode::outputDtype() const {
+  return dtype_;
+}
+
+std::optional<std::vector<uint32_t>>
+BatchedKVCacheWriteOpNode::shader() const {
+  return compiledBatchedKVCacheWrite(dtype_, dtype_);
+}
+
+size_t BatchedKVCacheWriteOpNode::shaderKey() const {
+  // Avoid collision with CacheWriteOpNode (same OperatorEnum::CacheWrite).
+  return OpNode::shaderKey() | (size_t{1} << 33);
+}
+
+std::vector<uint32_t> BatchedKVCacheWriteOpNode::outputShape() const {
+  return store_->getTensor(output_).getShape();
+}
+
+ThreadSize BatchedKVCacheWriteOpNode::dispatchSize() const {
+  // One workgroup of 256 threads per token; threads collaborate on writing
+  // the row (K with RoPE + V).
+  return {256, batchSize_, 1};
+}
+
+std::vector<uint8_t> BatchedKVCacheWriteOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t batchSize;
+    uint32_t kvDim;
+    uint32_t alignedKvDim;
+    uint32_t headDim;
+    uint32_t halfDim;
+    uint32_t kStride;
+    uint32_t vStride;
+    uint32_t kOffset;
+    uint32_t vOffset;
+  } pc{batchSize_,    kvDim_,    alignedKvDim_, headDim_, halfDim_,
+       kStride_,      vStride_,  kOffset_,      vOffset_};
+  return toBytes(pc);
+}
+
+// --- BatchedAttentionReadCacheOpNode ---
+
+BatchedAttentionReadCacheOpNode::BatchedAttentionReadCacheOpNode(
+    TensorStore &store,
+    const Tensor &q,
+    const Tensor &kCache,
+    const Tensor &vCache,
+    const Tensor &positions,
+    const Tensor &cosTable,
+    const Tensor &sinTable,
+    uint32_t batchSize,
+    uint32_t nHeads,
+    uint32_t nKvHeads,
+    uint32_t headDim,
+    uint32_t qStride,
+    uint32_t qOffset,
+    const Tensor &preallocOutput,
+    std::optional<uint32_t> spec)
+    : OpNode(Attention, store, spec) {
+  dtype_ = store.getTensor(kCache).getDtype();
+  batchSize_ = batchSize;
+  nHeads_ = nHeads;
+  nKvHeads_ = nKvHeads;
+  headDim_ = headDim;
+  alignedKvDim_ = ((nKvHeads * headDim) + 3) & ~static_cast<uint32_t>(3);
+  nRep_ = nHeads / nKvHeads;
+  scale_ = 1.0f / std::sqrt(static_cast<float>(headDim));
+  halfDim_ = headDim / 2;
+  qStride_ = qStride;
+  qOffset_ = qOffset;
+
+  outShape_ = {batchSize, nHeads * headDim};
+  auto outDtype = store.getTensor(q).getDtype();
+  inputs_ = {q, kCache, vCache, positions, cosTable, sinTable};
+  output_ = preallocOutput ? preallocOutput
+                           : store.createTensorEmpty(outShape_, outDtype);
+}
+
+DataType BatchedAttentionReadCacheOpNode::outputDtype() const {
+  return store_->getTensor(output_).getDtype();
+}
+
+std::optional<std::vector<uint32_t>>
+BatchedAttentionReadCacheOpNode::shader() const {
+  return compiledBatchedAttentionReadCache(dtype_, dtype_);
+}
+
+size_t BatchedAttentionReadCacheOpNode::shaderKey() const {
+  // Avoid collision with AttentionOpNode (same OperatorEnum::Attention).
+  return OpNode::shaderKey() | (size_t{1} << 34);
+}
+
+std::vector<uint32_t> BatchedAttentionReadCacheOpNode::outputShape() const {
+  return outShape_;
+}
+
+ThreadSize BatchedAttentionReadCacheOpNode::dispatchSize() const {
+  // X = nHeads workgroups, Y = batchSize workgroups. Each WG has 256 threads.
+  return {nHeads_ * 256, batchSize_, 1};
+}
+
+std::vector<uint8_t> BatchedAttentionReadCacheOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t batchSize;
+    uint32_t nHeads;
+    uint32_t nKvHeads;
+    uint32_t headDim;
+    uint32_t alignedKvDim;
+    uint32_t nRep;
+    float scale;
+    uint32_t halfDim;
+    uint32_t qStride;
+    uint32_t qOffset;
+  } pc{batchSize_,    nHeads_,  nKvHeads_, headDim_, alignedKvDim_,
+       nRep_,         scale_,   halfDim_,  qStride_, qOffset_};
+  return toBytes(pc);
+}
+
 } // namespace cut

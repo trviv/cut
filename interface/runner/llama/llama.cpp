@@ -386,21 +386,23 @@ void LlamaModel::load(const std::string &gguf_path,
                                        blk + "ffn_gate.weight",
                                        blk + "ffn_up.weight",
                                    });
-      } else {
-        // Separate gate/up (quantized models)
-        {
-          uint32_t cols = static_cast<uint32_t>(gi.dimensions[0]);
-          uint32_t rows = static_cast<uint32_t>(gi.dimensions[1]);
-          layer.w_gate = uploadWeightMaybeQuantized(
-              reader, blk + "ffn_gate.weight", rows, cols);
-        }
-        {
-          const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
-          uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
-          uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-          layer.w_up = uploadWeightMaybeQuantized(reader, blk + "ffn_up.weight",
-                                                  rows, cols);
-        }
+      }
+
+      // Always load separate w_gate / w_up. Used by:
+      //  - prefillBatched (always)
+      //  - decode-time runLayer when fused gate_up is unavailable (quantized)
+      {
+        uint32_t cols = static_cast<uint32_t>(gi.dimensions[0]);
+        uint32_t rows = static_cast<uint32_t>(gi.dimensions[1]);
+        layer.w_gate = uploadWeightMaybeQuantized(
+            reader, blk + "ffn_gate.weight", rows, cols);
+      }
+      {
+        const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
+        uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
+        uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
+        layer.w_up = uploadWeightMaybeQuantized(reader, blk + "ffn_up.weight",
+                                                rows, cols);
       }
 
       // ffn_down always separate (not fused)
@@ -1146,43 +1148,41 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
       qColOff = kColOff = vColOff = 0;
     }
 
-    // --- Per-token attention ---
-    // Matmuls above are batched (the big win). Attention is per-token because
-    // each token's cache write must complete before subsequent tokens read it.
-    auto attnOut =
-        runtime_->createTensorEmpty({N, qdim}, cut::DataType::Float32);
-    for (uint32_t i = 0; i < N; ++i) {
-      uint32_t params[2] = {i, i + 1};
-      runtime_->updateBufferInline(runtimeParamsBuffer_, params,
-                                   sizeof(params));
+    // Barrier so the attention path's reads of qBuf/kBuf/vBuf see the
+    // just-written matmul outputs. The matmul's output handle differs from
+    // any per-row view's handle, so the barrier tracker can't auto-insert
+    // this for the strided-input batched ops below.
+    ops_->barrier();
 
-      size_t qOff = static_cast<size_t>(i) * qRowStride * sizeof(float) +
-                    qColOff * sizeof(float);
-      size_t kOff = static_cast<size_t>(i) * kRowStride * sizeof(float) +
-                    kColOff * sizeof(float);
-      size_t vOff = static_cast<size_t>(i) * vRowStride * sizeof(float) +
-                    vColOff * sizeof(float);
-      auto qi = runtime_->store().createTensorView(qBuf, qOff, {qdim},
-                                                   cut::DataType::Float32);
-      auto ki = runtime_->store().createTensorView(kBuf, kOff, {kvdim},
-                                                   cut::DataType::Float32);
-      auto vi = runtime_->store().createTensorView(vBuf, vOff, {kvdim},
-                                                   cut::DataType::Float32);
-      auto attnOuti = runtime_->store().createTensorView(
-          attnOut, static_cast<size_t>(i) * alignedQdim * sizeof(float), {qdim},
-          cut::DataType::Float32);
+    // --- Two-dispatch batched attention path ---
+    // Replaces the per-token loop (5N dispatches/layer) with 2 dispatches:
+    // 1. BatchedKVCacheWrite: applies RoPE to K and writes K/V to cache.
+    // 2. BatchedAttentionReadCache: applies RoPE to Q and computes attention
+    //    over the now-populated cache.
+    // The Vulkan auto-barrier between dispatches (both touch kCache/vCache)
+    // ensures D1's writes are visible to D2's reads — fixing the
+    // cross-workgroup race in the old single-dispatch BatchedFusedAttention.
+    ops_->batchedKVCacheWrite(kBuf, vBuf, cache.k_cache, cache.v_cache, posBuf,
+                              rope_cos_gpu_, rope_sin_gpu_,
+                              /*batchSize=*/ N,
+                              /*nKvHeads=*/ config_.n_kv_heads,
+                              /*headDim=*/ config_.head_dim,
+                              /*kStride=*/ kRowStride,
+                              /*vStride=*/ vRowStride,
+                              /*kOffset=*/ kColOff,
+                              /*vOffset=*/ vColOff);
+    auto attnOut = ops_->batchedAttentionReadCache(
+        qBuf, cache.k_cache, cache.v_cache, posBuf,
+        rope_cos_gpu_, rope_sin_gpu_,
+        /*batchSize=*/ N,
+        /*nHeads=*/ config_.n_heads,
+        /*nKvHeads=*/ config_.n_kv_heads,
+        /*headDim=*/ config_.head_dim,
+        /*qStride=*/ qRowStride,
+        /*qOffset=*/ qColOff);
 
-      auto qi_roped = ops_->applyRoPE(qi, rope_cos_gpu_, rope_sin_gpu_,
-                                       runtimeParamsBuffer_, config_.head_dim);
-      auto ki_roped = ops_->applyRoPE(ki, rope_cos_gpu_, rope_sin_gpu_,
-                                       runtimeParamsBuffer_, config_.head_dim);
-      ops_->cacheWrite(cache.k_cache, ki_roped, runtimeParamsBuffer_);
-      ops_->cacheWrite(cache.v_cache, vi, runtimeParamsBuffer_);
-      ops_->attention(qi_roped, cache.k_cache, cache.v_cache,
-                      runtimeParamsBuffer_,
-                      config_.n_heads, config_.n_kv_heads,
-                      config_.head_dim, attnOuti);
-    }
+    // Barrier so the output projection reads the views' writes into attnOut.
+    ops_->barrier();
 
     // --- Output projection + residual ---
     cut::ComputeHandle proj;
@@ -1228,6 +1228,11 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
   auto lastRow = runtime_->store().createTensorView(
       hidden, static_cast<size_t>(N - 1) * alignedDim * sizeof(float), {dim},
       cut::DataType::Float32);
+
+  // The view shares the parent's VkBuffer but has a different ComputeHandle,
+  // so the barrier tracker doesn't see it as aliasing prior writes to
+  // `hidden`. Without this, the logits rmsNorm can read stale data.
+  ops_->barrier();
 
   // RMSNorm + logits matmul (reuse logits graph for single-row)
   auto logit_result = executeGraph(logitsGraph_, {lastRow});
@@ -1310,12 +1315,8 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
     return static_cast<int>(best);
   };
 
-  // Per-token prefill with cached CB resubmission. The CB is recorded once
-  // on the first token and resubmitted for remaining tokens (mapped buffers
-  // for runtimeParams/tokenId are updated via memcpy between resubmits).
-  // Last token uses full forward() to set up the reusable decode CB.
+  // Per-token prefill (baseline)
   auto prefillStart = std::chrono::high_resolution_clock::now();
-  uploadPenaltyFactors();
   for (size_t i = 0; i + 1 < prompt_tokens.size(); ++i) {
     forwardPrefill(prompt_tokens[i], static_cast<int>(i));
   }

@@ -48,7 +48,8 @@
           "dtype_slots": {
             "combos": [
               {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-              {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+              {"input1": "Float16", "input2": "Float16", "output": "Float16"},
+              {"input1": "Float32", "input2": "Float16", "output": "Float32"}
             ]
           }
         },

@@ -1037,6 +1037,24 @@ Tensor Operations::applyRoPE(const Tensor &x,
   return recordOrEncode(std::move(node));
 }
 
+Tensor Operations::applyBatchedRoPE(const Tensor &x,
+                                    const Tensor &cosTable,
+                                    const Tensor &sinTable,
+                                    const Tensor &positions,
+                                    uint32_t batchSize,
+                                    uint32_t dim,
+                                    uint32_t inRowStride,
+                                    uint32_t inRowOffset,
+                                    uint32_t headDim,
+                                    const Tensor &preallocOutput,
+                                    std::optional<uint32_t> spec) {
+  auto node = std::make_unique<BatchedRoPEOpNode>(
+      *store_, x, cosTable, sinTable, positions,
+      batchSize, dim, inRowStride, inRowOffset, headDim,
+      preallocOutput, spec);
+  return recordOrEncode(std::move(node));
+}
+
 // =========================================================================
 // Attention
 // =========================================================================
@@ -1080,6 +1098,50 @@ void Operations::fusedAttention(const Tensor &q,
       *store_, q, k, v, kCache, vCache, runtimeParams, cosTable, sinTable,
       nHeads, nKvHeads, headDim, preallocOutput);
   dispatch(std::move(node));
+}
+
+void Operations::batchedKVCacheWrite(const Tensor &k,
+                                     const Tensor &v,
+                                     const Tensor &kCache,
+                                     const Tensor &vCache,
+                                     const Tensor &positions,
+                                     const Tensor &cosTable,
+                                     const Tensor &sinTable,
+                                     uint32_t batchSize,
+                                     uint32_t nKvHeads,
+                                     uint32_t headDim,
+                                     uint32_t kStride,
+                                     uint32_t vStride,
+                                     uint32_t kOffset,
+                                     uint32_t vOffset,
+                                     std::optional<uint32_t> spec) {
+  auto node = std::make_unique<BatchedKVCacheWriteOpNode>(
+      *store_, k, v, kCache, vCache, positions, cosTable, sinTable,
+      batchSize, nKvHeads, headDim, kStride, vStride, kOffset, vOffset, spec);
+  dispatch(std::move(node));
+}
+
+Tensor Operations::batchedAttentionReadCache(const Tensor &q,
+                                              const Tensor &kCache,
+                                              const Tensor &vCache,
+                                              const Tensor &positions,
+                                              const Tensor &cosTable,
+                                              const Tensor &sinTable,
+                                              uint32_t batchSize,
+                                              uint32_t nHeads,
+                                              uint32_t nKvHeads,
+                                              uint32_t headDim,
+                                              uint32_t qStride,
+                                              uint32_t qOffset,
+                                              const Tensor &preallocOutput,
+                                              std::optional<uint32_t> spec) {
+  auto node = std::make_unique<BatchedAttentionReadCacheOpNode>(
+      *store_, q, kCache, vCache, positions, cosTable, sinTable,
+      batchSize, nHeads, nKvHeads, headDim, qStride, qOffset,
+      preallocOutput, spec);
+  Tensor out = node->output();
+  dispatch(std::move(node));
+  return out;
 }
 
 Tensor Operations::batchedFusedAttention(const Tensor &q,

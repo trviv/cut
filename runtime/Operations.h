@@ -251,6 +251,24 @@ public:
 
   // ===== RoPE =====
 
+  /// Batched RoPE for prefill: applies rotary embedding to N tokens with
+  /// per-token positions read from a [N] uint buffer. Reads from a
+  /// [N, inRowStride] input at column inRowOffset; writes a fresh
+  /// contiguous [N, dim] output. inRowStride/inRowOffset = (dim, 0) for
+  /// a plain [N, dim] input; for a fused QKV matmul output set
+  /// inRowStride = qdim+2*kvdim and inRowOffset = 0 (for Q) or qdim (for K).
+  Tensor applyBatchedRoPE(const Tensor &x,
+                          const Tensor &cosTable,
+                          const Tensor &sinTable,
+                          const Tensor &positions,
+                          uint32_t batchSize,
+                          uint32_t dim,
+                          uint32_t inRowStride,
+                          uint32_t inRowOffset,
+                          uint32_t headDim,
+                          const Tensor &preallocOutput = {},
+                          std::optional<uint32_t> spec = {});
+
   Tensor applyRoPE(const Tensor &x,
                    const Tensor &cosTable,
                    const Tensor &sinTable,
@@ -291,6 +309,43 @@ public:
                       uint32_t nKvHeads,
                       uint32_t headDim,
                       const Tensor &preallocOutput = {});
+
+  /// Batched K + V cache write for prefill: writes N tokens' K (with RoPE)
+  /// and V to cache positions read from a [N] uint buffer. Pair with
+  /// batchedAttentionReadCache. Splitting the old batchedFusedAttention
+  /// into two dispatches fixes its cross-workgroup race.
+  void batchedKVCacheWrite(const Tensor &k,
+                           const Tensor &v,
+                           const Tensor &kCache,
+                           const Tensor &vCache,
+                           const Tensor &positions,
+                           const Tensor &cosTable,
+                           const Tensor &sinTable,
+                           uint32_t batchSize,
+                           uint32_t nKvHeads,
+                           uint32_t headDim,
+                           uint32_t kStride,
+                           uint32_t vStride,
+                           uint32_t kOffset,
+                           uint32_t vOffset,
+                           std::optional<uint32_t> spec = {});
+
+  /// Batched attention reading a pre-populated K/V cache (Q gets RoPE
+  /// inline). Pair with batchedKVCacheWrite.
+  Tensor batchedAttentionReadCache(const Tensor &q,
+                                   const Tensor &kCache,
+                                   const Tensor &vCache,
+                                   const Tensor &positions,
+                                   const Tensor &cosTable,
+                                   const Tensor &sinTable,
+                                   uint32_t batchSize,
+                                   uint32_t nHeads,
+                                   uint32_t nKvHeads,
+                                   uint32_t headDim,
+                                   uint32_t qStride,
+                                   uint32_t qOffset,
+                                   const Tensor &preallocOutput = {},
+                                   std::optional<uint32_t> spec = {});
 
   /// Batched fused attention for prefill: N tokens in one dispatch.
   Tensor batchedFusedAttention(const Tensor &q,

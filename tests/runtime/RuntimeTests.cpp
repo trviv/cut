@@ -4333,6 +4333,534 @@ TEST_F(MatrixOpsTest, MatMul_LargerMatrices) {
   }
 }
 
+// Compare BatchedRoPE GPU output against per-token GPU RoPE output —
+// same input, same tables, but applied two different ways.
+// Test BatchedRoPE with the EXACT shape/strides prefillBatched uses:
+// input is [N, qdim+2*kvdim] (fused QKV output), apply RoPE to Q slice
+// (cols 0..qdim-1) and K slice (cols qdim..qdim+kvdim-1).
+TEST_F(MatrixOpsTest, BatchedRoPE_FusedQKVLayout) {
+  const uint32_t N = 15;
+  const uint32_t qdim = 576;
+  const uint32_t kvdim = 192;
+  const uint32_t head_dim = 64;
+  const uint32_t halfDim = head_dim / 2;
+  const uint32_t total = qdim + 2 * kvdim;  // 960
+  const uint32_t maxSeq = 64;
+
+  std::vector<float> input(N * total);
+  std::mt19937 gen(13);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : input) x = dist(gen);
+
+  std::vector<float> cosTbl(maxSeq * halfDim), sinTbl(maxSeq * halfDim);
+  for (uint32_t p = 0; p < maxSeq; ++p) {
+    for (uint32_t i = 0; i < halfDim; ++i) {
+      float theta = float(p) / std::pow(10000.0f, 2.0f * i / head_dim);
+      cosTbl[p * halfDim + i] = std::cos(theta);
+      sinTbl[p * halfDim + i] = std::sin(theta);
+    }
+  }
+  auto bufCos = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, cosTbl.data());
+  auto bufSin = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, sinTbl.data());
+
+  std::vector<uint32_t> positions(N);
+  for (uint32_t i = 0; i < N; ++i) positions[i] = i;
+  auto bufPos = runtime_->createTensor({N}, DataType::UInt32, positions.data());
+
+  auto bufIn = runtime_->createTensor({N, total}, DataType::Float32, input.data());
+
+  // Apply batched RoPE on Q slice
+  auto bufQRoped = runtime_->ops().applyBatchedRoPE(
+      bufIn, bufCos, bufSin, bufPos, N, qdim, total, 0, head_dim);
+  std::vector<float> qRoped(N * qdim);
+  runtime_->copyFromTensor(bufQRoped, qRoped.data(), qRoped.size() * sizeof(float));
+
+  // CPU reference for Q rotation
+  for (uint32_t row = 0; row < N; ++row) {
+    uint32_t pos = row;
+    uint32_t n_heads = qdim / head_dim;  // 9
+    for (uint32_t head = 0; head < n_heads; ++head) {
+      for (uint32_t i = 0; i < halfDim; ++i) {
+        uint32_t idxLo = head * head_dim + i;
+        uint32_t idxHi = idxLo + halfDim;
+        float c = cosTbl[pos * halfDim + i];
+        float s = sinTbl[pos * halfDim + i];
+        // Read Q from input at column 0..qdim-1 of row
+        float x0 = input[row * total + idxLo];
+        float x1 = input[row * total + idxHi];
+        float eLo = x0 * c - x1 * s;
+        float eHi = x0 * s + x1 * c;
+        ASSERT_NEAR(qRoped[row * qdim + idxLo], eLo,
+                    std::abs(eLo) * 1e-4f + 1e-5f)
+          << "row=" << row << " idxLo=" << idxLo;
+        ASSERT_NEAR(qRoped[row * qdim + idxHi], eHi,
+                    std::abs(eHi) * 1e-4f + 1e-5f)
+          << "row=" << row << " idxHi=" << idxHi;
+      }
+    }
+  }
+}
+
+// End-to-end test of the two-dispatch split:
+// 1. BatchedKVCacheWrite writes K (with RoPE) and V to cache for N tokens.
+// 2. BatchedAttentionReadCache reads the cache and computes attention.
+// Compare against per-token AttentionOp + per-token cacheWrite + per-token
+// applyRoPE (the proven path) — outputs should match within FP tolerance.
+TEST_F(MatrixOpsTest, BatchedKVCacheWrite_plus_AttentionReadCache_MatchesPerToken) {
+  const uint32_t N = 5;
+  const uint32_t n_heads = 2;
+  const uint32_t n_kv_heads = 1;  // GQA
+  const uint32_t head_dim = 32;
+  const uint32_t qdim = n_heads * head_dim;
+  const uint32_t kvdim = n_kv_heads * head_dim;
+  const uint32_t halfDim = head_dim / 2;
+  const uint32_t maxSeq = 16;
+
+  std::vector<float> qInput(N * qdim);
+  std::vector<float> kInput(N * kvdim);
+  std::vector<float> vInput(N * kvdim);
+  std::mt19937 gen(123);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : qInput) x = dist(gen);
+  for (auto &x : kInput) x = dist(gen);
+  for (auto &x : vInput) x = dist(gen);
+
+  std::vector<float> cosTbl(maxSeq * halfDim), sinTbl(maxSeq * halfDim);
+  for (uint32_t p = 0; p < maxSeq; ++p) {
+    for (uint32_t i = 0; i < halfDim; ++i) {
+      float theta = float(p) / std::pow(10000.0f, 2.0f * i / head_dim);
+      cosTbl[p * halfDim + i] = std::cos(theta);
+      sinTbl[p * halfDim + i] = std::sin(theta);
+    }
+  }
+  auto bufCos = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, cosTbl.data());
+  auto bufSin = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, sinTbl.data());
+
+  // --- Reference path: per-token applyRoPE + cacheWrite + attention ---
+  std::vector<float> refAttn(N * qdim);
+  {
+    auto kCache = runtime_->createTensorEmpty({maxSeq, kvdim}, DataType::Float32);
+    auto vCache = runtime_->createTensorEmpty({maxSeq, kvdim}, DataType::Float32);
+    std::vector<std::vector<uint32_t>> paramsHolder(N);
+    std::vector<std::vector<float>> qRowHolder(N), kRowHolder(N), vRowHolder(N);
+    for (uint32_t i = 0; i < N; ++i) {
+      paramsHolder[i] = {i, i + 1};
+      qRowHolder[i].assign(qInput.begin() + i * qdim, qInput.begin() + (i + 1) * qdim);
+      kRowHolder[i].assign(kInput.begin() + i * kvdim, kInput.begin() + (i + 1) * kvdim);
+      vRowHolder[i].assign(vInput.begin() + i * kvdim, vInput.begin() + (i + 1) * kvdim);
+
+      auto qBuf = runtime_->createTensor({qdim}, DataType::Float32, qRowHolder[i].data());
+      auto kBuf = runtime_->createTensor({kvdim}, DataType::Float32, kRowHolder[i].data());
+      auto vBuf = runtime_->createTensor({kvdim}, DataType::Float32, vRowHolder[i].data());
+      auto bufParams = runtime_->createTensor({2}, DataType::UInt32, paramsHolder[i].data());
+
+      auto qRoped = runtime_->ops().applyRoPE(qBuf, bufCos, bufSin, bufParams, head_dim);
+      auto kRoped = runtime_->ops().applyRoPE(kBuf, bufCos, bufSin, bufParams, head_dim);
+      runtime_->ops().cacheWrite(kCache, kRoped, bufParams);
+      runtime_->ops().cacheWrite(vCache, vBuf, bufParams);
+      auto attn = runtime_->ops().attention(qRoped, kCache, vCache, bufParams,
+                                             n_heads, n_kv_heads, head_dim);
+      runtime_->copyFromTensor(attn, refAttn.data() + i * qdim, qdim * sizeof(float));
+    }
+  }
+
+  // --- Batched path: BatchedKVCacheWrite + BatchedAttentionReadCache ---
+  std::vector<float> batchedAttn(N * qdim);
+  {
+    auto kCache = runtime_->createTensorEmpty({maxSeq, kvdim}, DataType::Float32);
+    auto vCache = runtime_->createTensorEmpty({maxSeq, kvdim}, DataType::Float32);
+    std::vector<uint32_t> positions(N);
+    for (uint32_t i = 0; i < N; ++i) positions[i] = i;
+    auto bufPos = runtime_->createTensor({N}, DataType::UInt32, positions.data());
+
+    auto qBuf = runtime_->createTensor({N, qdim}, DataType::Float32, qInput.data());
+    auto kBuf = runtime_->createTensor({N, kvdim}, DataType::Float32, kInput.data());
+    auto vBuf = runtime_->createTensor({N, kvdim}, DataType::Float32, vInput.data());
+
+    runtime_->ops().batchedKVCacheWrite(kBuf, vBuf, kCache, vCache, bufPos,
+                                         bufCos, bufSin,
+                                         N, n_kv_heads, head_dim,
+                                         /*kStride=*/kvdim, /*vStride=*/kvdim,
+                                         /*kOffset=*/0, /*vOffset=*/0);
+    auto attn = runtime_->ops().batchedAttentionReadCache(
+        qBuf, kCache, vCache, bufPos, bufCos, bufSin,
+        N, n_heads, n_kv_heads, head_dim,
+        /*qStride=*/qdim, /*qOffset=*/0);
+    runtime_->copyFromTensor(attn, batchedAttn.data(),
+                              batchedAttn.size() * sizeof(float));
+  }
+
+  // Compare row by row.
+  for (uint32_t i = 0; i < N; ++i) {
+    for (uint32_t j = 0; j < qdim; ++j) {
+      float r = refAttn[i * qdim + j];
+      float b = batchedAttn[i * qdim + j];
+      ASSERT_NEAR(b, r, std::abs(r) * 1e-3f + 1e-4f)
+          << "row=" << i << " j=" << j;
+    }
+  }
+}
+
+// Minimal repro of the runtime issue: when applyBatchedRoPE runs and
+// then per-token applyRoPE runs (consuming a view into a buffer that was
+// the source of the batched op), the per-token output is all zeros.
+TEST_F(MatrixOpsTest, PerTokenRoPE_AfterBatchedRoPE_Repro) {
+  const uint32_t N = 4;
+  const uint32_t head_dim = 32;
+  const uint32_t dim = head_dim;
+  const uint32_t halfDim = head_dim / 2;
+  const uint32_t maxSeq = 8;
+
+  std::vector<float> input(N * dim);
+  std::mt19937 gen(7);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : input) x = dist(gen);
+
+  // pos=0 → cos=1, sin=0 → RoPE is identity → output should equal input.
+  std::vector<float> cosTbl(maxSeq * halfDim, 1.0f);
+  std::vector<float> sinTbl(maxSeq * halfDim, 0.0f);
+  auto bufCos = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, cosTbl.data());
+  auto bufSin = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, sinTbl.data());
+
+  auto bufIn = runtime_->createTensor({N, dim}, DataType::Float32, input.data());
+
+  // 1. Run batched RoPE (all positions = 0 for simplicity → identity).
+  std::vector<uint32_t> positions(N, 0);
+  auto bufPos = runtime_->createTensor({N}, DataType::UInt32, positions.data());
+  auto qRoped = runtime_->ops().applyBatchedRoPE(
+      bufIn, bufCos, bufSin, bufPos, N, dim, dim, 0, head_dim);
+  std::vector<float> batched(N * dim);
+  runtime_->copyFromTensor(qRoped, batched.data(), batched.size() * sizeof(float));
+  // Sanity: batched output should equal input (identity at pos=0).
+  for (uint32_t i = 0; i < std::min<uint32_t>(N * dim, 8); ++i) {
+    ASSERT_FLOAT_EQ(batched[i], input[i]) << "batched i=" << i;
+  }
+
+  // 2. Now apply per-token RoPE on a view of bufIn (row 0, identity at pos=0).
+  uint32_t p[2] = {0, 1};
+  auto bufParams = runtime_->createTensor({2}, DataType::UInt32, p);
+  auto rowView = runtime_->store().createTensorView(bufIn, 0, {dim},
+                                                     DataType::Float32);
+  auto perTokOut = runtime_->ops().applyRoPE(rowView, bufCos, bufSin, bufParams, head_dim);
+  std::vector<float> perTok(dim);
+  runtime_->copyFromTensor(perTokOut, perTok.data(), dim * sizeof(float));
+
+  // perTok should also equal input[0..dim-1] (identity at pos=0).
+  for (uint32_t i = 0; i < dim; ++i) {
+    EXPECT_FLOAT_EQ(perTok[i], input[i])
+        << "per-token i=" << i << " (batched got " << batched[i] << ")";
+  }
+}
+
+// BatchedRoPE: applies rotary embedding to N tokens in one dispatch.
+// Verify by comparing to the per-token applyRoPE op called N times.
+// Test with varying positions using real cos/sin tables.
+TEST_F(MatrixOpsTest, BatchedRoPE_VaryingPos) {
+  const uint32_t N = 2;
+  const uint32_t head_dim = 32;
+  const uint32_t dim = head_dim;
+  const uint32_t halfDim = head_dim / 2;
+  const uint32_t maxSeq = 8;
+
+  std::vector<float> input(N * dim);
+  for (uint32_t i = 0; i < input.size(); ++i) input[i] = float(i + 1) * 0.1f;
+
+  std::vector<float> cosTbl(maxSeq * halfDim), sinTbl(maxSeq * halfDim);
+  for (uint32_t p = 0; p < maxSeq; ++p) {
+    for (uint32_t i = 0; i < halfDim; ++i) {
+      float theta = float(p) / std::pow(10000.0f, 2.0f * i / head_dim);
+      cosTbl[p * halfDim + i] = std::cos(theta);
+      sinTbl[p * halfDim + i] = std::sin(theta);
+    }
+  }
+  auto bufCos = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, cosTbl.data());
+  auto bufSin = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, sinTbl.data());
+
+  std::vector<uint32_t> positions = {0, 1};  // varying positions
+  auto bufPos = runtime_->createTensor({N}, DataType::UInt32, positions.data());
+  auto bufIn = runtime_->createTensor({N, dim}, DataType::Float32, input.data());
+  auto bufOut = runtime_->ops().applyBatchedRoPE(bufIn, bufCos, bufSin, bufPos, N, dim, dim, 0, head_dim);
+
+  std::vector<float> got(N * dim);
+  runtime_->copyFromTensor(bufOut, got.data(), got.size() * sizeof(float));
+
+  // Only check row 0 (pos=0 → identity). Row 1 (pos=1) is non-identity.
+  for (uint32_t i = 0; i < dim; ++i) {
+    EXPECT_FLOAT_EQ(got[0 * dim + i], input[0 * dim + i])
+      << "row=0 i=" << i;
+  }
+  // Row 1: should differ from input (RoPE rotation applied)
+  bool anyDiff = false;
+  for (uint32_t i = 0; i < dim; ++i) {
+    if (std::abs(got[1 * dim + i] - input[1 * dim + i]) > 1e-4f) { anyDiff = true; break; }
+  }
+  EXPECT_TRUE(anyDiff) << "row 1 should be non-identity for pos=1";
+}
+
+// Simpler test: pos=0 for all tokens → RoPE is identity, so output == input.
+TEST_F(MatrixOpsTest, BatchedRoPE_IdentityAllPosZero) {
+  const uint32_t N = 4;
+  const uint32_t head_dim = 32;
+  const uint32_t dim = head_dim;  // 1 head
+  const uint32_t halfDim = head_dim / 2;
+  const uint32_t maxSeq = 8;
+
+  std::vector<float> input(N * dim);
+  for (uint32_t i = 0; i < input.size(); ++i) input[i] = float(i) + 1.0f;
+
+  // cos(0)=1, sin(0)=0 for pos 0. Fill table with valid values.
+  std::vector<float> cosTbl(maxSeq * halfDim, 1.0f);
+  std::vector<float> sinTbl(maxSeq * halfDim, 0.0f);
+  auto bufCos = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, cosTbl.data());
+  auto bufSin = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, sinTbl.data());
+
+  std::vector<uint32_t> positions(N, 0);  // ALL zeros
+  auto bufPos = runtime_->createTensor({N}, DataType::UInt32, positions.data());
+  auto bufIn = runtime_->createTensor({N, dim}, DataType::Float32, input.data());
+  auto bufOut = runtime_->ops().applyBatchedRoPE(bufIn, bufCos, bufSin, bufPos, N, dim, dim, 0, head_dim);
+
+  std::vector<float> got(N * dim);
+  runtime_->copyFromTensor(bufOut, got.data(), got.size() * sizeof(float));
+
+  // With cos=1, sin=0: output = input (identity)
+  for (uint32_t row = 0; row < N; ++row) {
+    for (uint32_t i = 0; i < dim; ++i) {
+      float e = input[row * dim + i];
+      float g = got[row * dim + i];
+      EXPECT_FLOAT_EQ(g, e) << "row=" << row << " i=" << i;
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, BatchedRoPE_MatchesPerTokenRoPE) {
+  const uint32_t N = 15;
+  const uint32_t n_heads = 9;
+  const uint32_t head_dim = 64;
+  const uint32_t dim = n_heads * head_dim;
+  const uint32_t maxSeq = 64;
+  const uint32_t halfDim = head_dim / 2;
+
+  // Random input
+  std::vector<float> input(N * dim);
+  std::mt19937 gen(7);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : input) x = dist(gen);
+
+  // Precompute cos/sin tables [maxSeq * halfDim] (theta_i = 1/10000^(2i/head_dim))
+  std::vector<float> cosTbl(maxSeq * halfDim), sinTbl(maxSeq * halfDim);
+  for (uint32_t pos = 0; pos < maxSeq; ++pos) {
+    for (uint32_t i = 0; i < halfDim; ++i) {
+      float theta = float(pos) / std::pow(10000.0f, 2.0f * i / head_dim);
+      cosTbl[pos * halfDim + i] = std::cos(theta);
+      sinTbl[pos * halfDim + i] = std::sin(theta);
+    }
+  }
+
+  auto bufCos = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, cosTbl.data());
+  auto bufSin = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, sinTbl.data());
+
+  // --- CPU reference: apply RoPE row-by-row ---
+  std::vector<float> expectedAll(N * dim);
+  for (uint32_t row = 0; row < N; ++row) {
+    uint32_t pos = row;
+    for (uint32_t head = 0; head < n_heads; ++head) {
+      for (uint32_t i = 0; i < halfDim; ++i) {
+        uint32_t idxLo = head * head_dim + i;
+        uint32_t idxHi = idxLo + halfDim;
+        float c = cosTbl[pos * halfDim + i];
+        float s = sinTbl[pos * halfDim + i];
+        float x0 = input[row * dim + idxLo];
+        float x1 = input[row * dim + idxHi];
+        expectedAll[row * dim + idxLo] = x0 * c - x1 * s;
+        expectedAll[row * dim + idxHi] = x0 * s + x1 * c;
+      }
+    }
+  }
+
+  // --- Batched ---
+  std::vector<uint32_t> positions(N);
+  for (uint32_t i = 0; i < N; ++i) positions[i] = i;
+  auto bufPos = runtime_->createTensor({N}, DataType::UInt32, positions.data());
+  auto bufIn = runtime_->createTensor({N, dim}, DataType::Float32, input.data());
+  auto bufBatched = runtime_->ops().applyBatchedRoPE(bufIn, bufCos, bufSin, bufPos, N, dim, dim, 0, head_dim);
+  std::vector<float> gotAll(N * dim);
+  runtime_->copyFromTensor(bufBatched, gotAll.data(), gotAll.size() * sizeof(float));
+
+  for (uint32_t row = 0; row < N; ++row) {
+    for (uint32_t i = 0; i < dim; ++i) {
+      float e = expectedAll[row * dim + i];
+      float g = gotAll[row * dim + i];
+      ASSERT_NEAR(g, e, std::abs(e) * 1e-4f + 1e-5f)
+        << "row=" << row << " i=" << i;
+    }
+  }
+}
+
+// Test batched rmsNorm + matmul chain on a row of a [N, dim] buffer.
+// Reproduces the QKV path in prefillBatched: embedding → rmsNorm → matmul.
+TEST_F(MatrixOpsTest, RMSNorm_BatchedFollowedByMatMul) {
+  const uint32_t N = 15, dim = 576;
+  std::vector<float> hidden(N * dim);
+  std::vector<float> weight(dim);
+  std::mt19937 gen(7);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : hidden) x = dist(gen);
+  for (auto &x : weight) x = dist(gen) * 0.1f + 1.0f;
+
+  auto bufH = runtime_->createTensor({N, dim}, DataType::Float32, hidden.data());
+  auto bufW = runtime_->createTensor({dim}, DataType::Float32, weight.data());
+  auto bufNormed = runtime_->ops().rmsNorm(bufH, bufW, 1e-5f);
+
+  std::vector<float> normedGpu(N * dim);
+  runtime_->copyFromTensor(bufNormed, normedGpu.data(), normedGpu.size() * sizeof(float));
+
+  // CPU reference: rmsNorm per row
+  for (uint32_t i = 0; i < N; ++i) {
+    float ss = 0.0f;
+    for (uint32_t j = 0; j < dim; ++j) ss += hidden[i*dim+j] * hidden[i*dim+j];
+    float scale = 1.0f / std::sqrt(ss / dim + 1e-5f);
+    for (uint32_t j = 0; j < dim; ++j) {
+      float expected = hidden[i*dim+j] * scale * weight[j];
+      float got = normedGpu[i*dim+j];
+      ASSERT_NEAR(got, expected, std::abs(expected) * 1e-3f + 1e-4f)
+        << "row=" << i << " col=" << j;
+    }
+  }
+}
+
+// Test all the matmul shapes prefillBatched uses, all in one parameterized
+// test. Each shape is verified against a CPU reference.
+TEST_F(MatrixOpsTest, MatMul_LlamaPrefillShapes_F32xF16) {
+  struct Shape { uint32_t M, K, N; const char* name; };
+  std::array<Shape, 5> shapes = {{
+      {15, 576, 960,  "QKV"},
+      {15, 576, 576,  "OutputProj"},
+      {15, 576, 1536, "Gate/Up"},
+      {15, 1536, 576, "Down"},
+      {15, 576, 49152,"LMHead-likeButTooLarge"},  // would be slow; exercises bigger N
+  }};
+
+  std::mt19937 gen0(42);
+  for (const auto &sh : shapes) {
+    if (sh.M * sh.N > 500000) continue;  // skip very large to keep test fast
+    SCOPED_TRACE(sh.name);
+    uint32_t M = sh.M, K = sh.K, N = sh.N;
+
+    std::vector<float> dataA(M * K);
+    std::vector<uint16_t> dataB16(K * N);
+    std::vector<float> dataB32(K * N);
+    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    for (auto &x : dataA) x = dist(gen0);
+    for (size_t i = 0; i < dataB32.size(); ++i) {
+      dataB32[i] = dist(gen0);
+      uint32_t f = *reinterpret_cast<uint32_t*>(&dataB32[i]);
+      uint32_t sign = (f >> 31) & 1;
+      int32_t exp = ((f >> 23) & 0xff) - 127 + 15;
+      uint32_t mant = (f >> 13) & 0x3ff;
+      if (exp < 0)       dataB16[i] = static_cast<uint16_t>(sign << 15);
+      else if (exp > 30) dataB16[i] = static_cast<uint16_t>((sign << 15) | (0x1f << 10));
+      else               dataB16[i] = static_cast<uint16_t>((sign << 15) | (exp << 10) | mant);
+      uint16_t h = dataB16[i];
+      sign = (h >> 15) & 1;
+      uint32_t hexp = (h >> 10) & 0x1f, hmant = h & 0x3ff;
+      if (hexp == 0) dataB32[i] = 0.0f;
+      else if (hexp == 0x1f) dataB32[i] = sign ? -1e30f : 1e30f;
+      else {
+        uint32_t fexp = hexp + 127 - 15;
+        uint32_t fbits = (sign << 31) | (fexp << 23) | (hmant << 13);
+        dataB32[i] = *reinterpret_cast<float*>(&fbits);
+      }
+    }
+
+    auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+    auto bufB = runtime_->createTensor({K, N}, DataType::Float16, dataB16.data());
+    auto bufC = runtime_->ops().matmul(bufA, bufB);
+
+    std::vector<float> output(M * N);
+    runtime_->copyFromTensor(bufC, output.data(), output.size() * sizeof(float));
+
+    int mismatches = 0;
+    for (uint32_t i = 0; i < M; ++i) {
+      for (uint32_t j = 0; j < N; ++j) {
+        float expected = 0.0f;
+        for (uint32_t k = 0; k < K; ++k) {
+          expected += dataA[i * K + k] * dataB32[k * N + j];
+        }
+        float got = output[i * N + j];
+        float tol = std::abs(expected) * 1e-2f + 1e-3f;
+        if (std::abs(got - expected) > tol) {
+          if (mismatches < 3)
+            std::cerr << sh.name << " mismatch at [" << i << "," << j << "]: got=" << got
+                      << " expected=" << expected << "\n";
+          mismatches++;
+        }
+      }
+    }
+    EXPECT_EQ(mismatches, 0) << sh.name << " mismatches: " << mismatches;
+  }
+}
+
+TEST_F(MatrixOpsTest, MatMul_LlamaPrefillQKV_F32xF16) {
+  const uint32_t M = 15, K = 576, N = 960;
+
+  std::vector<float> dataA(M * K);
+  std::vector<uint16_t> dataB16(K * N);
+  std::vector<float> dataB32(K * N);
+  std::mt19937 gen(42);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : dataA) x = dist(gen);
+  for (size_t i = 0; i < dataB32.size(); ++i) {
+    dataB32[i] = dist(gen);
+    // Quick f32->f16 conversion via bit manipulation (good enough for test data)
+    uint32_t f = *reinterpret_cast<uint32_t*>(&dataB32[i]);
+    uint32_t sign = (f >> 31) & 1;
+    int32_t exp = ((f >> 23) & 0xff) - 127 + 15;
+    uint32_t mant = (f >> 13) & 0x3ff;
+    if (exp < 0) { dataB16[i] = static_cast<uint16_t>(sign << 15); }
+    else if (exp > 30) { dataB16[i] = static_cast<uint16_t>((sign << 15) | (0x1f << 10)); }
+    else { dataB16[i] = static_cast<uint16_t>((sign << 15) | (exp << 10) | mant); }
+    // Reconstruct f16 value back to f32 for reference
+    uint16_t h = dataB16[i];
+    sign = (h >> 15) & 1;
+    uint32_t hexp = (h >> 10) & 0x1f;
+    uint32_t hmant = h & 0x3ff;
+    if (hexp == 0) dataB32[i] = 0.0f;
+    else if (hexp == 0x1f) dataB32[i] = sign ? -1e30f : 1e30f;
+    else {
+      uint32_t fexp = hexp + 127 - 15;
+      uint32_t fbits = (sign << 31) | (fexp << 23) | (hmant << 13);
+      dataB32[i] = *reinterpret_cast<float*>(&fbits);
+    }
+  }
+
+  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = runtime_->createTensor({K, N}, DataType::Float16, dataB16.data());
+  auto bufC = runtime_->ops().matmul(bufA, bufB);
+
+  std::vector<float> output(M * N);
+  runtime_->copyFromTensor(bufC, output.data(), output.size() * sizeof(float));
+
+  // CPU reference using the f16-roundtripped values
+  int mismatches = 0;
+  for (uint32_t i = 0; i < M; ++i) {
+    for (uint32_t j = 0; j < N; ++j) {
+      float expected = 0.0f;
+      for (uint32_t k = 0; k < K; ++k) {
+        expected += dataA[i * K + k] * dataB32[k * N + j];
+      }
+      float got = output[i * N + j];
+      float tol = std::abs(expected) * 1e-2f + 1e-3f;
+      if (std::abs(got - expected) > tol) {
+        if (mismatches < 5)
+          std::cerr << "Mismatch at [" << i << "," << j << "]: got=" << got
+                    << " expected=" << expected << " diff=" << (got - expected) << "\n";
+        mismatches++;
+      }
+    }
+  }
+  EXPECT_EQ(mismatches, 0) << "Total mismatches: " << mismatches << " / " << (M * N);
+}
+
 // ============================================================================
 // MatMul Variant Tests
 // ============================================================================

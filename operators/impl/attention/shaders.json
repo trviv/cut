@@ -36,7 +36,27 @@
     },
     {
       "name": "BatchedFusedAttention",
-      "description": "Batched fused RoPE + CacheWrite + Attention for prefill (N tokens)",
+      "description": "Batched fused RoPE + CacheWrite + Attention for prefill (N tokens). NOTE: has a cross-workgroup race; prefer BatchedKVCacheWrite + BatchedAttentionReadCache.",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "BatchedKVCacheWrite",
+      "description": "Batched RoPE(K) + K/V cache writes for N tokens. Pair with BatchedAttentionReadCache.",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "BatchedAttentionReadCache",
+      "description": "Batched attention reading pre-populated KV cache (Q gets RoPE inline). Pair with BatchedKVCacheWrite.",
       "dtype_slots": {
         "combos": [
           {"input": "Float32", "output": "Float32"},

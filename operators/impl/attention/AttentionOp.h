@@ -104,6 +104,90 @@ private:
 /// Inputs: q [N, qStride], k [N, kStride], v [N, vStride],
 ///         kCache, vCache, posBuffer [N], cosTable, sinTable.
 /// Output: [N, nHeads * headDim].
+/// Batched K/V cache write for prefill: writes N tokens' K/V to cache
+/// positions read from `positions` ([N] uint buffer), applying RoPE to K.
+/// Designed to be paired with BatchedAttentionReadCacheOpNode — the Vulkan
+/// barrier between the two dispatches ensures cache writes are visible to
+/// the attention reads (which fixes the cross-workgroup race in the
+/// single-dispatch BatchedFusedAttention).
+class BatchedKVCacheWriteOpNode : public OpNode {
+public:
+  BatchedKVCacheWriteOpNode(TensorStore &store,
+                            const Tensor &k,
+                            const Tensor &v,
+                            const Tensor &kCache,
+                            const Tensor &vCache,
+                            const Tensor &positions,
+                            const Tensor &cosTable,
+                            const Tensor &sinTable,
+                            uint32_t batchSize,
+                            uint32_t nKvHeads,
+                            uint32_t headDim,
+                            uint32_t kStride,
+                            uint32_t vStride,
+                            uint32_t kOffset,
+                            uint32_t vOffset,
+                            std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  size_t shaderKey() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+
+private:
+  DataType dtype_;
+  uint32_t batchSize_;
+  uint32_t kvDim_;
+  uint32_t alignedKvDim_;
+  uint32_t headDim_;
+  uint32_t halfDim_;
+  uint32_t kStride_, vStride_;
+  uint32_t kOffset_, vOffset_;
+};
+
+/// Batched attention for prefill, reading from a pre-populated K/V cache.
+/// Pair with BatchedKVCacheWriteOpNode. Applies RoPE to Q inline.
+class BatchedAttentionReadCacheOpNode : public OpNode {
+public:
+  BatchedAttentionReadCacheOpNode(TensorStore &store,
+                                  const Tensor &q,
+                                  const Tensor &kCache,
+                                  const Tensor &vCache,
+                                  const Tensor &positions,
+                                  const Tensor &cosTable,
+                                  const Tensor &sinTable,
+                                  uint32_t batchSize,
+                                  uint32_t nHeads,
+                                  uint32_t nKvHeads,
+                                  uint32_t headDim,
+                                  uint32_t qStride,
+                                  uint32_t qOffset,
+                                  const Tensor &preallocOutput = {},
+                                  std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  size_t shaderKey() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+
+private:
+  DataType dtype_;
+  uint32_t batchSize_;
+  uint32_t nHeads_;
+  uint32_t nKvHeads_;
+  uint32_t headDim_;
+  uint32_t alignedKvDim_;
+  uint32_t nRep_;
+  float scale_;
+  uint32_t halfDim_;
+  uint32_t qStride_, qOffset_;
+  std::vector<uint32_t> outShape_;
+};
+
 class BatchedFusedAttentionOpNode : public OpNode {
 public:
   BatchedFusedAttentionOpNode(TensorStore &store,

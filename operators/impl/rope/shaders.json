@@ -10,6 +10,15 @@
           {"input": "Float32", "output": "Float32"}
         ]
       }
+    },
+    {
+      "name": "BatchedRoPE",
+      "description": "Batched Rotary Position Embedding (N tokens per dispatch)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
     }
   ]
 }

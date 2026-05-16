@@ -104,7 +104,8 @@ def run_llamacpp_bench(model_path: str, max_tokens: int = 32,
         print(f"  Run: ./scripts/setup_benchmark_runners.sh")
         return None
 
-    cmd = [exe, "-m", model_path, "-p", "15", "-n", str(max_tokens), "-r", "1"]
+    cmd = [exe, "-m", model_path, "-p", "15", "-n", str(max_tokens), "-r", "1",
+           "--no-warmup"]
     if vulkan:
         cmd += ["-ngl", "99"]
 

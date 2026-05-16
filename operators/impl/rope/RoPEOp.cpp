@@ -50,4 +50,74 @@ std::vector<uint8_t> RoPEOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+// --- BatchedRoPEOpNode ---
+
+BatchedRoPEOpNode::BatchedRoPEOpNode(TensorStore &store,
+                                     const Tensor &x,
+                                     const Tensor &cosTable,
+                                     const Tensor &sinTable,
+                                     const Tensor &positions,
+                                     uint32_t batchSize,
+                                     uint32_t dim,
+                                     uint32_t inRowStride,
+                                     uint32_t inRowOffset,
+                                     uint32_t headDim,
+                                     const Tensor &preallocOutput,
+                                     std::optional<uint32_t> spec)
+    : OpNode(RoPE, store, spec) {
+  const auto &buf = store.getTensor(x);
+  dtype_ = buf.getDtype();
+  batchSize_ = batchSize;
+  dim_ = dim;
+  alignedDim_ = (dim + 3) & ~3u;
+  inRowStride_ = inRowStride;
+  inRowOffset_ = inRowOffset;
+  headDim_ = headDim;
+  halfDim_ = headDim / 2;
+  outShape_ = (batchSize == 1) ? std::vector<uint32_t>{dim}
+                                : std::vector<uint32_t>{batchSize, dim};
+  inputs_ = {x, cosTable, sinTable, positions};
+  output_ = preallocOutput ? preallocOutput
+                           : store.createTensorEmpty(outShape_, dtype_);
+}
+
+DataType BatchedRoPEOpNode::outputDtype() const {
+  return dtype_;
+}
+
+size_t BatchedRoPEOpNode::shaderKey() const {
+  // Toggle a high bit so we don't collide with RoPEOpNode in the pipeline
+  // cache (both ops share OperatorEnum::RoPE).
+  return OpNode::shaderKey() | (size_t{1} << 32);
+}
+
+std::optional<std::vector<uint32_t>> BatchedRoPEOpNode::shader() const {
+  return compiledBatchedRoPE(dtype_, dtype_);
+}
+
+std::vector<uint32_t> BatchedRoPEOpNode::outputShape() const {
+  return outShape_;
+}
+
+ThreadSize BatchedRoPEOpNode::dispatchSize() const {
+  // (ceil(dim/256)*256, batchSize, 1) — each Y-workgroup handles one token,
+  // X dimension covers the dim-length vector in chunks of 256 threads.
+  uint32_t gridX = ((dim_ + 255) / 256) * 256;
+  return {gridX, batchSize_, 1};
+}
+
+std::vector<uint8_t> BatchedRoPEOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t batchSize;
+    uint32_t dim;
+    uint32_t alignedDim;
+    uint32_t inRowStride;
+    uint32_t inRowOffset;
+    uint32_t headDim;
+    uint32_t halfDim;
+  } pc{batchSize_, dim_, alignedDim_, inRowStride_,
+       inRowOffset_, headDim_, halfDim_};
+  return toBytes(pc);
+}
+
 } // namespace cut
