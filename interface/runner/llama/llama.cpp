@@ -1206,6 +1206,9 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
     ops_->barrier();
 
     // --- Output projection + residual ---
+    // Tried matmulBinary fusion (would save the BinaryAdd dispatch), but
+    // the extra dataD read in the matmul shader cost more wall-clock than
+    // it saved. See git log for the experiment.
     cut::ComputeHandle proj;
     if (layer.wo.isQuantized()) {
       proj = ops_->matmul(attnOut, layer.wo.qValues, layer.wo.qScales);
@@ -1217,10 +1220,11 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
     // --- FFN ---
     auto ffnNormed = ops_->rmsNorm(hidden, layer.ffn_norm, config_.norm_eps);
 
-    // FFN: 2 separate gate/up matmuls (avoids 2D column-slicing issues with
-    // fused [N, 2*ffn] output). Still batched [N, dim] @ [dim, ffn].
-    // Gate matmul fuses SiLU activation to eliminate a separate dispatch + full
-    // read/write of [N, ffn_dim].
+    // FFN: 2 separate gate/up matmuls (gate fuses SiLU). Tried fusing the
+    // up*gate multiply into the up matmul via matmulBinary, but that
+    // regressed wall-clock — likely because the per-element fusion read of
+    // gateOut at every matmul output cell hurts the FFN-sized matmul's
+    // memory traffic more than it saves a dispatch.
     auto gateOut =
         layer.w_gate.isQuantized()
             ? ops_->matmulUnary(cut::UnarySilu, ffnNormed, layer.w_gate.qValues,

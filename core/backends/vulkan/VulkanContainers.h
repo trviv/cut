@@ -98,10 +98,14 @@ public:
     return ComputeDataContainer::get(handle).shader;
   }
 
-  /// Returns the shader reflection for the given handle, or nullopt if invalid.
-  ShaderReflection getReflection(const ComputeHandle &handle) const {
+  /// Returns the shader reflection for the given handle by const reference
+  /// (avoids the per-call allocation of returning a ShaderReflection by
+  /// value — the contained `bindings` vector was being copied on every
+  /// dispatch during command recording).
+  const ShaderReflection &getReflection(const ComputeHandle &handle) const {
     if (!handle) {
-      return {};
+      static const ShaderReflection empty{};
+      return empty;
     }
 
     return ComputeDataContainer::get(handle).reflection;

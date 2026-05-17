@@ -242,6 +242,19 @@ Tensor Operations::matmulUnary(OperatorEnum unaryOp,
 
 Tensor Operations::matmulBinary(OperatorEnum binaryOp,
                                 const Tensor &a,
+                                const Tensor &b,
+                                const Tensor &d,
+                                std::optional<uint32_t> spec) {
+  auto node = createMatMulResolved(a, b, spec);
+  // Cast d separately — it's not a matmul input, just the fusion operand
+  auto dtD = getDtype(d);
+  Tensor castD = (dtD != DataType::Float32) ? cast(d, widenPrecision(dtD)) : d;
+  node->setFusion(MatMulFusion::Binary, binaryOp, castD);
+  return recordOrEncode(std::move(node));
+}
+
+Tensor Operations::matmulBinary(OperatorEnum binaryOp,
+                                const Tensor &a,
                                 const Tensor &packedB,
                                 const Tensor &scales,
                                 const Tensor &d,

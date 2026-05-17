@@ -292,37 +292,48 @@ void VulkanCommandBuffer::end() {
     descriptorWrites.reserve(totalBindings);
 
     size_t dispatchIndex = 0;
+    // Reusable small lookup table indexed by shader binding number. Avoids
+    // an O(B*D) linear scan of reflection.bindings on every (dispatch,
+    // binding) pair. Stores BindingInfo by value because getReflection()
+    // returns by value (so pointers would dangle across iterations).
+    struct BindingSlot {
+      bool present = false;
+      BindingInfo info{};
+    };
+    std::vector<BindingSlot> bindingByIndex;
     for (const auto &dispatch : dispatches()) {
       if (dispatch.isBarrier() || dispatch.isBufferUpdate()) {
-        continue; // Skip non-shader dispatches — no descriptors to update
+        continue;
       }
 
       const auto &reflection =
           containers_.shaderContainer.getReflection(dispatch.shader());
 
+      // Rebuild per dispatch — cheap (reflection.bindings is short, typically
+      // 5-9 entries). The win is the inner loop that uses this becomes
+      // O(D) instead of O(B*D).
+      uint32_t maxBinding = 0;
+      for (const auto &info : reflection.bindings) {
+        if (info.type == BindingType::PushConstant) continue;
+        if (info.binding > maxBinding) maxBinding = info.binding;
+      }
+      bindingByIndex.assign(maxBinding + 1, BindingSlot{});
+      for (const auto &info : reflection.bindings) {
+        if (info.type == BindingType::PushConstant) continue;
+        bindingByIndex[info.binding] = {true, info};
+      }
+
       // Process each binding in the dispatch
       for (const auto &binding : dispatch.bindings()) {
         if (!binding.isHandle()) {
-          // Skip data bindings (push constants) for now
           continue;
         }
 
-        // Find the corresponding binding info from shader reflection
-        // Skip push constants as they don't use descriptor bindings
-        const BindingInfo *bindingInfo = nullptr;
-        for (const auto &info : reflection.bindings) {
-          if (info.type == BindingType::PushConstant) {
-            continue;
-          }
-          if (info.binding == binding.index()) {
-            bindingInfo = &info;
-            break;
-          }
-        }
-
-        if (!bindingInfo) {
+        if (binding.index() >= bindingByIndex.size() ||
+            !bindingByIndex[binding.index()].present) {
           continue;
         }
+        const BindingInfo *bindingInfo = &bindingByIndex[binding.index()].info;
 
         auto descriptorType = toVkDescriptorType(bindingInfo->type);
         if (!descriptorType) {

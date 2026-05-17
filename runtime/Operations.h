@@ -72,6 +72,15 @@ public:
                      const Tensor &scales,
                      std::optional<uint32_t> spec = {});
 
+  /// Standard matmul with binary op: binaryOp(A * B, D)
+  /// Fuses the residual add into the matmul (saves one BinaryAdd dispatch
+  /// + a full read/write of [M, N]).
+  Tensor matmulBinary(OperatorEnum binaryOp,
+                      const Tensor &a,
+                      const Tensor &b,
+                      const Tensor &d,
+                      std::optional<uint32_t> spec = {});
+
   /// Quantized matmul with binary op: binaryOp(A * dequant(packedB, scales), D)
   Tensor matmulBinary(OperatorEnum binaryOp,
                       const Tensor &a,
