@@ -532,6 +532,27 @@ void LlamaModel::load(const std::string &gguf_path,
                       logitsGraph_.graph.get(), &logitsGraph_.stats});
     generateModelReport(reader, config_, reportPath, graphs);
   }
+
+  // Warmup: prefillBatched + forward + forwardPrefill at a representative N
+  // so all three hot paths' Vulkan pipelines and transient buffer sizes are
+  // pre-created. Costs ~80ms once at load; subsequent generate() avoids
+  // the same ~40ms cold-start cost on both prefill (whichever path it uses)
+  // and decode.
+  {
+    auto t_warmup_start = std::chrono::high_resolution_clock::now();
+    const uint32_t warmupN = 16;
+    std::vector<int> dummy(warmupN, bos_token_id_ >= 0 ? bos_token_id_ : 0);
+    (void)prefillBatched(dummy);
+    // Warm the decode path (records cached decode CB).
+    (void)forward(dummy[0], static_cast<int>(warmupN));
+    // Warm the per-token forwardPrefill path (records cached prefill CB).
+    forwardPrefill(dummy[0], 0);
+    resetCache();
+    auto t_warmup_end = std::chrono::high_resolution_clock::now();
+    std::cout << "  Warmup (N=" << warmupN << "): "
+              << std::chrono::duration<double, std::milli>(t_warmup_end - t_warmup_start).count()
+              << " ms\n";
+  }
 }
 
 // ============================================================================
@@ -1315,15 +1336,13 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
     return static_cast<int>(best);
   };
 
-  // Per-token prefill (baseline)
+  // Batched prefill: all N prompt tokens in one CB submission. The model
+  // load step ran a warmup prefillBatched so pipelines and transient
+  // buffer sizes are already cached, making this path faster than the
+  // per-token forwardPrefill loop on cold-start.
   auto prefillStart = std::chrono::high_resolution_clock::now();
-  for (size_t i = 0; i + 1 < prompt_tokens.size(); ++i) {
-    forwardPrefill(prompt_tokens[i], static_cast<int>(i));
-  }
   uploadPenaltyFactors(generatedCount < minNewTokens);
-  auto argmaxBuf =
-      forward(prompt_tokens.back(), static_cast<int>(prompt_tokens.size() - 1));
-  next_token = readArgmax(argmaxBuf);
+  next_token = prefillBatched(prompt_tokens);
   generatedCount++;
 
   auto prefillEnd = std::chrono::high_resolution_clock::now();
