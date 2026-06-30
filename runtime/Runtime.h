@@ -17,6 +17,8 @@ namespace cut {
 // Forward declarations
 class VulkanInstance;
 class VulkanCompute;
+class CudaInstance;
+class CudaCompute;
 class Dispatcher;
 class Operations;
 class OpNode;
@@ -24,7 +26,7 @@ class OpNode;
 /**
  * Backend type enum for runtime selection.
  */
-enum class BackendType { Vulkan };
+enum class BackendType { Vulkan, CUDA };
 
 /**
  * Runtime class that manages compute backend lifecycle and operator execution.
@@ -61,8 +63,15 @@ public:
   bool isVulkanAvailable();
 
   /**
+   * Checks if the CUDA backend is available on this system.
+   * Always returns false in builds without CUDA support compiled in.
+   * @return true if CUDA is available, false otherwise.
+   */
+  bool isCudaAvailable();
+
+  /**
    * Initializes the compute backend.
-   * @param backend The backend type to use (Vulkan).
+   * @param backend The backend type to use (Vulkan or CUDA).
    */
   void init(BackendType backend = BackendType::Vulkan);
 
@@ -235,9 +244,12 @@ public:
 private:
   BackendType backendType_ = BackendType::Vulkan;
   std::shared_ptr<VulkanInstance> vulkanInstance_;
+  std::shared_ptr<CudaInstance> cudaInstance_;
   std::unique_ptr<ComputeInterface> interface_;
   bool vulkanAvailable_ = false;
   bool vulkanChecked_ = false;
+  bool cudaAvailable_ = false;
+  bool cudaChecked_ = false;
   bool pendingCommands_ = false;
   bool profilingEnabled_ = false;
 
@@ -260,7 +272,10 @@ private:
    */
   ComputeInterface *getInterface();
 
-  bool isGpuBackend() const { return backendType_ == BackendType::Vulkan; }
+  bool isGpuBackend() const {
+    return backendType_ == BackendType::Vulkan ||
+           backendType_ == BackendType::CUDA;
+  }
 };
 
 } // namespace cut

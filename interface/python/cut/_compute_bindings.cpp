@@ -233,6 +233,7 @@ PYBIND11_MODULE(_cut_compute, m) {
   // =========================================================================
   py::enum_<cut::BackendType>(m, "BackendType", "Available compute backends")
       .value("Vulkan", cut::BackendType::Vulkan, "Vulkan GPU backend")
+      .value("CUDA", cut::BackendType::CUDA, "CUDA GPU backend")
       .export_values();
 
   // =========================================================================

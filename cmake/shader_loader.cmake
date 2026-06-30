@@ -346,6 +346,57 @@ namespace cut {
 ")
 endif()
 
+# =============================================================================
+# CUDA backend: transpile the same preprocessed HLSL shaders to CUDA kernels
+# and embed them (keyed by normalized SPIR-V hash) into CompiledCudaKernels.cpp.
+# =============================================================================
+if(ENABLE_CUDA_BACKEND)
+    set(CUDA_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated_cuda)
+    file(MAKE_DIRECTORY ${CUDA_GEN_DIR})
+    set(CUDA_TRANSPILER ${CMAKE_SOURCE_DIR}/scripts/transpile_cuda_kernels.py)
+    set(CUDA_EMBEDDER ${CMAKE_SOURCE_DIR}/scripts/embed_cuda_kernels.py)
+    set(CUDA_PRELUDE ${CMAKE_SOURCE_DIR}/operators/runtime/cuda/cut_cuda_prelude.cuh)
+    set(CUDA_ENUMS ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h)
+    set(COMPILED_CUDA_FILE ${CMAKE_SOURCE_DIR}/operators/runtime/cuda/CompiledCudaKernels.cpp)
+
+    # Transpile at configure time (parallels the shader variant generator).
+    execute_process(
+        COMMAND ${Python3_EXECUTABLE} ${CUDA_TRANSPILER}
+            --input-dir ${GENERATED_SHADER_DIR}
+            --output-dir ${CUDA_GEN_DIR}
+        RESULT_VARIABLE CUDA_TRANSPILE_RESULT
+    )
+    if(NOT CUDA_TRANSPILE_RESULT EQUAL 0)
+        message(FATAL_ERROR "CUDA kernel transpilation failed")
+    endif()
+
+    # Ensure the embedded source exists for the initial configure graph; the
+    # real contents are regenerated at build time once the .spv hashes exist.
+    if(NOT EXISTS ${COMPILED_CUDA_FILE})
+        file(WRITE ${COMPILED_CUDA_FILE}
+            "#include <CudaKernelRegistry.h>\nnamespace cut {\n"
+            "const CudaKernelEntry *lookupCudaKernelByHash(uint64_t) { return nullptr; }\n"
+            "size_t cudaKernelCount() { return 0; }\n"
+            "const char *cudaPreludeSource() { return \"\"; }\n"
+            "const char *cudaEnumsSource() { return \"\"; }\n} // namespace cut\n")
+    endif()
+
+    # Embed at build time, after the .spv binaries are compiled (hash inputs).
+    add_custom_command(
+        OUTPUT ${COMPILED_CUDA_FILE}
+        COMMAND ${Python3_EXECUTABLE} ${CUDA_EMBEDDER}
+            --cu-dir ${CUDA_GEN_DIR}
+            --spv-dir ${SHADER_BINARY_DIR}
+            --prelude ${CUDA_PRELUDE}
+            --enums ${CUDA_ENUMS}
+            --output ${COMPILED_CUDA_FILE}
+        DEPENDS ${COMPILED_SHADERS} ${CUDA_TRANSPILER} ${CUDA_EMBEDDER} ${CUDA_PRELUDE}
+        COMMENT "Embedding CUDA kernels into CompiledCudaKernels.cpp"
+        VERBATIM
+    )
+    list(APPEND EMBEDDED_SHADERS ${COMPILED_CUDA_FILE})
+endif()
+
 # Add custom target for shader compilation
 if(COMPILED_SHADERS)
     add_custom_target(CompileShaders ALL

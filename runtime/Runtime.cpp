@@ -6,6 +6,10 @@
 #include "VariantSelector.h"
 #include "VulkanCompute.h"
 
+#ifdef CUT_ENABLE_CUDA
+#include "CudaCompute.h"
+#endif
+
 #include <ComputeCommon.h>
 #include <chrono>
 #include <stdexcept>
@@ -31,6 +35,23 @@ bool Runtime::isVulkanAvailable() {
   return vulkanAvailable_;
 }
 
+bool Runtime::isCudaAvailable() {
+#ifdef CUT_ENABLE_CUDA
+  if (!cudaChecked_) {
+    try {
+      cudaInstance_ = std::make_shared<CudaInstance>();
+      cudaAvailable_ = true;
+    } catch (...) {
+      cudaAvailable_ = false;
+    }
+    cudaChecked_ = true;
+  }
+  return cudaAvailable_;
+#else
+  return false;
+#endif
+}
+
 void Runtime::init(BackendType backend) {
   if (backend == BackendType::Vulkan) {
     if (!isVulkanAvailable()) {
@@ -38,6 +59,17 @@ void Runtime::init(BackendType backend) {
     }
     interface_ = vulkanInstance_->createInterface();
     backendType_ = BackendType::Vulkan;
+  } else if (backend == BackendType::CUDA) {
+#ifdef CUT_ENABLE_CUDA
+    if (!isCudaAvailable()) {
+      throw std::runtime_error("CUDA backend is not available");
+    }
+    interface_ = cudaInstance_->createInterface();
+    backendType_ = BackendType::CUDA;
+#else
+    throw std::runtime_error("CUDA backend not compiled in "
+                             "(rebuild with -DENABLE_CUDA_BACKEND=ON)");
+#endif
   } else {
     throw std::runtime_error("Invalid backend type");
   }
@@ -67,11 +99,14 @@ void Runtime::shutdown() {
   store_.reset();
   // First destroy the interface (which holds backend resources)
   interface_.reset();
-  // Then destroy the Vulkan instance if present
+  // Then destroy the backend instances if present
   vulkanInstance_.reset();
+  cudaInstance_.reset();
   // Reset state flags
   vulkanAvailable_ = false;
   vulkanChecked_ = false;
+  cudaAvailable_ = false;
+  cudaChecked_ = false;
   backendType_ = BackendType::Vulkan;
   pendingCommands_ = false;
 }

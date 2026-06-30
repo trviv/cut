@@ -2,6 +2,15 @@ cmake_minimum_required(VERSION 3.16)
 
 set(OPENL_CL_WITH_VULKAN FALSE CACHE BOOL "Enable opencl shader usage with Vulkan")
 
+# Optional CUDA compute backend (Driver API + NVRTC). Off by default so the
+# Vulkan-only build is unaffected.
+option(ENABLE_CUDA_BACKEND "Build the CUDA compute backend" OFF)
+# Path to the pip-installed nvidia CUDA package (headers + versioned libs).
+# Override with -DCUDA_PIP_ROOT=... if your toolkit lives elsewhere.
+set(CUDA_PIP_ROOT
+    "${CMAKE_SOURCE_DIR}/.venv/lib/python3.12/site-packages/nvidia/cu13"
+    CACHE PATH "Root of the CUDA headers/libs (pip nvidia-cu13 layout)")
+
 # Project configuration
 project(CUT VERSION 1.0.0 LANGUAGES CXX
     DESCRIPTION "Compute Unified Toolkit — Vulkan GPU compute toolkit")
@@ -63,6 +72,29 @@ foreach(_lib GLSLANG_LIB SPIRV_LIB MACHINE_INDEPENDENT_LIB OS_DEPENDENT_LIB GLSL
     endif()
 endforeach()
 
+
+# Locate CUDA Driver API + NVRTC for the optional CUDA backend.
+if(ENABLE_CUDA_BACKEND)
+    find_path(CUDA_DRIVER_INCLUDE_DIR cuda.h
+        HINTS ${CUDA_PIP_ROOT}/include /usr/local/cuda/include
+        REQUIRED)
+    # The CUDA user-mode driver ships with the GPU driver, not the toolkit.
+    find_library(CUDA_DRIVER_LIBRARY NAMES cuda
+        HINTS /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
+              /usr/local/cuda/lib64/stubs
+        REQUIRED)
+    # NVRTC ships only as a versioned .so in the pip package; locate explicitly.
+    file(GLOB NVRTC_LIBRARY "${CUDA_PIP_ROOT}/lib/libnvrtc.so*")
+    if(NOT NVRTC_LIBRARY)
+        find_library(NVRTC_LIBRARY NAMES nvrtc
+            HINTS ${CUDA_PIP_ROOT}/lib /usr/local/cuda/lib64 REQUIRED)
+    endif()
+    list(GET NVRTC_LIBRARY 0 NVRTC_LIBRARY)
+    message(STATUS "CUDA backend enabled")
+    message(STATUS "  CUDA include : ${CUDA_DRIVER_INCLUDE_DIR}")
+    message(STATUS "  CUDA driver  : ${CUDA_DRIVER_LIBRARY}")
+    message(STATUS "  NVRTC        : ${NVRTC_LIBRARY}")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
@@ -198,6 +230,25 @@ if (OPENL_CL_WITH_VULKAN)
     )
 endif()
 
+# CUDA backend sources (compiled into CUTLib only when enabled)
+if(ENABLE_CUDA_BACKEND)
+    list(APPEND LIB_HEADERS
+        core/backends/cuda/CudaCommon.h
+        core/backends/cuda/CudaStructs.h
+        core/backends/cuda/CudaContainers.h
+        core/backends/cuda/CudaCompute.h
+        core/backends/cuda/CudaCommandBuffer.h
+    )
+    list(APPEND LIB_SOURCES
+        core/backends/cuda/CudaCommon.cpp
+        core/backends/cuda/CudaContainers.cpp
+        core/backends/cuda/CudaCompute.cpp
+        core/backends/cuda/CudaCommandBuffer.cpp
+        core/backends/cuda/CudaSpirvKey.cpp
+        operators/runtime/cuda/CompiledCudaKernels.cpp
+    )
+endif()
+
 # Create library
 add_library(CUTLib ${LIB_SOURCES} ${LIB_HEADERS})
 
@@ -222,6 +273,36 @@ target_include_directories(CUTLib PRIVATE
     ${CMAKE_SOURCE_DIR}/operators/runtime
     ${CMAKE_SOURCE_DIR}/runtime
 )
+
+# CUDA backend wiring: include dirs, compile definition, and library linkage.
+# Driver/NVRTC are linked PUBLIC so executables that link CUTLib resolve them,
+# and the pip lib dir is added to the RPATH so the versioned .so is found.
+if(ENABLE_CUDA_BACKEND)
+    target_compile_definitions(CUTLib PUBLIC CUT_ENABLE_CUDA)
+    # Pass the CUDA header dir so NVRTC can resolve cuda_fp16.h etc. at runtime.
+    target_compile_definitions(CUTLib PRIVATE
+        CUT_CUDA_INCLUDE_DIR="${CUDA_DRIVER_INCLUDE_DIR}")
+    target_include_directories(CUTLib PRIVATE
+        ${CUDA_DRIVER_INCLUDE_DIR}
+        ${CMAKE_SOURCE_DIR}/core/backends/cuda
+        ${CMAKE_SOURCE_DIR}/operators/runtime/cuda
+    )
+    target_link_libraries(CUTLib PUBLIC
+        ${CUDA_DRIVER_LIBRARY}
+        ${NVRTC_LIBRARY}
+    )
+    set_property(TARGET CUTLib APPEND PROPERTY
+        INTERFACE_LINK_DIRECTORIES "${CUDA_PIP_ROOT}/lib")
+    set_property(TARGET CUTLib APPEND PROPERTY
+        BUILD_RPATH "${CUDA_PIP_ROOT}/lib")
+    # NVRTC dlopen()s libnvrtc-builtins by soname; emit DT_RPATH (not RUNPATH)
+    # on consumers so that dlopen resolves it from the pip lib dir without
+    # requiring LD_LIBRARY_PATH at runtime.
+    if(NOT APPLE)
+        set_property(TARGET CUTLib APPEND PROPERTY INTERFACE_LINK_OPTIONS
+            "-Wl,-rpath,${CUDA_PIP_ROOT}/lib" "-Wl,--disable-new-dtags")
+    endif()
+endif()
 
 # macOS specific linking
 if(APPLE)

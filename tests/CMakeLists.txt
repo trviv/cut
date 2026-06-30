@@ -59,6 +59,7 @@ set(GRAPH_TEST_SOURCES
 # Create single test executable with all tests
 add_executable(tests
     Utils.h
+    AsanOptions.cpp
     ${API_TEST_SOURCES}
     ${VULKAN_TEST_SOURCES}
     ${COMBINED_TEST_SOURCES}

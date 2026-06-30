@@ -1,3 +1,8 @@
 leak:libdbus-1.so
 leak:libvulkan.so
 leak:libdrm.so
+leak:libnvidia-ptxjitcompiler
+leak:libnvidia
+leak:libcuda
+leak:libnvrtc
+leak:__pthread_once_slow
