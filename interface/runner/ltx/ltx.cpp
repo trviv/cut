@@ -230,6 +230,11 @@ void LtxModel::load(const std::string &modelDir, cut::Runtime &runtime) {
 
   ropeCosDev_.resize(runtime.deviceCount());
   ropeSinDev_.resize(runtime.deviceCount());
+
+  // Free the (pinned host RAM) staging buffers the weight uploads grew —
+  // ~20GB for the 13B model — and drain the recycle cache. Without this the
+  // kernel OOM-killer takes the process at generation time.
+  runtime_->releaseLoadingResources();
 }
 cut::ComputeHandle LtxModel::uploadLinearWeightF16(const ShardedSafeTensors &st, const std::string &name, size_t deviceId) {
   auto data = st.readF32(name);
@@ -450,6 +455,9 @@ void LtxModel::releaseTransients() {
   // destruction would let recorded-but-unsubmitted commands alias recycled
   // buffers.
   for (size_t d : devices_) {
+    // Operations::flush() releases the graph's OpNode buffer references;
+    // flushPendingCommands() alone only submits/waits the command buffer.
+    runtime_->ops(d).flush();
     runtime_->flushPendingCommands(d);
   }
   transients_.clear();
@@ -510,11 +518,12 @@ cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle 
       acc = ops.matmulBinary(cut::BinaryAdd, outH, woH, acc);
     }
 
-    // Bound transient VRAM: at large S the 32 heads' score/prob matrices
+    // Bound transient VRAM: at large S the 32 heads' score/prob matrix pairs
     // ([sq, skv] each) would otherwise all stay alive until the block ends.
     // Flushing lets the dead iterations' buffers recycle; `acc` and the
     // tracked q/k/v tensors survive (their handles are still held).
-    if ((h & 3u) == 3u) {
+    if ((h & 1u) == 1u) {
+      runtime_->ops(dev).flush();
       runtime_->flushPendingCommands(dev);
     }
   }
@@ -531,12 +540,14 @@ cut::ComputeHandle LtxModel::block(const BlockWeights &bw, const cut::ComputeHan
   const uint32_t D = config_.dim;
 
   size_t base = static_cast<size_t>(blockIdx) * 6 * D * sizeof(float);
-  auto shiftMsa = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base, {D}, cut::DataType::Float32));
-  auto scaleMsa1p = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + D * sizeof(float), {D}, cut::DataType::Float32));
-  auto gateMsa = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + 2 * D * sizeof(float), {D}, cut::DataType::Float32));
-  auto shiftMlp = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + 3 * D * sizeof(float), {D}, cut::DataType::Float32));
-  auto scaleMlp1p = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + 4 * D * sizeof(float), {D}, cut::DataType::Float32));
-  auto gateMlp = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + 5 * D * sizeof(float), {D}, cut::DataType::Float32));
+  // Zero-copy views into the per-step modulation buffer (plain locals; the
+  // parent buffer is permanent so these are never tracked).
+  auto shiftMsa = runtime_->store(dev).createTensorView(modBufDev_[dev], base, {D}, cut::DataType::Float32);
+  auto scaleMsa1p = runtime_->store(dev).createTensorView(modBufDev_[dev], base + D * sizeof(float), {D}, cut::DataType::Float32);
+  auto gateMsa = runtime_->store(dev).createTensorView(modBufDev_[dev], base + 2 * D * sizeof(float), {D}, cut::DataType::Float32);
+  auto shiftMlp = runtime_->store(dev).createTensorView(modBufDev_[dev], base + 3 * D * sizeof(float), {D}, cut::DataType::Float32);
+  auto scaleMlp1p = runtime_->store(dev).createTensorView(modBufDev_[dev], base + 4 * D * sizeof(float), {D}, cut::DataType::Float32);
+  auto gateMlp = runtime_->store(dev).createTensorView(modBufDev_[dev], base + 5 * D * sizeof(float), {D}, cut::DataType::Float32);
 
   auto n1 = track(ops.rmsNorm(hidden, onesDev_[dev], config_.blockNormEps));
   n1 = track(ops.binaryOpRowBcast(cut::BinaryMul, n1, scaleMsa1p));
@@ -544,10 +555,16 @@ cut::ComputeHandle LtxModel::block(const BlockWeights &bw, const cut::ComputeHan
 
   auto attn = mha(bw.self_, n1, n1, sVideo, sVideo, true, dev);
   auto gated = track(ops.binaryOpRowBcast(cut::BinaryMul, attn, gateMsa));
-  auto h2 = track(ops.binaryOp(cut::BinaryAdd, hidden, gated));
+  auto h2 = ops.binaryOp(cut::BinaryAdd, hidden, gated);   // untracked until after release
+  // Phase boundary: everything recorded so far is flushed; self-attention
+  // transients recycle before cross-attention allocates.
+  releaseTransients();
+  transients_.push_back(h2);
 
   auto attn2 = mha(bw.cross_, h2, encoder, sVideo, sText, false, dev);
-  auto h3 = track(ops.binaryOp(cut::BinaryAdd, h2, attn2));
+  auto h3 = ops.binaryOp(cut::BinaryAdd, h2, attn2);       // untracked until after release
+  releaseTransients();
+  transients_.push_back(h3);
 
   auto n2 = track(ops.rmsNorm(h3, onesDev_[dev], config_.blockNormEps));
   n2 = track(ops.binaryOpRowBcast(cut::BinaryMul, n2, scaleMlp1p));
@@ -555,12 +572,22 @@ cut::ComputeHandle LtxModel::block(const BlockWeights &bw, const cut::ComputeHan
 
   auto ff = track(ops.matmul(n2, bw.ffnW1));
   ff = track(ops.binaryOpRowBcast(cut::BinaryAdd, ff, bw.ffnB1));
-  ff = track(ops.unaryOp(cut::UnaryGelu, ff));
+  {
+    auto ffAct = ops.unaryOp(cut::UnaryGelu, ff);          // untracked until after release
+    // Phase boundary inside the FFN: the two [S, ffnDim] pre-activation
+    // buffers recycle before the down-projection allocates.
+    releaseTransients();
+    transients_.push_back(ffAct);
+    ff = ffAct;
+  }
   ff = track(ops.matmul(ff, bw.ffnW2));
   ff = track(ops.binaryOpRowBcast(cut::BinaryAdd, ff, bw.ffnB2));
 
   auto ffGated = track(ops.binaryOpRowBcast(cut::BinaryMul, ff, gateMlp));
-  return ops.binaryOp(cut::BinaryAdd, h3, ffGated);   // NOT tracked: released by forward()
+  // h3 is consumed by the final residual add AFTER the last releaseTransients
+  // inside the block — its tracked copy from transients_.push_back(h3) was
+  // dropped by the FFN-phase release, but the local h3 handle keeps the buffer alive.
+  return ops.binaryOp(cut::BinaryAdd, h3, ffGated); // NOT tracked: released by forward()
 }
 
 cut::ComputeHandle LtxModel::forward(const cut::ComputeHandle &latents, const std::vector<cut::ComputeHandle> &encoderPerDev,

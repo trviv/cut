@@ -377,7 +377,11 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
   if (vkAllocateMemory(device_, &allocInfo, nullptr, &bufferStruct.memory) !=
       VK_SUCCESS) {
     vkDestroyBuffer(device_, bufferStruct.buffer, nullptr);
-    logErr("Failed to allocate buffer memory");
+    logErr("Failed to allocate buffer memory (size=%zu MB, memoryType=%u, "
+           "activeBuffers=%zu, activeBytes=%zu MB)",
+           allocInfo.allocationSize / (1024 * 1024), allocInfo.memoryTypeIndex,
+           containers_->bufferContainer.size(),
+           activeBufferMemoryBytes() / (1024 * 1024));
   }
 
   VK_CHECK(
