@@ -37,6 +37,13 @@ public:
                   const TensorLike &b,
                   std::optional<uint32_t> spec = {});
 
+  /// Row-broadcast binary op: out[r, c] = op(a[r, c], b[c]);
+  /// a is [.., cols], b is a 1-D [cols] vector.
+  Tensor binaryOpRowBcast(OperatorEnum op,
+                          const Tensor &a,
+                          const Tensor &b,
+                          std::optional<uint32_t> spec = {});
+
   Tensor
   unaryOp(OperatorEnum op, const Tensor &a, std::optional<uint32_t> spec = {});
 

@@ -140,4 +140,77 @@ std::vector<uint8_t> BinaryOpNode::pushConstants() const {
   }
 }
 
+// --- BinaryRowBcastOpNode ---
+
+BinaryRowBcastOpNode::BinaryRowBcastOpNode(OperatorEnum op,
+                                           TensorStore &store,
+                                           const Tensor &a,
+                                           const Tensor &b,
+                                           std::optional<uint32_t> spec)
+    : OpNode(op, store, spec) {
+  const auto &bufA = store.getTensor(a);
+  const auto shapeA = bufA.getShape();
+  dtype_ = bufA.getDtype();
+  if (shapeA.size() < 2) {
+    throw std::runtime_error(
+        "binaryOpRowBcast: input 'a' must have at least 2 dimensions");
+  }
+  if (dtype_ != DataType::Float32) {
+    throw std::runtime_error("binaryOpRowBcast: only Float32 is supported");
+  }
+
+  cols_ = shapeA.back();
+  alignedCols_ = (cols_ + 3) & ~3u;
+  size_t rows = 1;
+  for (size_t i = 0; i + 1 < shapeA.size(); ++i) {
+    rows *= shapeA[i];
+  }
+  numElements_ = static_cast<uint32_t>(rows) * alignedCols_;
+
+  const auto &bufB = store.getTensor(b);
+  const auto shapeB = bufB.getShape();
+  if (shapeB.size() != 1 || shapeB[0] != cols_) {
+    throw std::runtime_error("binaryOpRowBcast: b must be 1-D [cols]");
+  }
+
+  outShape_ = shapeA;
+  inputs_ = {a, b};
+  output_ = store.createTensorEmpty(outShape_, dtype_);
+}
+
+DataType BinaryRowBcastOpNode::outputDtype() const {
+  return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> BinaryRowBcastOpNode::shader() const {
+  auto compiled = compiledBinaryVecRowBcast(dtype_, dtype_, dtype_);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return std::nullopt;
+}
+
+size_t BinaryRowBcastOpNode::shaderKey() const {
+  return OpNode::shaderKey() | (size_t{1} << 36);
+}
+
+std::vector<uint32_t> BinaryRowBcastOpNode::outputShape() const {
+  return outShape_;
+}
+
+ThreadSize BinaryRowBcastOpNode::dispatchSize() const {
+  return {((numElements_ + 255) / 256) * 256, 1, 1};
+}
+
+std::vector<uint8_t> BinaryRowBcastOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t numElements;
+    uint32_t cols;
+    uint32_t alignedCols;
+  } pc{numElements_, cols_, alignedCols_};
+  return toBytes(pc);
+}
+
 } // namespace cut

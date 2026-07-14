@@ -5758,6 +5758,39 @@ TEST_F(MatrixOpsTest, ComposedBidirectionalCrossAttention_MatchesCPU) {
   }
 }
 
+// Row-broadcast binary op: out[r,c] = op(a[r,c], b[c]). cols=6 deliberately
+// not a multiple of 4 to exercise the padding lanes.
+TEST_F(MatrixOpsTest, BinaryOpRowBcast_AddMul_MatchesCPU) {
+  const uint32_t rows = 5, cols = 6;
+  std::vector<float> aData(rows * cols), bData(cols);
+  std::mt19937 gen(3);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &v : aData) v = dist(gen);
+  for (auto &v : bData) v = dist(gen);
+
+  auto bufA = runtime_->createTensor({rows, cols}, DataType::Float32, aData.data());
+  auto bufB = runtime_->createTensor({cols}, DataType::Float32, bData.data());
+
+  std::vector<float> got(rows * cols);
+  auto outAdd = runtime_->ops().binaryOpRowBcast(cut::BinaryAdd, bufA, bufB);
+  runtime_->copyFromTensor(outAdd, got.data(), got.size() * sizeof(float));
+  for (uint32_t r = 0; r < rows; ++r) {
+    for (uint32_t c = 0; c < cols; ++c) {
+      ASSERT_NEAR(got[r * cols + c], aData[r * cols + c] + bData[c], 1e-6f)
+          << "add r=" << r << " c=" << c;
+    }
+  }
+
+  auto outMul = runtime_->ops().binaryOpRowBcast(cut::BinaryMul, bufA, bufB);
+  runtime_->copyFromTensor(outMul, got.data(), got.size() * sizeof(float));
+  for (uint32_t r = 0; r < rows; ++r) {
+    for (uint32_t c = 0; c < cols; ++c) {
+      ASSERT_NEAR(got[r * cols + c], aData[r * cols + c] * bData[c], 1e-6f)
+          << "mul r=" << r << " c=" << c;
+    }
+  }
+}
+
 // ============================================================================
 // MatMulQ4 Tests
 // ============================================================================

@@ -7,14 +7,46 @@
       "description": "Binary vec-vec operations",
       "dtype_slots": {
         "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float32", "output": "Float32"},
-          {"input1": "Int8", "input2": "Int8", "output": "Int8"},
-          {"input1": "Float32", "input2": "Int8", "output": "Float32"}
+          {
+            "input1": "Float32",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float16",
+            "output": "Float16"
+          },
+          {
+            "input1": "Int32",
+            "input2": "Int32",
+            "output": "Int32"
+          },
+          {
+            "input1": "UInt32",
+            "input2": "UInt32",
+            "output": "UInt32"
+          },
+          {
+            "input1": "Float32",
+            "input2": "Float16",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Int8",
+            "input2": "Int8",
+            "output": "Int8"
+          },
+          {
+            "input1": "Float32",
+            "input2": "Int8",
+            "output": "Float32"
+          }
         ]
       }
     },
@@ -23,11 +55,26 @@
       "description": "Binary vec-vec comparison (typed input, uint output)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "UInt32"},
-          {"input": "Float16", "output": "UInt32"},
-          {"input": "Int32", "output": "UInt32"},
-          {"input": "UInt32", "output": "UInt32"},
-          {"input": "Int8", "output": "Int8"}
+          {
+            "input": "Float32",
+            "output": "UInt32"
+          },
+          {
+            "input": "Float16",
+            "output": "UInt32"
+          },
+          {
+            "input": "Int32",
+            "output": "UInt32"
+          },
+          {
+            "input": "UInt32",
+            "output": "UInt32"
+          },
+          {
+            "input": "Int8",
+            "output": "Int8"
+          }
         ]
       }
     },
@@ -36,11 +83,26 @@
       "description": "Binary vec-scalar operations",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"},
-          {"input": "Int8", "output": "Int8"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          },
+          {
+            "input": "Int32",
+            "output": "Int32"
+          },
+          {
+            "input": "UInt32",
+            "output": "UInt32"
+          },
+          {
+            "input": "Int8",
+            "output": "Int8"
+          }
         ]
       }
     },
@@ -49,11 +111,26 @@
       "description": "Binary vec-scalar comparison (typed input, uint output)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "UInt32"},
-          {"input": "Float16", "output": "UInt32"},
-          {"input": "Int32", "output": "UInt32"},
-          {"input": "UInt32", "output": "UInt32"},
-          {"input": "Int8", "output": "Int8"}
+          {
+            "input": "Float32",
+            "output": "UInt32"
+          },
+          {
+            "input": "Float16",
+            "output": "UInt32"
+          },
+          {
+            "input": "Int32",
+            "output": "UInt32"
+          },
+          {
+            "input": "UInt32",
+            "output": "UInt32"
+          },
+          {
+            "input": "Int8",
+            "output": "Int8"
+          }
         ]
       }
     },
@@ -62,14 +139,46 @@
       "description": "Binary vec-scalar buffer operations",
       "dtype_slots": {
         "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"},
-          {"input1": "Int32", "input2": "Int32", "output": "Int32"},
-          {"input1": "UInt32", "input2": "UInt32", "output": "UInt32"},
-          {"input1": "Float32", "input2": "Float16", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float32", "output": "Float32"},
-          {"input1": "Int8", "input2": "Int8", "output": "Int8"},
-          {"input1": "Float32", "input2": "Int8", "output": "Float32"}
+          {
+            "input1": "Float32",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float16",
+            "output": "Float16"
+          },
+          {
+            "input1": "Int32",
+            "input2": "Int32",
+            "output": "Int32"
+          },
+          {
+            "input1": "UInt32",
+            "input2": "UInt32",
+            "output": "UInt32"
+          },
+          {
+            "input1": "Float32",
+            "input2": "Float16",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Int8",
+            "input2": "Int8",
+            "output": "Int8"
+          },
+          {
+            "input1": "Float32",
+            "input2": "Int8",
+            "output": "Float32"
+          }
         ]
       }
     },
@@ -78,11 +187,26 @@
       "description": "Binary vec-scalar buffer comparison (typed input, uint output)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "UInt32"},
-          {"input": "Float16", "output": "UInt32"},
-          {"input": "Int32", "output": "UInt32"},
-          {"input": "UInt32", "output": "UInt32"},
-          {"input": "Int8", "output": "Int8"}
+          {
+            "input": "Float32",
+            "output": "UInt32"
+          },
+          {
+            "input": "Float16",
+            "output": "UInt32"
+          },
+          {
+            "input": "Int32",
+            "output": "UInt32"
+          },
+          {
+            "input": "UInt32",
+            "output": "UInt32"
+          },
+          {
+            "input": "Int8",
+            "output": "Int8"
+          }
         ]
       }
     },
@@ -91,8 +215,16 @@
       "description": "Fused VecScalar + VecVec: op2(op1(A, scalar), B)",
       "dtype_slots": {
         "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+          {
+            "input1": "Float32",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float16",
+            "output": "Float16"
+          }
         ]
       }
     },
@@ -101,8 +233,16 @@
       "description": "Fused VecVec + VecScalar: op2(op1(A, B), scalar)",
       "dtype_slots": {
         "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+          {
+            "input1": "Float32",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float16",
+            "output": "Float16"
+          }
         ]
       }
     },
@@ -111,8 +251,16 @@
       "description": "Fused VecVec + VecScalarBuf: op2(op1(A, B), scalarBuf[0])",
       "dtype_slots": {
         "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+          {
+            "input1": "Float32",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float16",
+            "output": "Float16"
+          }
         ]
       }
     },
@@ -121,8 +269,16 @@
       "description": "Fused VecScalarBuf + VecVec: op2(op1(A, scalarBuf[0]), B)",
       "dtype_slots": {
         "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+          {
+            "input1": "Float32",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float16",
+            "output": "Float16"
+          }
         ]
       }
     },
@@ -131,8 +287,16 @@
       "description": "Fused Unary + VecVec: binary(unary(A), B)",
       "dtype_slots": {
         "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+          {
+            "input1": "Float32",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float16",
+            "output": "Float16"
+          }
         ]
       }
     },
@@ -141,8 +305,29 @@
       "description": "Fused VecVec + Unary: unary(binary(A, B))",
       "dtype_slots": {
         "combos": [
-          {"input1": "Float32", "input2": "Float32", "output": "Float32"},
-          {"input1": "Float16", "input2": "Float16", "output": "Float16"}
+          {
+            "input1": "Float32",
+            "input2": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input1": "Float16",
+            "input2": "Float16",
+            "output": "Float16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VecRowBcast",
+      "description": "Row-broadcast binary op: out[r,c] = a[r,c] OP b[c]",
+      "dtype_slots": {
+        "combos": [
+          {
+            "input1": "Float32",
+            "input2": "Float32",
+            "output": "Float32"
+          }
         ]
       }
     }

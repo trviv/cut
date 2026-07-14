@@ -180,6 +180,14 @@ Tensor Operations::binaryOp(OperatorEnum op,
   return recordOrEncode(std::move(node));
 }
 
+Tensor Operations::binaryOpRowBcast(OperatorEnum op,
+                                    const Tensor &a,
+                                    const Tensor &b,
+                                    std::optional<uint32_t> spec) {
+  auto node = std::make_unique<BinaryRowBcastOpNode>(op, *store_, a, b, spec);
+  return recordOrEncode(std::move(node));
+}
+
 Tensor Operations::unaryOp(OperatorEnum op,
                            const Tensor &a,
                            std::optional<uint32_t> spec) {

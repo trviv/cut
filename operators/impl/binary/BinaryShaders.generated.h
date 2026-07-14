@@ -19,5 +19,6 @@ std::optional<std::vector<uint32_t>> compiledBinaryFusedVecVecVecScalarBuf(DataT
 std::optional<std::vector<uint32_t>> compiledBinaryFusedVecScalarBufVecVec(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledBinaryFusedUnaryVecVec(DataType input1, DataType input2, DataType output);
 std::optional<std::vector<uint32_t>> compiledBinaryFusedVecVecUnary(DataType input1, DataType input2, DataType output);
+std::optional<std::vector<uint32_t>> compiledBinaryVecRowBcast(DataType input1, DataType input2, DataType output);
 
 } // namespace cut
