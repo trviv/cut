@@ -73,18 +73,19 @@ void CudaCompute::cleanup() {
   if (context_ == nullptr) {
     return;
   }
-  cuCtxSetCurrent(context_);
-  cuCtxSynchronize();
+  {
+    CudaContextGuard guard(context_);
+    cuCtxSynchronize();
 
-  // Destroy the command-buffer container first: it holds stream resources and
-  // handle references into the other containers.
-  setCommandBufferContainer({});
+    // Destroy the command-buffer container first: it holds stream resources
+    // and handle references into the other containers.
+    setCommandBufferContainer({});
 
-  if (containers_) {
-    containers_->bufferContainer.drainCache();
+    if (containers_) {
+      containers_->bufferContainer.drainCache();
+    }
+    containers_.reset();
   }
-  containers_.reset();
-
   cuCtxDestroy(context_);
   context_ = nullptr;
 }
@@ -95,6 +96,7 @@ CudaCompute::~CudaCompute() {
 
 void CudaCompute::flushTransfers() {
   if (context_ != nullptr) {
+    CudaContextGuard guard(context_);
     cuCtxSynchronize();
   }
 }
@@ -108,6 +110,7 @@ ComputeHandle CudaCompute::createBuffer(const std::vector<uint32_t> &shape,
   }
 
   const size_t alignedSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
+  CudaContextGuard guard(context_);
 
   // Try to reuse a cached device allocation of matching size.
   if (!isUniform) {
@@ -148,6 +151,7 @@ ComputeHandle CudaCompute::createBufferMapped(
   }
 
   const size_t alignedSize = ComputeBuffer::calculateAlignedSize(shape, dtype);
+  CudaContextGuard guard(context_);
 
   CudaBufferStruct bufferStruct;
   bufferStruct.setDtype(dtype);
@@ -217,6 +221,7 @@ void CudaCompute::copyDataToBuffer(const void *srcPtr,
   (void)useStaging;
   (void)wait;
   const auto &buffer = containers_->bufferContainer.getBuffer(dstBuffer);
+  CudaContextGuard guard(context_);
 
   if (buffer.size() < dstOffset + size) {
     logErr("Trying to write data outside destination buffer range.");
@@ -254,6 +259,7 @@ void CudaCompute::copyDataFromBuffer(const ComputeHandle &srcBuffer,
   (void)wait;
   flushTransfers();
   const auto &buffer = containers_->bufferContainer.getBuffer(srcBuffer);
+  CudaContextGuard guard(context_);
 
   if (buffer.size() < srcOffset + size) {
     logErr("Trying to read data outside source buffer range.");

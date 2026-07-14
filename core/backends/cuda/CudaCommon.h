@@ -39,4 +39,23 @@ extern std::string nvrtcResultToString(nvrtcResult result);
     }                                                                          \
   }
 
+/**
+ * RAII guard that makes a CUDA context current on the calling thread for the
+ * duration of a scope, restoring the previous context on destruction.
+ * Required for multi-device support: every driver-API entry point must push
+ * its own context rather than relying on a thread-global current context.
+ */
+class CudaContextGuard final {
+public:
+  explicit CudaContextGuard(CUcontext context) {
+    cuCtxPushCurrent(context);
+  }
+  ~CudaContextGuard() {
+    CUcontext previous = nullptr;
+    cuCtxPopCurrent(&previous);
+  }
+  CudaContextGuard(const CudaContextGuard &) = delete;
+  CudaContextGuard &operator=(const CudaContextGuard &) = delete;
+};
+
 } // namespace cut

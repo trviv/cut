@@ -16,10 +16,12 @@ inline uint32_t ceilDiv(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
 CudaCommandBuffer::CudaCommandBuffer(CUcontext context, CUstream stream,
                                      CudaContainers &containers)
     : context_(context), stream_(stream), containers_(containers) {
+  CudaContextGuard guard(context_);
   CU_CHECK(cuEventCreate(&doneEvent_, CU_EVENT_DISABLE_TIMING));
 }
 
 CudaCommandBuffer::~CudaCommandBuffer() {
+  CudaContextGuard guard(context_);
   if (doneEvent_) {
     cuEventDestroy(doneEvent_);
     doneEvent_ = nullptr;
@@ -138,6 +140,7 @@ void CudaCommandBuffer::launchDispatch(const ComputeDispatch &dispatch,
 }
 
 void CudaCommandBuffer::end() {
+  CudaContextGuard guard(context_);
   uint32_t index = 0;
   for (const auto &dispatch : dispatches()) {
     launchDispatch(dispatch, index++);
@@ -155,6 +158,7 @@ void CudaCommandBuffer::submit() {
 }
 
 void CudaCommandBuffer::wait() {
+  CudaContextGuard guard(context_);
   if (doneEvent_) {
     CU_CHECK(cuEventSynchronize(doneEvent_));
   } else {

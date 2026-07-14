@@ -41,7 +41,7 @@ void compileCudaKernel(CUcontext context,
     return;
   }
 
-  cuCtxSetCurrent(context);
+  CudaContextGuard guard(context);
   CUdevice dev = 0;
   cuCtxGetDevice(&dev);
   int major = 8, minor = 0;
@@ -131,7 +131,7 @@ void CudaBufferContainer::drainCache() {
   if (bufferCache_.empty()) {
     return;
   }
-  cuCtxSetCurrent(getContext());
+  CudaContextGuard guard(getContext());
   for (auto &[size, buffer] : bufferCache_) {
     destroyBufferGPU(buffer);
   }
@@ -180,7 +180,7 @@ void CudaBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
   }
 
   // Cache full or pinned allocation — free immediately.
-  cuCtxSetCurrent(getContext());
+  CudaContextGuard guard(getContext());
   destroyBufferGPU(buffer);
 }
 
@@ -205,7 +205,7 @@ CudaShaderContainer::createShader(const std::vector<uint32_t> &spirvCode) {
 void CudaShaderContainer::destroyAPIObject(const ComputeHandle &handle) {
   auto &shader = get(handle);
   if (shader.module != nullptr) {
-    cuCtxSetCurrent(getContext());
+    CudaContextGuard guard(getContext());
     cuModuleUnload(shader.module);
     shader.module = nullptr;
     shader.function = nullptr;
@@ -219,7 +219,7 @@ void CudaShaderContainer::destroyAPIObject(const ComputeHandle &handle) {
 CudaCommandBufferContainer::CudaCommandBufferContainer(
     CUcontext context, uint32_t maxCommandBuffers, CudaContainers &containers)
     : CudaContainerBase(context), containers_(containers) {
-  cuCtxSetCurrent(context);
+  CudaContextGuard guard(context);
   const uint32_t count = std::max(maxCommandBuffers, 1u);
   streams_.resize(count);
   for (uint32_t i = 0; i < count; ++i) {
@@ -228,7 +228,7 @@ CudaCommandBufferContainer::CudaCommandBufferContainer(
 }
 
 CudaCommandBufferContainer::~CudaCommandBufferContainer() {
-  cuCtxSetCurrent(getContext());
+  CudaContextGuard guard(getContext());
   for (CUstream stream : streams_) {
     if (stream != nullptr) {
       cuStreamSynchronize(stream);
