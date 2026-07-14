@@ -307,34 +307,21 @@ void LtxModel::computeRopeTables(uint32_t latentFrames, uint32_t latentHeight,
         sinTbl[t * dim + 0] = 0.0f;
         sinTbl[t * dim + 1] = 0.0f;
 
-        // Frame axis
+        // Angle layout matches the reference's
+        // `freqs.transpose(-1, -2).flatten(2)`: FREQUENCY-major with the
+        // three axes (frame, height, width) interleaved per frequency —
+        // angle index m = j*3 + axis — then each angle repeated twice
+        // (repeat_interleave(2)) after the 2 leading padding columns.
+        const float g[3] = {g0, g1, g2};
         for (uint32_t j = 0; j < nFreq; ++j) {
-          float angle = freqs[j] * (g0 * 2.0f - 1.0f);
-          uint32_t idx = 2 + 2 * j;
-          cosTbl[t * dim + idx] = std::cos(angle);
-          cosTbl[t * dim + idx + 1] = std::cos(angle);
-          sinTbl[t * dim + idx] = std::sin(angle);
-          sinTbl[t * dim + idx + 1] = std::sin(angle);
-        }
-
-        // Height axis
-        for (uint32_t j = 0; j < nFreq; ++j) {
-          float angle = freqs[j] * (g1 * 2.0f - 1.0f);
-          uint32_t idx = 2 + 2 * nFreq + 2 * j;
-          cosTbl[t * dim + idx] = std::cos(angle);
-          cosTbl[t * dim + idx + 1] = std::cos(angle);
-          sinTbl[t * dim + idx] = std::sin(angle);
-          sinTbl[t * dim + idx + 1] = std::sin(angle);
-        }
-
-        // Width axis
-        for (uint32_t j = 0; j < nFreq; ++j) {
-          float angle = freqs[j] * (g2 * 2.0f - 1.0f);
-          uint32_t idx = 2 + 4 * nFreq + 2 * j;
-          cosTbl[t * dim + idx] = std::cos(angle);
-          cosTbl[t * dim + idx + 1] = std::cos(angle);
-          sinTbl[t * dim + idx] = std::sin(angle);
-          sinTbl[t * dim + idx + 1] = std::sin(angle);
+          for (uint32_t axis = 0; axis < 3; ++axis) {
+            float angle = freqs[j] * (g[axis] * 2.0f - 1.0f);
+            uint32_t idx = 2 + 2 * (j * 3 + axis);
+            cosTbl[t * dim + idx] = std::cos(angle);
+            cosTbl[t * dim + idx + 1] = std::cos(angle);
+            sinTbl[t * dim + idx] = std::sin(angle);
+            sinTbl[t * dim + idx + 1] = std::sin(angle);
+          }
         }
       }
     }
@@ -343,12 +330,17 @@ void LtxModel::computeRopeTables(uint32_t latentFrames, uint32_t latentHeight,
 
 std::vector<float> LtxModel::computeSigmas(uint32_t steps, uint32_t videoSeqLen) const {
   std::vector<float> sigmas(steps + 1);
+  if (steps == 1) {
+    // Single-step case (parity checks): shift/stretch of sigma=1 is the
+    // identity, and the stretch formula would divide by zero.
+    sigmas[0] = 1.0f;
+    sigmas[1] = 0.0f;
+    return sigmas;
+  }
   for (uint32_t i = 0; i < steps; ++i) {
-    sigmas[i] = (steps == 1)
-                    ? 1.0f
-                    : 1.0f + static_cast<float>(i) *
-                                 ((1.0f / static_cast<float>(steps)) - 1.0f) /
-                                 static_cast<float>(steps - 1);
+    sigmas[i] = 1.0f + static_cast<float>(i) *
+                           ((1.0f / static_cast<float>(steps)) - 1.0f) /
+                           static_cast<float>(steps - 1);
   }
   sigmas[steps] = 0.0f;
 
@@ -530,7 +522,8 @@ std::vector<float> LtxModel::generate(const std::vector<float> &promptEmbeds,
                                       float frameRate,
                                       uint32_t steps,
                                       float guidanceScale,
-                                      uint32_t seed) {
+                                      uint32_t seed,
+                                      const std::vector<float> *initLatents) {
   uint32_t S = latentFrames * latentHeight * latentWidth;
   uint32_t C = config_.inChannels;
   bool cfg = guidanceScale > 1.0f && negativeTokens > 0;
@@ -544,12 +537,19 @@ std::vector<float> LtxModel::generate(const std::vector<float> &promptEmbeds,
   // Compute sigma schedule
   auto sigmas = computeSigmas(steps, S);
 
-  // Initialize latents
+  // Initialize latents (from file for reproducible parity checks, else RNG)
   std::vector<float> x(S * C);
-  std::mt19937 rng(seed);
-  std::normal_distribution<float> nd(0.f, 1.f);
-  for (auto &val : x) {
-    val = nd(rng);
+  if (initLatents != nullptr) {
+    if (initLatents->size() != static_cast<size_t>(S) * C) {
+      throw std::runtime_error("initLatents size mismatch");
+    }
+    x = *initLatents;
+  } else {
+    std::mt19937 rng(seed);
+    std::normal_distribution<float> nd(0.f, 1.f);
+    for (auto &val : x) {
+      val = nd(rng);
+    }
   }
 
   // Process text embeddings

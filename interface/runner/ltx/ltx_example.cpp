@@ -34,6 +34,26 @@ static bool readEmbeddingFile(const std::string &path, std::vector<float> &data,
   return f.good();
 }
 
+static bool readLatentFile(const std::string &path, std::vector<float> &data,
+                           uint32_t &lf, uint32_t &lh, uint32_t &lw,
+                           uint32_t &lc) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return false;
+  uint32_t magic;
+  in.read(reinterpret_cast<char*>(&magic), 4);
+  if (magic != 0x4C54584CU) {
+    std::cerr << "Invalid latent file magic (expected LTXL)\n";
+    return false;
+  }
+  in.read(reinterpret_cast<char*>(&lf), 4);
+  in.read(reinterpret_cast<char*>(&lh), 4);
+  in.read(reinterpret_cast<char*>(&lw), 4);
+  in.read(reinterpret_cast<char*>(&lc), 4);
+  data.resize(static_cast<size_t>(lf) * lh * lw * lc);
+  in.read(reinterpret_cast<char*>(data.data()), data.size() * sizeof(float));
+  return in.good();
+}
+
 static void writeLatentFile(const std::string &path, const std::vector<float> &data,
                            uint32_t latentFrames, uint32_t latentHeight,
                            uint32_t latentWidth, uint32_t channels) {
@@ -49,7 +69,7 @@ static void writeLatentFile(const std::string &path, const std::vector<float> &d
 
 int main(int argc, char **argv) {
   std::string modelDir;
-  std::string promptEmb, negativeEmb;
+  std::string promptEmb, negativeEmb, initLatentsPath;
   std::string out = "latents.bin";
   uint32_t frames = 49, height = 512, width = 768, steps = 30, seed = 42;
   float guidance = 3.0f, fps = 25.0f;
@@ -82,6 +102,8 @@ int main(int argc, char **argv) {
       seed = std::atoi(argv[++i]);
     } else if (arg == "--out" && i + 1 < argc) {
       out = argv[++i];
+    } else if (arg == "--init-latents" && i + 1 < argc) {
+      initLatentsPath = argv[++i];
     } else {
       ++i;
     }
@@ -154,8 +176,23 @@ int main(int argc, char **argv) {
               << ", tokens " << nTokensP << " (neg " << nTokensN << "), "
               << steps << " steps, guidance " << guidance << ", seed " << seed << "\n";
 
+    std::vector<float> initData;
+    if (!initLatentsPath.empty()) {
+      uint32_t rf, rh, rw, rc;
+      if (!readLatentFile(initLatentsPath, initData, rf, rh, rw, rc)) {
+        std::cerr << "Failed to read init latents\n";
+        return 1;
+      }
+      if (rf != lf || rh != lh || rw != lw ||
+          rc != model.config().inChannels) {
+        std::cerr << "init latents dims mismatch\n";
+        return 1;
+      }
+    }
+
     auto latents = model.generate(promptData, nTokensP, negData, nTokensN,
-                                  lf, lh, lw, fps, steps, guidance, seed);
+                                  lf, lh, lw, fps, steps, guidance, seed,
+                                  initData.empty() ? nullptr : &initData);
 
     writeLatentFile(out, latents, lf, lh, lw, model.config().inChannels);
     std::cout << "Wrote latents: " << out << " (" << latents.size() * sizeof(float) << " bytes)\n";

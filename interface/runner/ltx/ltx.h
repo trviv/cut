@@ -83,7 +83,8 @@ public:
                               float frameRate,
                               uint32_t steps,
                               float guidanceScale,
-                              uint32_t seed);
+                              uint32_t seed,
+                              const std::vector<float> *initLatents = nullptr);
 
 private:
   // ---- load helpers ----
