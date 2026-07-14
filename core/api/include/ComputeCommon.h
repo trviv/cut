@@ -73,13 +73,14 @@ compileShaderToSpirv(const std::string &source,
 std::vector<uint32_t> compileShaderFileToSpirv(const std::string &filepath);
 
 /**
- * Static device capabilities populated by the backend during initialization.
- * Operators read these directly without going through ComputeInterface.
+ * Per-device capabilities populated by the backend during initialization.
+ * Owned by each ComputeInterface instance and accessed via
+ * ComputeInterface::caps() (or TensorStore::caps() from operator code).
  */
 struct DeviceCaps {
-  static inline bool cooperativeMatrix = false; ///< VK_KHR_cooperative_matrix
-  static inline bool integerDotProduct = false;  ///< VK_KHR_shader_integer_dot_product
-  static inline uint32_t subgroupSize = 32;     ///< Device subgroup/warp size
+  bool cooperativeMatrix = false; ///< VK_KHR_cooperative_matrix
+  bool integerDotProduct = false; ///< VK_KHR_shader_integer_dot_product
+  uint32_t subgroupSize = 32;     ///< Device subgroup/warp size
 };
 
 /**

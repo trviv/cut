@@ -55,6 +55,9 @@ public:
   /// Returns the minimum byte alignment for buffer view offsets.
   size_t offsetAlignment() const { return iface_->bufferOffsetAlignment(); }
 
+  /// Returns the capabilities of the device backing this store's interface.
+  const DeviceCaps &caps() const { return iface_->caps(); }
+
 private:
   ComputeInterface *iface_;
 

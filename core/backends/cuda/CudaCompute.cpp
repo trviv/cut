@@ -60,9 +60,9 @@ CudaCompute::CudaCompute(CudaContextConfig config) {
   CU_CHECK(cuCtxSetCurrent(context_));
 
   // Publish device capabilities consumed by operators. CUDA warps are 32-wide.
-  DeviceCaps::subgroupSize = 32;
-  DeviceCaps::cooperativeMatrix = false;
-  DeviceCaps::integerDotProduct = false;
+  caps_.subgroupSize = 32;
+  caps_.cooperativeMatrix = false;
+  caps_.integerDotProduct = false;
 
   containers_ = std::make_unique<CudaContainers>(context_);
   setCommandBufferContainer(std::make_unique<CudaCommandBufferContainer>(

@@ -10,8 +10,12 @@ static constexpr int kCoopMatTiledVariant = kMatMulVariantCount - 2;
 static constexpr int kCoopMatGemvVariant = kMatMulVariantCount - 1;
 
 // Helper: check if cooperative matrix variant should be auto-selected
-static bool shouldUseCoopMat(
-    DataType dtypeA, DataType dtypeB, uint32_t M, uint32_t K, uint32_t N) {
+static bool shouldUseCoopMat(const DeviceCaps &caps,
+                             DataType dtypeA,
+                             DataType dtypeB,
+                             uint32_t M,
+                             uint32_t K,
+                             uint32_t N) {
   // Requires: fp16 inputs, dimensions aligned to 16, non-trivial size
   if (dtypeA != DataType::Float16 || dtypeB != DataType::Float16)
     return false;
@@ -20,7 +24,7 @@ static bool shouldUseCoopMat(
   if (M < 16 || N < 16 || K < 16)
     return false;
   // Check device capability (set by backend during init)
-  if (!DeviceCaps::cooperativeMatrix)
+  if (!caps.cooperativeMatrix)
     return false;
   return true;
 }
@@ -29,14 +33,17 @@ static bool shouldUseCoopMat(
 // Relaxes the M>=16 requirement — only N and K need to be aligned to 16.
 // A does not need to be Float16: resolveInputDtypes will insert a cast.
 // At M=1 the cast is cheap (single row), and tensor cores are much faster.
-static bool shouldUseCoopMatGemv(DataType dtypeB, uint32_t K, uint32_t N) {
+static bool shouldUseCoopMatGemv(const DeviceCaps &caps,
+                                 DataType dtypeB,
+                                 uint32_t K,
+                                 uint32_t N) {
   if (dtypeB != DataType::Float16)
     return false;
   if (N % 16 != 0 || K % 16 != 0)
     return false;
   if (N < 16 || K < 16)
     return false;
-  if (!DeviceCaps::cooperativeMatrix)
+  if (!caps.cooperativeMatrix)
     return false;
   return true;
 }
@@ -195,7 +202,7 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   N_ = shapeB[1];
   if (spec.has_value()) {
     spec_ = *spec;
-  } else if (shouldUseCoopMat(dtypeA_, dtypeB_, M_, K_, N_)) {
+  } else if (shouldUseCoopMat(store.caps(), dtypeA_, dtypeB_, M_, K_, N_)) {
     // Cooperative matrix variant — use tiled (2×2) for larger matrices
     spec_ = (M_ >= 32 && N_ >= 32) ? kCoopMatTiledVariant : kCoopMatVariant;
   } else {
@@ -278,12 +285,12 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
       // Note: GemvDot (index 5) is NOT auto-selected — GEMV is memory-bound,
       // dotPacked4x8EXT overhead outweighs savings for M=1.
       spec_ = (N_ >= 8) ? 4 : 3; // GemvKPar8 or GemvKPar
-    } else if (DeviceCaps::cooperativeMatrix && dtypeB_ == DataType::Float16 &&
-               K_ % 16 == 0 && N_ % 32 == 0) {
+    } else if (store.caps().cooperativeMatrix &&
+               dtypeB_ == DataType::Float16 && K_ % 16 == 0 && N_ % 32 == 0) {
       // CoopMat: dequant B→fp16 in shared memory, tensor core compute (best)
       spec_ = kMatMulQ8VariantCount - 1; // CoopMatTiled (last Q8 variant)
-    } else if (DeviceCaps::integerDotProduct && dtypeB_ == DataType::Float16 &&
-               N_ >= 64 && M_ >= 32) {
+    } else if (store.caps().integerDotProduct &&
+               dtypeB_ == DataType::Float16 && N_ >= 64 && M_ >= 32) {
       // TiledDot: dotPacked4x8EXT with on-the-fly A quantization
       // Only for full tiles: shader tile is 32×64, so require M>=32, N>=64
       spec_ = 6; // TiledDot

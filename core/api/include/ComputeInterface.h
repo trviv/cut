@@ -145,6 +145,11 @@ public:
   virtual size_t bufferOffsetAlignment() const { return 256; }
 
   /**
+   * Returns the capabilities of the device backing this interface.
+   */
+  const DeviceCaps &caps() const { return caps_; }
+
+  /**
    * Release internal caches and staging memory to reduce memory footprint.
    * Call after bulk loading (e.g. model weights) is complete.
    */
@@ -243,6 +248,9 @@ protected:
    */
   void setCommandBufferContainer(
       std::unique_ptr<CommandBufferContainer> commandBufferContainer);
+
+  ///< Device capabilities populated by derived backends during construction.
+  DeviceCaps caps_;
 
 private:
   ///< Container for command buffers.

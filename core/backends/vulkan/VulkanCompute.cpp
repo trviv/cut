@@ -65,7 +65,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
         if (strcmp(ext, "VK_KHR_cooperative_matrix") == 0) {
           hasCoopMatExt = true; // Don't add yet — verify feature support first
         } else if (strcmp(ext, "VK_KHR_shader_integer_dot_product") == 0) {
-          DeviceCaps::integerDotProduct = true;
+          caps_.integerDotProduct = true;
           deviceExtensions.push_back(ext);
         } else {
           deviceExtensions.push_back(ext);
@@ -90,7 +90,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 
     if (coopMatQuery.cooperativeMatrix) {
       coopMatFeatures.cooperativeMatrix = VK_TRUE;
-      DeviceCaps::cooperativeMatrix = true;
+      caps_.cooperativeMatrix = true;
       deviceExtensions.push_back("VK_KHR_cooperative_matrix");
       // Chain into feature request
       coopMatFeatures.pNext = featuresFloat16Int8.pNext;
@@ -113,12 +113,6 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties_);
   vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties_);
 
-  logMsg("Vulkan device: %s (coopMat: %s, intDot: %s, subgroupSize: %u)",
-         deviceProperties_.deviceName,
-         DeviceCaps::cooperativeMatrix ? "yes" : "no",
-         DeviceCaps::integerDotProduct ? "yes" : "no",
-         DeviceCaps::subgroupSize);
-
   // Query subgroup size for cooperative matrix dispatch sizing
   VkPhysicalDeviceSubgroupProperties subgroupProps = {};
   subgroupProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
@@ -126,7 +120,13 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
   props2.pNext = &subgroupProps;
   vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
-  DeviceCaps::subgroupSize = subgroupProps.subgroupSize;
+  caps_.subgroupSize = subgroupProps.subgroupSize;
+
+  logMsg("Vulkan device: %s (coopMat: %s, intDot: %s, subgroupSize: %u)",
+         deviceProperties_.deviceName,
+         caps_.cooperativeMatrix ? "yes" : "no",
+         caps_.integerDotProduct ? "yes" : "no",
+         caps_.subgroupSize);
 
 #if CUT_USE_VMA
   VmaAllocatorCreateInfo allocatorInfo = {};
