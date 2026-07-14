@@ -15,15 +15,21 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+#include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
+#include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using json = nlohmann::json;
@@ -43,6 +49,8 @@ struct ServerConfig {
   int defaultMaxTokens = 128;
   float defaultRepeatPenalty = 1.05f;
   bool noChat = false;
+  std::string devices;   // "vulkan:1,vulkan:2" etc.; "" = one default device
+  uint32_t ctxSize = 0;  // 0 = model default
 };
 
 static ServerConfig parseArgs(int argc, char *argv[]) {
@@ -55,7 +63,10 @@ static ServerConfig parseArgs(int argc, char *argv[]) {
               << "  --host ADDR        Bind address (default: 0.0.0.0)\n"
               << "  --max-tokens N     Default max tokens (default: 128)\n"
               << "  --repeat-penalty F Default repeat penalty (default: 1.05)\n"
-              << "  --no-chat          Disable ChatML wrapping\n";
+              << "  --no-chat          Disable ChatML wrapping\n"
+              << "  --devices STR      Device list, e.g. \"vulkan:1,vulkan:2\""
+                 " or \"cuda:0,vulkan:2\"\n"
+              << "  --ctx-size N       Context size (default: model default)\n";
     std::exit(1);
   }
 
@@ -73,11 +84,179 @@ static ServerConfig parseArgs(int argc, char *argv[]) {
       cfg.defaultRepeatPenalty = static_cast<float>(std::atof(argv[++i]));
     } else if (arg == "--no-chat") {
       cfg.noChat = true;
+    } else if (arg == "--devices" && i + 1 < argc) {
+      cfg.devices = argv[++i];
+    } else if (arg == "--ctx-size" && i + 1 < argc) {
+      cfg.ctxSize = static_cast<uint32_t>(std::atoi(argv[++i]));
+    }
+  }
+
+  // Default device list from the environment when the flag is absent.
+  if (cfg.devices.empty()) {
+    if (const char *envDevices = std::getenv("CUT_DEVICES")) {
+      cfg.devices = envDevices;
     }
   }
 
   return cfg;
 }
+
+/// Parses "backend[:index],..." into device descriptors ("" = one default
+/// Vulkan device). backend is "vulkan" or "cuda"; index -1 = backend default.
+static std::vector<cut::DeviceDesc> parseDeviceList(const std::string &s) {
+  std::vector<cut::DeviceDesc> descs;
+  if (s.empty()) {
+    descs.push_back({cut::BackendType::Vulkan, -1});
+    return descs;
+  }
+  size_t start = 0;
+  while (start < s.size()) {
+    size_t comma = s.find(',', start);
+    if (comma == std::string::npos) {
+      comma = s.size();
+    }
+    std::string entry = s.substr(start, comma - start);
+    start = comma + 1;
+
+    cut::DeviceDesc desc;
+    size_t colon = entry.find(':');
+    std::string backend =
+        entry.substr(0, colon == std::string::npos ? entry.size() : colon);
+    if (colon != std::string::npos) {
+      desc.deviceIndex = std::atoi(entry.substr(colon + 1).c_str());
+    }
+    desc.backend = (backend == "cuda") ? cut::BackendType::CUDA
+                                       : cut::BackendType::Vulkan;
+    descs.push_back(desc);
+  }
+  return descs;
+}
+
+/// Automatic model placement: if the model does not fit in device 0's memory
+/// budget, split layers across the initialized devices proportionally to
+/// their memory, spilling to host RAM when even the combined budget is too
+/// small. Sets CUT_DEVICE_SPLIT / CUT_HOST_LAYERS (read by model.load());
+/// explicit user settings are respected.
+static void autoPlaceModel(cut::Runtime &runtime,
+                           const std::string &modelPath) {
+  if (runtime.deviceCount() <= 1) {
+    return;
+  }
+  if (std::getenv("CUT_DEVICE_SPLIT") || std::getenv("CUT_HOST_LAYERS")) {
+    return; // explicit placement wins
+  }
+
+  const uint64_t modelBytes = std::filesystem::file_size(modelPath);
+  if (modelBytes == 0) {
+    return;
+  }
+
+  std::vector<uint64_t> budgets;
+  uint64_t totalBudget = 0;
+  for (size_t d = 0; d < runtime.deviceCount(); ++d) {
+    const uint64_t budget = (runtime.deviceTotalMemoryBytes(d) * 85) / 100;
+    budgets.push_back(budget);
+    totalBudget += budget;
+  }
+
+  if (modelBytes <= budgets[0]) {
+    std::cout << "Auto-placement: model fits on device 0 ("
+              << modelBytes / (1024 * 1024) << " MB)\n";
+    return;
+  }
+
+  gguf::GGUFReader reader(modelPath);
+  const auto &meta = reader.metadata();
+  const std::string arch = meta.architecture();
+  const uint32_t nLayers = meta.get_as<uint32_t>(arch + ".block_count", 0);
+  if (nLayers == 0 || totalBudget == 0) {
+    return;
+  }
+
+  // Distribute layers proportionally to each device's budget.
+  std::vector<uint32_t> counts(runtime.deviceCount(), 0);
+  uint32_t assigned = 0;
+  for (size_t d = 0; d < counts.size(); ++d) {
+    counts[d] = std::max<uint32_t>(
+        1, static_cast<uint32_t>(std::round(
+               static_cast<double>(nLayers) * budgets[d] / totalBudget)));
+    assigned += counts[d];
+  }
+  // Fix rounding drift on the last device (keep every count >= 1).
+  while (assigned > nLayers && counts.back() > 1) {
+    --counts.back();
+    --assigned;
+  }
+  if (assigned < nLayers) {
+    counts.back() += nLayers - assigned;
+  }
+
+  std::string splitStr;
+  for (size_t d = 0; d < counts.size(); ++d) {
+    if (d > 0) {
+      splitStr += ",";
+    }
+    splitStr += std::to_string(counts[d]);
+  }
+  setenv("CUT_DEVICE_SPLIT", splitStr.c_str(), 1);
+  std::cout << "Auto-placement: CUT_DEVICE_SPLIT=" << splitStr << " ("
+            << modelBytes / (1024 * 1024) << " MB across "
+            << runtime.deviceCount() << " devices)\n";
+
+  if (modelBytes > totalBudget) {
+    const double overflow =
+        static_cast<double>(modelBytes - totalBudget) / modelBytes;
+    uint32_t hostLayers = std::min(
+        nLayers - 1,
+        static_cast<uint32_t>(std::ceil(overflow * nLayers)));
+    const std::string hostStr = std::to_string(nLayers - hostLayers) + "-" +
+                                std::to_string(nLayers - 1);
+    setenv("CUT_HOST_LAYERS", hostStr.c_str(), 1);
+    std::cout << "Auto-placement: model exceeds combined device memory — "
+              << hostLayers << " layers host-resident (CUT_HOST_LAYERS="
+              << hostStr << ")\n";
+  }
+}
+
+/// Model id for the OpenAI API: file name without the .gguf extension.
+static std::string modelIdFromPath(const std::string &p) {
+  return std::filesystem::path(p).stem().string();
+}
+
+/// Truncates a string so it does not end in the middle of a UTF-8 sequence.
+static std::string trimIncompleteUtf8(const std::string &s) {
+  size_t end = s.size();
+  // Find the last lead byte within the final 4 bytes.
+  size_t i = end;
+  while (i > 0 && end - i < 4) {
+    --i;
+    const unsigned char c = static_cast<unsigned char>(s[i]);
+    if ((c & 0x80) == 0) {
+      return s.substr(0, end); // ASCII — everything complete
+    }
+    if ((c & 0xC0) == 0xC0) {
+      // Lead byte: expected sequence length from the high bits.
+      size_t len = 2;
+      if ((c & 0xF0) == 0xE0) {
+        len = 3;
+      } else if ((c & 0xF8) == 0xF0) {
+        len = 4;
+      }
+      return s.substr(0, (i + len <= end) ? end : i);
+    }
+    // Continuation byte — keep scanning backwards.
+  }
+  return s.substr(0, end);
+}
+
+/// Parameters for one OpenAI-style generation request. Sampling is greedy
+/// argmax; temperature/top_p are accepted but ignored.
+struct GenParams {
+  std::vector<int> promptTokens;
+  int maxTokens = 128;
+  std::vector<std::string> stopStrings;
+  bool stream = false;
+};
 
 static json errorJson(const std::string &msg) {
   return json{{"error", msg}};
@@ -98,14 +277,17 @@ static void log(const std::string &msg) {
 int main(int argc, char *argv[]) {
   auto cfg = parseArgs(argc, argv);
 
-  // Initialize runtime and load model
+  // Initialize runtime (one or more devices) and place the model.
   std::cout << "Initializing runtime...\n";
   cut::Runtime runtime;
-  runtime.init(cut::BackendType::Vulkan);
+  runtime.init(parseDeviceList(cfg.devices));
+  std::cout << "Devices: " << runtime.deviceCount() << "\n";
+
+  autoPlaceModel(runtime, cfg.modelPath);
 
   std::cout << "Loading model: " << cfg.modelPath << "\n";
   gguf::LlamaModel model;
-  model.load(cfg.modelPath, runtime);
+  model.load(cfg.modelPath, runtime, cfg.ctxSize);
 
   const auto &modelCfg = model.config();
   std::cout << "Model loaded: dim=" << modelCfg.dim
@@ -452,6 +634,360 @@ int main(int argc, char *argv[]) {
               "application/json");
         }
       });
+
+  // =========================================================================
+  // OpenAI-compatible API (works with Cline, OpenCode, Codex CLI, etc.)
+  // Generation is greedy argmax; temperature/top_p are accepted but ignored.
+  // =========================================================================
+
+  const std::string modelId = modelIdFromPath(cfg.modelPath);
+  std::atomic<uint64_t> requestCounter{0};
+
+  // Core greedy generation loop. Caller must hold modelMutex. Calls
+  // onDelta(textDelta) for each newly visible UTF-8-complete chunk.
+  // Returns {finishReason, completionTokens, fullText}.
+  auto runGeneration =
+      [&model, imEndId](const GenParams &params,
+                        const std::function<void(const std::string &)>
+                            &onDelta) -> std::tuple<std::string, size_t,
+                                                    std::string> {
+    model.resetCache();
+    std::vector<int> gen;
+    std::string full;
+    std::string finishReason = "length";
+    size_t emitted = 0;
+
+    // Suppress EOS/stop tokens for the first few tokens (counteracts FP32
+    // drift elevating the EOS logit on longer prompts — same heuristic as
+    // LlamaModel::generate()).
+    const int minNewTokens =
+        std::max(1, static_cast<int>(params.promptTokens.size()) / 4);
+    bool suppressing = true;
+    model.setStopTokensSuppressed(true);
+
+    int next = model.prefillBatched(params.promptTokens);
+    size_t pos = params.promptTokens.size();
+
+    while (true) {
+      if (next == model.eosTokenId() || (imEndId >= 0 && next == imEndId)) {
+        finishReason = "stop";
+        break;
+      }
+      gen.push_back(next);
+      if (suppressing && static_cast<int>(gen.size()) >= minNewTokens) {
+        model.setStopTokensSuppressed(false);
+        suppressing = false;
+      }
+      full = model.detokenize(gen);
+
+      bool hitStopString = false;
+      for (const auto &s : params.stopStrings) {
+        const size_t at = full.find(s);
+        if (at != std::string::npos) {
+          full.resize(at);
+          hitStopString = true;
+          break;
+        }
+      }
+      if (hitStopString) {
+        finishReason = "stop";
+        break;
+      }
+
+      const std::string visible = trimIncompleteUtf8(full);
+      if (visible.size() > emitted && onDelta) {
+        onDelta(visible.substr(emitted));
+        emitted = visible.size();
+      }
+
+      if (static_cast<int>(gen.size()) >= params.maxTokens) {
+        break; // finishReason stays "length"
+      }
+      next = model.decodeStep(next, static_cast<int>(pos));
+      ++pos;
+    }
+    // Flush any bytes held back for UTF-8 completeness.
+    if (onDelta && full.size() > emitted) {
+      onDelta(full.substr(emitted));
+    }
+    if (suppressing) {
+      model.setStopTokensSuppressed(false); // leave factors clean
+    }
+    return {finishReason, gen.size(), full};
+  };
+
+  // Parses shared OpenAI params (max_tokens, stop, stream) and clamps to the
+  // context window. Returns false (and sets the error response) on failure.
+  auto fillGenParams = [&model, &cfg](const json &body,
+                                      std::vector<int> promptTokens,
+                                      GenParams &params,
+                                      httplib::Response &res) -> bool {
+    params.promptTokens = std::move(promptTokens);
+    params.maxTokens =
+        body.value("max_tokens",
+                   body.value("max_completion_tokens", cfg.defaultMaxTokens));
+    params.stream = body.value("stream", false);
+    if (body.contains("stop")) {
+      if (body["stop"].is_string()) {
+        params.stopStrings.push_back(body["stop"].get<std::string>());
+      } else if (body["stop"].is_array()) {
+        for (const auto &s : body["stop"]) {
+          if (s.is_string()) {
+            params.stopStrings.push_back(s.get<std::string>());
+          }
+        }
+      }
+    }
+    const size_t maxSeqLen = model.config().max_seq_len;
+    if (params.promptTokens.size() + 1 >= maxSeqLen) {
+      res.status = 400;
+      res.set_content(errorJson("Prompt too long for context window").dump(),
+                      "application/json");
+      return false;
+    }
+    const int room =
+        static_cast<int>(maxSeqLen - params.promptTokens.size() - 1);
+    params.maxTokens = std::min(params.maxTokens, room);
+    return true;
+  };
+
+  // Shared streaming responder: runs generation inside the chunked-content
+  // provider (which httplib invokes after this handler returns), holding the
+  // model mutex for the whole stream via state.
+  struct StreamState {
+    std::unique_lock<std::mutex> lock;
+    GenParams params;
+    std::string id;
+    time_t created = 0;
+    bool chat = false;
+  };
+  auto streamResponse = [&runGeneration, &modelId](
+                            httplib::Response &res,
+                            std::shared_ptr<StreamState> state) {
+    res.set_header("Cache-Control", "no-cache");
+    res.set_chunked_content_provider(
+        "text/event-stream",
+        [state, &runGeneration, &modelId](size_t, httplib::DataSink &sink)
+            -> bool {
+          auto writeChunk = [&](const json &deltaOrText,
+                                const json &finishReason) {
+            json choice = {{"index", 0}, {"finish_reason", finishReason}};
+            if (state->chat) {
+              choice["delta"] = deltaOrText;
+            } else {
+              choice["text"] =
+                  deltaOrText.is_string() ? deltaOrText : json("");
+            }
+            json chunk = {
+                {"id", state->id},
+                {"object",
+                 state->chat ? "chat.completion.chunk" : "text_completion"},
+                {"created", static_cast<int64_t>(state->created)},
+                {"model", modelId},
+                {"choices", json::array({choice})}};
+            const std::string line = "data: " + chunk.dump() + "\n\n";
+            sink.write(line.data(), line.size());
+          };
+          try {
+            if (state->chat) {
+              writeChunk(json{{"role", "assistant"}, {"content", ""}},
+                         nullptr);
+            }
+            auto [finishReason, nTokens, text] = runGeneration(
+                state->params, [&](const std::string &delta) {
+                  writeChunk(state->chat ? json{{"content", delta}}
+                                         : json(delta),
+                             nullptr);
+                });
+            (void)nTokens;
+            (void)text;
+            writeChunk(state->chat ? json(json::object()) : json(""),
+                       finishReason);
+          } catch (const std::exception &e) {
+            log(std::string("  Stream error: ") + e.what());
+          }
+          static const std::string doneLine = "data: [DONE]\n\n";
+          sink.write(doneLine.data(), doneLine.size());
+          sink.done();
+          return true;
+        });
+  };
+
+  // --- GET /v1/models ---
+  server.Get("/v1/models",
+             [&](const httplib::Request &, httplib::Response &res) {
+               log("GET /v1/models");
+               json resp = {{"object", "list"},
+                            {"data", json::array({json{
+                                         {"id", modelId},
+                                         {"object", "model"},
+                                         {"created",
+                                          static_cast<int64_t>(
+                                              std::time(nullptr))},
+                                         {"owned_by", "cut"}}})}};
+               res.set_content(resp.dump(), "application/json");
+             });
+
+  // --- POST /v1/chat/completions ---
+  server.Post("/v1/chat/completions", [&](const httplib::Request &req,
+                                          httplib::Response &res) {
+    try {
+      auto body = json::parse(req.body);
+      if (!body.contains("messages") || !body["messages"].is_array() ||
+          body["messages"].empty()) {
+        res.status = 400;
+        res.set_content(errorJson("Missing 'messages' array").dump(),
+                        "application/json");
+        return;
+      }
+
+      // Build the prompt from the message list (ChatML when available).
+      std::string prompt;
+      for (const auto &msg : body["messages"]) {
+        const std::string role = msg.value("role", "user");
+        std::string content;
+        if (msg.contains("content") && msg["content"].is_string()) {
+          content = msg["content"].get<std::string>();
+        } else if (msg.contains("content") && msg["content"].is_array()) {
+          for (const auto &part : msg["content"]) {
+            if (part.value("type", "") == "text" && part.contains("text")) {
+              content += part["text"].get<std::string>();
+            }
+          }
+        }
+        if (chatAvailable) {
+          prompt += "<|im_start|>" + role + "\n" + content + "<|im_end|>\n";
+        } else {
+          prompt += role + ": " + content + "\n";
+        }
+      }
+      prompt += chatAvailable ? "<|im_start|>assistant\n" : "assistant: ";
+
+      GenParams params;
+      if (!fillGenParams(body, model.tokenize(prompt), params, res)) {
+        return;
+      }
+
+      const time_t created = std::time(nullptr);
+      const std::string requestId =
+          "chatcmpl-" + std::to_string(created) + "-" +
+          std::to_string(requestCounter.fetch_add(1));
+      log("POST /v1/chat/completions | prompt_tokens=" +
+          std::to_string(params.promptTokens.size()) +
+          " max_tokens=" + std::to_string(params.maxTokens) +
+          (params.stream ? " stream" : ""));
+
+      if (params.stream) {
+        auto state = std::make_shared<StreamState>();
+        state->lock = std::unique_lock<std::mutex>(modelMutex);
+        state->params = std::move(params);
+        state->id = requestId;
+        state->created = created;
+        state->chat = true;
+        streamResponse(res, std::move(state));
+        return;
+      }
+
+      std::lock_guard<std::mutex> lock(modelMutex);
+      auto [finishReason, nTokens, text] = runGeneration(params, nullptr);
+      json resp = {
+          {"id", requestId},
+          {"object", "chat.completion"},
+          {"created", static_cast<int64_t>(created)},
+          {"model", modelId},
+          {"choices",
+           json::array({json{{"index", 0},
+                             {"message", {{"role", "assistant"},
+                                          {"content", text}}},
+                             {"finish_reason", finishReason}}})},
+          {"usage",
+           {{"prompt_tokens", params.promptTokens.size()},
+            {"completion_tokens", nTokens},
+            {"total_tokens", params.promptTokens.size() + nTokens}}}};
+      res.set_content(resp.dump(), "application/json");
+
+    } catch (const json::exception &e) {
+      res.status = 400;
+      res.set_content(
+          errorJson(std::string("Invalid JSON: ") + e.what()).dump(),
+          "application/json");
+    } catch (const std::exception &e) {
+      log(std::string("  Error: ") + e.what());
+      res.status = 500;
+      res.set_content(errorJson(e.what()).dump(), "application/json");
+    }
+  });
+
+  // --- POST /v1/completions ---
+  server.Post("/v1/completions", [&](const httplib::Request &req,
+                                     httplib::Response &res) {
+    try {
+      auto body = json::parse(req.body);
+      std::string prompt;
+      if (body.contains("prompt") && body["prompt"].is_string()) {
+        prompt = body["prompt"].get<std::string>();
+      } else if (body.contains("prompt") && body["prompt"].is_array() &&
+                 !body["prompt"].empty() && body["prompt"][0].is_string()) {
+        prompt = body["prompt"][0].get<std::string>();
+      } else {
+        res.status = 400;
+        res.set_content(errorJson("Missing 'prompt'").dump(),
+                        "application/json");
+        return;
+      }
+
+      GenParams params;
+      if (!fillGenParams(body, model.tokenize(prompt), params, res)) {
+        return;
+      }
+
+      const time_t created = std::time(nullptr);
+      const std::string requestId =
+          "cmpl-" + std::to_string(created) + "-" +
+          std::to_string(requestCounter.fetch_add(1));
+      log("POST /v1/completions | prompt_tokens=" +
+          std::to_string(params.promptTokens.size()) +
+          " max_tokens=" + std::to_string(params.maxTokens) +
+          (params.stream ? " stream" : ""));
+
+      if (params.stream) {
+        auto state = std::make_shared<StreamState>();
+        state->lock = std::unique_lock<std::mutex>(modelMutex);
+        state->params = std::move(params);
+        state->id = requestId;
+        state->created = created;
+        state->chat = false;
+        streamResponse(res, std::move(state));
+        return;
+      }
+
+      std::lock_guard<std::mutex> lock(modelMutex);
+      auto [finishReason, nTokens, text] = runGeneration(params, nullptr);
+      json resp = {
+          {"id", requestId},
+          {"object", "text_completion"},
+          {"created", static_cast<int64_t>(created)},
+          {"model", modelId},
+          {"choices", json::array({json{{"index", 0},
+                                        {"text", text},
+                                        {"finish_reason", finishReason}}})},
+          {"usage",
+           {{"prompt_tokens", params.promptTokens.size()},
+            {"completion_tokens", nTokens},
+            {"total_tokens", params.promptTokens.size() + nTokens}}}};
+      res.set_content(resp.dump(), "application/json");
+
+    } catch (const json::exception &e) {
+      res.status = 400;
+      res.set_content(
+          errorJson(std::string("Invalid JSON: ") + e.what()).dump(),
+          "application/json");
+    } catch (const std::exception &e) {
+      log(std::string("  Error: ") + e.what());
+      res.status = 500;
+      res.set_content(errorJson(e.what()).dump(), "application/json");
+    }
+  });
 
   // Start server
   double gpuMb = runtime.activeBufferMemoryBytes() / (1024.0 * 1024.0);

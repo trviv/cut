@@ -831,6 +831,17 @@ size_t VulkanCompute::activeBufferMemoryBytes() const {
   return containers_->bufferContainer.activeMemoryBytes();
 }
 
+size_t VulkanCompute::deviceTotalMemoryBytes() const {
+  size_t total = 0;
+  for (uint32_t i = 0; i < memoryProperties_.memoryHeapCount; ++i) {
+    if (memoryProperties_.memoryHeaps[i].flags &
+        VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+      total += memoryProperties_.memoryHeaps[i].size;
+    }
+  }
+  return total;
+}
+
 size_t VulkanCompute::bufferOffsetAlignment() const {
   return std::max(static_cast<VkDeviceSize>(16),
                   deviceProperties_.limits.minStorageBufferOffsetAlignment);

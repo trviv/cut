@@ -75,6 +75,9 @@ public:
   /// Returns total GPU memory actively allocated for buffers (excludes views).
   size_t activeBufferMemoryBytes() const override;
 
+  /// Returns total device-local memory (sum of DEVICE_LOCAL heaps) in bytes.
+  size_t deviceTotalMemoryBytes() const override;
+
   /// Returns the minimum byte alignment for buffer view offsets.
   size_t bufferOffsetAlignment() const override;
 

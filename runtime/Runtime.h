@@ -234,6 +234,12 @@ public:
   size_t activeBufferMemoryBytes(size_t deviceId = 0) const;
 
   /**
+   * Returns the total device-local memory of a device in bytes (0 if
+   * unknown or the device id is invalid).
+   */
+  size_t deviceTotalMemoryBytes(size_t deviceId = 0) const;
+
+  /**
    * Release internal caches and staging memory on all devices to reduce
    * memory footprint. Call after bulk loading (e.g. model weights).
    */

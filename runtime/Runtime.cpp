@@ -175,6 +175,13 @@ size_t Runtime::activeBufferMemoryBytes(size_t deviceId) const {
   return devices_[deviceId].interface->activeBufferMemoryBytes();
 }
 
+size_t Runtime::deviceTotalMemoryBytes(size_t deviceId) const {
+  if (deviceId >= devices_.size()) {
+    return 0;
+  }
+  return devices_[deviceId].interface->deviceTotalMemoryBytes();
+}
+
 void Runtime::releaseLoadingResources() {
   for (auto &ctx : devices_) {
     ctx.interface->releaseLoadingResources();

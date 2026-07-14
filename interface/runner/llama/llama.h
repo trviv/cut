@@ -140,6 +140,15 @@ public:
   /// @return ComputeHandle to argmax result buffer.
   cut::ComputeHandle forward(int token_id, int pos);
 
+  /// Run one greedy decode step: forward pass at @p pos, returning the
+  /// argmax token id. Streaming-friendly alternative to generate().
+  int decodeStep(int token_id, int pos);
+
+  /// Suppress (or restore) EOS and registered stop tokens in the logits.
+  /// Mirrors generate()'s early-token suppression for external decode loops
+  /// (e.g. the server): call with true before the first tokens, false after.
+  void setStopTokensSuppressed(bool suppressed);
+
   /// Prefill: process all prompt tokens in one command buffer submission.
   /// Populates KV cache for all positions. Returns argmax of last token.
   int prefill(const std::vector<int> &tokens);

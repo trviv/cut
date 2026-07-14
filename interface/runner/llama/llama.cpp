@@ -1241,6 +1241,31 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   return argmaxResultBuffer_;
 }
 
+int LlamaModel::decodeStep(int token_id, int pos) {
+  auto argmaxBuf = forward(token_id, pos);
+  float best = 0.0f;
+  runtime_->copyFromTensor(argmaxBuf, &best, sizeof(float), 0, 0, lastDevice_);
+  return static_cast<int>(best);
+}
+
+void LlamaModel::setStopTokensSuppressed(bool suppressed) {
+  std::vector<float> factors(config_.vocab_size, 1.0f);
+  if (suppressed) {
+    if (eos_token_id_ >= 0 &&
+        static_cast<uint32_t>(eos_token_id_) < config_.vocab_size) {
+      factors[eos_token_id_] = 1e9f;
+    }
+    for (int st : stopTokenIds_) {
+      if (st >= 0 && static_cast<uint32_t>(st) < config_.vocab_size) {
+        factors[st] = 1e9f;
+      }
+    }
+  }
+  runtime_->copyToTensor(penaltyFactorsBuffer_, factors.data(),
+                         config_.vocab_size * sizeof(float), 0, 0,
+                         lastDevice_);
+}
+
 void LlamaModel::forwardPrefill(int token_id, int pos) {
   uint32_t upos = static_cast<uint32_t>(pos);
   uint32_t params[2] = {upos, upos + 1};

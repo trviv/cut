@@ -154,6 +154,12 @@ public:
   const DeviceCaps &caps() const { return caps_; }
 
   /**
+   * Returns the total device-local memory of the backing device in bytes.
+   * Used for automatic model placement across devices. 0 if unknown.
+   */
+  virtual size_t deviceTotalMemoryBytes() const { return 0; }
+
+  /**
    * Release internal caches and staging memory to reduce memory footprint.
    * Call after bulk loading (e.g. model weights) is complete.
    */

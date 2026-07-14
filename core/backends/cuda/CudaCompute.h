@@ -70,6 +70,7 @@ public:
 
   size_t bufferCount() const override;
   size_t activeBufferMemoryBytes() const override;
+  size_t deviceTotalMemoryBytes() const override;
   size_t bufferOffsetAlignment() const override;
   void releaseLoadingResources() override;
 

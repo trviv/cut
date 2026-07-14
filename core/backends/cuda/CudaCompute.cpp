@@ -310,6 +310,12 @@ size_t CudaCompute::activeBufferMemoryBytes() const {
   return containers_->bufferContainer.activeMemoryBytes();
 }
 
+size_t CudaCompute::deviceTotalMemoryBytes() const {
+  size_t total = 0;
+  CU_CHECK(cuDeviceTotalMem(&total, device_));
+  return total;
+}
+
 size_t CudaCompute::bufferOffsetAlignment() const {
   return kViewAlignment;
 }
