@@ -19,6 +19,9 @@ struct PhysicalDeviceAndQueueIndex {
 
 /// Configuration options for initializing a Vulkan compute context.
 struct VulkanContextConfig {
+  /// Preferred physical-device index. May be overridden by the
+  /// CUT_VULKAN_DEVICE env var. -1 means "auto-select by preferredType".
+  int preferredDevice = -1;
   VkPhysicalDeviceType preferredType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
   uint32_t maxCommandBuffers = 16;
 };

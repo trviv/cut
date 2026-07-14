@@ -85,10 +85,11 @@ public:
                 VulkanContextConfig config = {});
 
 private:
-  /// Selects a physical device (GPU) that matches the preferred type and has a
-  /// compute queue.
-  PhysicalDeviceAndQueueIndex pickPhysicalDevice(VkInstance instance,
-                                                 VkPhysicalDeviceType type);
+  /// Selects a physical device (GPU) honoring config.preferredDevice (and the
+  /// CUT_VULKAN_DEVICE env override), else the first compute-capable device
+  /// preferring config.preferredType.
+  PhysicalDeviceAndQueueIndex
+  pickPhysicalDevice(VkInstance instance, const VulkanContextConfig &config);
   /// Releases all Vulkan resources held by this instance.
   void cleanup();
 

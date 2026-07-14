@@ -15,7 +15,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
                              VulkanContextConfig config)
     : instance_(instance) {
   const PhysicalDeviceAndQueueIndex physicalDeviceAndQueueIdx =
-      pickPhysicalDevice(*instance_, config.preferredType);
+      pickPhysicalDevice(*instance_, config);
 
   const auto physicalDevice = physicalDeviceAndQueueIdx.physicalDevice;
   computeQueueFamilyIndex_ = physicalDeviceAndQueueIdx.queueIndex;
@@ -161,7 +161,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
 
 PhysicalDeviceAndQueueIndex
 VulkanCompute::pickPhysicalDevice(VkInstance instance,
-                                  VkPhysicalDeviceType type) {
+                                  const VulkanContextConfig &config) {
   uint32_t physicalDeviceCount = 0;
   vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr);
 
@@ -173,10 +173,9 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
   vkEnumeratePhysicalDevices(instance, &physicalDeviceCount,
                              instPhysDevices.data());
 
-  // Check for explicit device index override via CUT_VULKAN_DEVICE env var.
-  const char *deviceEnv = std::getenv("CUT_VULKAN_DEVICE");
-  int requestedIndex = -1;
-  if (deviceEnv) {
+  // Explicit device index: config value, overridden by CUT_VULKAN_DEVICE.
+  int requestedIndex = config.preferredDevice;
+  if (const char *deviceEnv = std::getenv("CUT_VULKAN_DEVICE")) {
     requestedIndex = std::atoi(deviceEnv);
   }
 
@@ -201,7 +200,7 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
       if ((queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT) == 0)
         continue;
 
-      // Explicit device index requested via CUT_VULKAN_DEVICE —
+      // Explicit device index requested (config or CUT_VULKAN_DEVICE) —
       // skip default selection and only match the requested index.
       if (requestedIndex >= 0) {
         if (static_cast<int>(devIdx) == requestedIndex)
@@ -213,7 +212,7 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
       if (physicalDevice == VK_NULL_HANDLE) {
         physicalDevice = device;
         computeQueueFamilyIndex = i;
-      } else if (properties.deviceType == type) {
+      } else if (properties.deviceType == config.preferredType) {
         return {device, i};
       }
       break;
