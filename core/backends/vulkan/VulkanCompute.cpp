@@ -187,6 +187,17 @@ VulkanCompute::pickPhysicalDevice(VkInstance instance,
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(device, &properties);
 
+    // Skip CPU/software implementations (e.g. llvmpipe) — CUT targets real
+    // GPUs only. Explicitly requesting one is an error.
+    if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) {
+      if (requestedIndex >= 0 && static_cast<int>(devIdx) == requestedIndex) {
+        logErr("Requested Vulkan device %u is a CPU/software implementation "
+               "(%s); CPU devices are not supported",
+               devIdx, properties.deviceName);
+      }
+      continue;
+    }
+
     // Find compute queue family
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
