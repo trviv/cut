@@ -368,7 +368,10 @@ void LlamaModel::load(const std::string &gguf_path,
     throw std::runtime_error("Failed to read model config from GGUF metadata");
   }
 
-  config_.head_dim = config_.dim / config_.n_heads;
+  // Head size: prefer explicit attention.key_length (e.g. Mistral-Small has
+  // head_dim 128 while dim/n_heads is 160); fall back to dim/n_heads.
+  config_.head_dim = meta.get_as<uint32_t>(prefix + "attention.key_length",
+                                           config_.dim / config_.n_heads);
   config_.kv_dim = config_.head_dim * config_.n_kv_heads;
   config_.n_rep = config_.n_heads / config_.n_kv_heads;
 
@@ -571,6 +574,13 @@ void LlamaModel::load(const std::string &gguf_path,
     // the GPU-side transposes are done.
     if (layerHostResident_[i]) {
       demoteLayerWeights(layer, dev);
+    }
+
+    // Flush periodically during bulk loading: staging buffers for pending
+    // uploads stay alive until their commands execute, so batching the
+    // whole load would roughly double peak memory on large models.
+    if ((i + 1) % 4 == 0) {
+      runtime_->flush(dev);
     }
   }
   {
@@ -867,13 +877,17 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer,
                                          size_t deviceId) {
   cut::graph::GraphBuilder builder(*runtime_, deviceId);
   int32_t dim = static_cast<int32_t>(config_.dim);
+  int32_t qdim = static_cast<int32_t>(config_.n_heads * config_.head_dim);
 
   // Dynamic inputs — each must use a DIFFERENT placeholder tensor so that
-  // Operations can distinguish them during graph construction.
-  auto vAttnOut = builder.input(layer.attn_norm, /*isConstant=*/false);
+  // Operations can distinguish them during graph construction. The attention
+  // output is [n_heads*head_dim], which differs from dim for models with an
+  // explicit head size — use the per-device attn buffer as its placeholder.
+  auto vAttnOut =
+      builder.input(attnOutBuffers_[deviceId], /*isConstant=*/false);
   auto vHidden = builder.input(layer.ffn_norm, /*isConstant=*/false);
 
-  auto attn_2d = builder.ops().reshape(vAttnOut, {1, dim});
+  auto attn_2d = builder.ops().reshape(vAttnOut, {1, qdim});
   // Reshape hidden to [1, dim] so the add operates in the same shape as the
   // matmul output — this allows MatMulBinaryFusionPass to fuse matmul+add
   // into a single dispatch.
@@ -1646,7 +1660,15 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
   // per-token forwardPrefill loop on cold-start.
   auto prefillStart = std::chrono::high_resolution_clock::now();
   uploadPenaltyFactors(generatedCount < minNewTokens);
-  next_token = prefillBatched(prompt_tokens);
+  // CUT_PREFILL=per_token routes prefill through the per-token decode path —
+  // a correctness fallback while the batched prefill ops have issues at
+  // some model geometries (e.g. head_dim 128 / large K).
+  const char *prefillMode = std::getenv("CUT_PREFILL");
+  if (prefillMode && std::string(prefillMode) == "per_token") {
+    next_token = prefill(prompt_tokens);
+  } else {
+    next_token = prefillBatched(prompt_tokens);
+  }
   generatedCount++;
 
   auto prefillEnd = std::chrono::high_resolution_clock::now();

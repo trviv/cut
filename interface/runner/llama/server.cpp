@@ -665,7 +665,18 @@ int main(int argc, char *argv[]) {
     bool suppressing = true;
     model.setStopTokensSuppressed(true);
 
-    int next = model.prefillBatched(params.promptTokens);
+    // CUT_PREFILL=per_token: correctness fallback for model geometries where
+    // the batched prefill ops misbehave (routes through the decode path).
+    static const bool perTokenPrefill = [] {
+      const char *m = std::getenv("CUT_PREFILL");
+      return m && std::string(m) == "per_token";
+    }();
+    int next;
+    if (perTokenPrefill) {
+      next = model.prefill(params.promptTokens);
+    } else {
+      next = model.prefillBatched(params.promptTokens);
+    }
     size_t pos = params.promptTokens.size();
 
     while (true) {
