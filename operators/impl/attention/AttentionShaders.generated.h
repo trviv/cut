@@ -13,5 +13,6 @@ std::optional<std::vector<uint32_t>> compiledFusedAttention(DataType input, Data
 std::optional<std::vector<uint32_t>> compiledBatchedFusedAttention(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledBatchedKVCacheWrite(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledBatchedAttentionReadCache(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledDiTAttention(DataType input, DataType output);
 
 } // namespace cut

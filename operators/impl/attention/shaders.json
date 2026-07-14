@@ -7,9 +7,18 @@
       "description": "Write vector at row position in 2D cache buffer",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int8", "output": "Int8"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          },
+          {
+            "input": "Int8",
+            "output": "Int8"
+          }
         ]
       }
     },
@@ -18,9 +27,18 @@
       "description": "Scaled dot-product attention with GQA support",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int8", "output": "Int8"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          },
+          {
+            "input": "Int8",
+            "output": "Int8"
+          }
         ]
       }
     },
@@ -29,8 +47,14 @@
       "description": "Fused RoPE + CacheWrite + Attention (saves 4 dispatches/layer)",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          }
         ]
       }
     },
@@ -39,8 +63,14 @@
       "description": "Batched fused RoPE + CacheWrite + Attention for prefill (N tokens). NOTE: has a cross-workgroup race; prefer BatchedKVCacheWrite + BatchedAttentionReadCache.",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          }
         ]
       }
     },
@@ -49,8 +79,14 @@
       "description": "Batched RoPE(K) + K/V cache writes for N tokens. Pair with BatchedAttentionReadCache.",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          }
         ]
       }
     },
@@ -59,8 +95,26 @@
       "description": "Batched attention reading pre-populated KV cache (Q gets RoPE inline). Pair with BatchedKVCacheWrite.",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DiTAttention",
+      "description": "Fused non-causal multi-head attention for DiT models (online softmax, all heads in one dispatch, no score matrix)",
+      "dtype_slots": {
+        "combos": [
+          {
+            "input": "Float32",
+            "output": "Float32"
+          }
         ]
       }
     }

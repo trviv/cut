@@ -450,4 +450,99 @@ std::vector<uint8_t> BatchedAttentionReadCacheOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+// ============================================================================
+// DiTAttention: fused non-causal multi-head attention (no cache, no RoPE)
+// ============================================================================
+
+DiTAttentionOpNode::DiTAttentionOpNode(TensorStore &store,
+                                       const Tensor &q,
+                                       const Tensor &k,
+                                       const Tensor &v,
+                                       uint32_t nHeads,
+                                       uint32_t headDim,
+                                       float scale,
+                                       std::optional<uint32_t> spec)
+    : OpNode(Attention, store, spec) {
+  const auto &qBuf = store.getTensor(q);
+  const auto &kBuf = store.getTensor(k);
+  const auto &vBuf = store.getTensor(v);
+
+  if (qBuf.getDtype() != DataType::Float32 ||
+      kBuf.getDtype() != DataType::Float32 ||
+      vBuf.getDtype() != DataType::Float32) {
+    throw std::runtime_error("DiTAttention requires Float32 inputs");
+  }
+
+  const auto qShape = qBuf.getShape();
+  const auto kShape = kBuf.getShape();
+  const auto vShape = vBuf.getShape();
+  if (qShape.size() != 2 || kShape.size() != 2 || vShape.size() != 2) {
+    throw std::runtime_error("DiTAttention requires 2D inputs");
+  }
+
+  const uint32_t qCols = qShape[1];
+  if (qCols != kShape[1] || qCols != vShape[1] || qCols != nHeads * headDim) {
+    throw std::runtime_error(
+        "DiTAttention requires Q/K/V columns == nHeads * headDim");
+  }
+  if (kShape[0] != vShape[0]) {
+    throw std::runtime_error("DiTAttention requires K and V row counts to match");
+  }
+  if (headDim > 128 || headDim % 4 != 0) {
+    throw std::runtime_error(
+        "DiTAttention requires headDim <= 128 and a multiple of 4 "
+        "(vectorized float4 global access)");
+  }
+
+  sq_ = qShape[0];
+  skv_ = kShape[0];
+  nHeads_ = nHeads;
+  headDim_ = headDim;
+  strideQ_ = (qCols + 3) & ~3u;
+  strideKV_ = (kShape[1] + 3) & ~3u;
+  strideO_ = strideQ_;
+  scale_ = scale;
+
+  outShape_ = {sq_, nHeads * headDim};
+  inputs_ = {q, k, v};
+  output_ = store.createTensorEmpty(outShape_, DataType::Float32);
+}
+
+DataType DiTAttentionOpNode::outputDtype() const { return DataType::Float32; }
+
+std::optional<std::vector<uint32_t>> DiTAttentionOpNode::shader() const {
+  return compiledDiTAttention(DataType::Float32, DataType::Float32);
+}
+
+size_t DiTAttentionOpNode::shaderKey() const {
+  // Bits 33/34 are taken by BatchedKVCacheWrite / BatchedAttentionReadCache
+  // (all these nodes share OperatorEnum Attention).
+  return OpNode::shaderKey() | (size_t{1} << 35);
+}
+
+std::vector<uint32_t> DiTAttentionOpNode::outputShape() const {
+  return outShape_;
+}
+
+ThreadSize DiTAttentionOpNode::dispatchSize() const {
+  // X = ceil(sq / 8) workgroups x 128 threads (8 query rows per workgroup),
+  // Y = nHeads workgroups. Same-head workgroups are adjacent in X so each
+  // head's K/V stays L2-resident.
+  return {((sq_ + 7) / 8) * 128, nHeads_, 1};
+}
+
+std::vector<uint8_t> DiTAttentionOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t sq;
+    uint32_t skv;
+    uint32_t nHeads;
+    uint32_t headDim;
+    uint32_t strideQ;
+    uint32_t strideKV;
+    uint32_t strideO;
+    float scale;
+  } pc{sq_, skv_, nHeads_, headDim_, strideQ_, strideKV_, strideO_, scale_};
+  return toBytes(pc);
+}
+
 } // namespace cut

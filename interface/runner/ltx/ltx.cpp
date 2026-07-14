@@ -130,6 +130,18 @@ void LtxModel::loadConfig(const std::string &modelDir) {
 void LtxModel::load(const std::string &modelDir, cut::Runtime &runtime) {
   runtime_ = &runtime;
   loadConfig(modelDir);
+  if (const char *mb = std::getenv("CUT_LTX_FLUSH_MB")) {
+    flushBudgetBytes_ = static_cast<size_t>(std::strtoull(mb, nullptr, 10)) << 20;
+  }
+  if (const char *f16 = std::getenv("CUT_LTX_FP16_ACTS")) {
+    fp16Acts_ = std::atoi(f16) != 0;
+  }
+  fp16Acts_ = fp16Acts_ && config_.dim % 16 == 0 && config_.ffnDim % 16 == 0 &&
+              config_.inChannels % 16 == 0 && config_.captionDim % 16 == 0;
+  if (const char *fa = std::getenv("CUT_LTX_FUSED_ATTN")) {
+    fusedAttn_ = std::atoi(fa) != 0;
+  }
+  fusedAttn_ = fusedAttn_ && config_.headDim <= 128;
   std::vector<std::string> shardPaths;
   for (const auto &entry : std::filesystem::directory_iterator(modelDir + "/transformer")) {
     if (entry.path().extension() == ".safetensors") {
@@ -461,6 +473,22 @@ void LtxModel::releaseTransients() {
     runtime_->flushPendingCommands(d);
   }
   transients_.clear();
+  pendingTransientBytes_ = 0;
+}
+
+void LtxModel::maybeReleaseTransients() {
+  if (pendingTransientBytes_ >= flushBudgetBytes_) {
+    releaseTransients();
+  }
+}
+
+cut::ComputeHandle LtxModel::castAct(cut::Operations &ops,
+                                     const cut::ComputeHandle &x,
+                                     uint32_t mRows) {
+  if (!fp16Acts_ || (mRows % 16) != 0) {
+    return x;
+  }
+  return track(ops.cast(x, cut::DataType::Float16));
 }
 
 cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle &qSrc,
@@ -468,11 +496,11 @@ cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle 
                                 bool useRope, size_t dev) {
   auto &ops = runtime_->ops(dev);
 
-  auto q = track(ops.matmul(qSrc, w.wq));
+  auto q = track(ops.matmul(castAct(ops, qSrc, sq), w.wq));
   q = track(ops.binaryOpRowBcast(cut::BinaryAdd, q, w.bq));
   q = track(ops.rmsNorm(q, w.normQ, config_.qkNormEps));
 
-  auto k = track(ops.matmul(kvSrc, w.wk));
+  auto k = track(ops.matmul(castAct(ops, kvSrc, skv), w.wk));
   k = track(ops.binaryOpRowBcast(cut::BinaryAdd, k, w.bk));
   k = track(ops.rmsNorm(k, w.normK, config_.qkNormEps));
 
@@ -481,8 +509,18 @@ cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle 
     k = track(ops.applyRoPEInterleaved(k, ropeCosDev_[dev], ropeSinDev_[dev]));
   }
 
-  auto v = track(ops.matmul(kvSrc, w.wv));
+  auto v = track(ops.matmul(castAct(ops, kvSrc, skv), w.wv));
   v = track(ops.binaryOpRowBcast(cut::BinaryAdd, v, w.bv));
+
+  if (fusedAttn_) {
+    // normQ is pre-scaled by 1/sqrt(headDim), so the attention scale is 1.
+    auto attnOut = track(ops.ditAttention(q, k, v, config_.nHeads,
+                                          config_.headDim, 1.0f));
+    auto out = track(ops.matmul(castAct(ops, attnOut, sq), w.wo));
+    pendingTransientBytes_ +=
+        static_cast<size_t>(sq) * config_.dim * sizeof(float) * 2;
+    return track(ops.binaryOpRowBcast(cut::BinaryAdd, out, w.bo));
+  }
 
   auto qT = track(ops.transpose(q));
   auto kT = track(ops.transpose(k));
@@ -518,13 +556,17 @@ cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle 
       acc = ops.matmulBinary(cut::BinaryAdd, outH, woH, acc);
     }
 
-    // Bound transient VRAM: at large S the 32 heads' score/prob matrix pairs
+    // Bound transient VRAM: at large S the heads' score/prob matrix pairs
     // ([sq, skv] each) would otherwise all stay alive until the block ends.
-    // Flushing lets the dead iterations' buffers recycle; `acc` and the
-    // tracked q/k/v tensors survive (their handles are still held).
-    if ((h & 1u) == 1u) {
+    // Once the accumulated estimate crosses the budget, flushing lets the
+    // dead iterations' buffers recycle; `acc` and the tracked q/k/v tensors
+    // survive (their handles are still held).
+    pendingTransientBytes_ += (static_cast<size_t>(alignedSq) * alignedSkv * 2 +
+                               static_cast<size_t>(alignedSq) * Dh * 2) * sizeof(float);
+    if (pendingTransientBytes_ >= flushBudgetBytes_) {
       runtime_->ops(dev).flush();
       runtime_->flushPendingCommands(dev);
+      pendingTransientBytes_ = 0;
     }
   }
 
@@ -556,31 +598,34 @@ cut::ComputeHandle LtxModel::block(const BlockWeights &bw, const cut::ComputeHan
   auto attn = mha(bw.self_, n1, n1, sVideo, sVideo, true, dev);
   auto gated = track(ops.binaryOpRowBcast(cut::BinaryMul, attn, gateMsa));
   auto h2 = ops.binaryOp(cut::BinaryAdd, hidden, gated);   // untracked until after release
-  // Phase boundary: everything recorded so far is flushed; self-attention
+  // Phase boundary (budget-gated): when the sync happens, self-attention
   // transients recycle before cross-attention allocates.
-  releaseTransients();
+  pendingTransientBytes_ += static_cast<size_t>(sVideo) * D * sizeof(float) * 8;
+  maybeReleaseTransients();
   transients_.push_back(h2);
 
   auto attn2 = mha(bw.cross_, h2, encoder, sVideo, sText, false, dev);
   auto h3 = ops.binaryOp(cut::BinaryAdd, h2, attn2);       // untracked until after release
-  releaseTransients();
+  pendingTransientBytes_ += static_cast<size_t>(sVideo) * D * sizeof(float) * 8;
+  maybeReleaseTransients();
   transients_.push_back(h3);
 
   auto n2 = track(ops.rmsNorm(h3, onesDev_[dev], config_.blockNormEps));
   n2 = track(ops.binaryOpRowBcast(cut::BinaryMul, n2, scaleMlp1p));
   n2 = track(ops.binaryOpRowBcast(cut::BinaryAdd, n2, shiftMlp));
 
-  auto ff = track(ops.matmul(n2, bw.ffnW1));
+  auto ff = track(ops.matmul(castAct(ops, n2, sVideo), bw.ffnW1));
   ff = track(ops.binaryOpRowBcast(cut::BinaryAdd, ff, bw.ffnB1));
   {
     auto ffAct = ops.unaryOp(cut::UnaryGelu, ff);          // untracked until after release
-    // Phase boundary inside the FFN: the two [S, ffnDim] pre-activation
-    // buffers recycle before the down-projection allocates.
-    releaseTransients();
+    // Phase boundary inside the FFN (budget-gated): the two [S, ffnDim]
+    // pre-activation buffers recycle before the down-projection allocates.
+    pendingTransientBytes_ += static_cast<size_t>(sVideo) * config_.ffnDim * sizeof(float) * 2;
+    maybeReleaseTransients();
     transients_.push_back(ffAct);
     ff = ffAct;
   }
-  ff = track(ops.matmul(ff, bw.ffnW2));
+  ff = track(ops.matmul(castAct(ops, ff, sVideo), bw.ffnW2));
   ff = track(ops.binaryOpRowBcast(cut::BinaryAdd, ff, bw.ffnB2));
 
   auto ffGated = track(ops.binaryOpRowBcast(cut::BinaryMul, ff, gateMlp));
@@ -593,7 +638,7 @@ cut::ComputeHandle LtxModel::block(const BlockWeights &bw, const cut::ComputeHan
 cut::ComputeHandle LtxModel::forward(const cut::ComputeHandle &latents, const std::vector<cut::ComputeHandle> &encoderPerDev,
                                     uint32_t sVideo, uint32_t sText) {
   auto &ops = runtime_->ops(firstDevice_);
-  auto h0 = track(ops.matmul(latents, projInW_));
+  auto h0 = track(ops.matmul(castAct(ops, latents, sVideo), projInW_));
   auto h = ops.binaryOpRowBcast(cut::BinaryAdd, h0, projInB_);
   dumpStats(*runtime_, h, "projIn", (size_t)sVideo * config_.dim);
 
@@ -611,7 +656,7 @@ cut::ComputeHandle LtxModel::forward(const cut::ComputeHandle &latents, const st
     auto next = block(blocks_[i], h, encoderPerDev[dev], sVideo, sText, i);
     transients_.push_back(h);
     h = next;
-    releaseTransients();
+    maybeReleaseTransients();
     if (i == 0 || i == config_.nLayers - 1) {
       dumpStats(*runtime_, h, ("block" + std::to_string(i)).c_str(),
                 (size_t)sVideo * config_.dim);
@@ -632,7 +677,7 @@ cut::ComputeHandle LtxModel::forward(const cut::ComputeHandle &latents, const st
   n = track(opsLast.binaryOpRowBcast(cut::BinaryAdd, n, finalShift));
   dumpStats(*runtime_, n, "finalNorm", (size_t)sVideo * config_.dim);
 
-  auto out0 = track(opsLast.matmul(n, projOutW_));
+  auto out0 = track(opsLast.matmul(castAct(opsLast, n, sVideo), projOutW_));
   auto out = opsLast.binaryOpRowBcast(cut::BinaryAdd, out0, projOutB_);
   dumpStats(*runtime_, out, "projOut", (size_t)sVideo * config_.inChannels);
   return out;
@@ -683,19 +728,19 @@ std::vector<float> LtxModel::generate(const std::vector<float> &promptEmbeds,
   // Process text embeddings
   auto &ops = runtime_->ops(firstDevice_);
   auto embP = track(runtime_->createTensor({promptTokens, config_.captionDim}, cut::DataType::Float32, promptEmbeds.data(), false, firstDevice_));
-  auto e1 = track(ops.matmul(embP, capW1_));
+  auto e1 = track(ops.matmul(castAct(ops, embP, promptTokens), capW1_));
   e1 = track(ops.binaryOpRowBcast(cut::BinaryAdd, e1, capB1_));
   e1 = track(ops.unaryOp(cut::UnaryGelu, e1));
-  auto encPos = ops.matmul(e1, capW2_);
+  auto encPos = ops.matmul(castAct(ops, e1, promptTokens), capW2_);
   encPos = ops.binaryOpRowBcast(cut::BinaryAdd, encPos, capB2_);
 
   cut::ComputeHandle encNeg;
   if (cfg) {
     auto embN = track(runtime_->createTensor({negativeTokens, config_.captionDim}, cut::DataType::Float32, negativeEmbeds.data(), false, firstDevice_));
-    auto e2 = track(ops.matmul(embN, capW1_));
+    auto e2 = track(ops.matmul(castAct(ops, embN, negativeTokens), capW1_));
     e2 = track(ops.binaryOpRowBcast(cut::BinaryAdd, e2, capB1_));
     e2 = track(ops.unaryOp(cut::UnaryGelu, e2));
-    encNeg = ops.matmul(e2, capW2_);
+    encNeg = ops.matmul(castAct(ops, e2, negativeTokens), capW2_);
     encNeg = ops.binaryOpRowBcast(cut::BinaryAdd, encNeg, capB2_);
   }
 

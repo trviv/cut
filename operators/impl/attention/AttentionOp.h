@@ -236,4 +236,32 @@ private:
   std::vector<uint32_t> outShape_;
 };
 
+/// Fused non-causal multi-head attention for DiT models (no cache, no RoPE,
+/// no masking, nKvHeads == nHeads). One workgroup per (query row, head) with
+/// online softmax — no [sq, skv] score matrix is materialized.
+class DiTAttentionOpNode : public OpNode {
+public:
+  DiTAttentionOpNode(TensorStore &store,
+                     const Tensor &q,
+                     const Tensor &k,
+                     const Tensor &v,
+                     uint32_t nHeads,
+                     uint32_t headDim,
+                     float scale,
+                     std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  size_t shaderKey() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+
+private:
+  uint32_t sq_, skv_, nHeads_, headDim_;
+  uint32_t strideQ_, strideKV_, strideO_;
+  float scale_;
+  std::vector<uint32_t> outShape_;
+};
+
 } // namespace cut

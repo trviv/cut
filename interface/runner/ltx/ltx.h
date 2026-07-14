@@ -126,6 +126,13 @@ private:
   std::vector<float> computeSigmas(uint32_t steps, uint32_t videoSeqLen) const;
 
   // ---- GPU forward helpers ----
+  /// Cast a matmul activation operand to Float16 so the matmul selects the
+  /// cooperative-matrix (tensor core) variant. Only casts when enabled and
+  /// the row count is coopmat-aligned (the fp16*fp16 fallback shaders would
+  /// otherwise emit Float16 outputs into fp32 consumers). The cast output is
+  /// tracked as a transient.
+  cut::ComputeHandle castAct(cut::Operations &ops, const cut::ComputeHandle &x,
+                             uint32_t mRows);
   /// Multi-head bidirectional attention (composed from matmul/softmax ops).
   /// qSrc [Sq, dim], kvSrc [Skv, dim]; applies QK RMSNorm and (optionally)
   /// interleaved RoPE from ropeCos_/ropeSin_ (self-attention only).
@@ -179,9 +186,23 @@ private:
     transients_.push_back(h);
     return h;
   }
+  /// Approximate bytes of transient GPU buffers recorded since the last
+  /// flush. Head-group flushes and phase-boundary releases only pay the
+  /// GPU sync once this crosses flushBudgetBytes_ (CUT_LTX_FLUSH_MB,
+  /// default 1024 MB).
+  size_t pendingTransientBytes_ = 0;
+  size_t flushBudgetBytes_ = 1024ull << 20;
+  /// Cast activations to fp16 for coopmat matmuls (CUT_LTX_FP16_ACTS=1
+  /// enables; measured slower than the autotuned scalar path on RTX 3090).
+  bool fp16Acts_ = false;
+  /// Use the fused DiTAttention operator (CUT_LTX_FUSED_ATTN=0 falls back
+  /// to the per-head matmul/softmax decomposition).
+  bool fusedAttn_ = true;
   /// Flush pending GPU work, then drop the tracked references so the
   /// refcounted buffers get recycled.
   void releaseTransients();
+  /// releaseTransients() only if pendingTransientBytes_ exceeds the budget.
+  void maybeReleaseTransients();
 };
 
 } // namespace ltx

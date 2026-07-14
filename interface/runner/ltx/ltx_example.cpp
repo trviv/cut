@@ -150,6 +150,10 @@ int main(int argc, char **argv) {
       runtime.init(cut::BackendType::Vulkan);
     }
 
+    if (std::getenv("CUT_LTX_PROFILE")) {
+      runtime.setProfilingEnabled(true);
+    }
+
     std::vector<float> promptData, negData;
     uint32_t nTokensP = 0, dimP = 0, nTokensN = 0, dimN = 0;
     if (!readEmbeddingFile(promptEmb, promptData, nTokensP, dimP)) {

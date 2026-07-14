@@ -393,6 +393,16 @@ public:
                                uint32_t vOffset,
                                const Tensor &preallocOutput = {});
 
+  /// Fused non-causal multi-head attention for DiT models: one dispatch for
+  /// all heads, online softmax, no [sq, skv] score matrix. q [sq, D],
+  /// k/v [skv, D] with D = nHeads*headDim, all Float32. Returns [sq, D].
+  Tensor ditAttention(const Tensor &q,
+                      const Tensor &k,
+                      const Tensor &v,
+                      uint32_t nHeads,
+                      uint32_t headDim,
+                      float scale);
+
   // ===== Expand (broadcast) =====
 
   Tensor expand(const Tensor &a,

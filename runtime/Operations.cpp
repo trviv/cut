@@ -1202,6 +1202,19 @@ Tensor Operations::batchedFusedAttention(const Tensor &q,
   return out;
 }
 
+Tensor Operations::ditAttention(const Tensor &q,
+                                const Tensor &k,
+                                const Tensor &v,
+                                uint32_t nHeads,
+                                uint32_t headDim,
+                                float scale) {
+  auto node = std::make_unique<DiTAttentionOpNode>(*store_, q, k, v, nHeads,
+                                                   headDim, scale);
+  Tensor out = node->output();
+  dispatch(std::move(node));
+  return out;
+}
+
 // =========================================================================
 // Expand
 // =========================================================================
