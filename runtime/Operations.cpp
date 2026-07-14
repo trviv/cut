@@ -41,9 +41,9 @@ using graph::Graph;
 // Operations
 // =========================================================================
 
-Operations::Operations(Runtime &runtime)
-    : runtime_(&runtime), store_(&runtime.store()),
-      graph_(std::make_unique<Graph>()) {}
+Operations::Operations(Runtime &runtime, size_t deviceId)
+    : runtime_(&runtime), store_(&runtime.store(deviceId)),
+      deviceId_(deviceId), graph_(std::make_unique<Graph>()) {}
 
 std::vector<uint32_t> Operations::getShape(const Tensor &h) const {
   return store_->getTensor(h).getShape();
@@ -59,7 +59,7 @@ DataType Operations::getDtype(const Tensor &h) const {
 
 void Operations::barrier() {
   flush();
-  runtime_->encodeBarrier();
+  runtime_->encodeBarrier(deviceId_);
 }
 
 void Operations::flush() {
@@ -160,12 +160,12 @@ void Operations::setProfilingEnabled(bool enabled) {
 
 void Operations::dispatch(std::unique_ptr<OpNode> node) {
   flush();
-  runtime_->dispatch(std::move(node));
+  runtime_->dispatch(std::move(node), deviceId_);
 }
 
 void Operations::dispatch(OpNode &node) {
   flush();
-  runtime_->dispatch(node);
+  runtime_->dispatch(node, deviceId_);
 }
 
 // =========================================================================
@@ -1316,7 +1316,8 @@ void Operations::sortBitonic(const Tensor &keys,
                              std::optional<uint32_t> spec) {
   flush();
   runtime_->dispatch(
-      std::make_unique<BitonicSortOpNode>(*store_, keys, vals, spec));
+      std::make_unique<BitonicSortOpNode>(*store_, keys, vals, spec),
+      deviceId_);
 }
 
 void Operations::sortRadix(const Tensor &keys,
@@ -1324,7 +1325,7 @@ void Operations::sortRadix(const Tensor &keys,
                            std::optional<uint32_t> spec) {
   flush();
   runtime_->dispatch(
-      std::make_unique<RadixSortOpNode>(*store_, keys, vals, spec));
+      std::make_unique<RadixSortOpNode>(*store_, keys, vals, spec), deviceId_);
 }
 
 } // namespace cut

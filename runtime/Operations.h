@@ -27,7 +27,8 @@ class TensorStore;
  */
 class Operations {
 public:
-  explicit Operations(Runtime &runtime);
+  /// Constructs the Operations facade for one device of the runtime.
+  explicit Operations(Runtime &runtime, size_t deviceId = 0);
 
   // ===== Generic element-wise ops =====
 
@@ -472,6 +473,7 @@ public:
 private:
   Runtime *runtime_;
   TensorStore *store_;
+  size_t deviceId_ = 0; ///< Device this Operations instance is bound to.
 
   // Graph state — Operations always records to graph_.
   std::unique_ptr<graph::Graph> graph_;

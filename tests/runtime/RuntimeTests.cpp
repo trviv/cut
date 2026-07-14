@@ -9227,5 +9227,109 @@ TEST_F(GemvTest, MixedPrecisionF32xF16) {
   }
 }
 
+// =========================================================================
+// Multi-device Runtime
+// =========================================================================
+
+/// Device index for multi-device tests, overridable via env var so the
+/// same tests can exercise two distinct physical devices (default: -1,
+/// i.e. two contexts on the backend's default device).
+static int testDeviceIndex(const char *envVar) {
+  if (const char *v = std::getenv(envVar)) {
+    return std::atoi(v);
+  }
+  return -1;
+}
+
+class MultiDeviceTest : public ::testing::Test {};
+
+TEST_F(MultiDeviceTest, TwoContextsOnDefaultDevice) {
+  Runtime runtime;
+  if (!runtime.isVulkanAvailable()) {
+    GTEST_SKIP() << "Vulkan not available";
+  }
+  const int devA = testDeviceIndex("CUT_TEST_DEVICE_A");
+  const int devB = testDeviceIndex("CUT_TEST_DEVICE_B");
+  runtime.init({{BackendType::Vulkan, devA}, {BackendType::Vulkan, devB}});
+  ASSERT_EQ(runtime.deviceCount(), 2u);
+
+  for (size_t d = 0; d < 2; ++d) {
+    std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+    auto in =
+        runtime.createTensor({4}, DataType::Float32, data.data(), false, d);
+    auto out = runtime.ops(d).binaryOp(BinaryAdd, in, in);
+    runtime.flush(d);
+
+    std::vector<float> host(4);
+    runtime.copyFromTensor(out, host.data(), 4 * sizeof(float), 0, 0, d);
+    for (size_t i = 0; i < 4; ++i) {
+      EXPECT_FLOAT_EQ(host[i], data[i] * 2.0f) << "device " << d;
+    }
+  }
+}
+
+TEST_F(MultiDeviceTest, TransferTensorAcrossDevices) {
+  Runtime runtime;
+  if (!runtime.isVulkanAvailable()) {
+    GTEST_SKIP() << "Vulkan not available";
+  }
+  const int devA = testDeviceIndex("CUT_TEST_DEVICE_A");
+  const int devB = testDeviceIndex("CUT_TEST_DEVICE_B");
+  runtime.init({{BackendType::Vulkan, devA}, {BackendType::Vulkan, devB}});
+
+  std::vector<float> data = {1.5f, -2.0f, 3.25f, 0.0f};
+  auto a =
+      runtime.createTensor({2, 2}, DataType::Float32, data.data(), false, 0);
+
+  // Transfer to a freshly created tensor on device 1.
+  auto b = runtime.transferTensor(a, 0, 1);
+  std::vector<float> host1(4);
+  runtime.copyFromTensor(b, host1.data(), 4 * sizeof(float), 0, 0, 1);
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(host1[i], data[i]);
+  }
+
+  // Transfer into a pre-created tensor on device 1.
+  auto c = runtime.createTensorEmpty({2, 2}, DataType::Float32, false, 1);
+  runtime.transferTensor(a, 0, c, 1);
+  std::vector<float> host2(4);
+  runtime.copyFromTensor(c, host2.data(), 4 * sizeof(float), 0, 0, 1);
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(host2[i], data[i]);
+  }
+}
+
+TEST_F(MultiDeviceTest, TransferShapeMismatchThrows) {
+  Runtime runtime;
+  if (!runtime.isVulkanAvailable()) {
+    GTEST_SKIP() << "Vulkan not available";
+  }
+  runtime.init({{BackendType::Vulkan, -1}, {BackendType::Vulkan, -1}});
+
+  auto a = runtime.createTensorEmpty({4}, DataType::Float32, false, 0);
+  auto b = runtime.createTensorEmpty({8}, DataType::Float32, false, 1);
+  EXPECT_THROW(runtime.transferTensor(a, 0, b, 1), std::runtime_error);
+}
+
+TEST_F(MultiDeviceTest, SingleDeviceCompatibility) {
+  Runtime runtime;
+  if (!runtime.isVulkanAvailable()) {
+    GTEST_SKIP() << "Vulkan not available";
+  }
+  runtime.init(BackendType::Vulkan);
+  ASSERT_EQ(runtime.deviceCount(), 1u);
+
+  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
+  auto in = runtime.createTensor({4}, DataType::Float32, data.data());
+  auto out = runtime.ops().binaryOp(BinaryAdd, in, in);
+  runtime.flush();
+
+  std::vector<float> host(4);
+  runtime.copyFromTensor(out, host.data(), 4 * sizeof(float));
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_FLOAT_EQ(host[i], data[i] * 2.0f);
+  }
+}
+
 } // namespace
 } // namespace cut
