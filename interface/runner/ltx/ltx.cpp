@@ -136,8 +136,6 @@ void LtxModel::load(const std::string &modelDir, cut::Runtime &runtime) {
   if (const char *f16 = std::getenv("CUT_LTX_FP16_ACTS")) {
     fp16Acts_ = std::atoi(f16) != 0;
   }
-  fp16Acts_ = fp16Acts_ && config_.dim % 16 == 0 && config_.ffnDim % 16 == 0 &&
-              config_.inChannels % 16 == 0 && config_.captionDim % 16 == 0;
   if (const char *fa = std::getenv("CUT_LTX_FUSED_ATTN")) {
     fusedAttn_ = std::atoi(fa) != 0;
   }
@@ -194,6 +192,15 @@ void LtxModel::load(const std::string &modelDir, cut::Runtime &runtime) {
     std::cout << "Block placement: ";
     for (size_t d : devices_) std::cout << d << " ";
     std::cout << "\n";
+  }
+
+  // fp16 casts are only worthwhile (and only dtype-safe) when every compute
+  // device takes the cooperative-matrix matmul path for them.
+  fp16Acts_ = fp16Acts_ && config_.dim % 16 == 0 && config_.ffnDim % 16 == 0 &&
+              config_.inChannels % 16 == 0 && config_.captionDim % 16 == 0;
+  for (size_t d : devices_) {
+    const auto &caps = runtime.store(d).caps();
+    fp16Acts_ = fp16Acts_ && caps.cooperativeMatrix && caps.subgroupSize == 32;
   }
 
   projInW_ = uploadLinearWeightF16(st, "proj_in.weight", firstDevice_);

@@ -23,6 +23,12 @@ static bool shouldUseCoopMat(const DeviceCaps &caps,
     return false;
   if (M < 16 || N < 16 || K < 16)
     return false;
+  // The coopmat kernels assume 32-lane subgroups (the tiled kernel derives
+  // 4 subgroups from its 128 threads; the others need one full 32-lane
+  // subgroup). On wave64 devices (e.g. RADV) half the tiles would go
+  // uncomputed, so fall back to the scalar variants there.
+  if (caps.subgroupSize != 32)
+    return false;
   // Check device capability (set by backend during init)
   if (!caps.cooperativeMatrix)
     return false;
@@ -42,6 +48,9 @@ static bool shouldUseCoopMatGemv(const DeviceCaps &caps,
   if (N % 16 != 0 || K % 16 != 0)
     return false;
   if (N < 16 || K < 16)
+    return false;
+  // Needs one full 32-lane subgroup (see shouldUseCoopMat).
+  if (caps.subgroupSize != 32)
     return false;
   if (!caps.cooperativeMatrix)
     return false;

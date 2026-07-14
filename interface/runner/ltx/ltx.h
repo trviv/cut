@@ -192,9 +192,11 @@ private:
   /// default 1024 MB).
   size_t pendingTransientBytes_ = 0;
   size_t flushBudgetBytes_ = 1024ull << 20;
-  /// Cast activations to fp16 for coopmat matmuls (CUT_LTX_FP16_ACTS=1
-  /// enables; measured slower than the autotuned scalar path on RTX 3090).
-  bool fp16Acts_ = false;
+  /// Cast activations to fp16 so matmuls take the cooperative-matrix
+  /// (tensor core) path (CUT_LTX_FP16_ACTS=0 disables). Auto-disabled
+  /// when any compute device would not select coopmat, because the
+  /// fp16*fp16 scalar fallback emits Float16 outputs into fp32 consumers.
+  bool fp16Acts_ = true;
   /// Use the fused DiTAttention operator (CUT_LTX_FUSED_ATTN=0 falls back
   /// to the per-head matmul/softmax decomposition).
   bool fusedAttn_ = true;
