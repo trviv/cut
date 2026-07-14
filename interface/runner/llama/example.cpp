@@ -49,9 +49,36 @@ int main(int argc, char *argv[]) {
   }
 
   try {
-    // Initialize CUT runtime
+    // Initialize CUT runtime. CUT_DEVICES="vulkan:1,vulkan:2" (backend[:index],
+    // comma-separated) selects one or more devices; default is one Vulkan
+    // device.
     cut::Runtime runtime;
-    runtime.init(cut::BackendType::Vulkan);
+    if (const char *devEnv = std::getenv("CUT_DEVICES")) {
+      std::vector<cut::DeviceDesc> descs;
+      std::string s(devEnv);
+      size_t start = 0;
+      while (start < s.size()) {
+        size_t comma = s.find(',', start);
+        if (comma == std::string::npos)
+          comma = s.size();
+        std::string entry = s.substr(start, comma - start);
+        start = comma + 1;
+        cut::DeviceDesc desc;
+        size_t colon = entry.find(':');
+        std::string backend =
+            entry.substr(0, colon == std::string::npos ? entry.size() : colon);
+        if (colon != std::string::npos) {
+          desc.deviceIndex = std::atoi(entry.substr(colon + 1).c_str());
+        }
+        desc.backend = (backend == "cuda") ? cut::BackendType::CUDA
+                                           : cut::BackendType::Vulkan;
+        descs.push_back(desc);
+      }
+      runtime.init(descs);
+      std::cout << "Initialized " << runtime.deviceCount() << " devices\n";
+    } else {
+      runtime.init(cut::BackendType::Vulkan);
+    }
 
     // Load model
     gguf::LlamaModel model;

@@ -19,6 +19,10 @@ namespace graph {
 class GraphBuilder {
 public:
   explicit GraphBuilder(Runtime &runtime);
+
+  /// Builds a graph against a specific device's Operations (multi-device).
+  GraphBuilder(Runtime &runtime, size_t deviceId);
+
   ~GraphBuilder();
 
   /// Move-returns the constructed graph. The builder should not be used after

@@ -190,7 +190,6 @@ public:
 private:
   LlamaConfig config_;
   cut::Runtime *runtime_ = nullptr;
-  cut::Operations *ops_ = nullptr;
 
   // Weights
   cut::ComputeHandle embeddingTable_; // [vocab_size, dim] on GPU
@@ -203,9 +202,34 @@ private:
   // KV cache (per layer)
   std::vector<KVCache> kv_caches_;
 
-  // Precomputed RoPE cos/sin tables [max_seq_len * head_dim/2] on GPU
-  cut::ComputeHandle rope_cos_gpu_;
-  cut::ComputeHandle rope_sin_gpu_;
+  // ---- Device placement (multi-GPU pipeline split) ----
+  // Device id per layer (contiguous runs form pipeline segments). Parsed
+  // from CUT_DEVICE_SPLIT ("n0,n1,..." = layer counts per runtime device);
+  // default: all layers on device 0.
+  std::vector<uint32_t> layerDevice_;
+  // First layer index of each contiguous same-device segment.
+  std::vector<uint32_t> segmentStart_;
+  size_t firstDevice_ = 0; ///< Device of layer 0 (embedding lives here).
+  size_t lastDevice_ = 0;  ///< Device of the last layer (logits/sampling).
+
+  // ---- Per-device replicas, indexed by runtime device id ----
+  // Only devices used by the placement are populated.
+  std::vector<cut::ComputeHandle> ropeCosGpu_;
+  std::vector<cut::ComputeHandle> ropeSinGpu_;
+  std::vector<cut::ComputeHandle> runtimeParamsBuffers_; // {pos, seqLen} each
+  std::vector<cut::ComputeHandle> hiddenBuffers_; // [dim] segment entry buffer
+  std::vector<cut::ComputeHandle> attnOutBuffers_;
+
+  // ---- Per-segment cached command buffers ----
+  std::vector<cut::ComputeHandle> cachedDecodeCBs_;
+  std::vector<cut::ComputeHandle> segmentDecodeOut_; // stable output per segment
+  bool decodeCBCached_ = false;
+  std::vector<cut::ComputeHandle> cachedPrefillCBs_;
+  std::vector<cut::ComputeHandle> segmentPrefillOut_;
+  bool prefillCBCached_ = false;
+
+  // Per-device graph executors (indexed by device id).
+  std::vector<std::unique_ptr<cut::graph::GraphExecutor>> executors_;
 
   // Vocabulary from GGUF metadata (token_id -> text)
   std::vector<std::string> vocab_;
@@ -228,75 +252,51 @@ private:
   std::string byteToUnicode_[256];                         // byte → UTF-8 char
   std::unordered_map<std::string, uint8_t> unicodeToByte_; // reverse mapping
 
+  // Pre-allocated buffers for command buffer reuse
+  cut::ComputeHandle logitsOutput_;         // stable logits handle
+  cut::ComputeHandle penaltyFactorsBuffer_; // [vocab_size] Float32
+  cut::ComputeHandle argmaxResultBuffer_;   // [1] Float32 — argmax output
+
   // GPT-2 BPE tokenization (used when tokenizerModel_ == "gpt2")
   std::vector<int> tokenizeBPE(const std::string &text) const;
   void encodeBPESegment(const std::string &segment,
                         std::vector<int> &ids) const;
   void buildGPT2ByteEncoder();
 
-  // Pre-allocated buffers for command buffer reuse
-  cut::ComputeHandle runtimeParamsBuffer_;  // {pos, seqLen} — 2x uint32
-  cut::ComputeHandle hiddenBuffer_;         // [dim] Float32
-  cut::ComputeHandle ropeQOutBuffer_;       // [n_heads * head_dim] Float32
-  cut::ComputeHandle ropeKOutBuffer_;       // [kv_dim] Float32
-  cut::ComputeHandle attnOutBuffer_;        // [n_heads * head_dim] Float32
-  cut::ComputeHandle logitsOutput_;         // stable logits handle
-  cut::ComputeHandle penaltyFactorsBuffer_; // [vocab_size] Float32
-  cut::ComputeHandle argmaxResultBuffer_;   // [1] Float32 — argmax output
-
-  // Command buffer caching for decode phase
-  cut::ComputeHandle cachedDecodeCB_;
-  bool decodeCBCached_ = false;
-
-  // Command buffer caching for prefill phase (no logits/argmax)
-  cut::ComputeHandle cachedPrefillCB_;
-  bool prefillCBCached_ = false;
-
   /// Prefill forward: embedding + layers only (no logits/penalty/argmax).
   /// Uses a separate cached CB from decode. Populates KV cache at pos.
   void forwardPrefill(int token_id, int pos);
 
   // Helper: upload 1D float vector to GPU
-  cut::ComputeHandle uploadVector(const std::vector<float> &data);
+  cut::ComputeHandle uploadVector(const std::vector<float> &data, size_t deviceId);
 
   // Helper: upload 2D float data to GPU
   cut::ComputeHandle
-  uploadMatrix(const float *data, uint32_t rows, uint32_t cols);
+  uploadMatrix(const float *data, uint32_t rows, uint32_t cols, size_t deviceId);
 
   // Helper: upload weight in native precision (F16 stays F16, etc.)
   cut::ComputeHandle uploadWeight(const GGUFReader &reader,
                                   const std::string &name,
-                                  const std::vector<uint32_t> &shape);
+                                  const std::vector<uint32_t> &shape,
+                                  size_t deviceId);
 
   // Helper: concatenate multiple F16 tensors row-wise, upload, and transpose.
   // Used for fused QKV and fused gate+up weights.
   cut::ComputeHandle uploadFusedF16(const GGUFReader &reader,
-                                    const std::vector<std::string> &names);
+                                    const std::vector<std::string> &names,
+                                    size_t deviceId);
 
   // Helper: upload weight, using Q8 separated path if Q8_0
   WeightHandle uploadWeightMaybeQuantized(const GGUFReader &reader,
                                           const std::string &name,
                                           uint32_t rows,
-                                          uint32_t cols);
+                                          uint32_t cols,
+                                          size_t deviceId);
 
   // Helper: perform matmul in graph using either plain or Q8 path
   cut::Tensor graphWeight(cut::graph::GraphBuilder &builder,
                           const WeightHandle &wh,
                           const cut::Tensor &activation);
-
-  // RMS normalization: returns normalized tensor
-  cut::ComputeHandle rmsNorm(const cut::ComputeHandle &x,
-                             const cut::ComputeHandle &weight);
-
-  // Apply RoPE on GPU using precomputed cos/sin tables
-  cut::ComputeHandle applyRoPE(const cut::ComputeHandle &x,
-                               const cut::ComputeHandle &preallocOutput);
-
-  // Attention on GPU using KV cache (writes to attnOutBuffer_)
-  void attention(const cut::ComputeHandle &q,
-                 const cut::ComputeHandle &k,
-                 const cut::ComputeHandle &v,
-                 int layer);
 
   // Precompute RoPE tables
   void precomputeRoPE();
@@ -304,28 +304,38 @@ private:
   // Graph-based execution
   std::vector<LayerGraphs> layerGraphs_;
   GraphTemplate logitsGraph_;
-  std::unique_ptr<cut::graph::GraphExecutor> executor_;
 
   void buildGraphTemplates();
-  GraphTemplate buildQKVProjectionGraph(const LlamaLayer &layer);
-  GraphTemplate buildAttnOutputResidualGraph(const LlamaLayer &layer);
-  GraphTemplate buildFFNResidualGraph(const LlamaLayer &layer);
+  GraphTemplate buildQKVProjectionGraph(const LlamaLayer &layer, size_t deviceId);
+  GraphTemplate buildAttnOutputResidualGraph(const LlamaLayer &layer, size_t deviceId);
+  GraphTemplate buildFFNResidualGraph(const LlamaLayer &layer, size_t deviceId);
   GraphTemplate buildLogitsGraph();
   std::vector<cut::Tensor>
   executeGraph(GraphTemplate &tpl,
-               const std::vector<cut::ComputeHandle> &dynamicHandles);
+               const std::vector<cut::ComputeHandle> &dynamicHandles,
+               size_t deviceId);
 
   /// Split fused QKV output into Q, K, V views (with barrier),
   /// or pass through separate Q/K/V from the graph.
   void splitQKV(const std::vector<cut::Tensor> &qkv,
                 cut::ComputeHandle &q,
                 cut::ComputeHandle &k,
-                cut::ComputeHandle &v);
+                cut::ComputeHandle &v,
+                size_t deviceId);
 
   /// Run one transformer layer: QKV projection → attention → FFN → residual.
   /// Returns the updated hidden state.
   cut::ComputeHandle runLayer(uint32_t layerIdx,
                               const cut::ComputeHandle &hidden);
+
+  /// Operations for a given device id.
+  cut::Operations &opsAt(size_t deviceId) const;
+
+  /// Parse CUT_DEVICE_SPLIT and fill layerDevice_/segmentStart_/first/last.
+  void computeLayerPlacement();
+
+  /// Returns true when the given layer starts a new pipeline segment.
+  bool isSegmentStart(uint32_t layerIdx) const;
 };
 
 } // namespace gguf

@@ -9,6 +9,11 @@ GraphBuilder::GraphBuilder(Runtime &runtime) : ops_(&runtime.ops()) {
   ops_->flush();
 }
 
+GraphBuilder::GraphBuilder(Runtime &runtime, size_t deviceId)
+    : ops_(&runtime.ops(deviceId)) {
+  ops_->flush();
+}
+
 GraphBuilder::~GraphBuilder() {
   // Discard any recorded ops if build() was never called
   if (!built_) {

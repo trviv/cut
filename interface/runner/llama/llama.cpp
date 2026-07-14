@@ -9,6 +9,7 @@
 #include <chrono>
 #include <climits>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <stdexcept>
@@ -19,20 +20,87 @@ namespace gguf {
 // Helpers
 // ============================================================================
 
-cut::ComputeHandle LlamaModel::uploadVector(const std::vector<float> &data) {
-  std::vector<uint32_t> shape = {static_cast<uint32_t>(data.size())};
-  return runtime_->createTensor(shape, cut::DataType::Float32, data.data());
+cut::Operations &LlamaModel::opsAt(size_t deviceId) const {
+  return runtime_->ops(deviceId);
 }
 
-cut::ComputeHandle
-LlamaModel::uploadMatrix(const float *data, uint32_t rows, uint32_t cols) {
+bool LlamaModel::isSegmentStart(uint32_t layerIdx) const {
+  return layerIdx == 0 || layerDevice_[layerIdx] != layerDevice_[layerIdx - 1];
+}
+
+void LlamaModel::computeLayerPlacement() {
+  const size_t nDev = runtime_->deviceCount();
+  layerDevice_.assign(config_.n_layers, 0);
+
+  // CUT_DEVICE_SPLIT="n0,n1,..." assigns the first n0 layers to device 0,
+  // the next n1 to device 1, etc. Layers beyond the listed counts go to the
+  // last listed device.
+  if (const char *split = std::getenv("CUT_DEVICE_SPLIT")) {
+    std::vector<uint32_t> counts;
+    std::string s(split);
+    size_t start = 0;
+    while (start < s.size()) {
+      size_t comma = s.find(',', start);
+      if (comma == std::string::npos)
+        comma = s.size();
+      counts.push_back(static_cast<uint32_t>(
+          std::atoi(s.substr(start, comma - start).c_str())));
+      start = comma + 1;
+    }
+    if (counts.empty() || counts.size() > nDev) {
+      throw std::runtime_error(
+          "CUT_DEVICE_SPLIT lists more devices than the runtime has (" +
+          std::to_string(counts.size()) + " > " + std::to_string(nDev) + ")");
+    }
+    uint32_t l = 0;
+    for (size_t d = 0; d < counts.size() && l < config_.n_layers; ++d) {
+      for (uint32_t c = 0; c < counts[d] && l < config_.n_layers; ++c) {
+        layerDevice_[l++] = static_cast<uint32_t>(d);
+      }
+    }
+    while (l < config_.n_layers) {
+      layerDevice_[l++] = static_cast<uint32_t>(counts.size() - 1);
+    }
+  }
+
+  firstDevice_ = layerDevice_.front();
+  lastDevice_ = layerDevice_.back();
+  segmentStart_.clear();
+  for (uint32_t i = 0; i < config_.n_layers; ++i) {
+    if (isSegmentStart(i)) {
+      segmentStart_.push_back(i);
+    }
+  }
+  if (segmentStart_.size() > 1) {
+    std::cout << "Device placement: " << segmentStart_.size()
+              << " pipeline segments across devices:";
+    for (uint32_t s : segmentStart_) {
+      std::cout << " [layer " << s << "+ -> dev " << layerDevice_[s] << "]";
+    }
+    std::cout << "\n";
+  }
+}
+
+cut::ComputeHandle LlamaModel::uploadVector(const std::vector<float> &data,
+                                            size_t deviceId) {
+  std::vector<uint32_t> shape = {static_cast<uint32_t>(data.size())};
+  return runtime_->createTensor(shape, cut::DataType::Float32, data.data(),
+                                false, deviceId);
+}
+
+cut::ComputeHandle LlamaModel::uploadMatrix(const float *data,
+                                            uint32_t rows,
+                                            uint32_t cols,
+                                            size_t deviceId) {
   std::vector<uint32_t> shape = {rows, cols};
-  return runtime_->createTensor(shape, cut::DataType::Float32, data);
+  return runtime_->createTensor(shape, cut::DataType::Float32, data, false,
+                                deviceId);
 }
 
 cut::ComputeHandle
 LlamaModel::uploadFusedF16(const GGUFReader &reader,
-                           const std::vector<std::string> &names) {
+                           const std::vector<std::string> &names,
+                           size_t deviceId) {
   // Read multiple F16 tensors, concatenate rows, upload once, transpose once.
   // All tensors must share the same innermost dimension K (= cols in GGUF).
   uint32_t K =
@@ -52,20 +120,22 @@ LlamaModel::uploadFusedF16(const GGUFReader &reader,
   }
 
   auto gpu = runtime_->createTensor({totalRows, K}, cut::DataType::Float16,
-                                    combined.data());
-  return ops_->transpose(gpu);
+                                    combined.data(), false, deviceId);
+  return opsAt(deviceId).transpose(gpu);
 }
 
 cut::ComputeHandle
 LlamaModel::uploadWeight(const GGUFReader &reader,
                          const std::string &name,
-                         const std::vector<uint32_t> &shape) {
+                         const std::vector<uint32_t> &shape,
+                         size_t deviceId) {
   const auto &info = reader.get_tensor_info(name);
 
   if (info.type == GGMLType::F16) {
     // Upload Float16 weights directly — no conversion needed.
     auto raw = reader.read_tensor_raw(name);
-    return runtime_->createTensor(shape, cut::DataType::Float16, raw.data());
+    return runtime_->createTensor(shape, cut::DataType::Float16, raw.data(),
+                                  false, deviceId);
   }
 
   // GPU dequantization for 2D weight matrices in K-quant or BF16 formats.
@@ -93,21 +163,24 @@ LlamaModel::uploadWeight(const GGUFReader &reader,
     if (useGpuDequant) {
       auto raw = reader.read_tensor_raw(name);
       auto rawTensor = runtime_->createTensor(
-          {static_cast<uint32_t>(raw.size())}, cut::DataType::Int8, raw.data());
-      return ops_->dequantize(rawTensor, static_cast<uint32_t>(fmt), shape[0],
-                              shape[1]);
+          {static_cast<uint32_t>(raw.size())}, cut::DataType::Int8, raw.data(),
+          false, deviceId);
+      return opsAt(deviceId).dequantize(rawTensor, static_cast<uint32_t>(fmt),
+                                        shape[0], shape[1]);
     }
   }
 
   // Fallback: CPU dequantize to Float32 (F32 pass-through, small tensors).
   auto data = reader.read_tensor_f32(name);
-  return runtime_->createTensor(shape, cut::DataType::Float32, data.data());
+  return runtime_->createTensor(shape, cut::DataType::Float32, data.data(),
+                                false, deviceId);
 }
 
 WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
                                                     const std::string &name,
                                                     uint32_t rows,
-                                                    uint32_t cols) {
+                                                    uint32_t cols,
+                                                    size_t deviceId) {
   const auto &info = reader.get_tensor_info(name);
   WeightHandle wh;
 
@@ -119,17 +192,19 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
     uint32_t blocksK = K / 32;
 
     // Upload packed nibbles [N, K/2] directly to GPU
-    auto gpuPacked = runtime_->createTensor({N, K / 2}, cut::DataType::Int8,
-                                            q4.packedValues.data());
+    auto gpuPacked =
+        runtime_->createTensor({N, K / 2}, cut::DataType::Int8,
+                               q4.packedValues.data(), false, deviceId);
 
     // GPU nibble transpose: [N, K/2] -> [K, N/2]
     // Combines unpack (GGML block layout) + transpose + repack in one dispatch
-    auto tPacked = ops_->transposeQ4(gpuPacked, N, K);
+    auto tPacked = opsAt(deviceId).transposeQ4(gpuPacked, N, K);
 
     // GPU transpose scales [N, K/32] -> [K/32, N]
-    auto gpuScales = runtime_->createTensor(
-        {N, blocksK}, cut::DataType::Float16, q4.scales.data());
-    auto tScales = ops_->transpose(gpuScales);
+    auto gpuScales =
+        runtime_->createTensor({N, blocksK}, cut::DataType::Float16,
+                               q4.scales.data(), false, deviceId);
+    auto tScales = opsAt(deviceId).transpose(gpuScales);
 
     wh.qValues = tPacked;
     wh.qScales = tScales;
@@ -146,19 +221,21 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
     uint32_t blocksK = K / 32;
 
     auto gpuValues =
-        runtime_->createTensor({N, K}, cut::DataType::Int8, q8.values.data());
-    auto gpuScales = runtime_->createTensor(
-        {N, blocksK}, cut::DataType::Float16, q8.scales.data());
-    wh.qValues = ops_->transpose(gpuValues);
-    wh.qScales = ops_->transpose(gpuScales);
+        runtime_->createTensor({N, K}, cut::DataType::Int8, q8.values.data(),
+                               false, deviceId);
+    auto gpuScales =
+        runtime_->createTensor({N, blocksK}, cut::DataType::Float16,
+                               q8.scales.data(), false, deviceId);
+    wh.qValues = opsAt(deviceId).transpose(gpuValues);
+    wh.qScales = opsAt(deviceId).transpose(gpuScales);
     wh.qCols = cols;
     wh.quantType = WeightHandle::QuantType::Q8_0;
     return wh;
   }
 
   // Non-quantized: upload + transpose as before
-  auto gpu = uploadWeight(reader, name, {rows, cols});
-  wh.handle = ops_->transpose(gpu);
+  auto gpu = uploadWeight(reader, name, {rows, cols}, deviceId);
+  wh.handle = opsAt(deviceId).transpose(gpu);
   return wh;
 }
 
@@ -182,7 +259,6 @@ void LlamaModel::load(const std::string &gguf_path,
                       cut::Runtime &runtime,
                       uint32_t n_ctx) {
   runtime_ = &runtime;
-  ops_ = &runtime.ops();
 
   auto loadStart = std::chrono::high_resolution_clock::now();
   std::cout << "Loading GGUF model: " << gguf_path << "\n";
@@ -228,6 +304,9 @@ void LlamaModel::load(const std::string &gguf_path,
   config_.kv_dim = config_.head_dim * config_.n_kv_heads;
   config_.n_rep = config_.n_heads / config_.n_kv_heads;
 
+  // Assign layers to devices (pipeline split via CUT_DEVICE_SPLIT).
+  computeLayerPlacement();
+
   // Infer ffn_dim from weight shape if not in metadata
   if (config_.ffn_dim == 0) {
     std::string gate_name = "blk.0.ffn_gate.weight";
@@ -251,7 +330,8 @@ void LlamaModel::load(const std::string &gguf_path,
     const auto &info = reader.get_tensor_info("token_embd.weight");
     config_.vocab_size = static_cast<uint32_t>(info.dimensions[1]);
     embeddingTable_ =
-        uploadMatrix(embd.data(), config_.vocab_size, config_.dim);
+        uploadMatrix(embd.data(), config_.vocab_size, config_.dim,
+                     firstDevice_);
   }
   std::cout << config_.vocab_size << "\n";
 
@@ -307,21 +387,22 @@ void LlamaModel::load(const std::string &gguf_path,
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
     std::string blk = "blk." + std::to_string(i) + ".";
     auto &layer = layers_[i];
+    const size_t dev = layerDevice_[i];
 
     std::cout << "  Loading layer " << i << "...\r" << std::flush;
 
     // Attention norm (1D weight)
     {
       auto data = reader.read_tensor_f32(blk + "attn_norm.weight");
-      layer.attn_norm = uploadVector(data);
+      layer.attn_norm = uploadVector(data, dev);
     }
 
     // Attention biases (optional, e.g. Qwen2)
     bool hasBias = reader.has_tensor(blk + "attn_q.bias");
     if (hasBias) {
-      layer.bq = uploadVector(reader.read_tensor_f32(blk + "attn_q.bias"));
-      layer.bk = uploadVector(reader.read_tensor_f32(blk + "attn_k.bias"));
-      layer.bv = uploadVector(reader.read_tensor_f32(blk + "attn_v.bias"));
+      layer.bq = uploadVector(reader.read_tensor_f32(blk + "attn_q.bias"), dev);
+      layer.bk = uploadVector(reader.read_tensor_f32(blk + "attn_k.bias"), dev);
+      layer.bv = uploadVector(reader.read_tensor_f32(blk + "attn_v.bias"), dev);
     }
 
     // Attention weights — GGUF/GGML dimensions are [cols, rows] (innermost
@@ -333,30 +414,32 @@ void LlamaModel::load(const std::string &gguf_path,
       bool canFuse = !hasBias && qi.type == GGMLType::F16;
 
       if (canFuse) {
-        layer.wqkv.handle = uploadFusedF16(reader, {
-                                                       blk + "attn_q.weight",
-                                                       blk + "attn_k.weight",
-                                                       blk + "attn_v.weight",
-                                                   });
+        layer.wqkv.handle = uploadFusedF16(reader,
+                                           {
+                                               blk + "attn_q.weight",
+                                               blk + "attn_k.weight",
+                                               blk + "attn_v.weight",
+                                           },
+                                           dev);
       } else {
         // Separate Q/K/V (quantized or biased models)
         uint32_t qCols = static_cast<uint32_t>(qi.dimensions[0]);
         uint32_t qRows = static_cast<uint32_t>(qi.dimensions[1]);
         layer.wq = uploadWeightMaybeQuantized(reader, blk + "attn_q.weight",
-                                              qRows, qCols);
+                                              qRows, qCols, dev);
         {
           const auto &info = reader.get_tensor_info(blk + "attn_k.weight");
           layer.wk = uploadWeightMaybeQuantized(
               reader, blk + "attn_k.weight",
               static_cast<uint32_t>(info.dimensions[1]),
-              static_cast<uint32_t>(info.dimensions[0]));
+              static_cast<uint32_t>(info.dimensions[0]), dev);
         }
         {
           const auto &info = reader.get_tensor_info(blk + "attn_v.weight");
           layer.wv = uploadWeightMaybeQuantized(
               reader, blk + "attn_v.weight",
               static_cast<uint32_t>(info.dimensions[1]),
-              static_cast<uint32_t>(info.dimensions[0]));
+              static_cast<uint32_t>(info.dimensions[0]), dev);
         }
       }
     }
@@ -366,13 +449,13 @@ void LlamaModel::load(const std::string &gguf_path,
       uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
       layer.wo = uploadWeightMaybeQuantized(reader, blk + "attn_output.weight",
-                                            rows, cols);
+                                            rows, cols, dev);
     }
 
     // FFN norm
     {
       auto data = reader.read_tensor_f32(blk + "ffn_norm.weight");
-      layer.ffn_norm = uploadVector(data);
+      layer.ffn_norm = uploadVector(data, dev);
     }
 
     // FFN weights — for F16, build fused gate+up directly (single upload).
@@ -381,11 +464,12 @@ void LlamaModel::load(const std::string &gguf_path,
       bool canFuseFFN = gi.type == GGMLType::F16;
 
       if (canFuseFFN) {
-        layer.w_gate_up.handle =
-            uploadFusedF16(reader, {
-                                       blk + "ffn_gate.weight",
-                                       blk + "ffn_up.weight",
-                                   });
+        layer.w_gate_up.handle = uploadFusedF16(reader,
+                                                {
+                                                    blk + "ffn_gate.weight",
+                                                    blk + "ffn_up.weight",
+                                                },
+                                                dev);
       }
 
       // Always load separate w_gate / w_up. Used by:
@@ -395,14 +479,14 @@ void LlamaModel::load(const std::string &gguf_path,
         uint32_t cols = static_cast<uint32_t>(gi.dimensions[0]);
         uint32_t rows = static_cast<uint32_t>(gi.dimensions[1]);
         layer.w_gate = uploadWeightMaybeQuantized(
-            reader, blk + "ffn_gate.weight", rows, cols);
+            reader, blk + "ffn_gate.weight", rows, cols, dev);
       }
       {
         const auto &info = reader.get_tensor_info(blk + "ffn_up.weight");
         uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
         uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
         layer.w_up = uploadWeightMaybeQuantized(reader, blk + "ffn_up.weight",
-                                                rows, cols);
+                                                rows, cols, dev);
       }
 
       // ffn_down always separate (not fused)
@@ -411,7 +495,7 @@ void LlamaModel::load(const std::string &gguf_path,
         uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
         uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
         layer.w_down = uploadWeightMaybeQuantized(
-            reader, blk + "ffn_down.weight", rows, cols);
+            reader, blk + "ffn_down.weight", rows, cols, dev);
       }
     }
   }
@@ -427,7 +511,7 @@ void LlamaModel::load(const std::string &gguf_path,
   // Output norm
   {
     auto data = reader.read_tensor_f32("output_norm.weight");
-    output_norm_ = uploadVector(data);
+    output_norm_ = uploadVector(data, lastDevice_);
   }
 
   // Output weight (LM head)
@@ -435,46 +519,64 @@ void LlamaModel::load(const std::string &gguf_path,
     const auto &info = reader.get_tensor_info("output.weight");
     uint32_t cols = static_cast<uint32_t>(info.dimensions[0]);
     uint32_t rows = static_cast<uint32_t>(info.dimensions[1]);
-    output_weight_ =
-        uploadWeightMaybeQuantized(reader, "output.weight", rows, cols);
+    output_weight_ = uploadWeightMaybeQuantized(reader, "output.weight", rows,
+                                                cols, lastDevice_);
   } else {
-    // Some models tie embeddings — use token_embd.weight transposed
-    output_weight_.handle = ops_->transpose(embeddingTable_);
+    // Tied embeddings: the LM head lives on the last device; copy the
+    // embedding table there first if the pipeline spans devices.
+    cut::ComputeHandle embForHead = embeddingTable_;
+    if (lastDevice_ != firstDevice_) {
+      runtime_->flush(firstDevice_);
+      embForHead =
+          runtime_->transferTensor(embeddingTable_, firstDevice_, lastDevice_);
+    }
+    output_weight_.handle = opsAt(lastDevice_).transpose(embForHead);
   }
 
   // Initialize KV caches with pre-allocated GPU buffers.
   // Float16 KV cache halves memory (matches llama.cpp default) while
   // attention computation stays Float32 for numerical stability.
   kv_caches_.resize(config_.n_layers);
-  for (auto &cache : kv_caches_) {
-    cache.k_cache = runtime_->createTensorEmpty(
-        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16);
-    cache.v_cache = runtime_->createTensorEmpty(
-        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16);
+  for (uint32_t l = 0; l < config_.n_layers; ++l) {
+    const size_t dev = layerDevice_[l];
+    kv_caches_[l].k_cache = runtime_->createTensorEmpty(
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16, false,
+        dev);
+    kv_caches_[l].v_cache = runtime_->createTensorEmpty(
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16, false,
+        dev);
   }
 
-  // Pre-allocate buffers for command buffer reuse.
+  // Pre-allocate per-device buffers for command buffer reuse.
   // Use mapped (host-visible) memory for small per-token params to avoid
   // staging command buffer + fence wait overhead on every token.
-  runtimeParamsBuffer_ =
-      runtime_->createTensorMapped({2}, cut::DataType::UInt32);
-  tokenIdBuffer_ = runtime_->createTensorMapped({1}, cut::DataType::UInt32);
-  hiddenBuffer_ =
-      runtime_->createTensorEmpty({config_.dim}, cut::DataType::Float32);
-  ropeQOutBuffer_ = runtime_->createTensorEmpty(
-      {config_.n_heads * config_.head_dim}, cut::DataType::Float32);
-  ropeKOutBuffer_ =
-      runtime_->createTensorEmpty({config_.kv_dim}, cut::DataType::Float32);
-  attnOutBuffer_ = runtime_->createTensorEmpty(
-      {config_.n_heads * config_.head_dim}, cut::DataType::Float32);
+  runtimeParamsBuffers_.assign(runtime_->deviceCount(), {});
+  hiddenBuffers_.assign(runtime_->deviceCount(), {});
+  attnOutBuffers_.assign(runtime_->deviceCount(), {});
+  for (uint32_t s : segmentStart_) {
+    const size_t dev = layerDevice_[s];
+    if (runtimeParamsBuffers_[dev]) {
+      continue; // already created for this device
+    }
+    runtimeParamsBuffers_[dev] =
+        runtime_->createTensorMapped({2}, cut::DataType::UInt32, nullptr, dev);
+    hiddenBuffers_[dev] = runtime_->createTensorEmpty(
+        {config_.dim}, cut::DataType::Float32, false, dev);
+    attnOutBuffers_[dev] = runtime_->createTensorEmpty(
+        {config_.n_heads * config_.head_dim}, cut::DataType::Float32, false,
+        dev);
+  }
+  tokenIdBuffer_ = runtime_->createTensorMapped({1}, cut::DataType::UInt32,
+                                                nullptr, firstDevice_);
   // Initialize penalty factors to 1.0 (no penalty) for the first forward pass
   {
     std::vector<float> ones(config_.vocab_size, 1.0f);
     penaltyFactorsBuffer_ = runtime_->createTensorMapped(
-        {1, config_.vocab_size}, cut::DataType::Float32, ones.data());
+        {1, config_.vocab_size}, cut::DataType::Float32, ones.data(),
+        lastDevice_);
   }
-  argmaxResultBuffer_ =
-      runtime_->createTensorEmpty({1}, cut::DataType::Float32);
+  argmaxResultBuffer_ = runtime_->createTensorEmpty(
+      {1}, cut::DataType::Float32, false, lastDevice_);
 
   // Precompute RoPE tables
   precomputeRoPE();
@@ -484,7 +586,9 @@ void LlamaModel::load(const std::string &gguf_path,
   buildGraphTemplates();
   auto graphEnd = std::chrono::high_resolution_clock::now();
 
-  runtime_->flush();
+  for (size_t d = 0; d < runtime_->deviceCount(); ++d) {
+    runtime_->flush(d);
+  }
 
   // Release buffer cache and staging memory — all weight uploads are done.
   runtime_->releaseLoadingResources();
@@ -501,10 +605,14 @@ void LlamaModel::load(const std::string &gguf_path,
     std::cout << "Graph build: " << graphMs << " ms, flush: " << flushMs
               << " ms, total load: " << totalMs << " ms\n";
   }
-  std::cout << "Model loaded successfully. Buffers: " << runtime_->bufferCount()
-            << "  GPU memory: "
-            << (runtime_->activeBufferMemoryBytes() / (1024.0 * 1024.0))
-            << " MB\n";
+  size_t totalBuffers = 0;
+  double totalMB = 0.0;
+  for (size_t d = 0; d < runtime_->deviceCount(); ++d) {
+    totalBuffers += runtime_->bufferCount(d);
+    totalMB += runtime_->activeBufferMemoryBytes(d) / (1024.0 * 1024.0);
+  }
+  std::cout << "Model loaded successfully. Buffers: " << totalBuffers
+            << "  GPU memory: " << totalMB << " MB\n";
 
   // Generate HTML architecture report next to the model file.
   {
@@ -575,62 +683,31 @@ void LlamaModel::precomputeRoPE() {
     }
   }
 
-  // Upload as 1D GPU tensors (shader indexes linearly: pos * halfDim + i)
-  rope_cos_gpu_ =
-      runtime_->createTensor({config_.max_seq_len * half_dim},
-                             cut::DataType::Float32, cos_table.data());
-  rope_sin_gpu_ =
-      runtime_->createTensor({config_.max_seq_len * half_dim},
-                             cut::DataType::Float32, sin_table.data());
-}
-
-// ============================================================================
-// RMS Norm
-// ============================================================================
-
-cut::ComputeHandle LlamaModel::rmsNorm(const cut::ComputeHandle &x,
-                                       const cut::ComputeHandle &weight) {
-  // x is 1D [dim] — use fused RMSNorm kernel (single dispatch)
-  return ops_->rmsNorm(x, weight, config_.norm_eps);
-}
-
-// ============================================================================
-// RoPE application
-// ============================================================================
-
-cut::ComputeHandle
-LlamaModel::applyRoPE(const cut::ComputeHandle &x,
-                      const cut::ComputeHandle &preallocOutput) {
-  return ops_->applyRoPE(x, rope_cos_gpu_, rope_sin_gpu_, runtimeParamsBuffer_,
-                         config_.head_dim, preallocOutput);
-}
-
-// ============================================================================
-// Attention
-// ============================================================================
-
-void LlamaModel::attention(const cut::ComputeHandle &q,
-                           const cut::ComputeHandle &k,
-                           const cut::ComputeHandle &v,
-                           int layer) {
-  auto &cache = kv_caches_[layer];
-
-  // Write K and V into GPU cache at position from runtimeParamsBuffer_
-  ops_->cacheWrite(cache.k_cache, k, runtimeParamsBuffer_);
-  ops_->cacheWrite(cache.v_cache, v, runtimeParamsBuffer_);
-
-  // Compute attention — seqLen read from runtimeParamsBuffer_ by shader
-  ops_->attention(q, cache.k_cache, cache.v_cache, runtimeParamsBuffer_,
-                  config_.n_heads, config_.n_kv_heads, config_.head_dim,
-                  attnOutBuffer_);
+  // Upload as 1D GPU tensors on every device that runs layers
+  // (shader indexes linearly: pos * halfDim + i).
+  ropeCosGpu_.assign(runtime_->deviceCount(), {});
+  ropeSinGpu_.assign(runtime_->deviceCount(), {});
+  for (uint32_t s : segmentStart_) {
+    const size_t dev = layerDevice_[s];
+    if (ropeCosGpu_[dev]) {
+      continue; // already created for this device
+    }
+    ropeCosGpu_[dev] = runtime_->createTensor({config_.max_seq_len * half_dim},
+                                              cut::DataType::Float32,
+                                              cos_table.data(), false, dev);
+    ropeSinGpu_[dev] = runtime_->createTensor({config_.max_seq_len * half_dim},
+                                              cut::DataType::Float32,
+                                              sin_table.data(), false, dev);
+  }
 }
 
 // ============================================================================
 // Graph template builders
 // ============================================================================
 
-GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
-  cut::graph::GraphBuilder builder(*runtime_);
+GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer,
+                                                  size_t deviceId) {
+  cut::graph::GraphBuilder builder(*runtime_, deviceId);
   int32_t dim = static_cast<int32_t>(config_.dim);
 
   // Dynamic input: hidden state [dim] — use ffn_norm as shape placeholder
@@ -666,7 +743,7 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
     tpl.dynamicInputIds = {graph->nodeId(vHidden)};
     tpl.preOptGraph = graph->clone();
     auto optimizer = cut::graph::GraphOptimizer::createDefault();
-    optimizer.optimize(*graph, runtime_->store());
+    optimizer.optimize(*graph, runtime_->store(deviceId));
     tpl.stats = optimizer.stats();
     tpl.graph = std::move(graph);
     return tpl;
@@ -705,15 +782,16 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer) {
   tpl.dynamicInputIds = {graph->nodeId(vHidden)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*graph, runtime_->store());
+  optimizer.optimize(*graph, runtime_->store(deviceId));
   tpl.stats = optimizer.stats();
   tpl.graph = std::move(graph);
   return tpl;
 }
 
 GraphTemplate
-LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
-  cut::graph::GraphBuilder builder(*runtime_);
+LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer,
+                                         size_t deviceId) {
+  cut::graph::GraphBuilder builder(*runtime_, deviceId);
   int32_t dim = static_cast<int32_t>(config_.dim);
 
   // Dynamic inputs — each must use a DIFFERENT placeholder tensor so that
@@ -738,14 +816,15 @@ LlamaModel::buildAttnOutputResidualGraph(const LlamaLayer &layer) {
   tpl.dynamicInputIds = {graph->nodeId(vAttnOut), graph->nodeId(vHidden)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*graph, runtime_->store());
+  optimizer.optimize(*graph, runtime_->store(deviceId));
   tpl.stats = optimizer.stats();
   tpl.graph = std::move(graph);
   return tpl;
 }
 
-GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
-  cut::graph::GraphBuilder builder(*runtime_);
+GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer,
+                                                size_t deviceId) {
+  cut::graph::GraphBuilder builder(*runtime_, deviceId);
   int32_t dim = static_cast<int32_t>(config_.dim);
 
   // Dynamic input: hidden state [dim] — use attn_norm as shape placeholder
@@ -807,19 +886,21 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer) {
   tpl.dynamicInputIds = {graph->nodeId(vHidden)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*graph, runtime_->store());
+  optimizer.optimize(*graph, runtime_->store(deviceId));
   tpl.stats = optimizer.stats();
   tpl.graph = std::move(graph);
   return tpl;
 }
 
 GraphTemplate LlamaModel::buildLogitsGraph() {
-  cut::graph::GraphBuilder builder(*runtime_);
+  cut::graph::GraphBuilder builder(*runtime_, lastDevice_);
   int32_t dim = static_cast<int32_t>(config_.dim);
 
-  // Dynamic input: hidden state [dim] — use layers_[0].attn_norm as shape
-  // placeholder (must differ from output_norm_ used as constant input below)
-  auto vHidden = builder.input(layers_[0].attn_norm, /*isConstant=*/false);
+  // Dynamic input: hidden state [dim] — use the LAST layer's attn_norm as
+  // shape placeholder: it lives on lastDevice_ like this graph, and differs
+  // from output_norm_ used as constant input below.
+  auto vHidden = builder.input(layers_[config_.n_layers - 1].attn_norm,
+                               /*isConstant=*/false);
 
   // Constant input: output norm weight [dim]
   auto vOutputNorm = builder.input(output_norm_, /*isConstant=*/true);
@@ -845,15 +926,27 @@ GraphTemplate LlamaModel::buildLogitsGraph() {
   tpl.dynamicInputIds = {graph->nodeId(vHidden)};
   tpl.preOptGraph = graph->clone();
   auto optimizer = cut::graph::GraphOptimizer::createDefault();
-  optimizer.optimize(*graph, runtime_->store());
+  optimizer.optimize(*graph, runtime_->store(lastDevice_));
   tpl.stats = optimizer.stats();
   tpl.graph = std::move(graph);
   return tpl;
 }
 
 void LlamaModel::buildGraphTemplates() {
-  executor_ =
-      std::make_unique<cut::graph::GraphExecutor>(*ops_, runtime_->store());
+  // One executor per device that runs graphs (layer devices + logits device).
+  executors_.clear();
+  executors_.resize(runtime_->deviceCount());
+  for (uint32_t s : segmentStart_) {
+    const size_t dev = layerDevice_[s];
+    if (!executors_[dev]) {
+      executors_[dev] = std::make_unique<cut::graph::GraphExecutor>(
+          runtime_->ops(dev), runtime_->store(dev));
+    }
+  }
+  if (!executors_[lastDevice_]) {
+    executors_[lastDevice_] = std::make_unique<cut::graph::GraphExecutor>(
+        runtime_->ops(lastDevice_), runtime_->store(lastDevice_));
+  }
 
   // Collect optimization statistics across all graph templates
   std::map<std::string, int> totalOptimizations;
@@ -862,19 +955,19 @@ void LlamaModel::buildGraphTemplates() {
   if (config_.n_layers > 0) {
     layerGraphs_.resize(config_.n_layers);
 
-    auto qkvTpl = buildQKVProjectionGraph(layers_[0]);
+    auto qkvTpl = buildQKVProjectionGraph(layers_[0], layerDevice_[0]);
     for (const auto &stat : qkvTpl.stats) {
       totalOptimizations[stat.name] += stat.runCount;
     }
     layerGraphs_[0].qkvProjection = std::move(qkvTpl);
 
-    auto attnTpl = buildAttnOutputResidualGraph(layers_[0]);
+    auto attnTpl = buildAttnOutputResidualGraph(layers_[0], layerDevice_[0]);
     for (const auto &stat : attnTpl.stats) {
       totalOptimizations[stat.name] += stat.runCount;
     }
     layerGraphs_[0].attnOutputResidual = std::move(attnTpl);
 
-    auto ffnTpl = buildFFNResidualGraph(layers_[0]);
+    auto ffnTpl = buildFFNResidualGraph(layers_[0], layerDevice_[0]);
     for (const auto &stat : ffnTpl.stats) {
       totalOptimizations[stat.name] += stat.runCount;
     }
@@ -882,10 +975,12 @@ void LlamaModel::buildGraphTemplates() {
 
     // Build remaining layers (reuse same patterns, multiply stats)
     for (uint32_t i = 1; i < config_.n_layers; ++i) {
-      layerGraphs_[i].qkvProjection = buildQKVProjectionGraph(layers_[i]);
+      layerGraphs_[i].qkvProjection =
+          buildQKVProjectionGraph(layers_[i], layerDevice_[i]);
       layerGraphs_[i].attnOutputResidual =
-          buildAttnOutputResidualGraph(layers_[i]);
-      layerGraphs_[i].ffnResidual = buildFFNResidualGraph(layers_[i]);
+          buildAttnOutputResidualGraph(layers_[i], layerDevice_[i]);
+      layerGraphs_[i].ffnResidual =
+          buildFFNResidualGraph(layers_[i], layerDevice_[i]);
     }
 
     // Multiply layer 0 stats by n_layers - 1 to account for other layers
@@ -923,34 +1018,37 @@ void LlamaModel::buildGraphTemplates() {
   std::cout << "\n";
 }
 
-std::vector<cut::Tensor> LlamaModel::executeGraph(
-    GraphTemplate &tpl, const std::vector<cut::ComputeHandle> &dynamicHandles) {
+std::vector<cut::Tensor>
+LlamaModel::executeGraph(GraphTemplate &tpl,
+                         const std::vector<cut::ComputeHandle> &dynamicHandles,
+                         size_t deviceId) {
   for (size_t i = 0; i < tpl.dynamicInputIds.size(); ++i) {
     auto &gn = tpl.graph->node(tpl.dynamicInputIds[i]);
     static_cast<cut::InputOpNode *>(gn.op.get())
         ->setGpuHandle(dynamicHandles[i]);
   }
-  return executor_->execute(*tpl.graph);
+  return executors_[deviceId]->execute(*tpl.graph);
 }
 
 void LlamaModel::splitQKV(const std::vector<cut::Tensor> &qkv,
                           cut::ComputeHandle &q,
                           cut::ComputeHandle &k,
-                          cut::ComputeHandle &v) {
+                          cut::ComputeHandle &v,
+                          size_t deviceId) {
   if (qkv.size() == 1) {
     // Fused QKV: split the combined [qdim + 2*kvdim] buffer into Q, K, V
     // views. Explicit barrier needed because the barrier tracker doesn't see
     // views as sharing the matmul's parent buffer.
     uint32_t qdim = config_.n_heads * config_.head_dim;
     uint32_t kvdim = config_.kv_dim;
-    q = runtime_->store().createTensorView(qkv[0], 0, {qdim},
-                                           cut::DataType::Float32);
-    k = runtime_->store().createTensorView(qkv[0], qdim * sizeof(float),
-                                           {kvdim}, cut::DataType::Float32);
-    v = runtime_->store().createTensorView(qkv[0],
-                                           (qdim + kvdim) * sizeof(float),
-                                           {kvdim}, cut::DataType::Float32);
-    ops_->barrier();
+    q = runtime_->store(deviceId).createTensorView(qkv[0], 0, {qdim},
+                                                   cut::DataType::Float32);
+    k = runtime_->store(deviceId).createTensorView(
+        qkv[0], qdim * sizeof(float), {kvdim}, cut::DataType::Float32);
+    v = runtime_->store(deviceId).createTensorView(
+        qkv[0], (qdim + kvdim) * sizeof(float), {kvdim},
+        cut::DataType::Float32);
+    opsAt(deviceId).barrier();
   } else {
     q = qkv[0];
     k = qkv[1];
@@ -961,30 +1059,31 @@ void LlamaModel::splitQKV(const std::vector<cut::Tensor> &qkv,
 cut::ComputeHandle LlamaModel::runLayer(uint32_t layerIdx,
                                         const cut::ComputeHandle &hidden) {
   auto &lg = layerGraphs_[layerIdx];
+  const size_t dev = layerDevice_[layerIdx];
+  auto &ops = opsAt(dev);
 
-  auto qkv = executeGraph(lg.qkvProjection, {hidden});
+  auto qkv = executeGraph(lg.qkvProjection, {hidden}, dev);
 
   cut::ComputeHandle q, k, v;
-  splitQKV(qkv, q, k, v);
+  splitQKV(qkv, q, k, v, dev);
 
   auto &cache = kv_caches_[layerIdx];
   // Split into separate dispatches to avoid inter-workgroup race condition
   // (FusedAttention relied on cross-workgroup visibility of cache writes
   // which is undefined behavior in Vulkan)
-  auto q_roped = ops_->applyRoPE(q, rope_cos_gpu_, rope_sin_gpu_,
-                                  runtimeParamsBuffer_, config_.head_dim);
-  auto k_roped = ops_->applyRoPE(k, rope_cos_gpu_, rope_sin_gpu_,
-                                  runtimeParamsBuffer_, config_.head_dim);
-  ops_->cacheWrite(cache.k_cache, k_roped, runtimeParamsBuffer_);
-  ops_->cacheWrite(cache.v_cache, v, runtimeParamsBuffer_);
-  ops_->attention(q_roped, cache.k_cache, cache.v_cache,
-                  runtimeParamsBuffer_,
-                  config_.n_heads, config_.n_kv_heads, config_.head_dim,
-                  attnOutBuffer_);
+  auto q_roped = ops.applyRoPE(q, ropeCosGpu_[dev], ropeSinGpu_[dev],
+                               runtimeParamsBuffers_[dev], config_.head_dim);
+  auto k_roped = ops.applyRoPE(k, ropeCosGpu_[dev], ropeSinGpu_[dev],
+                               runtimeParamsBuffers_[dev], config_.head_dim);
+  ops.cacheWrite(cache.k_cache, k_roped, runtimeParamsBuffers_[dev]);
+  ops.cacheWrite(cache.v_cache, v, runtimeParamsBuffers_[dev]);
+  ops.attention(q_roped, cache.k_cache, cache.v_cache,
+                runtimeParamsBuffers_[dev], config_.n_heads,
+                config_.n_kv_heads, config_.head_dim, attnOutBuffers_[dev]);
 
   auto attn_result =
-      executeGraph(lg.attnOutputResidual, {attnOutBuffer_, hidden});
-  auto ffn_result = executeGraph(lg.ffnResidual, {attn_result[0]});
+      executeGraph(lg.attnOutputResidual, {attnOutBuffers_[dev], hidden}, dev);
+  auto ffn_result = executeGraph(lg.ffnResidual, {attn_result[0]}, dev);
   return ffn_result[0];
 }
 
@@ -995,43 +1094,75 @@ cut::ComputeHandle LlamaModel::runLayer(uint32_t layerIdx,
 cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   uint32_t upos = static_cast<uint32_t>(pos);
 
-  // Update runtime params buffer: {pos, seqLen}
+  // Update runtime params {pos, seqLen} on every device that runs layers
+  // (mapped writes; duplicate writes to a device are harmless memcpys).
   uint32_t params[2] = {upos, upos + 1};
-  runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
+  for (uint32_t s : segmentStart_) {
+    const size_t dev = layerDevice_[s];
+    runtime_->copyToTensor(runtimeParamsBuffers_[dev], params, sizeof(params),
+                           0, 0, dev);
+  }
 
-  // Update token ID for GPU embedding lookup
+  // Update token ID for GPU embedding lookup (first device).
   uint32_t tid = static_cast<uint32_t>(token_id);
-  runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t));
+  runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t), 0, 0,
+                         firstDevice_);
 
   if (decodeCBCached_) {
-    // Resubmit cached CB: embedding → layers → logits → penalty → argmax.
-    // Mapped buffers (runtimeParams, tokenId, penaltyFactors) were updated
-    // via direct memcpy above — no staging fence needed.
-    runtime_->resubmitAndWait(cachedDecodeCB_);
+    // Resubmit each segment's cached CB in pipeline order, copying the
+    // hidden state across device boundaries between segments. Mapped
+    // buffers (runtimeParams, tokenId, penaltyFactors) were updated via
+    // direct memcpy above — no staging fence needed.
+    for (size_t seg = 0; seg < cachedDecodeCBs_.size(); ++seg) {
+      const size_t dev = layerDevice_[segmentStart_[seg]];
+      runtime_->resubmitAndWait(cachedDecodeCBs_[seg], dev);
+      if (seg + 1 < cachedDecodeCBs_.size()) {
+        const size_t nextDev = layerDevice_[segmentStart_[seg + 1]];
+        runtime_->transferTensor(segmentDecodeOut_[seg], dev,
+                                 hiddenBuffers_[nextDev], nextDev);
+      }
+    }
     return argmaxResultBuffer_;
   }
 
-  // --- First forward: record all dispatches into one reusable CB ---
+  // --- First forward: record one reusable CB per pipeline segment ---
+  cachedDecodeCBs_.clear();
+  segmentDecodeOut_.clear();
 
-  ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
+  opsAt(firstDevice_)
+      .embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffers_[firstDevice_]);
 
-  auto hidden = hiddenBuffer_;
-  for (uint32_t i = 0; i < config_.n_layers; ++i)
+  cut::ComputeHandle hidden = hiddenBuffers_[firstDevice_];
+  bool allCached = true;
+  for (uint32_t i = 0; i < config_.n_layers; ++i) {
     hidden = runLayer(i, hidden);
 
-  // LM head logits
-  auto logit_result = executeGraph(logitsGraph_, {hidden});
-  logitsOutput_ = logit_result[0];
-
-  // Include penalty + argmax in the cached CB so sampling needs no extra
-  // submit. penaltyFactorsBuffer_ is updated via memcpy before each resubmit.
-  auto penalized =
-      ops_->repetitionPenalty(logitsOutput_, penaltyFactorsBuffer_);
-  argmaxResultBuffer_ = ops_->reduce(cut::ReduceArgmax, penalized);
-
-  // Cache the command buffer for reuse on subsequent tokens
-  cachedDecodeCB_ = runtime_->submitReusable();
-  decodeCBCached_ = static_cast<bool>(cachedDecodeCB_);
+    const bool lastLayer = (i + 1 == config_.n_layers);
+    const bool segmentEnd = lastLayer || isSegmentStart(i + 1);
+    if (!segmentEnd) {
+      continue;
+    }
+    const size_t dev = layerDevice_[i];
+    if (lastLayer) {
+      // LM head logits + penalty + argmax live in the last segment's CB so
+      // sampling needs no extra submit. penaltyFactorsBuffer_ is updated via
+      // memcpy before each resubmit.
+      auto logit_result = executeGraph(logitsGraph_, {hidden}, dev);
+      logitsOutput_ = logit_result[0];
+      auto penalized =
+          opsAt(dev).repetitionPenalty(logitsOutput_, penaltyFactorsBuffer_);
+      argmaxResultBuffer_ = opsAt(dev).reduce(cut::ReduceArgmax, penalized);
+    }
+    segmentDecodeOut_.push_back(hidden);
+    cachedDecodeCBs_.push_back(runtime_->submitReusable(dev));
+    allCached = allCached && static_cast<bool>(cachedDecodeCBs_.back());
+    if (!lastLayer) {
+      const size_t nextDev = layerDevice_[i + 1];
+      runtime_->transferTensor(hidden, dev, hiddenBuffers_[nextDev], nextDev);
+      hidden = hiddenBuffers_[nextDev];
+    }
+  }
+  decodeCBCached_ = allCached && !cachedDecodeCBs_.empty();
 
   return argmaxResultBuffer_;
 }
@@ -1039,62 +1170,114 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
 void LlamaModel::forwardPrefill(int token_id, int pos) {
   uint32_t upos = static_cast<uint32_t>(pos);
   uint32_t params[2] = {upos, upos + 1};
-  runtime_->copyToTensor(runtimeParamsBuffer_, params, sizeof(params));
+  for (uint32_t s : segmentStart_) {
+    const size_t dev = layerDevice_[s];
+    runtime_->copyToTensor(runtimeParamsBuffers_[dev], params, sizeof(params),
+                           0, 0, dev);
+  }
 
   uint32_t tid = static_cast<uint32_t>(token_id);
-  runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t));
+  runtime_->copyToTensor(tokenIdBuffer_, &tid, sizeof(uint32_t), 0, 0,
+                         firstDevice_);
 
   if (prefillCBCached_) {
-    runtime_->resubmitAndWait(cachedPrefillCB_);
+    for (size_t seg = 0; seg < cachedPrefillCBs_.size(); ++seg) {
+      const size_t dev = layerDevice_[segmentStart_[seg]];
+      runtime_->resubmitAndWait(cachedPrefillCBs_[seg], dev);
+      if (seg + 1 < cachedPrefillCBs_.size()) {
+        const size_t nextDev = layerDevice_[segmentStart_[seg + 1]];
+        runtime_->transferTensor(segmentPrefillOut_[seg], dev,
+                                 hiddenBuffers_[nextDev], nextDev);
+      }
+    }
     return;
   }
 
-  // Record prefill CB: embedding → layers (no logits/penalty/argmax)
-  ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
+  // Record per-segment prefill CBs: embedding → layers (no logits/argmax).
+  cachedPrefillCBs_.clear();
+  segmentPrefillOut_.clear();
 
-  auto hidden = hiddenBuffer_;
-  for (uint32_t i = 0; i < config_.n_layers; ++i)
+  opsAt(firstDevice_)
+      .embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffers_[firstDevice_]);
+
+  cut::ComputeHandle hidden = hiddenBuffers_[firstDevice_];
+  bool allCached = true;
+  for (uint32_t i = 0; i < config_.n_layers; ++i) {
     hidden = runLayer(i, hidden);
-
-  cachedPrefillCB_ = runtime_->submitReusable();
-  prefillCBCached_ = static_cast<bool>(cachedPrefillCB_);
+    const bool lastLayer = (i + 1 == config_.n_layers);
+    const bool segmentEnd = lastLayer || isSegmentStart(i + 1);
+    if (!segmentEnd) {
+      continue;
+    }
+    const size_t dev = layerDevice_[i];
+    segmentPrefillOut_.push_back(hidden);
+    cachedPrefillCBs_.push_back(runtime_->submitReusable(dev));
+    allCached = allCached && static_cast<bool>(cachedPrefillCBs_.back());
+    if (!lastLayer) {
+      const size_t nextDev = layerDevice_[i + 1];
+      runtime_->transferTensor(hidden, dev, hiddenBuffers_[nextDev], nextDev);
+      hidden = hiddenBuffers_[nextDev];
+    }
+  }
+  prefillCBCached_ = allCached && !cachedPrefillCBs_.empty();
 }
 
 int LlamaModel::prefill(const std::vector<int> &tokens) {
+  if (segmentStart_.size() > 1) {
+    // Pipeline split: the single-CB inline-update recording below is
+    // single-device only. Use the per-token cached-CB path instead.
+    for (size_t i = 0; i + 1 < tokens.size(); ++i) {
+      forwardPrefill(tokens[i], static_cast<int>(i));
+    }
+    auto argmaxBuf =
+        forward(tokens.back(), static_cast<int>(tokens.size() - 1));
+    float best = 0.0f;
+    runtime_->copyFromTensor(argmaxBuf, &best, sizeof(float), 0, 0,
+                             lastDevice_);
+    return static_cast<int>(best);
+  }
+
   // Record all prompt tokens into a single command buffer using inline buffer
   // updates (vkCmdUpdateBuffer) for runtimeParams and tokenId. This eliminates
   // N-1 fence waits by batching everything into one CB submission.
   for (size_t i = 0; i < tokens.size(); ++i) {
     uint32_t upos = static_cast<uint32_t>(i);
     uint32_t params[2] = {upos, upos + 1};
-    runtime_->updateBufferInline(runtimeParamsBuffer_, params, sizeof(params));
+    runtime_->updateBufferInline(runtimeParamsBuffers_[firstDevice_], params,
+                                 sizeof(params), firstDevice_);
 
     uint32_t tid = static_cast<uint32_t>(tokens[i]);
-    runtime_->updateBufferInline(tokenIdBuffer_, &tid, sizeof(uint32_t));
+    runtime_->updateBufferInline(tokenIdBuffer_, &tid, sizeof(uint32_t),
+                                 firstDevice_);
 
-    ops_->embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffer_);
+    opsAt(firstDevice_)
+        .embedding(tokenIdBuffer_, embeddingTable_,
+                   hiddenBuffers_[firstDevice_]);
 
-    auto hidden = hiddenBuffer_;
+    auto hidden = hiddenBuffers_[firstDevice_];
     for (uint32_t l = 0; l < config_.n_layers; ++l)
       hidden = runLayer(l, hidden);
 
     // Only compute logits + argmax for the last token
     if (i == tokens.size() - 1) {
-      auto logit_result = executeGraph(logitsGraph_, {hidden});
+      auto logit_result = executeGraph(logitsGraph_, {hidden}, lastDevice_);
       logitsOutput_ = logit_result[0];
 
-      auto penalized =
-          ops_->repetitionPenalty(logitsOutput_, penaltyFactorsBuffer_);
-      argmaxResultBuffer_ = ops_->reduce(cut::ReduceArgmax, penalized);
+      auto penalized = opsAt(lastDevice_)
+                           .repetitionPenalty(logitsOutput_,
+                                              penaltyFactorsBuffer_);
+      argmaxResultBuffer_ =
+          opsAt(lastDevice_).reduce(cut::ReduceArgmax, penalized);
     }
   }
 
   // Single submit + wait for the entire prefill
-  runtime_->flushPendingCommands();
+  runtime_->flushPendingCommands(firstDevice_);
 
   // Read back the argmax result (4 bytes)
   float best = 0.0f;
-  runtime_->copyFromTensor(argmaxResultBuffer_, &best, sizeof(float));
+  runtime_->copyFromTensor(argmaxResultBuffer_, &best, sizeof(float), 0, 0,
+                           lastDevice_);
   return static_cast<int>(best);
 }
 
@@ -1105,27 +1288,43 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
   uint32_t kvdim = config_.kv_dim;
   uint32_t alignedKvDim = (kvdim + 3) & ~3u;
 
-  // 1. Upload all token IDs [N] and position array [0..N-1]
+  // 1. Upload all token IDs [N] and position array [0..N-1].
+  //    Positions are needed by the batched attention ops on every device
+  //    that runs layers, so replicate the buffer per device.
   std::vector<uint32_t> tokenIds(tokens.begin(), tokens.end());
-  auto tokenBuf =
-      runtime_->createTensor({N}, cut::DataType::UInt32, tokenIds.data());
+  auto tokenBuf = runtime_->createTensor({N}, cut::DataType::UInt32,
+                                         tokenIds.data(), false, firstDevice_);
 
   std::vector<uint32_t> positions(N);
   for (uint32_t i = 0; i < N; ++i)
     positions[i] = i;
-  auto posBuf =
-      runtime_->createTensor({N}, cut::DataType::UInt32, positions.data());
+  std::vector<cut::ComputeHandle> posBufs(runtime_->deviceCount());
+  for (uint32_t s : segmentStart_) {
+    const size_t d = layerDevice_[s];
+    if (!posBufs[d]) {
+      posBufs[d] = runtime_->createTensor({N}, cut::DataType::UInt32,
+                                          positions.data(), false, d);
+    }
+  }
 
   // 2. Embedding: [N] → [N, dim]
-  auto hidden = ops_->embedding(tokenBuf, embeddingTable_);
+  auto hidden = opsAt(firstDevice_).embedding(tokenBuf, embeddingTable_);
 
   // 3. Process all layers
   for (uint32_t l = 0; l < config_.n_layers; ++l) {
     auto &layer = layers_[l];
     auto &cache = kv_caches_[l];
+    const size_t dev = layerDevice_[l];
+    auto &ops = opsAt(dev);
+
+    // Cross-device boundary: move the [N, dim] activations to this layer's
+    // device through the host.
+    if (l > 0 && dev != layerDevice_[l - 1]) {
+      hidden = runtime_->transferTensor(hidden, layerDevice_[l - 1], dev);
+    }
 
     // --- QKV projection: RMSNorm → batched matmul ---
-    auto normed = ops_->rmsNorm(hidden, layer.attn_norm, config_.norm_eps);
+    auto normed = ops.rmsNorm(hidden, layer.attn_norm, config_.norm_eps);
 
     // Use the SAME fused weight as the decode path for numerical equivalence.
     // Fused: one matmul → [N, qdim+2*kvdim], views index Q/K/V per-row.
@@ -1140,7 +1339,7 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
     uint32_t qColOff, kColOff, vColOff;
 
     if (fusedQKV) {
-      auto qkvOut = ops_->matmul(normed, layer.wqkv.handle);
+      auto qkvOut = ops.matmul(normed, layer.wqkv.handle);
       qBuf = qkvOut;
       kBuf = qkvOut;
       vBuf = qkvOut;
@@ -1150,20 +1349,20 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
       vColOff = qdim + kvdim;
     } else {
       qBuf = layer.wq.isQuantized()
-                 ? ops_->matmul(normed, layer.wq.qValues, layer.wq.qScales)
-                 : ops_->matmul(normed, layer.wq.handle);
+                 ? ops.matmul(normed, layer.wq.qValues, layer.wq.qScales)
+                 : ops.matmul(normed, layer.wq.handle);
       kBuf = layer.wk.isQuantized()
-                 ? ops_->matmul(normed, layer.wk.qValues, layer.wk.qScales)
-                 : ops_->matmul(normed, layer.wk.handle);
+                 ? ops.matmul(normed, layer.wk.qValues, layer.wk.qScales)
+                 : ops.matmul(normed, layer.wk.handle);
       vBuf = layer.wv.isQuantized()
-                 ? ops_->matmul(normed, layer.wv.qValues, layer.wv.qScales)
-                 : ops_->matmul(normed, layer.wv.handle);
+                 ? ops.matmul(normed, layer.wv.qValues, layer.wv.qScales)
+                 : ops.matmul(normed, layer.wv.handle);
       if (layer.bq)
-        qBuf = ops_->binaryOp(cut::BinaryAdd, qBuf, layer.bq);
+        qBuf = ops.binaryOp(cut::BinaryAdd, qBuf, layer.bq);
       if (layer.bk)
-        kBuf = ops_->binaryOp(cut::BinaryAdd, kBuf, layer.bk);
+        kBuf = ops.binaryOp(cut::BinaryAdd, kBuf, layer.bk);
       if (layer.bv)
-        vBuf = ops_->binaryOp(cut::BinaryAdd, vBuf, layer.bv);
+        vBuf = ops.binaryOp(cut::BinaryAdd, vBuf, layer.bv);
       qRowStride = alignedQdim;
       kRowStride = vRowStride = alignedKvDim;
       qColOff = kColOff = vColOff = 0;
@@ -1173,7 +1372,7 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
     // just-written matmul outputs. The matmul's output handle differs from
     // any per-row view's handle, so the barrier tracker can't auto-insert
     // this for the strided-input batched ops below.
-    ops_->barrier();
+    ops.barrier();
 
     // --- Two-dispatch batched attention path ---
     // Replaces the per-token loop (5N dispatches/layer) with 2 dispatches:
@@ -1183,18 +1382,18 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
     // The Vulkan auto-barrier between dispatches (both touch kCache/vCache)
     // ensures D1's writes are visible to D2's reads — fixing the
     // cross-workgroup race in the old single-dispatch BatchedFusedAttention.
-    ops_->batchedKVCacheWrite(kBuf, vBuf, cache.k_cache, cache.v_cache, posBuf,
-                              rope_cos_gpu_, rope_sin_gpu_,
-                              /*batchSize=*/ N,
-                              /*nKvHeads=*/ config_.n_kv_heads,
-                              /*headDim=*/ config_.head_dim,
-                              /*kStride=*/ kRowStride,
-                              /*vStride=*/ vRowStride,
-                              /*kOffset=*/ kColOff,
-                              /*vOffset=*/ vColOff);
-    auto attnOut = ops_->batchedAttentionReadCache(
-        qBuf, cache.k_cache, cache.v_cache, posBuf,
-        rope_cos_gpu_, rope_sin_gpu_,
+    ops.batchedKVCacheWrite(kBuf, vBuf, cache.k_cache, cache.v_cache,
+                            posBufs[dev], ropeCosGpu_[dev], ropeSinGpu_[dev],
+                            /*batchSize=*/ N,
+                            /*nKvHeads=*/ config_.n_kv_heads,
+                            /*headDim=*/ config_.head_dim,
+                            /*kStride=*/ kRowStride,
+                            /*vStride=*/ vRowStride,
+                            /*kOffset=*/ kColOff,
+                            /*vOffset=*/ vColOff);
+    auto attnOut = ops.batchedAttentionReadCache(
+        qBuf, cache.k_cache, cache.v_cache, posBufs[dev],
+        ropeCosGpu_[dev], ropeSinGpu_[dev],
         /*batchSize=*/ N,
         /*nHeads=*/ config_.n_heads,
         /*nKvHeads=*/ config_.n_kv_heads,
@@ -1203,7 +1402,7 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
         /*qOffset=*/ qColOff);
 
     // Barrier so the output projection reads the views' writes into attnOut.
-    ops_->barrier();
+    ops.barrier();
 
     // --- Output projection + residual ---
     // Tried matmulBinary fusion (would save the BinaryAdd dispatch), but
@@ -1211,14 +1410,14 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
     // it saved. See git log for the experiment.
     cut::ComputeHandle proj;
     if (layer.wo.isQuantized()) {
-      proj = ops_->matmul(attnOut, layer.wo.qValues, layer.wo.qScales);
+      proj = ops.matmul(attnOut, layer.wo.qValues, layer.wo.qScales);
     } else {
-      proj = ops_->matmul(attnOut, layer.wo.handle);
+      proj = ops.matmul(attnOut, layer.wo.handle);
     }
-    hidden = ops_->binaryOp(cut::BinaryAdd, proj, hidden);
+    hidden = ops.binaryOp(cut::BinaryAdd, proj, hidden);
 
     // --- FFN ---
-    auto ffnNormed = ops_->rmsNorm(hidden, layer.ffn_norm, config_.norm_eps);
+    auto ffnNormed = ops.rmsNorm(hidden, layer.ffn_norm, config_.norm_eps);
 
     // FFN: 2 separate gate/up matmuls (gate fuses SiLU). Tried fusing the
     // up*gate multiply into the up matmul via matmulBinary, but that
@@ -1227,51 +1426,52 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
     // memory traffic more than it saves a dispatch.
     auto gateOut =
         layer.w_gate.isQuantized()
-            ? ops_->matmulUnary(cut::UnarySilu, ffnNormed, layer.w_gate.qValues,
-                                layer.w_gate.qScales)
-            : ops_->matmulUnary(cut::UnarySilu, ffnNormed, layer.w_gate.handle);
+            ? ops.matmulUnary(cut::UnarySilu, ffnNormed, layer.w_gate.qValues,
+                              layer.w_gate.qScales)
+            : ops.matmulUnary(cut::UnarySilu, ffnNormed, layer.w_gate.handle);
     auto upOut =
         layer.w_up.isQuantized()
-            ? ops_->matmul(ffnNormed, layer.w_up.qValues, layer.w_up.qScales)
-            : ops_->matmul(ffnNormed, layer.w_up.handle);
-    auto gateUpResult = ops_->binaryOp(cut::BinaryMul, gateOut, upOut);
+            ? ops.matmul(ffnNormed, layer.w_up.qValues, layer.w_up.qScales)
+            : ops.matmul(ffnNormed, layer.w_up.handle);
+    auto gateUpResult = ops.binaryOp(cut::BinaryMul, gateOut, upOut);
 
     // Down projection + residual
     cut::ComputeHandle down;
     if (layer.w_down.isQuantized()) {
-      down = ops_->matmul(gateUpResult, layer.w_down.qValues,
-                          layer.w_down.qScales);
+      down = ops.matmul(gateUpResult, layer.w_down.qValues,
+                        layer.w_down.qScales);
     } else {
-      down = ops_->matmul(gateUpResult, layer.w_down.handle);
+      down = ops.matmul(gateUpResult, layer.w_down.handle);
     }
-    hidden = ops_->binaryOp(cut::BinaryAdd, down, hidden);
+    hidden = ops.binaryOp(cut::BinaryAdd, down, hidden);
   }
 
   // 4. Logits on last row only
   //    Extract row N-1 from [N, dim] → [dim]
   uint32_t alignedDim = (dim + 3) & ~3u;
-  auto lastRow = runtime_->store().createTensorView(
+  auto lastRow = runtime_->store(lastDevice_).createTensorView(
       hidden, static_cast<size_t>(N - 1) * alignedDim * sizeof(float), {dim},
       cut::DataType::Float32);
 
   // The view shares the parent's VkBuffer but has a different ComputeHandle,
   // so the barrier tracker doesn't see it as aliasing prior writes to
   // `hidden`. Without this, the logits rmsNorm can read stale data.
-  ops_->barrier();
+  opsAt(lastDevice_).barrier();
 
   // RMSNorm + logits matmul (reuse logits graph for single-row)
-  auto logit_result = executeGraph(logitsGraph_, {lastRow});
+  auto logit_result = executeGraph(logitsGraph_, {lastRow}, lastDevice_);
   logitsOutput_ = logit_result[0];
 
   auto penalized =
-      ops_->repetitionPenalty(logitsOutput_, penaltyFactorsBuffer_);
-  argmaxResultBuffer_ = ops_->reduce(cut::ReduceArgmax, penalized);
+      opsAt(lastDevice_).repetitionPenalty(logitsOutput_, penaltyFactorsBuffer_);
+  argmaxResultBuffer_ = opsAt(lastDevice_).reduce(cut::ReduceArgmax, penalized);
 
   // Single submit + wait
-  runtime_->flushPendingCommands();
+  runtime_->flushPendingCommands(lastDevice_);
 
   float best = 0.0f;
-  runtime_->copyFromTensor(argmaxResultBuffer_, &best, sizeof(float));
+  runtime_->copyFromTensor(argmaxResultBuffer_, &best, sizeof(float), 0, 0,
+                           lastDevice_);
   return static_cast<int>(best);
 }
 
@@ -1330,13 +1530,14 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
       }
     }
     runtime_->copyToTensor(penaltyFactorsBuffer_, factors.data(),
-                           vocabSize * sizeof(float));
+                           vocabSize * sizeof(float), 0, 0, lastDevice_);
   };
 
   // Read argmax result from GPU (4 bytes) after forward completes.
   auto readArgmax = [&](const cut::ComputeHandle &argmaxBuf) -> int {
     float best = 0.0f;
-    runtime_->copyFromTensor(argmaxBuf, &best, sizeof(float));
+    runtime_->copyFromTensor(argmaxBuf, &best, sizeof(float), 0, 0,
+                             lastDevice_);
     return static_cast<int>(best);
   };
 
@@ -1778,22 +1979,27 @@ std::string LlamaModel::detokenize(const std::vector<int> &tokens) const {
 }
 
 void LlamaModel::setProfilingEnabled(bool enabled) {
-  ops_->setProfilingEnabled(enabled);
+  runtime_->setProfilingEnabled(enabled);
 }
 
 void LlamaModel::resetCache() {
-  for (auto &cache : kv_caches_) {
+  for (uint32_t l = 0; l < config_.n_layers; ++l) {
+    const size_t dev = layerDevice_[l];
     // Re-allocate fresh GPU cache buffers (Float16 to match initial allocation)
-    cache.k_cache = runtime_->createTensorEmpty(
-        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16);
-    cache.v_cache = runtime_->createTensorEmpty(
-        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16);
-    cache.seq_len = 0;
+    kv_caches_[l].k_cache = runtime_->createTensorEmpty(
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16, false,
+        dev);
+    kv_caches_[l].v_cache = runtime_->createTensorEmpty(
+        {config_.max_seq_len, config_.kv_dim}, cut::DataType::Float16, false,
+        dev);
+    kv_caches_[l].seq_len = 0;
   }
   // Invalidate cached command buffers (new generation = new KV cache handles)
-  cachedDecodeCB_.reset();
+  cachedDecodeCBs_.clear();
+  segmentDecodeOut_.clear();
   decodeCBCached_ = false;
-  cachedPrefillCB_.reset();
+  cachedPrefillCBs_.clear();
+  segmentPrefillOut_.clear();
   prefillCBCached_ = false;
 }
 
