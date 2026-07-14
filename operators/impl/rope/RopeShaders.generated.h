@@ -9,5 +9,6 @@ namespace cut {
 
 std::optional<std::vector<uint32_t>> compiledRoPE(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledBatchedRoPE(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledRoPEInterleaved(DataType input, DataType output);
 
 } // namespace cut

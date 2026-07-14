@@ -1050,6 +1050,15 @@ Tensor Operations::applyRoPE(const Tensor &x,
   return recordOrEncode(std::move(node));
 }
 
+Tensor Operations::applyRoPEInterleaved(const Tensor &x,
+                                        const Tensor &cosTable,
+                                        const Tensor &sinTable,
+                                        std::optional<uint32_t> spec) {
+  auto node = std::make_unique<RoPEInterleavedOpNode>(*store_, x, cosTable,
+                                                      sinTable, spec);
+  return recordOrEncode(std::move(node));
+}
+
 Tensor Operations::applyBatchedRoPE(const Tensor &x,
                                     const Tensor &cosTable,
                                     const Tensor &sinTable,

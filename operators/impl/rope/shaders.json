@@ -19,6 +19,15 @@
           {"input": "Float32", "output": "Float32"}
         ]
       }
+    },
+    {
+      "name": "RoPEInterleaved",
+      "description": "Interleaved-pair rotary embedding (same-shape cos/sin tables)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
     }
   ]
 }

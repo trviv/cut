@@ -120,4 +120,63 @@ std::vector<uint8_t> BatchedRoPEOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+// --- RoPEInterleavedOpNode ---
+
+RoPEInterleavedOpNode::RoPEInterleavedOpNode(TensorStore &store,
+                                             const Tensor &x,
+                                             const Tensor &cosTable,
+                                             const Tensor &sinTable,
+                                             std::optional<uint32_t> spec)
+    : OpNode(RoPE, store, spec) {
+  const auto &buf = store.getTensor(x);
+  dtype_ = buf.getDtype();
+  if (dtype_ != DataType::Float32) {
+    throw std::runtime_error("applyRoPEInterleaved: only Float32 is supported");
+  }
+  outShape_ = buf.getShape();
+  numElements_ = static_cast<uint32_t>(actualElementCount(outShape_));
+  if (outShape_.back() % 4 != 0 || outShape_.back() < 2) {
+    throw std::runtime_error(
+        "applyRoPEInterleaved: innermost dim must be a multiple of 4");
+  }
+  auto cosElements = static_cast<uint32_t>(
+      actualElementCount(store.getTensor(cosTable).getShape()));
+  auto sinElements = static_cast<uint32_t>(
+      actualElementCount(store.getTensor(sinTable).getShape()));
+  if (cosElements != numElements_ || sinElements != numElements_) {
+    throw std::runtime_error(
+        "applyRoPEInterleaved: cosTable and sinTable must have same shape as x");
+  }
+  inputs_ = {x, cosTable, sinTable};
+  output_ = store.createTensorEmpty(outShape_, dtype_);
+}
+
+DataType RoPEInterleavedOpNode::outputDtype() const {
+  return dtype_;
+}
+
+std::optional<std::vector<uint32_t>> RoPEInterleavedOpNode::shader() const {
+  return compiledRoPEInterleaved(dtype_, dtype_);
+}
+
+size_t RoPEInterleavedOpNode::shaderKey() const {
+  return OpNode::shaderKey() | (size_t{1} << 35);
+}
+
+std::vector<uint32_t> RoPEInterleavedOpNode::outputShape() const {
+  return outShape_;
+}
+
+ThreadSize RoPEInterleavedOpNode::dispatchSize() const {
+  uint32_t gridX = ((numElements_ + 255) / 256) * 256;
+  return {gridX, 1, 1};
+}
+
+std::vector<uint8_t> RoPEInterleavedOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t numElements;
+  } pc{numElements_};
+  return toBytes(pc);
+}
+
 } // namespace cut

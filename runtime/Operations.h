@@ -287,6 +287,14 @@ public:
                    const Tensor &preallocOutput = {},
                    std::optional<uint32_t> spec = {});
 
+  /// Interleaved-pair RoPE (LTX/DiT): out = x*cos + rotate_pairs(x)*sin,
+  /// where rotate_pairs swaps each consecutive pair (x0,x1) -> (-x1,x0).
+  /// cos/sin tables have the same shape as x. Innermost dim % 4 == 0.
+  Tensor applyRoPEInterleaved(const Tensor &x,
+                              const Tensor &cosTable,
+                              const Tensor &sinTable,
+                              std::optional<uint32_t> spec = {});
+
   // ===== Attention =====
 
   /// Write a 1D vector into a specific row of a 2D cache buffer (in-place).

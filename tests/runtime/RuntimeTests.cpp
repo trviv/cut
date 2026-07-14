@@ -5613,6 +5613,151 @@ TEST_F(MatrixOpsTest, RMSNorm_Batched_MistralDim) {
   }
 }
 
+// Phase-2 LTX groundwork: interleaved RoPE op + composed bidirectional
+// attention recipe (transpose + views + matmul + softmax + matmulBinary).
+TEST_F(MatrixOpsTest, RoPEInterleaved_MatchesCPU) {
+  const uint32_t S = 3, D = 16;
+  std::vector<float> x(S * D);
+  std::mt19937 gen(42);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &val : x) val = dist(gen);
+
+  std::vector<float> cosTbl(S * D), sinTbl(S * D);
+  for (uint32_t s = 0; s < S; ++s) {
+    for (uint32_t k = 0; k < D / 2; ++k) {
+      float theta = 0.37f * (s + 1) * (k + 1);
+      float c = std::cos(theta), si = std::sin(theta);
+      cosTbl[s * D + 2 * k] = cosTbl[s * D + 2 * k + 1] = c;
+      sinTbl[s * D + 2 * k] = sinTbl[s * D + 2 * k + 1] = si;
+    }
+  }
+
+  auto bufX = runtime_->createTensor({S, D}, DataType::Float32, x.data());
+  auto bufCos = runtime_->createTensor({S, D}, DataType::Float32, cosTbl.data());
+  auto bufSin = runtime_->createTensor({S, D}, DataType::Float32, sinTbl.data());
+  auto bufOut = runtime_->ops().applyRoPEInterleaved(bufX, bufCos, bufSin);
+  std::vector<float> got(S * D);
+  runtime_->copyFromTensor(bufOut, got.data(), got.size() * sizeof(float));
+
+  std::vector<float> expected(S * D);
+  for (uint32_t s = 0; s < S; ++s) {
+    for (uint32_t k = 0; k < D / 2; ++k) {
+      float c = cosTbl[s * D + 2 * k], si = sinTbl[s * D + 2 * k];
+      float x0 = x[s * D + 2 * k], x1 = x[s * D + 2 * k + 1];
+      expected[s * D + 2 * k] = x0 * c - x1 * si;
+      expected[s * D + 2 * k + 1] = x1 * c + x0 * si;
+    }
+  }
+
+  for (uint32_t s = 0; s < S; ++s) {
+    for (uint32_t k = 0; k < D; ++k) {
+      ASSERT_NEAR(got[s * D + k], expected[s * D + k], 1e-5f)
+          << "s=" << s << " k=" << k;
+    }
+  }
+}
+
+TEST_F(MatrixOpsTest, ComposedBidirectionalCrossAttention_MatchesCPU) {
+  const uint32_t H = 4, Dh = 8, D = H * Dh, Sq = 6, Skv = 5;
+  std::vector<float> q(Sq * D), k(Skv * D), v(Skv * D), wOut(D * D);
+  std::mt19937 gen(7);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &val : q) val = dist(gen);
+  for (auto &val : k) val = dist(gen);
+  for (auto &val : v) val = dist(gen);
+  for (auto &val : wOut) val = dist(gen);
+
+  // Scale q by 1/sqrt(Dh)
+  const float scale = 1.0f / std::sqrt(static_cast<float>(Dh));
+  std::vector<float> scaledQ(Sq * D);
+  for (size_t i = 0; i < scaledQ.size(); ++i) scaledQ[i] = q[i] * scale;
+
+  auto bufQ = runtime_->createTensor({Sq, D}, DataType::Float32, scaledQ.data());
+  auto bufK = runtime_->createTensor({Skv, D}, DataType::Float32, k.data());
+  auto bufV = runtime_->createTensor({Skv, D}, DataType::Float32, v.data());
+  auto qT = runtime_->ops().transpose(bufQ);
+  auto kT = runtime_->ops().transpose(bufK);
+  auto vT = runtime_->ops().transpose(bufV);
+  runtime_->ops().barrier();
+
+  uint32_t alignedSq = (Sq + 3) & ~3u, alignedSkv = (Skv + 3) & ~3u;
+  cut::Tensor acc;
+  for (uint32_t h = 0; h < H; ++h) {
+    runtime_->ops().barrier();
+    auto qhT = runtime_->store().createTensorView(qT, static_cast<size_t>(h) * Dh * alignedSq * sizeof(float),
+                                                  {Dh, Sq}, DataType::Float32);
+    auto khT = runtime_->store().createTensorView(kT, static_cast<size_t>(h) * Dh * alignedSkv * sizeof(float),
+                                                  {Dh, Skv}, DataType::Float32);
+    auto vhT = runtime_->store().createTensorView(vT, static_cast<size_t>(h) * Dh * alignedSkv * sizeof(float),
+                                                  {Dh, Skv}, DataType::Float32);
+    auto Qh = runtime_->ops().transpose(qhT);
+    auto scores = runtime_->ops().matmul(Qh, khT);
+    auto probs = runtime_->ops().softmaxFused(scores, 1);
+    auto Vh = runtime_->ops().transpose(vhT);
+    auto outH = runtime_->ops().matmul(probs, Vh);
+    auto bufWh = runtime_->createTensor({Dh, D}, DataType::Float32,
+                                        wOut.data() + static_cast<size_t>(h) * Dh * D);
+    if (h == 0) {
+      acc = runtime_->ops().matmul(outH, bufWh);
+    } else {
+      acc = runtime_->ops().matmulBinary(cut::BinaryAdd, outH, bufWh, acc);
+    }
+  }
+
+  std::vector<float> gpu(Sq * D);
+  runtime_->copyFromTensor(acc, gpu.data(), gpu.size() * sizeof(float));
+
+  // CPU reference
+  std::vector<float> ref(Sq * D, 0.0f);
+  for (uint32_t h = 0; h < H; ++h) {
+    std::vector<double> scoresRef(Sq * Skv, 0.0);
+    for (uint32_t i = 0; i < Sq; ++i) {
+      for (uint32_t j = 0; j < Skv; ++j) {
+        for (uint32_t d = 0; d < Dh; ++d) {
+          scoresRef[i * Skv + j] += scaledQ[i * D + h * Dh + d] * k[j * D + h * Dh + d];
+        }
+      }
+    }
+    // Softmax over j
+    std::vector<double> probs(Sq * Skv);
+    for (uint32_t i = 0; i < Sq; ++i) {
+      double maxScore = *std::max_element(scoresRef.begin() + i * Skv, scoresRef.begin() + (i + 1) * Skv);
+      double sumExp = 0.0;
+      for (uint32_t j = 0; j < Skv; ++j) {
+        probs[i * Skv + j] = std::exp(scoresRef[i * Skv + j] - maxScore);
+        sumExp += probs[i * Skv + j];
+      }
+      for (uint32_t j = 0; j < Skv; ++j) {
+        probs[i * Skv + j] /= sumExp;
+      }
+    }
+    // Context
+    std::vector<double> ctx(Sq * Dh, 0.0);
+    for (uint32_t i = 0; i < Sq; ++i) {
+      for (uint32_t d = 0; d < Dh; ++d) {
+        for (uint32_t j = 0; j < Skv; ++j) {
+          ctx[i * Dh + d] += probs[i * Skv + j] * v[j * D + h * Dh + d];
+        }
+      }
+    }
+    // Accumulate into ref
+    for (uint32_t i = 0; i < Sq; ++i) {
+      for (uint32_t n = 0; n < D; ++n) {
+        for (uint32_t d = 0; d < Dh; ++d) {
+          ref[i * D + n] += ctx[i * Dh + d] * wOut[(h * Dh + d) * D + n];
+        }
+      }
+    }
+  }
+
+  for (uint32_t i = 0; i < Sq; ++i) {
+    for (uint32_t n = 0; n < D; ++n) {
+      float tol = std::abs(ref[i * D + n]) * 2e-3f + 1e-3f;
+      ASSERT_NEAR(gpu[i * D + n], ref[i * D + n], tol) << "i=" << i << " n=" << n;
+    }
+  }
+}
+
 // ============================================================================
 // MatMulQ4 Tests
 // ============================================================================

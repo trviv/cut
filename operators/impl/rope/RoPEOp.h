@@ -73,4 +73,32 @@ private:
   std::vector<uint32_t> outShape_;
 };
 
+/// Interleaved-pair RoPE (LTX/DiT convention): rotates consecutive element
+/// pairs using cos/sin tables with the SAME shape as x (no position buffer,
+/// no head dim). Requires the innermost dimension of x to be a multiple of 4
+/// (keeps pairs away from alignment padding).
+class RoPEInterleavedOpNode : public OpNode {
+public:
+  RoPEInterleavedOpNode(TensorStore &store,
+                        const Tensor &x,
+                        const Tensor &cosTable,
+                        const Tensor &sinTable,
+                        std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  // Shares OperatorEnum::RoPE with the other RoPE ops but uses a different
+  // shader/binding layout — tag the key to avoid pipeline-cache collisions
+  // (same pattern/reason as BatchedRoPEOpNode::shaderKey).
+  size_t shaderKey() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+
+private:
+  DataType dtype_;
+  uint32_t numElements_;
+  std::vector<uint32_t> outShape_;
+};
+
 } // namespace cut
