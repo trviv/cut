@@ -7,6 +7,9 @@
 // Blocked cooperative matrix GEMM: BM=BN=64, BK=32, fp16 shared staging,
 // 2x2 accumulators per subgroup; requires M,N,K multiples of 16 and
 // gl_NumSubgroups >= 4 (subgroup size 32).
+// Double-buffered shared-memory staging overlaps global->shared loads of the
+// NEXT K-tile with tensor-core compute of the CURRENT one, reducing barriers
+// from two to one per K-tile.
 
 layout(local_size_x = 128) in;
 
@@ -32,8 +35,42 @@ layout(set = 0, binding = 2) readonly buffer BufferD { float dataD[]; };
 layout(set = 0, binding = 3) buffer BufferC { float dataC[]; };
 
 const uint BM = 64, BN = 64, BK = 32;
-shared float16_t sA[BM * BK];  // row-major [64][32]
-shared float16_t sB[BK * BN];  // row-major [32][64]
+shared float16_t sA[2u * BM * BK];  // row-major [64][32] x2 buffers
+shared float16_t sB[2u * BK * BN];  // row-major [32][64] x2 buffers
+
+void stageTile(uint buf, uint k0, uint tid, uint blockRow, uint blockCol,
+               uint strideA2, uint strideB2) {
+    uint baseA = buf * BM * BK;
+    uint baseB = buf * BK * BN;
+
+    // Stage A: 64x32 = 2048 fp16 values = 1024 uints
+    for (uint i = tid; i < BM * BK / 2u; i += 128u) {
+        uint row = i / (BK / 2u);        // 16 uints per staged row
+        uint colPair = i % (BK / 2u);
+        uint gRow = blockRow + row;
+        uint gCol = k0 + colPair * 2u;   // first half's column, always even
+        uint packed = 0u;
+        if (gRow < M && gCol < K)
+            packed = dataA[gRow * strideA2 + gCol / 2u];
+        f16vec2 h = unpackFloat2x16(packed);
+        sA[baseA + row * BK + colPair * 2u]      = h.x;
+        sA[baseA + row * BK + colPair * 2u + 1u] = h.y;
+    }
+
+    // Stage B: 32x64 = 2048 fp16 values = 1024 uints
+    for (uint i = tid; i < BK * BN / 2u; i += 128u) {
+        uint row = i / (BN / 2u);        // 32 uints per staged row
+        uint colPair = i % (BN / 2u);
+        uint gRow = k0 + row;
+        uint gCol = blockCol + colPair * 2u;
+        uint packed = 0u;
+        if (gRow < K && gCol < N)
+            packed = dataB[gRow * strideB2 + gCol / 2u];
+        f16vec2 h = unpackFloat2x16(packed);
+        sB[baseB + row * BN + colPair * 2u]      = h.x;
+        sB[baseB + row * BN + colPair * 2u + 1u] = h.y;
+    }
+}
 
 void main() {
     uint tid = gl_LocalInvocationID.x;
@@ -51,53 +88,34 @@ void main() {
     coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> acc10 = coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0.0);
     coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> acc11 = coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0.0);
 
-    // K loop: block by BK=32
+    // K loop: block by BK=32 with double buffering
+    uint buf = 0u;
+    stageTile(0u, 0u, tid, blockRow, blockCol, strideA2, strideB2);
+    barrier();
     for (uint k0 = 0; k0 < K; k0 += BK) {
-        // Stage A: 64x32 = 2048 fp16 values = 1024 uints
-        for (uint i = tid; i < BM * BK / 2u; i += 128u) {
-            uint row = i / (BK / 2u);        // 16 uints per staged row
-            uint colPair = i % (BK / 2u);
-            uint gRow = blockRow + row;
-            uint gCol = k0 + colPair * 2u;   // first half's column, always even
-            uint packed = 0u;
-            if (gRow < M && gCol < K)
-                packed = dataA[gRow * strideA2 + gCol / 2u];
-            f16vec2 h = unpackFloat2x16(packed);
-            sA[row * BK + colPair * 2u]      = h.x;
-            sA[row * BK + colPair * 2u + 1u] = h.y;
-        }
-
-        // Stage B: 32x64 = 2048 fp16 values = 1024 uints
-        for (uint i = tid; i < BK * BN / 2u; i += 128u) {
-            uint row = i / (BN / 2u);        // 32 uints per staged row
-            uint colPair = i % (BN / 2u);
-            uint gRow = k0 + row;
-            uint gCol = blockCol + colPair * 2u;
-            uint packed = 0u;
-            if (gRow < K && gCol < N)
-                packed = dataB[gRow * strideB2 + gCol / 2u];
-            f16vec2 h = unpackFloat2x16(packed);
-            sB[row * BN + colPair * 2u]      = h.x;
-            sB[row * BN + colPair * 2u + 1u] = h.y;
-        }
-        barrier();
+        uint next = k0 + BK;
+        if (next < K)
+            stageTile(buf ^ 1u, next, tid, blockRow, blockCol, strideA2, strideB2);
 
         // Compute: only subgroups 0..3
         if (sgId < 4u) {
+            uint baseA = buf * BM * BK;
+            uint baseB = buf * BK * BN;
             for (uint kk = 0; kk < BK; kk += 16u) {
                 coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA> a0, a1;
-                coopMatLoad(a0, sA, (subRow + 0u)  * BK + kk, BK, gl_CooperativeMatrixLayoutRowMajor);
-                coopMatLoad(a1, sA, (subRow + 16u) * BK + kk, BK, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(a0, sA, baseA + (subRow + 0u)  * BK + kk, BK, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(a1, sA, baseA + (subRow + 16u) * BK + kk, BK, gl_CooperativeMatrixLayoutRowMajor);
                 coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> b0, b1;
-                coopMatLoad(b0, sB, kk * BN + subCol,       BN, gl_CooperativeMatrixLayoutRowMajor);
-                coopMatLoad(b1, sB, kk * BN + subCol + 16u, BN, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(b0, sB, baseB + kk * BN + subCol,       BN, gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(b1, sB, baseB + kk * BN + subCol + 16u, BN, gl_CooperativeMatrixLayoutRowMajor);
                 acc00 = coopMatMulAdd(a0, b0, acc00);
                 acc01 = coopMatMulAdd(a0, b1, acc01);
                 acc10 = coopMatMulAdd(a1, b0, acc10);
                 acc11 = coopMatMulAdd(a1, b1, acc11);
             }
         }
-        barrier();
+        barrier();   // single barrier: next tile staged AND current reads done
+        buf ^= 1u;
     }
 
     // Epilogue: store 4x 16x16 tiles per subgroup

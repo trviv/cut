@@ -46,7 +46,7 @@ inline constexpr MatMulVariantInfo kMatMulVariants[kMatMulVariantCount] = {
     {"MatMulVecBRegAlignedK8T16R4x4", 16, 16, 64, 64, "Vec4+ABReg Aligned K8 T16 R4x4 (8KB, K%16==0 N%64==0)"},
     {"MatMulDblBufVecAlignedT16R4x4", 16, 16, 64, 64, "DblBuf+Vec4 Aligned K8 T16 R4x4 (16KB, K%16==0 N%64==0)"},
     {"MatMulCoopMat", 32, 1, 16, 16, "CoopMat 16x16 (KHR)"},
-    {"MatMulCoopMatTiled", 128, 1, 64, 64, "CoopMat blocked 64x64 (KHR, fp16 shared staging, 2x2 accs/subgroup)"},
+    {"MatMulCoopMatTiled", 128, 1, 64, 64, "CoopMat blocked 64x64 (KHR, double-buffered fp16 staging, 2x2 accs/subgroup)"},
     {"MatMulCoopMatGemv", 32, 1, 1, 16, "CoopMat GEMV (M=1, tensor core padded A)"},
 };
 

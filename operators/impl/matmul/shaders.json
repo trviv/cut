@@ -1092,7 +1092,7 @@
             64,
             64
           ],
-          "description": "CoopMat blocked 64x64 (KHR, fp16 shared staging, 2x2 accs/subgroup)",
+          "description": "CoopMat blocked 64x64 (KHR, double-buffered fp16 staging, 2x2 accs/subgroup)",
           "dtype_slots": {
             "combos": [
               {
