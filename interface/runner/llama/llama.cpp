@@ -10,11 +10,212 @@
 #include <climits>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <stdexcept>
 
 namespace gguf {
+
+// ============================================================================
+// Automatic model placement
+// ============================================================================
+
+/// Automatic layer placement: decides CUT_DEVICE_SPLIT / CUT_HOST_LAYERS for
+/// model.load(); explicit user settings always win.
+///
+/// Without CUT_DEVICE_BUDGET_MB (multi-device only): if the model does not
+/// fit in device 0's memory budget (85% of VRAM), split layers across the
+/// initialized devices proportionally to their memory, spilling to host RAM
+/// when even the combined budget is too small.
+///
+/// With CUT_DEVICE_BUDGET_MB set, each device's budget is capped:
+///   CUT_DEVICE_BUDGET_MB="512"     -> every device capped at 512 MB
+///   CUT_DEVICE_BUDGET_MB="512,256" -> per-device caps (unlisted = uncapped)
+/// and placement switches to sequential fill: device 0 up to its budget,
+/// overflow to device 1, ..., any remainder becomes host-resident layers
+/// (compute on the last device, weights in system RAM). This lets a SMALL
+/// model exercise the multi-GPU split + host-overflow machinery.
+void autoPlaceModel(cut::Runtime &runtime, const std::string &modelPath) {
+  if (std::getenv("CUT_DEVICE_SPLIT") || std::getenv("CUT_HOST_LAYERS")) {
+    return; // explicit placement wins
+  }
+
+  // Parse CUT_DEVICE_BUDGET_MB: comma-separated MB values, or a single value
+  // that applies to every device.
+  std::vector<uint64_t> capBytes;
+  bool budgetKnob = false;
+  if (const char *budgetEnv = std::getenv("CUT_DEVICE_BUDGET_MB")) {
+    std::string s(budgetEnv);
+    size_t start = 0;
+    while (start < s.size()) {
+      size_t comma = s.find(',', start);
+      if (comma == std::string::npos) {
+        comma = s.size();
+      }
+      uint64_t mb = static_cast<uint64_t>(
+          std::atoll(s.substr(start, comma - start).c_str()));
+      capBytes.push_back(mb * 1024ull * 1024ull);
+      start = comma + 1;
+    }
+    budgetKnob = !capBytes.empty();
+    if (capBytes.size() == 1) {
+      capBytes.assign(runtime.deviceCount(), capBytes[0]);
+    }
+  }
+
+  if (!budgetKnob && runtime.deviceCount() <= 1) {
+    return;
+  }
+
+  const uint64_t modelBytes = std::filesystem::file_size(modelPath);
+  if (modelBytes == 0) {
+    return;
+  }
+
+  // Per-device budgets: 85% of VRAM, capped by the knob where set.
+  std::vector<uint64_t> budgets;
+  uint64_t totalBudget = 0;
+  for (size_t d = 0; d < runtime.deviceCount(); ++d) {
+    uint64_t budget = (runtime.deviceTotalMemoryBytes(d) * 85) / 100;
+    if (d < capBytes.size()) {
+      budget = std::min(budget, capBytes[d]);
+    }
+    budgets.push_back(budget);
+    totalBudget += budget;
+  }
+
+  if (!budgetKnob) {
+    // Original proportional placement (unchanged behavior).
+    if (modelBytes <= budgets[0]) {
+      std::cout << "Auto-placement: model fits on device 0 ("
+                << modelBytes / (1024 * 1024) << " MB)\n";
+      return;
+    }
+
+    gguf::GGUFReader reader(modelPath);
+    const auto &meta = reader.metadata();
+    const std::string arch = meta.architecture();
+    const uint32_t nLayers = meta.get_as<uint32_t>(arch + ".block_count", 0);
+    if (nLayers == 0 || totalBudget == 0) {
+      return;
+    }
+
+    // Distribute layers proportionally to each device's budget.
+    std::vector<uint32_t> counts(runtime.deviceCount(), 0);
+    uint32_t assigned = 0;
+    for (size_t d = 0; d < counts.size(); ++d) {
+      counts[d] = std::max<uint32_t>(
+          1, static_cast<uint32_t>(std::round(
+                 static_cast<double>(nLayers) * budgets[d] / totalBudget)));
+      assigned += counts[d];
+    }
+    // Fix rounding drift on the last device (keep every count >= 1).
+    while (assigned > nLayers && counts.back() > 1) {
+      --counts.back();
+      --assigned;
+    }
+    if (assigned < nLayers) {
+      counts.back() += nLayers - assigned;
+    }
+
+    std::string splitStr;
+    for (size_t d = 0; d < counts.size(); ++d) {
+      if (d > 0) {
+        splitStr += ",";
+      }
+      splitStr += std::to_string(counts[d]);
+    }
+    setenv("CUT_DEVICE_SPLIT", splitStr.c_str(), 1);
+    std::cout << "Auto-placement: CUT_DEVICE_SPLIT=" << splitStr << " ("
+              << modelBytes / (1024 * 1024) << " MB across "
+              << runtime.deviceCount() << " devices)\n";
+
+    if (modelBytes > totalBudget) {
+      const double overflow =
+          static_cast<double>(modelBytes - totalBudget) / modelBytes;
+      uint32_t hostLayers = std::min(
+          nLayers - 1,
+          static_cast<uint32_t>(std::ceil(overflow * nLayers)));
+      const std::string hostStr = std::to_string(nLayers - hostLayers) + "-" +
+                                  std::to_string(nLayers - 1);
+      setenv("CUT_HOST_LAYERS", hostStr.c_str(), 1);
+      std::cout << "Auto-placement: model exceeds combined device memory — "
+                << hostLayers << " layers host-resident (CUT_HOST_LAYERS="
+                << hostStr << ")\n";
+    }
+    return;
+  }
+
+  // Budget knob set: sequential fill (device 0 -> device 1 -> ... -> host).
+  // Runs even for a single device (overflow goes straight to host RAM) and
+  // even when the model would fit in real VRAM — the cap is authoritative.
+  gguf::GGUFReader reader(modelPath);
+  const auto &meta = reader.metadata();
+  const std::string arch = meta.architecture();
+  const uint32_t nLayers = meta.get_as<uint32_t>(arch + ".block_count", 0);
+  if (nLayers == 0) {
+    return;
+  }
+
+  // Approximate per-layer weight size from the file size. Ignores the
+  // embedding/lm_head mass on the first/last device — fine for a test knob.
+  const uint64_t layerBytes = std::max<uint64_t>(1, modelBytes / nLayers);
+
+  uint32_t remaining = nLayers;
+  std::vector<uint32_t> counts(runtime.deviceCount(), 0);
+  for (size_t d = 0; d < counts.size() && remaining > 0; ++d) {
+    uint32_t fit = static_cast<uint32_t>(budgets[d] / layerBytes);
+    if (d == 0) {
+      fit = std::max<uint32_t>(fit, 1); // keep >=1 layer on the primary device
+    }
+    counts[d] = std::min(remaining, fit);
+    remaining -= counts[d];
+  }
+
+  const uint32_t hostCount = remaining;
+  if (hostCount > 0) {
+    // Overflow layers: compute on the last device, weights in system RAM.
+    counts.back() += hostCount;
+    const std::string hostStr = std::to_string(nLayers - hostCount) + "-" +
+                                std::to_string(nLayers - 1);
+    setenv("CUT_HOST_LAYERS", hostStr.c_str(), 1);
+    std::cout << "Auto-placement (budget): device budgets exceeded — "
+              << hostCount << " layers host-resident (CUT_HOST_LAYERS="
+              << hostStr << ")\n";
+  }
+
+  // Build the split string up to the last non-zero count. Middle zeros are
+  // kept — entry position selects the device index.
+  size_t lastNonZero = 0;
+  for (size_t d = 0; d < counts.size(); ++d) {
+    if (counts[d] > 0) {
+      lastNonZero = d;
+    }
+  }
+  std::string splitStr;
+  for (size_t d = 0; d <= lastNonZero; ++d) {
+    if (d > 0) {
+      splitStr += ",";
+    }
+    splitStr += std::to_string(counts[d]);
+  }
+
+  if (lastNonZero == 0 && hostCount == 0) {
+    std::cout << "Auto-placement (budget): model fits on device 0 under "
+                 "CUT_DEVICE_BUDGET_MB\n";
+    return;
+  }
+
+  setenv("CUT_DEVICE_SPLIT", splitStr.c_str(), 1);
+  std::cout << "Auto-placement (budget): CUT_DEVICE_SPLIT=" << splitStr
+            << " (" << modelBytes / (1024 * 1024) << " MB, layer ~"
+            << layerBytes / (1024 * 1024) << " MB, budgets:";
+  for (size_t d = 0; d < budgets.size(); ++d) {
+    std::cout << (d > 0 ? ", " : " ") << budgets[d] / (1024 * 1024) << " MB";
+  }
+  std::cout << ")\n";
+}
 
 // ============================================================================
 // Helpers

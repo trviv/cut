@@ -21,6 +21,13 @@ class Operations;
 
 namespace gguf {
 
+/// Automatic layer placement across devices (and host RAM overflow): sets
+/// CUT_DEVICE_SPLIT / CUT_HOST_LAYERS for model.load(). Honors
+/// CUT_DEVICE_BUDGET_MB (per-device memory caps for testing the split
+/// machinery with small models); no-op when CUT_DEVICE_SPLIT or
+/// CUT_HOST_LAYERS is already set.
+void autoPlaceModel(cut::Runtime &runtime, const std::string &modelPath);
+
 /// Model hyperparameters extracted from GGUF metadata.
 struct LlamaConfig {
   uint32_t dim = 0;        // embedding_length (hidden dim)

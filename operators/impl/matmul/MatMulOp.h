@@ -58,6 +58,12 @@ private:
   DataType dtypeA_;
   DataType dtypeB_; // B dtype for None, scales dtype for Q8/Q4
   uint32_t M_, K_, N_;
+  // True when the variant was auto-selected (no explicit spec from the caller).
+  bool autoSpec_ = false;
+  // Fusion-capable variant to fall back to if fusion is enabled while a
+  // cooperative-matrix variant is selected (CoopMat shaders have no fusion
+  // epilogue). Computed at construction alongside the primary selection.
+  uint32_t fusionFallbackSpec_ = 0;
 };
 
 } // namespace cut

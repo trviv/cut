@@ -45,6 +45,7 @@ public:
 
   DataType outputDtype() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
+  size_t shaderKey() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
@@ -84,6 +85,7 @@ public:
 
   DataType outputDtype() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
+  size_t shaderKey() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;
@@ -214,6 +216,7 @@ public:
 
   DataType outputDtype() const override;
   std::optional<std::vector<uint32_t>> shader() const override;
+  size_t shaderKey() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
   std::vector<uint8_t> pushConstants() const override;

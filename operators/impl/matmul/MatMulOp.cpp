@@ -200,6 +200,8 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   M_ = shapeA[0];
   K_ = shapeA[1];
   N_ = shapeB[1];
+  autoSpec_ = !spec.has_value();
+  fusionFallbackSpec_ = selectStandardVariant(M_, K_, N_);
   if (spec.has_value()) {
     spec_ = *spec;
   } else if (shouldUseCoopMat(store.caps(), dtypeA_, dtypeB_, M_, K_, N_)) {
@@ -207,7 +209,7 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
     spec_ = (M_ >= 32 && N_ >= 32) ? kCoopMatTiledVariant : kCoopMatVariant;
   } else {
     // Shape-based variant selection from autotune data
-    spec_ = selectStandardVariant(M_, K_, N_);
+    spec_ = fusionFallbackSpec_;
   }
   inputs_ = {a, b};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
@@ -276,37 +278,43 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   // Set the correct OperatorEnum for this format
   op_ = matmulEnum(format_);
 
-  if (spec.has_value()) {
-    spec_ = *spec;
-  } else if (format_ == QuantFormat::Q8) {
+  autoSpec_ = !spec.has_value();
+  if (format_ == QuantFormat::Q8) {
     if (M_ == 1) {
       // GEMV: 8-col K-parallel variant with K-unroll x4 (index 4)
       // Falls back to 4-col variant for very small N
       // Note: GemvDot (index 5) is NOT auto-selected — GEMV is memory-bound,
       // dotPacked4x8EXT overhead outweighs savings for M=1.
-      spec_ = (N_ >= 8) ? 4 : 3; // GemvKPar8 or GemvKPar
-    } else if (store.caps().cooperativeMatrix &&
-               dtypeB_ == DataType::Float16 && K_ % 16 == 0 && N_ % 32 == 0) {
-      // CoopMat: dequant B→fp16 in shared memory, tensor core compute (best)
-      spec_ = kMatMulQ8VariantCount - 1; // CoopMatTiled (last Q8 variant)
-    } else if (store.caps().integerDotProduct &&
-               dtypeB_ == DataType::Float16 && N_ >= 64 && M_ >= 32) {
-      // TiledDot: dotPacked4x8EXT with on-the-fly A quantization
-      // Only for full tiles: shader tile is 32×64, so require M>=32, N>=64
-      spec_ = 6; // TiledDot
+      fusionFallbackSpec_ = (N_ >= 8) ? 4 : 3; // GemvKPar8 or GemvKPar
     } else {
-      spec_ = kMatMulQ8DefaultVariant; // VecT16R4x4
+      // NOT TiledDot: it produces wrong results at this geometry (see
+      // MatMulQ8_TiledDotVariant_Unfused_M33 test), so fused matmuls always
+      // use the HLSL tiled variant whose writeOutput() fusion is validated.
+      fusionFallbackSpec_ = kMatMulQ8DefaultVariant; // VecT16R4x4
     }
   } else {
-    // Q4
+    // Q4 (no cooperative-matrix variant exists)
     if (M_ == 1) {
       // GEMV: 8-col K-parallel variant with K-unroll x4
       // Falls back to 4-col variant for very small N
-      spec_ = (N_ >= 8) ? kMatMulQ4VariantCount - 1  // GemvKPar8
-                         : kMatMulQ4VariantCount - 2; // GemvKPar
+      fusionFallbackSpec_ = (N_ >= 8) ? kMatMulQ4VariantCount - 1  // GemvKPar8
+                                       : kMatMulQ4VariantCount - 2; // GemvKPar
     } else {
-      spec_ = kMatMulQ4DefaultVariant;
+      fusionFallbackSpec_ = kMatMulQ4DefaultVariant;
     }
+  }
+  if (spec.has_value()) {
+    spec_ = *spec;
+  } else if (format_ == QuantFormat::Q8 && M_ > 1 &&
+             store.caps().cooperativeMatrix && dtypeB_ == DataType::Float16 &&
+             K_ % 16 == 0 && N_ % 32 == 0) {
+    // CoopMat: dequant B→fp16 in shared memory, tensor core compute (best)
+    spec_ = kMatMulQ8VariantCount - 1; // CoopMatTiled (last Q8 variant)
+  } else {
+    // NOTE: TiledDot (spec 6) is deliberately NOT auto-selected — it produces
+    // wrong results even unfused (see MatMulQ8_TiledDotVariant_Unfused_M33,
+    // currently DISABLED). Reachable via explicit spec only, until fixed.
+    spec_ = fusionFallbackSpec_;
   }
   inputs_ = {a, packedB, scalesB};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
@@ -324,6 +332,28 @@ void MatMulOpNode::setFusion(MatMulFusion fusion,
   if (fusion == MatMulFusion::Binary) {
     inputs_.push_back(d);
   }
+  if (fusion == MatMulFusion::None) {
+    return;
+  }
+  // The GLSL cooperative-matrix shaders have no fusion epilogue (the
+  // FUSION_TYPE/FUSION_OP specialization constants exist only in the HLSL
+  // variants), so a fused matmul would silently drop the fused op there.
+  bool coopMatSelected = false;
+  if (format_ == QuantFormat::None) {
+    coopMatSelected = (*spec_ == kCoopMatVariant ||
+                       *spec_ == kCoopMatTiledVariant ||
+                       *spec_ == kCoopMatGemvVariant);
+  } else if (format_ == QuantFormat::Q8) {
+    coopMatSelected = (*spec_ == kMatMulQ8VariantCount - 1);
+  }
+  if (!coopMatSelected) {
+    return;
+  }
+  if (!autoSpec_) {
+    throw std::runtime_error(
+        "matmul fusion is not supported by cooperative-matrix variants");
+  }
+  spec_ = fusionFallbackSpec_;
 }
 
 // ============================================================================

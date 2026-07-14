@@ -5256,6 +5256,363 @@ TEST_F(MatrixOpsTest, MatMulQ8_VsRegularMatMul) {
   }
 }
 
+// Mistral-Small-24B geometry: exercise the M>1 Q8 matmul variant (VecT16R4x4,
+// auto-selected for M=2..31) at K=5120 / N=4096 — the wq projection shape —
+// against the proven M=1 GEMV decode path and a CPU reference.
+// Repro for the batched-prefill corruption (docs/multi-device-followup.md P1).
+TEST_F(MatrixOpsTest, MatMulQ8_MistralGeometry_BatchedVsPerRow) {
+  const uint32_t M = 4, K = 5120, N = 4096;
+  const uint32_t blocksPerRow = K / 32; // 160
+
+  std::vector<float> dataA(M * K);
+  std::mt19937 gen(42);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : dataA) x = dist(gen);
+
+  std::vector<int8_t> dataB(K * N);
+  for (size_t i = 0; i < dataB.size(); ++i) {
+    dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
+  }
+
+  // Scales exactly representable in f16 so the CPU reference is exact.
+  std::vector<float> scaleFloats(blocksPerRow * N);
+  for (size_t i = 0; i < scaleFloats.size(); ++i) {
+    scaleFloats[i] = (1.0f + (float)(i % 7)) * 0.03125f;
+  }
+  std::vector<uint16_t> scaleF16(scaleFloats.size());
+  for (size_t i = 0; i < scaleFloats.size(); ++i) {
+    scaleF16[i] = f32_to_f16(scaleFloats[i]);
+  }
+
+  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16,
+                                     scaleF16.data());
+
+  // --- Batched path (M=4, tiled M>1 variant) ---
+  std::vector<float> batchedOut(M * N);
+  {
+    auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+    auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
+    runtime_->copyFromTensor(bufC, batchedOut.data(), M * N * sizeof(float));
+  }
+
+  // --- Per-row path (M=1 GEMV, the proven decode path) ---
+  std::vector<float> perRowOut(M * N);
+  for (uint32_t m = 0; m < M; ++m) {
+    auto bufRow =
+        runtime_->createTensor({K}, DataType::Float32, dataA.data() + m * K);
+    auto bufOut = runtime_->ops().matmul(bufRow, bufB, bufS);
+    runtime_->copyFromTensor(bufOut, perRowOut.data() + m * N,
+                             N * sizeof(float));
+  }
+
+  // --- CPU reference (double accumulator) ---
+  std::vector<float> ref(M * N, 0.0f);
+  for (uint32_t m = 0; m < M; ++m) {
+    for (uint32_t n = 0; n < N; ++n) {
+      double sum = 0.0;
+      for (uint32_t k = 0; k < K; ++k) {
+        double a = dataA[m * K + k];
+        double b = static_cast<double>(dataB[k * N + n]);
+        double s = scaleFloats[(k / 32) * N + n];
+        sum += a * b * s;
+      }
+      ref[m * N + n] = static_cast<float>(sum);
+    }
+  }
+
+  for (uint32_t m = 0; m < M; ++m) {
+    for (uint32_t n = 0; n < N; ++n) {
+      float r = ref[m * N + n];
+      float b = batchedOut[m * N + n];
+      ASSERT_NEAR(b, r, std::abs(r) * 2e-3f + 0.05f)
+          << "batched vs CPU m=" << m << " n=" << n;
+    }
+  }
+  for (uint32_t m = 0; m < M; ++m) {
+    for (uint32_t n = 0; n < N; ++n) {
+      float b = batchedOut[m * N + n];
+      float p = perRowOut[m * N + n];
+      ASSERT_NEAR(b, p, std::abs(p) * 2e-3f + 0.05f)
+          << "batched vs GEMV m=" << m << " n=" << n;
+    }
+  }
+}
+
+// Mistral-Small-24B geometry batched attention with Float16 KV caches (what
+// the real pipeline allocates): head_dim=128, n_rep=4, kvdim=1024 (> WG_SIZE
+// 256, exercises the strided cache-write loop). Compares K cache contents
+// first (isolates a write bug from a read bug), then attention outputs.
+// Repro for the batched-prefill corruption (docs/multi-device-followup.md P1).
+TEST_F(MatrixOpsTest, BatchedAttention_MistralGeometry_F16Cache_MatchesPerToken) {
+  const uint32_t N = 4;
+  const uint32_t n_heads = 32;
+  const uint32_t n_kv_heads = 8; // GQA, n_rep = 4
+  const uint32_t head_dim = 128;
+  const uint32_t qdim = n_heads * head_dim;     // 4096
+  const uint32_t kvdim = n_kv_heads * head_dim; // 1024
+  const uint32_t halfDim = head_dim / 2;
+  const uint32_t maxSeq = 16;
+
+  std::vector<float> qInput(N * qdim);
+  std::vector<float> kInput(N * kvdim);
+  std::vector<float> vInput(N * kvdim);
+  std::mt19937 gen(123);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : qInput) x = dist(gen);
+  for (auto &x : kInput) x = dist(gen);
+  for (auto &x : vInput) x = dist(gen);
+
+  std::vector<float> cosTbl(maxSeq * halfDim), sinTbl(maxSeq * halfDim);
+  for (uint32_t p = 0; p < maxSeq; ++p) {
+    for (uint32_t i = 0; i < halfDim; ++i) {
+      float theta = float(p) / std::pow(10000.0f, 2.0f * i / head_dim);
+      cosTbl[p * halfDim + i] = std::cos(theta);
+      sinTbl[p * halfDim + i] = std::sin(theta);
+    }
+  }
+  auto bufCos = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, cosTbl.data());
+  auto bufSin = runtime_->createTensor({maxSeq * halfDim}, DataType::Float32, sinTbl.data());
+
+  // --- Reference path: per-token applyRoPE + cacheWrite + attention ---
+  std::vector<float> refAttn(N * qdim);
+  std::vector<uint16_t> refKCache(N * kvdim);
+  {
+    auto kCache = runtime_->createTensorEmpty({maxSeq, kvdim}, DataType::Float16);
+    auto vCache = runtime_->createTensorEmpty({maxSeq, kvdim}, DataType::Float16);
+    std::vector<std::vector<uint32_t>> paramsHolder(N);
+    std::vector<std::vector<float>> qRowHolder(N), kRowHolder(N), vRowHolder(N);
+    for (uint32_t i = 0; i < N; ++i) {
+      paramsHolder[i] = {i, i + 1};
+      qRowHolder[i].assign(qInput.begin() + i * qdim, qInput.begin() + (i + 1) * qdim);
+      kRowHolder[i].assign(kInput.begin() + i * kvdim, kInput.begin() + (i + 1) * kvdim);
+      vRowHolder[i].assign(vInput.begin() + i * kvdim, vInput.begin() + (i + 1) * kvdim);
+
+      auto qBuf = runtime_->createTensor({qdim}, DataType::Float32, qRowHolder[i].data());
+      auto kBuf = runtime_->createTensor({kvdim}, DataType::Float32, kRowHolder[i].data());
+      auto vBuf = runtime_->createTensor({kvdim}, DataType::Float32, vRowHolder[i].data());
+      auto bufParams = runtime_->createTensor({2}, DataType::UInt32, paramsHolder[i].data());
+
+      auto qRoped = runtime_->ops().applyRoPE(qBuf, bufCos, bufSin, bufParams, head_dim);
+      auto kRoped = runtime_->ops().applyRoPE(kBuf, bufCos, bufSin, bufParams, head_dim);
+      runtime_->ops().cacheWrite(kCache, kRoped, bufParams);
+      runtime_->ops().cacheWrite(vCache, vBuf, bufParams);
+      auto attn = runtime_->ops().attention(qRoped, kCache, vCache, bufParams,
+                                            n_heads, n_kv_heads, head_dim);
+      runtime_->copyFromTensor(attn, refAttn.data() + i * qdim, qdim * sizeof(float));
+    }
+    runtime_->copyFromTensor(kCache, refKCache.data(), N * kvdim * sizeof(uint16_t));
+  }
+
+  // --- Batched path: BatchedKVCacheWrite + BatchedAttentionReadCache ---
+  std::vector<float> batchedAttn(N * qdim);
+  std::vector<uint16_t> batKCache(N * kvdim);
+  {
+    auto kCache = runtime_->createTensorEmpty({maxSeq, kvdim}, DataType::Float16);
+    auto vCache = runtime_->createTensorEmpty({maxSeq, kvdim}, DataType::Float16);
+    std::vector<uint32_t> positions(N);
+    for (uint32_t i = 0; i < N; ++i) positions[i] = i;
+    auto bufPos = runtime_->createTensor({N}, DataType::UInt32, positions.data());
+
+    auto qBuf = runtime_->createTensor({N, qdim}, DataType::Float32, qInput.data());
+    auto kBuf = runtime_->createTensor({N, kvdim}, DataType::Float32, kInput.data());
+    auto vBuf = runtime_->createTensor({N, kvdim}, DataType::Float32, vInput.data());
+
+    runtime_->ops().batchedKVCacheWrite(kBuf, vBuf, kCache, vCache, bufPos,
+                                        bufCos, bufSin,
+                                        N, n_kv_heads, head_dim,
+                                        /*kStride=*/kvdim, /*vStride=*/kvdim,
+                                        /*kOffset=*/0, /*vOffset=*/0);
+    auto attn = runtime_->ops().batchedAttentionReadCache(
+        qBuf, kCache, vCache, bufPos, bufCos, bufSin,
+        N, n_heads, n_kv_heads, head_dim,
+        /*qStride=*/qdim, /*qOffset=*/0);
+    runtime_->copyFromTensor(attn, batchedAttn.data(),
+                             batchedAttn.size() * sizeof(float));
+    runtime_->copyFromTensor(kCache, batKCache.data(), N * kvdim * sizeof(uint16_t));
+  }
+
+  // Compare K cache contents (isolates BatchedKVCacheWrite from the reader).
+  for (uint32_t i = 0; i < N * kvdim; ++i) {
+    float r = halfToFloat(refKCache[i]);
+    float b = halfToFloat(batKCache[i]);
+    ASSERT_NEAR(b, r, std::abs(r) * 1e-3f + 1e-3f)
+        << "K cache row=" << (i / kvdim) << " col=" << (i % kvdim);
+  }
+
+  // Compare attention outputs.
+  for (uint32_t i = 0; i < N; ++i) {
+    for (uint32_t j = 0; j < qdim; ++j) {
+      float r = refAttn[i * qdim + j];
+      float b = batchedAttn[i * qdim + j];
+      ASSERT_NEAR(b, r, std::abs(r) * 2e-3f + 2e-3f)
+          << "row=" << i << " j=" << j;
+    }
+  }
+}
+
+// Sweep the remaining Q8 matmul shapes of the Mistral-Small prefill
+// (wo, gate+SiLU, up, down) — batched M=13 vs the proven per-row GEMV path.
+TEST_F(MatrixOpsTest, MatMulQ8_MistralFFNShapes_BatchedVsPerRow) {
+  struct ShapeCase { uint32_t M, K, N; bool silu; const char *name; };
+  const ShapeCase cases[] = {
+      {13, 4096, 5120, false, "wo"},
+      {13, 5120, 32768, true,  "gate_silu"},
+      {13, 5120, 32768, false, "up"},
+      {13, 32768, 5120, false, "down"},
+      {33, 5120, 32768, true, "gate_silu_m33"},
+  };
+
+  for (const auto &c : cases) {
+    SCOPED_TRACE(c.name);
+    const uint32_t blocksPerRow = c.K / 32;
+
+    std::vector<float> dataA(c.M * c.K);
+    std::mt19937 gen(42);
+    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    for (auto &x : dataA) x = dist(gen);
+
+    std::vector<int8_t> dataB(c.K * c.N);
+    for (size_t i = 0; i < dataB.size(); ++i) {
+      dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
+    }
+
+    std::vector<float> scaleFloats(blocksPerRow * c.N);
+    for (size_t i = 0; i < scaleFloats.size(); ++i) {
+      scaleFloats[i] = (1.0f + (float)(i % 7)) * 0.03125f;
+    }
+    std::vector<uint16_t> scaleF16(scaleFloats.size());
+    for (size_t i = 0; i < scaleFloats.size(); ++i) {
+      scaleF16[i] = f32_to_f16(scaleFloats[i]);
+    }
+
+    auto bufB = runtime_->createTensor({c.K, c.N}, DataType::Int8, dataB.data());
+    auto bufS = runtime_->createTensor({blocksPerRow, c.N}, DataType::Float16,
+                                       scaleF16.data());
+
+    std::vector<float> batchedOut(c.M * c.N);
+    {
+      auto bufA = runtime_->createTensor({c.M, c.K}, DataType::Float32, dataA.data());
+      auto bufC = c.silu
+          ? runtime_->ops().matmulUnary(cut::UnarySilu, bufA, bufB, bufS)
+          : runtime_->ops().matmul(bufA, bufB, bufS);
+      runtime_->copyFromTensor(bufC, batchedOut.data(), c.M * c.N * sizeof(float));
+    }
+
+    std::vector<float> perRowOut(c.M * c.N);
+    for (uint32_t m = 0; m < c.M; ++m) {
+      auto bufRow = runtime_->createTensor({c.K}, DataType::Float32, dataA.data() + m * c.K);
+      auto bufOut = c.silu
+          ? runtime_->ops().matmulUnary(cut::UnarySilu, bufRow, bufB, bufS)
+          : runtime_->ops().matmul(bufRow, bufB, bufS);
+      runtime_->copyFromTensor(bufOut, perRowOut.data() + m * c.N, c.N * sizeof(float));
+    }
+
+    for (uint32_t m = 0; m < c.M; ++m) {
+      for (uint32_t n = 0; n < c.N; ++n) {
+        float b = batchedOut[m * c.N + n];
+        float p = perRowOut[m * c.N + n];
+        ASSERT_NEAR(b, p, std::abs(p) * 2e-3f + 0.05f)
+            << c.name << " m=" << m << " n=" << n;
+      }
+    }
+  }
+}
+
+// Probe the TiledDot Q8 variant (spec 6) WITHOUT fusion, forced via explicit
+// spec. TiledDot had no prior test coverage and FAILS this test (garbage
+// output at M=33, K=5120, N=4096 on RTX 3090 / RX 9070), so it is excluded
+// from auto-selection in MatMulOp.cpp. DISABLED until the shader is fixed;
+// run manually with --gtest_also_run_disabled_tests.
+TEST_F(MatrixOpsTest, DISABLED_MatMulQ8_TiledDotVariant_Unfused_M33) {
+  if (!runtime_->store().caps().integerDotProduct) {
+    GTEST_SKIP() << "no integer dot product";
+  }
+  const uint32_t M = 33, K = 5120, N = 4096;
+  const uint32_t blocksPerRow = K / 32;
+
+  std::vector<float> dataA(M * K);
+  std::mt19937 gen(42);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : dataA) x = dist(gen);
+
+  std::vector<int8_t> dataB(K * N);
+  for (size_t i = 0; i < dataB.size(); ++i) {
+    dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
+  }
+
+  std::vector<float> scaleFloats(blocksPerRow * N);
+  for (size_t i = 0; i < scaleFloats.size(); ++i) {
+    scaleFloats[i] = (1.0f + (float)(i % 7)) * 0.03125f;
+  }
+  std::vector<uint16_t> scaleF16(scaleFloats.size());
+  for (size_t i = 0; i < scaleFloats.size(); ++i) {
+    scaleF16[i] = f32_to_f16(scaleFloats[i]);
+  }
+
+  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16,
+                                     scaleF16.data());
+
+  std::vector<float> batchedOut(M * N);
+  {
+    auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+    auto bufC = runtime_->ops().matmul(bufA, bufB, bufS, /*spec=*/6u);
+    runtime_->copyFromTensor(bufC, batchedOut.data(), M * N * sizeof(float));
+  }
+
+  std::vector<float> perRowOut(M * N);
+  for (uint32_t m = 0; m < M; ++m) {
+    auto bufRow =
+        runtime_->createTensor({K}, DataType::Float32, dataA.data() + m * K);
+    auto bufOut = runtime_->ops().matmul(bufRow, bufB, bufS);
+    runtime_->copyFromTensor(bufOut, perRowOut.data() + m * N,
+                             N * sizeof(float));
+  }
+
+  for (uint32_t m = 0; m < M; ++m) {
+    for (uint32_t n = 0; n < N; ++n) {
+      float b = batchedOut[m * N + n];
+      float p = perRowOut[m * N + n];
+      ASSERT_NEAR(b, p, std::abs(p) * 2e-3f + 0.05f)
+          << "m=" << m << " n=" << n;
+    }
+  }
+}
+
+// Batched rmsNorm at Mistral dim (5120) against a CPU reference.
+TEST_F(MatrixOpsTest, RMSNorm_Batched_MistralDim) {
+  const uint32_t N = 13, dim = 5120;
+
+  std::vector<float> hidden(N * dim);
+  std::mt19937 gen(7);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  for (auto &x : hidden) x = dist(gen);
+
+  std::vector<float> weight(dim);
+  for (auto &w : weight) w = dist(gen) * 0.1f + 1.0f;
+
+  auto bufH = runtime_->createTensor({N, dim}, DataType::Float32, hidden.data());
+  auto bufW = runtime_->createTensor({dim}, DataType::Float32, weight.data());
+  auto bufNormed = runtime_->ops().rmsNorm(bufH, bufW, 1e-5f);
+  std::vector<float> got(N * dim);
+  runtime_->copyFromTensor(bufNormed, got.data(), N * dim * sizeof(float));
+
+  for (uint32_t i = 0; i < N; ++i) {
+    double ss = 0.0;
+    for (uint32_t j = 0; j < dim; ++j) {
+      ss += static_cast<double>(hidden[i * dim + j]) * hidden[i * dim + j];
+    }
+    double scale = 1.0 / std::sqrt(ss / dim + 1e-5);
+    for (uint32_t j = 0; j < dim; ++j) {
+      double expected = static_cast<double>(hidden[i * dim + j]) * scale * weight[j];
+      ASSERT_NEAR(got[i * dim + j], static_cast<float>(expected),
+                  std::abs(expected) * 1e-3f + 1e-4f)
+          << "row=" << i << " col=" << j;
+    }
+  }
+}
+
 // ============================================================================
 // MatMulQ4 Tests
 // ============================================================================

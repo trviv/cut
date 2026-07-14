@@ -94,6 +94,12 @@ std::optional<std::vector<uint32_t>> AttentionOpNode::shader() const {
   return compiledAttention(dtype_, dtype_);
 }
 
+size_t AttentionOpNode::shaderKey() const {
+  // The shader is compiled per cache dtype (F16 vs F32 cache), which is
+  // not the output dtype — mix it in to avoid pipeline-cache collisions.
+  return OpNode::shaderKey() | ((static_cast<size_t>(dtype_) & 0xF) << 56);
+}
+
 std::vector<uint32_t> AttentionOpNode::outputShape() const {
   return outShape_;
 }
@@ -159,6 +165,11 @@ DataType FusedAttentionOpNode::outputDtype() const {
 
 std::optional<std::vector<uint32_t>> FusedAttentionOpNode::shader() const {
   return compiledFusedAttention(dtype_, dtype_);
+}
+
+size_t FusedAttentionOpNode::shaderKey() const {
+  // Shader compiled per cache dtype (see AttentionOpNode::shaderKey).
+  return OpNode::shaderKey() | ((static_cast<size_t>(dtype_) & 0xF) << 56);
 }
 
 std::vector<uint32_t> FusedAttentionOpNode::outputShape() const {
@@ -240,6 +251,11 @@ DataType BatchedFusedAttentionOpNode::outputDtype() const {
 std::optional<std::vector<uint32_t>>
 BatchedFusedAttentionOpNode::shader() const {
   return compiledBatchedFusedAttention(dtype_, dtype_);
+}
+
+size_t BatchedFusedAttentionOpNode::shaderKey() const {
+  // Shader compiled per cache dtype (see AttentionOpNode::shaderKey).
+  return OpNode::shaderKey() | ((static_cast<size_t>(dtype_) & 0xF) << 56);
 }
 
 std::vector<uint32_t> BatchedFusedAttentionOpNode::outputShape() const {
@@ -402,7 +418,10 @@ BatchedAttentionReadCacheOpNode::shader() const {
 
 size_t BatchedAttentionReadCacheOpNode::shaderKey() const {
   // Avoid collision with AttentionOpNode (same OperatorEnum::Attention).
-  return OpNode::shaderKey() | (size_t{1} << 34);
+  // Also mix in the cache dtype the shader was compiled for (see
+  // AttentionOpNode::shaderKey).
+  return OpNode::shaderKey() | (size_t{1} << 34) |
+         ((static_cast<size_t>(dtype_) & 0xF) << 56);
 }
 
 std::vector<uint32_t> BatchedAttentionReadCacheOpNode::outputShape() const {

@@ -80,6 +80,12 @@ int main(int argc, char *argv[]) {
       runtime.init(cut::BackendType::Vulkan);
     }
 
+    // Automatic layer placement (multi-GPU split + host-RAM overflow).
+    // CUT_DEVICE_BUDGET_MB caps per-device memory so small models can
+    // exercise the split machinery; explicit CUT_DEVICE_SPLIT/CUT_HOST_LAYERS
+    // still win.
+    gguf::autoPlaceModel(runtime, filePath);
+
     // Load model
     gguf::LlamaModel model;
     model.load(filePath, runtime, ctxSize);
