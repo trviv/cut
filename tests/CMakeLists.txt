@@ -56,6 +56,11 @@ set(GRAPH_TEST_SOURCES
     graph/GraphTests.cpp
 )
 
+# Loader test sources
+set(LOADER_TEST_SOURCES
+    loader/SafeTensorTests.cpp
+)
+
 # Create single test executable with all tests
 add_executable(tests
     Utils.h
@@ -65,6 +70,7 @@ add_executable(tests
     ${COMBINED_TEST_SOURCES}
     ${RUNTIME_TEST_SOURCES}
     ${GRAPH_TEST_SOURCES}
+    ${LOADER_TEST_SOURCES}
 )
 
 # Include directories
@@ -86,6 +92,7 @@ target_compile_definitions(tests PRIVATE
 target_link_libraries(tests PRIVATE
     ${Vulkan_LIBRARIES}
     CUTLib
+    safetensor_loader
     GTest::gtest
     GTest::gtest_main
 )

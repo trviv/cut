@@ -8,7 +8,7 @@
 /interface/python/.pytest_cache
 /interface/python/build
 /models
-/.venv
+/.venv*
 .aider*
 /references
 __pycache__/
