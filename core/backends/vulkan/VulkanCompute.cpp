@@ -393,7 +393,10 @@ ComputeHandle VulkanCompute::createBuffer(const std::vector<uint32_t> &shape,
 }
 
 ComputeHandle VulkanCompute::createBufferMapped(
-    const std::vector<uint32_t> &shape, DataType dtype, const void *srcPtr) {
+    const std::vector<uint32_t> &shape,
+    DataType dtype,
+    const void *srcPtr,
+    bool preferHost) {
   if (shape.empty()) {
     logErr("Cannot create buffer with empty shape");
   }
@@ -413,7 +416,9 @@ ComputeHandle VulkanCompute::createBufferMapped(
 
 #if CUT_USE_VMA
   VmaAllocationCreateInfo allocInfo = {};
-  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  // preferHost: keep large buffers in system RAM instead of BAR/VRAM.
+  allocInfo.usage =
+      preferHost ? VMA_MEMORY_USAGE_AUTO_PREFER_HOST : VMA_MEMORY_USAGE_AUTO;
   allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
                     VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
@@ -437,6 +442,19 @@ ComputeHandle VulkanCompute::createBufferMapped(
   allocInfo.allocationSize = memReq.size;
   allocInfo.memoryTypeIndex =
       findMemoryType(memReq.memoryTypeBits, memoryProperties_, memFlags);
+  if (preferHost) {
+    // Prefer a host-visible type that is NOT device-local (BAR) so large
+    // buffers stay in system RAM; fall back to the default selection.
+    for (uint32_t i = 0; i < memoryProperties_.memoryTypeCount; ++i) {
+      const VkMemoryPropertyFlags f =
+          memoryProperties_.memoryTypes[i].propertyFlags;
+      if ((memReq.memoryTypeBits & (1u << i)) && (f & memFlags) == memFlags &&
+          (f & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) == 0) {
+        allocInfo.memoryTypeIndex = i;
+        break;
+      }
+    }
+  }
 
   if (vkAllocateMemory(device_, &allocInfo, nullptr, &bufferStruct.memory) !=
       VK_SUCCESS) {

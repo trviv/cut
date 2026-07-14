@@ -34,7 +34,8 @@ public:
   /// Creates a page-locked (pinned), device-mapped buffer for direct CPU writes.
   ComputeHandle createBufferMapped(const std::vector<uint32_t> &shape,
                                    DataType dtype,
-                                   const void *srcPtr = nullptr) override;
+                                   const void *srcPtr = nullptr,
+                                   bool preferHost = false) override;
 
   /// Copies data from host memory to a GPU buffer.
   void copyDataToBuffer(const void *srcPtr,

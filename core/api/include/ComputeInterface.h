@@ -51,12 +51,16 @@ public:
    * Creates a host-visible, coherent buffer for CPU-GPU shared data.
    * Writes via copyDataToBuffer go directly to mapped memory (no staging,
    * no fence wait). Ideal for small, frequently-updated per-token params.
+   * @param preferHost If true, prefer plain host memory over device-local
+   * host-visible (BAR) memory — for large buffers that must not consume VRAM.
    */
   virtual ComputeHandle
   createBufferMapped(const std::vector<uint32_t> &shape,
                      DataType dtype,
-                     const void *hostSourcePtr = nullptr) {
+                     const void *hostSourcePtr = nullptr,
+                     bool preferHost = false) {
     // Default implementation falls back to regular buffer.
+    (void)preferHost;
     return createBuffer(shape, dtype, hostSourcePtr, false);
   }
 

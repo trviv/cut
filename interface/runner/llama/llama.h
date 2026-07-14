@@ -336,6 +336,17 @@ private:
 
   /// Returns true when the given layer starts a new pipeline segment.
   bool isSegmentStart(uint32_t layerIdx) const;
+
+  // Layers whose big weight matrices live in host memory (CUT_HOST_LAYERS).
+  // Compute stays on the layer's device; weights are read over PCIe.
+  std::vector<uint8_t> layerHostResident_;
+
+  /// Re-create a tensor in host-resident mapped memory (same shape/dtype).
+  cut::ComputeHandle demoteToHost(const cut::ComputeHandle &t, size_t deviceId);
+  /// Demote all set handles of a WeightHandle to host memory.
+  void demoteWeight(WeightHandle &wh, size_t deviceId);
+  /// Demote a layer's large weight matrices (norms/biases stay device-local).
+  void demoteLayerWeights(LlamaLayer &layer, size_t deviceId);
 };
 
 } // namespace gguf

@@ -145,7 +145,11 @@ ComputeHandle CudaCompute::createBuffer(const std::vector<uint32_t> &shape,
 }
 
 ComputeHandle CudaCompute::createBufferMapped(
-    const std::vector<uint32_t> &shape, DataType dtype, const void *srcPtr) {
+    const std::vector<uint32_t> &shape,
+    DataType dtype,
+    const void *srcPtr,
+    bool preferHost) {
+  (void)preferHost; // CUDA pinned host memory already lives in system RAM.
   if (shape.empty()) {
     logErr("Cannot create buffer with empty shape");
   }

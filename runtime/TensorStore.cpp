@@ -21,8 +21,9 @@ Tensor TensorStore::createTensorEmpty(const std::vector<uint32_t> &shape,
 
 Tensor TensorStore::createTensorMapped(const std::vector<uint32_t> &shape,
                                        DataType dtype,
-                                       const void *srcPtr) {
-  return iface_->createBufferMapped(shape, dtype, srcPtr);
+                                       const void *srcPtr,
+                                       bool preferHost) {
+  return iface_->createBufferMapped(shape, dtype, srcPtr, preferHost);
 }
 
 Tensor TensorStore::createTensorView(const Tensor &parent,

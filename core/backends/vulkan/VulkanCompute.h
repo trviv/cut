@@ -29,9 +29,11 @@ public:
                bool isUniform = false) override;   // Is uniform buffer
 
   /// Creates a host-visible coherent buffer (no staging needed for updates).
+  /// preferHost avoids device-local (BAR) memory for large buffers.
   ComputeHandle createBufferMapped(const std::vector<uint32_t> &shape,
                                    DataType dtype,
-                                   const void *srcPtr = nullptr) override;
+                                   const void *srcPtr = nullptr,
+                                   bool preferHost = false) override;
 
   /// Copies data from host memory to a GPU buffer.
   void copyDataToBuffer(

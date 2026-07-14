@@ -224,8 +224,10 @@ Tensor Runtime::createTensorEmpty(const std::vector<uint32_t> &shape,
 Tensor Runtime::createTensorMapped(const std::vector<uint32_t> &shape,
                                    DataType dtype,
                                    const void *srcPtr,
-                                   size_t deviceId) {
-  return device(deviceId).store->createTensorMapped(shape, dtype, srcPtr);
+                                   size_t deviceId,
+                                   bool preferHost) {
+  return device(deviceId).store->createTensorMapped(shape, dtype, srcPtr,
+                                                    preferHost);
 }
 
 void Runtime::copyToTensor(Tensor handle,

@@ -79,6 +79,74 @@ void LlamaModel::computeLayerPlacement() {
     }
     std::cout << "\n";
   }
+
+  // CUT_HOST_LAYERS="20-29,5" marks layers (indices and inclusive ranges)
+  // whose big weight matrices live in host memory instead of VRAM.
+  layerHostResident_.assign(config_.n_layers, 0);
+  if (const char *hostLayers = std::getenv("CUT_HOST_LAYERS")) {
+    std::string s(hostLayers);
+    size_t start = 0;
+    uint32_t count = 0;
+    while (start < s.size()) {
+      size_t comma = s.find(',', start);
+      if (comma == std::string::npos)
+        comma = s.size();
+      std::string entry = s.substr(start, comma - start);
+      start = comma + 1;
+      size_t dash = entry.find('-');
+      uint32_t lo = static_cast<uint32_t>(std::atoi(entry.c_str()));
+      uint32_t hi = dash == std::string::npos
+                        ? lo
+                        : static_cast<uint32_t>(
+                              std::atoi(entry.substr(dash + 1).c_str()));
+      for (uint32_t l = lo; l <= hi && l < config_.n_layers; ++l) {
+        if (!layerHostResident_[l]) {
+          layerHostResident_[l] = 1;
+          ++count;
+        }
+      }
+    }
+    if (count > 0) {
+      std::cout << "Host-resident layers: " << count
+                << " (weights in system RAM, compute on device)\n";
+    }
+  }
+}
+
+cut::ComputeHandle LlamaModel::demoteToHost(const cut::ComputeHandle &t,
+                                            size_t deviceId) {
+  if (!t) {
+    return t;
+  }
+  // Copy shape/dtype out before any allocation: creating the mapped tensor
+  // can grow the buffer container and invalidate the metadata reference.
+  const auto &buf = runtime_->getTensor(t, deviceId);
+  const std::vector<uint32_t> shape = buf.getShape();
+  const cut::DataType dtype = buf.getDtype();
+  const size_t bytes = buf.calculateActualSize();
+
+  std::vector<uint8_t> host(bytes);
+  runtime_->copyFromTensor(t, host.data(), bytes, 0, 0, deviceId);
+  return runtime_->createTensorMapped(shape, dtype, host.data(), deviceId,
+                                      /*preferHost=*/true);
+}
+
+void LlamaModel::demoteWeight(WeightHandle &wh, size_t deviceId) {
+  wh.handle = demoteToHost(wh.handle, deviceId);
+  wh.qValues = demoteToHost(wh.qValues, deviceId);
+  wh.qScales = demoteToHost(wh.qScales, deviceId);
+}
+
+void LlamaModel::demoteLayerWeights(LlamaLayer &layer, size_t deviceId) {
+  demoteWeight(layer.wq, deviceId);
+  demoteWeight(layer.wk, deviceId);
+  demoteWeight(layer.wv, deviceId);
+  demoteWeight(layer.wo, deviceId);
+  demoteWeight(layer.wqkv, deviceId);
+  demoteWeight(layer.w_gate, deviceId);
+  demoteWeight(layer.w_up, deviceId);
+  demoteWeight(layer.w_down, deviceId);
+  demoteWeight(layer.w_gate_up, deviceId);
 }
 
 cut::ComputeHandle LlamaModel::uploadVector(const std::vector<float> &data,
@@ -497,6 +565,12 @@ void LlamaModel::load(const std::string &gguf_path,
         layer.w_down = uploadWeightMaybeQuantized(
             reader, blk + "ffn_down.weight", rows, cols, dev);
       }
+    }
+
+    // Overflow layers: move the big weight matrices to host memory now that
+    // the GPU-side transposes are done.
+    if (layerHostResident_[i]) {
+      demoteLayerWeights(layer, dev);
     }
   }
   {

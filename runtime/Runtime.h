@@ -149,11 +149,14 @@ public:
    * directly to mapped memory — no staging command buffer, no fence wait.
    * Use for small, frequently-updated per-token buffers.
    * @param deviceId Device to create the tensor on.
+   * @param preferHost If true, prefer plain host memory over device-local
+   * host-visible (BAR) memory — for large buffers that must not consume VRAM.
    */
   Tensor createTensorMapped(const std::vector<uint32_t> &shape,
                             DataType dtype,
                             const void *srcPtr = nullptr,
-                            size_t deviceId = 0);
+                            size_t deviceId = 0,
+                            bool preferHost = false);
 
   /**
    * Copies data from host memory to a tensor.
