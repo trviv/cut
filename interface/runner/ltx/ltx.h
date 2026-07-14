@@ -10,7 +10,7 @@
 
 namespace ltx {
 
-/// Model hyperparameters for LTX-Video 2B (diffusers layout). Fixed for MVP.
+/// Model hyperparameters (loaded from transformer/config.json; defaults = 2B)
 struct LtxConfig {
   uint32_t inChannels = 128;    // packed latent channels
   uint32_t dim = 2048;          // inner dim = heads * headDim
@@ -58,11 +58,16 @@ private:
   std::vector<std::unique_ptr<safetensor::SafeTensorReader>> readers_;
 };
 
-/// LTX-Video 2B text-to-video DiT runner (MVP).
+/// LTX-Video text-to-video DiT runner (MVP).
 /// Text embeddings are precomputed offline; the returned latents are decoded
 /// to video offline (see scripts/ltx_encode_prompt.py / ltx_decode_latents.py).
 class LtxModel {
 public:
+  /// Parse <modelDir>/transformer/config.json into config_ (in_channels,
+  /// num_layers, num_attention_heads, attention_head_dim, caption_channels;
+  /// dim and ffnDim are derived). Called by load().
+  void loadConfig(const std::string &modelDir);
+
   /// Load transformer weights from `<modelDir>/transformer/*.safetensors`.
   void load(const std::string &modelDir, cut::Runtime &runtime);
 
@@ -91,13 +96,16 @@ private:
   /// Upload a PyTorch Linear weight [out, in] as a transposed Float16 GPU
   /// tensor [in, out] ready for ops().matmul.
   cut::ComputeHandle uploadLinearWeightF16(const ShardedSafeTensors &st,
-                                    const std::string &name);
+                                    const std::string &name,
+                                    size_t deviceId = 0);
   /// Upload a 1-D Float32 tensor (bias / norm weight), optionally scaling
   /// every element by `scale`.
   cut::ComputeHandle uploadVecF32(const ShardedSafeTensors &st,
                            const std::string &name,
-                           float scale = 1.0f);
-  AttnWeights loadAttn(const ShardedSafeTensors &st, const std::string &prefix);
+                           float scale = 1.0f,
+                           size_t deviceId = 0);
+  AttnWeights loadAttn(const ShardedSafeTensors &st, const std::string &prefix,
+                       size_t deviceId = 0);
 
   // ---- CPU-side helpers (documented in ltx.cpp) ----
   /// Sinusoidal timestep embedding + the two time_embed linears + final
@@ -123,7 +131,7 @@ private:
   /// interleaved RoPE from ropeCos_/ropeSin_ (self-attention only).
   cut::ComputeHandle mha(const AttnWeights &w, const cut::ComputeHandle &qSrc,
                   const cut::ComputeHandle &kvSrc, uint32_t sq, uint32_t skv,
-                  bool useRope);
+                  bool useRope, size_t dev);
   /// One transformer block. `modOffset` = block index * 6 * dim floats into
   /// the per-step modulation buffer modBuf_.
   cut::ComputeHandle block(const BlockWeights &bw, const cut::ComputeHandle &hidden,
@@ -131,7 +139,8 @@ private:
                     uint32_t sText, uint32_t blockIdx);
   /// Full DiT forward for one (latents, encoder) pair at the current step's
   /// modulation. Returns [S, inChannels] noise prediction.
-  cut::ComputeHandle forward(const cut::ComputeHandle &latents, const cut::ComputeHandle &encoder,
+  cut::ComputeHandle forward(const cut::ComputeHandle &latents,
+                      const std::vector<cut::ComputeHandle> &encoderPerDev,
                       uint32_t sVideo, uint32_t sText);
 
   LtxConfig config_;
@@ -141,19 +150,24 @@ private:
   cut::ComputeHandle projInW_, projInB_;    // [128->2048]
   cut::ComputeHandle projOutW_, projOutB_;  // [2048->128]
   cut::ComputeHandle capW1_, capB1_, capW2_, capB2_; // caption projection
-  cut::ComputeHandle ones_;                 // Float32 [dim] of 1.0 (no-affine RMSNorm)
-  std::vector<BlockWeights> blocks_;
+  std::vector<BlockWeights> blocks_;        // per-block weights (on blockDevice_[i])
+  // Pipeline placement: device index per transformer block (from
+  // CUT_DEVICE_SPLIT="n0,n1,..." like the llama runner; default all 0).
+  std::vector<size_t> blockDevice_;
+  std::vector<size_t> devices_;      // unique devices in use, in block order
+  size_t firstDevice_ = 0;           // device of block 0 (projIn, caption)
+  size_t lastDevice_ = 0;            // device of the last block (final norm)
+  // Per-device replicated state, indexed by device id:
+  std::vector<cut::ComputeHandle> onesDev_;     // [dim] of 1.0f
+  std::vector<cut::ComputeHandle> modBufDev_;   // [nLayers*6*dim] per step
+  std::vector<cut::ComputeHandle> ropeCosDev_, ropeSinDev_; // [S, dim]
+  cut::ComputeHandle finalModBuf_;              // [2*dim], on lastDevice_
 
   // CPU weights for the timestep path
   std::vector<float> tsL1W_, tsL1B_; // [2048,256], [2048]
   std::vector<float> tsL2W_, tsL2B_; // [2048,2048], [2048]
   std::vector<float> adaW_, adaB_;   // [6*2048, 2048], [6*2048]
   std::vector<float> finalScaleShiftTable_; // [2*2048]
-
-  // Per-generation GPU state
-  cut::ComputeHandle ropeCos_, ropeSin_;    // [S, dim]
-  cut::ComputeHandle modBuf_;               // Float32 [nLayers * 6 * dim], per step
-  cut::ComputeHandle finalModBuf_;          // Float32 [2 * dim], per step
 
   // Transient GPU tensors created since the last releaseTransients() call.
   // Every intermediate op output is tracked and bulk-released once the GPU

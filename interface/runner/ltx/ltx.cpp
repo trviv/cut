@@ -6,7 +6,9 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <random>
 #include <stdexcept>
 
@@ -92,8 +94,42 @@ std::vector<size_t> ShardedSafeTensors::shape(const std::string &name) const {
   throw std::runtime_error("tensor not found: " + name);
 }
 
+static uint32_t jsonUInt(const std::string &text, const std::string &key,
+                         uint32_t fallback) {
+  auto pos = text.find("\"" + key + "\"");
+  if (pos == std::string::npos) return fallback;
+  pos = text.find(':', pos);
+  if (pos == std::string::npos) return fallback;
+  ++pos;
+  while (pos < text.size() && (text[pos] == ' ' || text[pos] == '\t')) ++pos;
+  uint32_t v = 0; bool any = false;
+  while (pos < text.size() && text[pos] >= '0' && text[pos] <= '9') {
+    v = v * 10 + (text[pos] - '0'); ++pos; any = true;
+  }
+  return any ? v : fallback;
+}
+void LtxModel::loadConfig(const std::string &modelDir) {
+  std::ifstream f(modelDir + "/transformer/config.json");
+  if (!f) {
+    throw std::runtime_error("Missing transformer/config.json");
+  }
+  std::string text((std::istreambuf_iterator<char>(f)),
+                   std::istreambuf_iterator<char>());
+  config_.inChannels = jsonUInt(text, "in_channels", config_.inChannels);
+  config_.nLayers = jsonUInt(text, "num_layers", config_.nLayers);
+  config_.nHeads = jsonUInt(text, "num_attention_heads", config_.nHeads);
+  config_.headDim = jsonUInt(text, "attention_head_dim", config_.headDim);
+  config_.captionDim = jsonUInt(text, "caption_channels", config_.captionDim);
+  config_.dim = config_.nHeads * config_.headDim;
+  config_.ffnDim = 4 * config_.dim; // diffusers FeedForward mult=4
+  std::cout << "Config: layers=" << config_.nLayers
+            << " dim=" << config_.dim
+            << " heads=" << config_.nHeads << "x" << config_.headDim
+            << " caption=" << config_.captionDim << "\n";
+}
 void LtxModel::load(const std::string &modelDir, cut::Runtime &runtime) {
   runtime_ = &runtime;
+  loadConfig(modelDir);
   std::vector<std::string> shardPaths;
   for (const auto &entry : std::filesystem::directory_iterator(modelDir + "/transformer")) {
     if (entry.path().extension() == ".safetensors") {
@@ -108,18 +144,64 @@ void LtxModel::load(const std::string &modelDir, cut::Runtime &runtime) {
   ShardedSafeTensors st(shardPaths);
   std::cout << "Loading LTX transformer: " << shardPaths.size() << " shards" << std::endl;
 
-  projInW_ = uploadLinearWeightF16(st, "proj_in.weight");
-  projInB_ = uploadVecF32(st, "proj_in.bias");
-  projOutW_ = uploadLinearWeightF16(st, "proj_out.weight");
-  projOutB_ = uploadVecF32(st, "proj_out.bias");
+  // Block placement
+  blockDevice_.assign(config_.nLayers, 0);
+  if (const char *split = std::getenv("CUT_DEVICE_SPLIT")) {
+    std::istringstream iss(split);
+    std::string token;
+    size_t dev = 0;
+    uint32_t l = 0;
+    size_t lastListed = 0;
+    while (std::getline(iss, token, ',')) {
+      uint32_t n = static_cast<uint32_t>(std::stoul(token));
+      if (dev >= runtime.deviceCount()) {
+        throw std::runtime_error(
+            "CUT_DEVICE_SPLIT has more entries than devices");
+      }
+      for (uint32_t i = 0; i < n && l < config_.nLayers; ++i) {
+        blockDevice_[l++] = dev;
+      }
+      lastListed = dev;
+      ++dev;
+    }
+    // Blocks beyond the listed counts go to the last listed device.
+    while (l < config_.nLayers) {
+      blockDevice_[l++] = lastListed;
+    }
+  }
+  firstDevice_ = blockDevice_.front();
+  lastDevice_ = blockDevice_.back();
+  // Unique devices in block order
+  devices_.clear();
+  for (size_t d : blockDevice_) {
+    if (devices_.empty() || devices_.back() != d) {
+      devices_.push_back(d);
+    }
+  }
+  if (devices_.size() > 1) {
+    std::cout << "Block placement: ";
+    for (size_t d : devices_) std::cout << d << " ";
+    std::cout << "\n";
+  }
 
-  capW1_ = uploadLinearWeightF16(st, "caption_projection.linear_1.weight");
-  capB1_ = uploadVecF32(st, "caption_projection.linear_1.bias");
-  capW2_ = uploadLinearWeightF16(st, "caption_projection.linear_2.weight");
-  capB2_ = uploadVecF32(st, "caption_projection.linear_2.bias");
+  projInW_ = uploadLinearWeightF16(st, "proj_in.weight", firstDevice_);
+  projInB_ = uploadVecF32(st, "proj_in.bias", 1.0f, firstDevice_);
+  projOutW_ = uploadLinearWeightF16(st, "proj_out.weight", lastDevice_);
+  projOutB_ = uploadVecF32(st, "proj_out.bias", 1.0f, lastDevice_);
 
-  std::vector<float> onesVec(config_.dim, 1.0f);
-  ones_ = runtime_->createTensor({config_.dim}, cut::DataType::Float32, onesVec.data());
+  capW1_ = uploadLinearWeightF16(st, "caption_projection.linear_1.weight", firstDevice_);
+  capB1_ = uploadVecF32(st, "caption_projection.linear_1.bias", 1.0f, firstDevice_);
+  capW2_ = uploadLinearWeightF16(st, "caption_projection.linear_2.weight", firstDevice_);
+  capB2_ = uploadVecF32(st, "caption_projection.linear_2.bias", 1.0f, firstDevice_);
+
+  onesDev_.resize(runtime.deviceCount());
+  modBufDev_.resize(runtime.deviceCount());
+  for (size_t d : devices_) {
+    std::vector<float> onesVec(config_.dim, 1.0f);
+    onesDev_[d] = runtime_->createTensor({config_.dim}, cut::DataType::Float32, onesVec.data(), false, d);
+    modBufDev_[d] = runtime_->createTensorEmpty({config_.nLayers * 6 * config_.dim}, cut::DataType::Float32, false, d);
+  }
+  finalModBuf_ = runtime_->createTensorEmpty({2 * config_.dim}, cut::DataType::Float32, false, lastDevice_);
 
   tsL1W_ = st.readF32("time_embed.emb.timestep_embedder.linear_1.weight");
   tsL1B_ = st.readF32("time_embed.emb.timestep_embedder.linear_1.bias");
@@ -133,24 +215,23 @@ void LtxModel::load(const std::string &modelDir, cut::Runtime &runtime) {
   blocks_.resize(config_.nLayers);
   for (uint32_t i = 0; i < config_.nLayers; ++i) {
     std::string prefix = "transformer_blocks." + std::to_string(i) + ".";
-    blocks_[i].self_ = loadAttn(st, prefix + "attn1.");
-    blocks_[i].cross_ = loadAttn(st, prefix + "attn2.");
+    blocks_[i].self_ = loadAttn(st, prefix + "attn1.", blockDevice_[i]);
+    blocks_[i].cross_ = loadAttn(st, prefix + "attn2.", blockDevice_[i]);
 
-    blocks_[i].ffnW1 = uploadLinearWeightF16(st, prefix + "ff.net.0.proj.weight");
-    blocks_[i].ffnB1 = uploadVecF32(st, prefix + "ff.net.0.proj.bias");
-    blocks_[i].ffnW2 = uploadLinearWeightF16(st, prefix + "ff.net.2.weight");
-    blocks_[i].ffnB2 = uploadVecF32(st, prefix + "ff.net.2.bias");
+    blocks_[i].ffnW1 = uploadLinearWeightF16(st, prefix + "ff.net.0.proj.weight", blockDevice_[i]);
+    blocks_[i].ffnB1 = uploadVecF32(st, prefix + "ff.net.0.proj.bias", 1.0f, blockDevice_[i]);
+    blocks_[i].ffnW2 = uploadLinearWeightF16(st, prefix + "ff.net.2.weight", blockDevice_[i]);
+    blocks_[i].ffnB2 = uploadVecF32(st, prefix + "ff.net.2.bias", 1.0f, blockDevice_[i]);
 
     blocks_[i].scaleShiftTable = st.readF32(prefix + "scale_shift_table");
     std::cout << "  block " << i << " loaded\r" << std::flush;
   }
   std::cout << std::endl;
 
-  modBuf_ = runtime_->createTensorEmpty({config_.nLayers * 6 * config_.dim}, cut::DataType::Float32);
-  finalModBuf_ = runtime_->createTensorEmpty({2 * config_.dim}, cut::DataType::Float32);
+  ropeCosDev_.resize(runtime.deviceCount());
+  ropeSinDev_.resize(runtime.deviceCount());
 }
-
-cut::ComputeHandle LtxModel::uploadLinearWeightF16(const ShardedSafeTensors &st, const std::string &name) {
+cut::ComputeHandle LtxModel::uploadLinearWeightF16(const ShardedSafeTensors &st, const std::string &name, size_t deviceId) {
   auto data = st.readF32(name);
   auto shape = st.shape(name);
   uint32_t out = static_cast<uint32_t>(shape[0]);
@@ -163,36 +244,33 @@ cut::ComputeHandle LtxModel::uploadLinearWeightF16(const ShardedSafeTensors &st,
     }
   }
 
-  return runtime_->createTensor({in, out}, cut::DataType::Float16, tmp.data());
+  return runtime_->createTensor({in, out}, cut::DataType::Float16, tmp.data(), false, deviceId);
 }
-
-cut::ComputeHandle LtxModel::uploadVecF32(const ShardedSafeTensors &st, const std::string &name, float scale) {
+cut::ComputeHandle LtxModel::uploadVecF32(const ShardedSafeTensors &st, const std::string &name, float scale, size_t deviceId) {
   auto data = st.readF32(name);
   if (scale != 1.0f) {
     for (auto &val : data) {
       val *= scale;
     }
   }
-  return runtime_->createTensor({static_cast<uint32_t>(data.size())}, cut::DataType::Float32, data.data());
+  return runtime_->createTensor({static_cast<uint32_t>(data.size())}, cut::DataType::Float32, data.data(), false, deviceId);
 }
-
-AttnWeights LtxModel::loadAttn(const ShardedSafeTensors &st, const std::string &prefix) {
+AttnWeights LtxModel::loadAttn(const ShardedSafeTensors &st, const std::string &prefix, size_t deviceId) {
   AttnWeights w;
-  w.wq = uploadLinearWeightF16(st, prefix + "to_q.weight");
-  w.wk = uploadLinearWeightF16(st, prefix + "to_k.weight");
-  w.wv = uploadLinearWeightF16(st, prefix + "to_v.weight");
-  w.wo = uploadLinearWeightF16(st, prefix + "to_out.0.weight");
+  w.wq = uploadLinearWeightF16(st, prefix + "to_q.weight", deviceId);
+  w.wk = uploadLinearWeightF16(st, prefix + "to_k.weight", deviceId);
+  w.wv = uploadLinearWeightF16(st, prefix + "to_v.weight", deviceId);
+  w.wo = uploadLinearWeightF16(st, prefix + "to_out.0.weight", deviceId);
 
-  w.bq = uploadVecF32(st, prefix + "to_q.bias");
-  w.bk = uploadVecF32(st, prefix + "to_k.bias");
-  w.bv = uploadVecF32(st, prefix + "to_v.bias");
-  w.bo = uploadVecF32(st, prefix + "to_out.0.bias");
+  w.bq = uploadVecF32(st, prefix + "to_q.bias", 1.0f, deviceId);
+  w.bk = uploadVecF32(st, prefix + "to_k.bias", 1.0f, deviceId);
+  w.bv = uploadVecF32(st, prefix + "to_v.bias", 1.0f, deviceId);
+  w.bo = uploadVecF32(st, prefix + "to_out.0.bias", 1.0f, deviceId);
 
-  w.normQ = uploadVecF32(st, prefix + "norm_q.weight", 1.0f / std::sqrt(static_cast<float>(config_.headDim)));
-  w.normK = uploadVecF32(st, prefix + "norm_k.weight");
+  w.normQ = uploadVecF32(st, prefix + "norm_q.weight", 1.0f / std::sqrt(static_cast<float>(config_.headDim)), deviceId);
+  w.normK = uploadVecF32(st, prefix + "norm_k.weight", 1.0f, deviceId);
   return w;
 }
-
 void LtxModel::computeTimestepModulation(float timestep,
                                         std::vector<float> &outMod,
                                         std::vector<float> &outFinal) const {
@@ -302,21 +380,21 @@ void LtxModel::computeRopeTables(uint32_t latentFrames, uint32_t latentHeight,
         float g2 = static_cast<float>(wi) * scale2;
 
         // Pad values
-        cosTbl[t * dim + 0] = 1.0f;
-        cosTbl[t * dim + 1] = 1.0f;
-        sinTbl[t * dim + 0] = 0.0f;
-        sinTbl[t * dim + 1] = 0.0f;
+        for (uint32_t p = 0; p < pad; ++p) {
+          cosTbl[t * dim + p] = 1.0f;
+          sinTbl[t * dim + p] = 0.0f;
+        }
 
         // Angle layout matches the reference's
         // `freqs.transpose(-1, -2).flatten(2)`: FREQUENCY-major with the
         // three axes (frame, height, width) interleaved per frequency —
         // angle index m = j*3 + axis — then each angle repeated twice
-        // (repeat_interleave(2)) after the 2 leading padding columns.
+        // (repeat_interleave(2)) after the `pad` leading padding columns.
         const float g[3] = {g0, g1, g2};
         for (uint32_t j = 0; j < nFreq; ++j) {
           for (uint32_t axis = 0; axis < 3; ++axis) {
             float angle = freqs[j] * (g[axis] * 2.0f - 1.0f);
-            uint32_t idx = 2 + 2 * (j * 3 + axis);
+            uint32_t idx = pad + 2 * (j * 3 + axis);
             cosTbl[t * dim + idx] = std::cos(angle);
             cosTbl[t * dim + idx + 1] = std::cos(angle);
             sinTbl[t * dim + idx] = std::sin(angle);
@@ -327,7 +405,6 @@ void LtxModel::computeRopeTables(uint32_t latentFrames, uint32_t latentHeight,
     }
   }
 }
-
 std::vector<float> LtxModel::computeSigmas(uint32_t steps, uint32_t videoSeqLen) const {
   std::vector<float> sigmas(steps + 1);
   if (steps == 1) {
@@ -372,14 +449,16 @@ void LtxModel::releaseTransients() {
   // Holding the references UNTIL the flush is what makes this safe — earlier
   // destruction would let recorded-but-unsubmitted commands alias recycled
   // buffers.
-  runtime_->flushPendingCommands();
+  for (size_t d : devices_) {
+    runtime_->flushPendingCommands(d);
+  }
   transients_.clear();
 }
 
 cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle &qSrc,
                                 const cut::ComputeHandle &kvSrc, uint32_t sq, uint32_t skv,
-                                bool useRope) {
-  auto &ops = runtime_->ops();
+                                bool useRope, size_t dev) {
+  auto &ops = runtime_->ops(dev);
 
   auto q = track(ops.matmul(qSrc, w.wq));
   q = track(ops.binaryOpRowBcast(cut::BinaryAdd, q, w.bq));
@@ -390,8 +469,8 @@ cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle 
   k = track(ops.rmsNorm(k, w.normK, config_.qkNormEps));
 
   if (useRope) {
-    q = track(ops.applyRoPEInterleaved(q, ropeCos_, ropeSin_));
-    k = track(ops.applyRoPEInterleaved(k, ropeCos_, ropeSin_));
+    q = track(ops.applyRoPEInterleaved(q, ropeCosDev_[dev], ropeSinDev_[dev]));
+    k = track(ops.applyRoPEInterleaved(k, ropeCosDev_[dev], ropeSinDev_[dev]));
   }
 
   auto v = track(ops.matmul(kvSrc, w.wv));
@@ -409,26 +488,34 @@ cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle 
 
   cut::ComputeHandle acc;
   for (uint32_t h = 0; h < config_.nHeads; ++h) {
-    auto qhT = track(runtime_->store().createTensorView(qT, static_cast<size_t>(h) * Dh * alignedSq * sizeof(float),
-                                                  {Dh, sq}, cut::DataType::Float32));
-    auto khT = track(runtime_->store().createTensorView(kT, static_cast<size_t>(h) * Dh * alignedSkv * sizeof(float),
-                                                  {Dh, skv}, cut::DataType::Float32));
-    auto vhT = track(runtime_->store().createTensorView(vT, static_cast<size_t>(h) * Dh * alignedSkv * sizeof(float),
-                                                  {Dh, skv}, cut::DataType::Float32));
+    auto qhT = runtime_->store(dev).createTensorView(qT, static_cast<size_t>(h) * Dh * alignedSq * sizeof(float),
+                                                  {Dh, sq}, cut::DataType::Float32);
+    auto khT = runtime_->store(dev).createTensorView(kT, static_cast<size_t>(h) * Dh * alignedSkv * sizeof(float),
+                                                  {Dh, skv}, cut::DataType::Float32);
+    auto vhT = runtime_->store(dev).createTensorView(vT, static_cast<size_t>(h) * Dh * alignedSkv * sizeof(float),
+                                                  {Dh, skv}, cut::DataType::Float32);
 
-    auto Qh = track(ops.transpose(qhT));
-    auto scores = track(ops.matmul(Qh, khT));
-    auto probs = track(ops.softmaxFused(scores, 1));
-    auto Vh = track(ops.transpose(vhT));
-    auto outH = track(ops.matmul(probs, Vh));
+    auto Qh = ops.transpose(qhT);
+    auto scores = ops.matmul(Qh, khT);
+    auto probs = ops.softmaxFused(scores, 1);
+    auto Vh = ops.transpose(vhT);
+    auto outH = ops.matmul(probs, Vh);
 
-    auto woH = track(runtime_->store().createTensorView(w.wo, static_cast<size_t>(h) * Dh * D * sizeof(uint16_t),
-                                                  {Dh, D}, cut::DataType::Float16));
+    auto woH = runtime_->store(dev).createTensorView(w.wo, static_cast<size_t>(h) * Dh * D * sizeof(uint16_t),
+                                                  {Dh, D}, cut::DataType::Float16);
 
     if (h == 0) {
-      acc = track(ops.matmul(outH, woH));
+      acc = ops.matmul(outH, woH);
     } else {
-      acc = track(ops.matmulBinary(cut::BinaryAdd, outH, woH, acc));
+      acc = ops.matmulBinary(cut::BinaryAdd, outH, woH, acc);
+    }
+
+    // Bound transient VRAM: at large S the 32 heads' score/prob matrices
+    // ([sq, skv] each) would otherwise all stay alive until the block ends.
+    // Flushing lets the dead iterations' buffers recycle; `acc` and the
+    // tracked q/k/v tensors survive (their handles are still held).
+    if ((h & 3u) == 3u) {
+      runtime_->flushPendingCommands(dev);
     }
   }
 
@@ -439,29 +526,30 @@ cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle 
 cut::ComputeHandle LtxModel::block(const BlockWeights &bw, const cut::ComputeHandle &hidden,
                                   const cut::ComputeHandle &encoder, uint32_t sVideo,
                                   uint32_t sText, uint32_t blockIdx) {
-  auto &ops = runtime_->ops();
+  const size_t dev = blockDevice_[blockIdx];
+  auto &ops = runtime_->ops(dev);
   const uint32_t D = config_.dim;
 
   size_t base = static_cast<size_t>(blockIdx) * 6 * D * sizeof(float);
-  auto shiftMsa = track(runtime_->store().createTensorView(modBuf_, base, {D}, cut::DataType::Float32));
-  auto scaleMsa1p = track(runtime_->store().createTensorView(modBuf_, base + D * sizeof(float), {D}, cut::DataType::Float32));
-  auto gateMsa = track(runtime_->store().createTensorView(modBuf_, base + 2 * D * sizeof(float), {D}, cut::DataType::Float32));
-  auto shiftMlp = track(runtime_->store().createTensorView(modBuf_, base + 3 * D * sizeof(float), {D}, cut::DataType::Float32));
-  auto scaleMlp1p = track(runtime_->store().createTensorView(modBuf_, base + 4 * D * sizeof(float), {D}, cut::DataType::Float32));
-  auto gateMlp = track(runtime_->store().createTensorView(modBuf_, base + 5 * D * sizeof(float), {D}, cut::DataType::Float32));
+  auto shiftMsa = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base, {D}, cut::DataType::Float32));
+  auto scaleMsa1p = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + D * sizeof(float), {D}, cut::DataType::Float32));
+  auto gateMsa = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + 2 * D * sizeof(float), {D}, cut::DataType::Float32));
+  auto shiftMlp = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + 3 * D * sizeof(float), {D}, cut::DataType::Float32));
+  auto scaleMlp1p = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + 4 * D * sizeof(float), {D}, cut::DataType::Float32));
+  auto gateMlp = track(runtime_->store(dev).createTensorView(modBufDev_[dev], base + 5 * D * sizeof(float), {D}, cut::DataType::Float32));
 
-  auto n1 = track(ops.rmsNorm(hidden, ones_, config_.blockNormEps));
+  auto n1 = track(ops.rmsNorm(hidden, onesDev_[dev], config_.blockNormEps));
   n1 = track(ops.binaryOpRowBcast(cut::BinaryMul, n1, scaleMsa1p));
   n1 = track(ops.binaryOpRowBcast(cut::BinaryAdd, n1, shiftMsa));
 
-  auto attn = mha(bw.self_, n1, n1, sVideo, sVideo, true);
+  auto attn = mha(bw.self_, n1, n1, sVideo, sVideo, true, dev);
   auto gated = track(ops.binaryOpRowBcast(cut::BinaryMul, attn, gateMsa));
   auto h2 = track(ops.binaryOp(cut::BinaryAdd, hidden, gated));
 
-  auto attn2 = mha(bw.cross_, h2, encoder, sVideo, sText, false);
+  auto attn2 = mha(bw.cross_, h2, encoder, sVideo, sText, false, dev);
   auto h3 = track(ops.binaryOp(cut::BinaryAdd, h2, attn2));
 
-  auto n2 = track(ops.rmsNorm(h3, ones_, config_.blockNormEps));
+  auto n2 = track(ops.rmsNorm(h3, onesDev_[dev], config_.blockNormEps));
   n2 = track(ops.binaryOpRowBcast(cut::BinaryMul, n2, scaleMlp1p));
   n2 = track(ops.binaryOpRowBcast(cut::BinaryAdd, n2, shiftMlp));
 
@@ -475,15 +563,25 @@ cut::ComputeHandle LtxModel::block(const BlockWeights &bw, const cut::ComputeHan
   return ops.binaryOp(cut::BinaryAdd, h3, ffGated);   // NOT tracked: released by forward()
 }
 
-cut::ComputeHandle LtxModel::forward(const cut::ComputeHandle &latents, const cut::ComputeHandle &encoder,
+cut::ComputeHandle LtxModel::forward(const cut::ComputeHandle &latents, const std::vector<cut::ComputeHandle> &encoderPerDev,
                                     uint32_t sVideo, uint32_t sText) {
-  auto &ops = runtime_->ops();
+  auto &ops = runtime_->ops(firstDevice_);
   auto h0 = track(ops.matmul(latents, projInW_));
   auto h = ops.binaryOpRowBcast(cut::BinaryAdd, h0, projInB_);
   dumpStats(*runtime_, h, "projIn", (size_t)sVideo * config_.dim);
 
+  size_t curDev = firstDevice_;
   for (uint32_t i = 0; i < config_.nLayers; ++i) {
-    auto next = block(blocks_[i], h, encoder, sVideo, sText, i);
+    const size_t dev = blockDevice_[i];
+    if (dev != curDev) {
+      // Hop the hidden state across devices (host bounce). transferTensor
+      // flushes the source device before reading.
+      auto moved = runtime_->transferTensor(h, curDev, dev);
+      transients_.push_back(h);
+      h = moved;
+      curDev = dev;
+    }
+    auto next = block(blocks_[i], h, encoderPerDev[dev], sVideo, sText, i);
     transients_.push_back(h);
     h = next;
     releaseTransients();
@@ -494,20 +592,21 @@ cut::ComputeHandle LtxModel::forward(const cut::ComputeHandle &latents, const cu
   }
 
   transients_.push_back(h);
-  auto finalShift = track(runtime_->store().createTensorView(finalModBuf_, 0, {config_.dim}, cut::DataType::Float32));
-  auto finalScale1p = track(runtime_->store().createTensorView(finalModBuf_, config_.dim * sizeof(float),
+  auto &opsLast = runtime_->ops(lastDevice_);
+  auto finalShift = track(runtime_->store(lastDevice_).createTensorView(finalModBuf_, 0, {config_.dim}, cut::DataType::Float32));
+  auto finalScale1p = track(runtime_->store(lastDevice_).createTensorView(finalModBuf_, config_.dim * sizeof(float),
                                                          {config_.dim}, cut::DataType::Float32));
 
-  auto n = track(ops.layerNorm(h, {config_.dim}, nullptr, nullptr, config_.blockNormEps));
+  auto n = track(opsLast.layerNorm(h, {config_.dim}, nullptr, nullptr, config_.blockNormEps));
   dumpStats(*runtime_, n, "layerNormRaw", (size_t)sVideo * config_.dim);
   dumpStats(*runtime_, finalModBuf_, "finalModBuf", 2 * (size_t)config_.dim);
-  n = track(ops.binaryOpRowBcast(cut::BinaryMul, n, finalScale1p));
+  n = track(opsLast.binaryOpRowBcast(cut::BinaryMul, n, finalScale1p));
   dumpStats(*runtime_, n, "afterScale", (size_t)sVideo * config_.dim);
-  n = track(ops.binaryOpRowBcast(cut::BinaryAdd, n, finalShift));
+  n = track(opsLast.binaryOpRowBcast(cut::BinaryAdd, n, finalShift));
   dumpStats(*runtime_, n, "finalNorm", (size_t)sVideo * config_.dim);
 
-  auto out0 = track(ops.matmul(n, projOutW_));
-  auto out = ops.binaryOpRowBcast(cut::BinaryAdd, out0, projOutB_);
+  auto out0 = track(opsLast.matmul(n, projOutW_));
+  auto out = opsLast.binaryOpRowBcast(cut::BinaryAdd, out0, projOutB_);
   dumpStats(*runtime_, out, "projOut", (size_t)sVideo * config_.inChannels);
   return out;
 }
@@ -531,8 +630,10 @@ std::vector<float> LtxModel::generate(const std::vector<float> &promptEmbeds,
   // Compute RoPE tables
   std::vector<float> cosTbl, sinTbl;
   computeRopeTables(latentFrames, latentHeight, latentWidth, frameRate, cosTbl, sinTbl);
-  ropeCos_ = runtime_->createTensor({S, config_.dim}, cut::DataType::Float32, cosTbl.data());
-  ropeSin_ = runtime_->createTensor({S, config_.dim}, cut::DataType::Float32, sinTbl.data());
+  for (size_t d : devices_) {
+    ropeCosDev_[d] = runtime_->createTensor({S, config_.dim}, cut::DataType::Float32, cosTbl.data(), false, d);
+    ropeSinDev_[d] = runtime_->createTensor({S, config_.dim}, cut::DataType::Float32, sinTbl.data(), false, d);
+  }
 
   // Compute sigma schedule
   auto sigmas = computeSigmas(steps, S);
@@ -553,23 +654,34 @@ std::vector<float> LtxModel::generate(const std::vector<float> &promptEmbeds,
   }
 
   // Process text embeddings
-  auto embP = track(runtime_->createTensor({promptTokens, config_.captionDim}, cut::DataType::Float32, promptEmbeds.data()));
-  auto e1 = track(runtime_->ops().matmul(embP, capW1_));
-  e1 = track(runtime_->ops().binaryOpRowBcast(cut::BinaryAdd, e1, capB1_));
-  e1 = track(runtime_->ops().unaryOp(cut::UnaryGelu, e1));
-  auto encPos = runtime_->ops().matmul(e1, capW2_);
-  encPos = runtime_->ops().binaryOpRowBcast(cut::BinaryAdd, encPos, capB2_);
+  auto &ops = runtime_->ops(firstDevice_);
+  auto embP = track(runtime_->createTensor({promptTokens, config_.captionDim}, cut::DataType::Float32, promptEmbeds.data(), false, firstDevice_));
+  auto e1 = track(ops.matmul(embP, capW1_));
+  e1 = track(ops.binaryOpRowBcast(cut::BinaryAdd, e1, capB1_));
+  e1 = track(ops.unaryOp(cut::UnaryGelu, e1));
+  auto encPos = ops.matmul(e1, capW2_);
+  encPos = ops.binaryOpRowBcast(cut::BinaryAdd, encPos, capB2_);
 
   cut::ComputeHandle encNeg;
   if (cfg) {
-    auto embN = track(runtime_->createTensor({negativeTokens, config_.captionDim}, cut::DataType::Float32, negativeEmbeds.data()));
-    auto e2 = track(runtime_->ops().matmul(embN, capW1_));
-    e2 = track(runtime_->ops().binaryOpRowBcast(cut::BinaryAdd, e2, capB1_));
-    e2 = track(runtime_->ops().unaryOp(cut::UnaryGelu, e2));
-    encNeg = runtime_->ops().matmul(e2, capW2_);
-    encNeg = runtime_->ops().binaryOpRowBcast(cut::BinaryAdd, encNeg, capB2_);
+    auto embN = track(runtime_->createTensor({negativeTokens, config_.captionDim}, cut::DataType::Float32, negativeEmbeds.data(), false, firstDevice_));
+    auto e2 = track(ops.matmul(embN, capW1_));
+    e2 = track(ops.binaryOpRowBcast(cut::BinaryAdd, e2, capB1_));
+    e2 = track(ops.unaryOp(cut::UnaryGelu, e2));
+    encNeg = ops.matmul(e2, capW2_);
+    encNeg = ops.binaryOpRowBcast(cut::BinaryAdd, encNeg, capB2_);
   }
 
+  // Replicate encoders to all devices
+  std::vector<cut::ComputeHandle> encPosDev(runtime_->deviceCount());
+  encPosDev[firstDevice_] = encPos;
+  std::vector<cut::ComputeHandle> encNegDev(runtime_->deviceCount());
+  if (cfg) encNegDev[firstDevice_] = encNeg;
+  for (size_t d : devices_) {
+    if (d == firstDevice_) continue;
+    encPosDev[d] = runtime_->transferTensor(encPos, firstDevice_, d);
+    if (cfg) encNegDev[d] = runtime_->transferTensor(encNeg, firstDevice_, d);
+  }
   releaseTransients();
 
   // Denoising loop
@@ -579,19 +691,21 @@ std::vector<float> LtxModel::generate(const std::vector<float> &promptEmbeds,
 
     std::vector<float> mod, fin;
     computeTimestepModulation(t, mod, fin);
-    runtime_->copyToTensor(modBuf_, mod.data(), mod.size() * sizeof(float));
-    runtime_->copyToTensor(finalModBuf_, fin.data(), fin.size() * sizeof(float));
+    for (size_t d : devices_) {
+      runtime_->copyToTensor(modBufDev_[d], mod.data(), mod.size() * sizeof(float), 0, 0, d);
+    }
+    runtime_->copyToTensor(finalModBuf_, fin.data(), fin.size() * sizeof(float), 0, 0, lastDevice_);
 
-    auto xGpu = track(runtime_->createTensor({S, C}, cut::DataType::Float32, x.data()));
-    auto predPos = forward(xGpu, encPos, S, promptTokens);
+    auto xGpu = track(runtime_->createTensor({S, C}, cut::DataType::Float32, x.data(), false, firstDevice_));
+    auto predPos = forward(xGpu, encPosDev, S, promptTokens);
     std::vector<float> npPos(S * C);
-    runtime_->copyFromTensor(predPos, npPos.data(), S * C * sizeof(float));
+    runtime_->copyFromTensor(predPos, npPos.data(), S * C * sizeof(float), 0, 0, lastDevice_);
 
     std::vector<float> np = npPos;
     if (cfg) {
-      auto predNeg = forward(xGpu, encNeg, S, negativeTokens);
+      auto predNeg = forward(xGpu, encNegDev, S, negativeTokens);
       std::vector<float> npNeg(S * C);
-      runtime_->copyFromTensor(predNeg, npNeg.data(), S * C * sizeof(float));
+      runtime_->copyFromTensor(predNeg, npNeg.data(), S * C * sizeof(float), 0, 0, lastDevice_);
       for (uint32_t j = 0; j < S * C; ++j) {
         np[j] = npNeg[j] + guidanceScale * (npPos[j] - npNeg[j]);
       }
