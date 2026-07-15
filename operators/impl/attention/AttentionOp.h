@@ -258,6 +258,7 @@ public:
   std::vector<uint8_t> pushConstants() const override;
 
 private:
+  DataType dtype_; // shared q/k/v input dtype (Float32 or Float16)
   uint32_t sq_, skv_, nHeads_, headDim_;
   uint32_t strideQ_, strideKV_, strideO_;
   float scale_;

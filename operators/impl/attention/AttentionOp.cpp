@@ -467,10 +467,11 @@ DiTAttentionOpNode::DiTAttentionOpNode(TensorStore &store,
   const auto &kBuf = store.getTensor(k);
   const auto &vBuf = store.getTensor(v);
 
-  if (qBuf.getDtype() != DataType::Float32 ||
-      kBuf.getDtype() != DataType::Float32 ||
-      vBuf.getDtype() != DataType::Float32) {
-    throw std::runtime_error("DiTAttention requires Float32 inputs");
+  dtype_ = qBuf.getDtype();
+  if (kBuf.getDtype() != dtype_ || vBuf.getDtype() != dtype_ ||
+      (dtype_ != DataType::Float32 && dtype_ != DataType::Float16)) {
+    throw std::runtime_error(
+        "DiTAttention requires q/k/v to share dtype Float32 or Float16");
   }
 
   const auto qShape = qBuf.getShape();
@@ -511,13 +512,15 @@ DiTAttentionOpNode::DiTAttentionOpNode(TensorStore &store,
 DataType DiTAttentionOpNode::outputDtype() const { return DataType::Float32; }
 
 std::optional<std::vector<uint32_t>> DiTAttentionOpNode::shader() const {
-  return compiledDiTAttention(DataType::Float32, DataType::Float32);
+  return compiledDiTAttention(dtype_, DataType::Float32);
 }
 
 size_t DiTAttentionOpNode::shaderKey() const {
   // Bits 33/34 are taken by BatchedKVCacheWrite / BatchedAttentionReadCache
-  // (all these nodes share OperatorEnum Attention).
-  return OpNode::shaderKey() | (size_t{1} << 35);
+  // (all these nodes share OperatorEnum Attention). Mix in the input dtype
+  // the shader was compiled for (see AttentionOpNode::shaderKey).
+  return OpNode::shaderKey() | (size_t{1} << 35) |
+         ((static_cast<size_t>(dtype_) & 0xF) << 56);
 }
 
 std::vector<uint32_t> DiTAttentionOpNode::outputShape() const {

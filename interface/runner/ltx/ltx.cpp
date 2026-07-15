@@ -521,7 +521,13 @@ cut::ComputeHandle LtxModel::mha(const AttnWeights &w, const cut::ComputeHandle 
 
   if (fusedAttn_) {
     // normQ is pre-scaled by 1/sqrt(headDim), so the attention scale is 1.
-    auto attnOut = track(ops.ditAttention(q, k, v, config_.nHeads,
+    // fp16 q/k/v halve the attention kernel's global traffic; gated on the
+    // same flag as the matmul casts (castAct's rows%16 gate would skip the
+    // short cross-attention k/v and mix dtypes, so cast directly).
+    auto qa = fp16Acts_ ? track(ops.cast(q, cut::DataType::Float16)) : q;
+    auto ka = fp16Acts_ ? track(ops.cast(k, cut::DataType::Float16)) : k;
+    auto va = fp16Acts_ ? track(ops.cast(v, cut::DataType::Float16)) : v;
+    auto attnOut = track(ops.ditAttention(qa, ka, va, config_.nHeads,
                                           config_.headDim, 1.0f));
     auto out = track(ops.matmul(castAct(ops, attnOut, sq), w.wo));
     pendingTransientBytes_ +=

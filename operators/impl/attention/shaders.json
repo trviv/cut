@@ -114,6 +114,10 @@
           {
             "input": "Float32",
             "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float32"
           }
         ]
       }

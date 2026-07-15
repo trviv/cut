@@ -15,6 +15,7 @@
 // processes Q_TILE query rows (same head) so K/V global reads amortize 16x
 // and every thread stays busy in the V-accumulate phase.
 // Uses float4-typed buffer views for vectorized global-memory access.
+// Supports Float16 Q/K/V inputs (halving global traffic; output remains Float32).
 
 // Output: dataOut[sq, nHeads * headDim]
 // Dispatch: (ceil(sq / Q_TILE), nHeads, 1) workgroups.
@@ -30,9 +31,9 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::binding(0, 0)]] StructuredBuffer<float4> qIn;
-[[vk::binding(1, 0)]] StructuredBuffer<float4> kIn;
-[[vk::binding(2, 0)]] StructuredBuffer<float4> vIn;
+[[vk::binding(0, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT%> qIn;
+[[vk::binding(1, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT%> kIn;
+[[vk::binding(2, 0)]] StructuredBuffer<%VEC_DTYPE_INPUT%> vIn;
 [[vk::binding(3, 0)]] RWStructuredBuffer<float4> dataOut;
 
 groupshared float sQ[Q_TILE][128];     // query rows (headDim <= 128)
@@ -60,7 +61,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
         uint d4 = idx % hd4;
         uint qi = qBase + qq;
         float4 qv = (qi < pc.sq)
-            ? qIn[((qi * pc.strideQ + h * pc.headDim) >> 2) + d4]
+            ? float4(qIn[((qi * pc.strideQ + h * pc.headDim) >> 2) + d4])
             : float4(0.0, 0.0, 0.0, 0.0);
         sQ[qq][d4 * 4 + 0] = qv.x;
         sQ[qq][d4 * 4 + 1] = qv.y;
@@ -93,7 +94,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
                 [unroll] for (uint qz = 0; qz < Q_TILE; qz++) partial[qz] = 0.0;
                 uint kBase4 = (j * pc.strideKV + h * pc.headDim) >> 2;
                 for (uint i4 = 0; i4 < hd4; i4++) {
-                    float4 kv = kIn[kBase4 + i4];
+                    float4 kv = float4(kIn[kBase4 + i4]);
                     [unroll] for (uint qq = 0; qq < Q_TILE; qq++) {
                         partial[qq] += sQ[qq][i4 * 4 + 0] * kv.x
                                      + sQ[qq][i4 * 4 + 1] * kv.y
@@ -165,7 +166,7 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
             float4 a = float4(sAcc[qq][d4 * 4 + 0], sAcc[qq][d4 * 4 + 1],
                               sAcc[qq][d4 * 4 + 2], sAcc[qq][d4 * 4 + 3]) * corr;
             for (uint jj = 0; jj < tileLen; jj++) {
-                float4 vv = vIn[(((tileBase + jj) * pc.strideKV + h * pc.headDim) >> 2) + d4];
+                float4 vv = float4(vIn[(((tileBase + jj) * pc.strideKV + h * pc.headDim) >> 2) + d4]);
                 a += sS[qq][jj] * vv;
             }
             sAcc[qq][d4 * 4 + 0] = a.x;
