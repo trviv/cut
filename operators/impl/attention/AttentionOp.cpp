@@ -525,10 +525,10 @@ std::vector<uint32_t> DiTAttentionOpNode::outputShape() const {
 }
 
 ThreadSize DiTAttentionOpNode::dispatchSize() const {
-  // X = ceil(sq / 8) workgroups x 128 threads (8 query rows per workgroup),
+  // X = ceil(sq / 16) workgroups x 256 threads (16 query rows per workgroup),
   // Y = nHeads workgroups. Same-head workgroups are adjacent in X so each
   // head's K/V stays L2-resident.
-  return {((sq_ + 7) / 8) * 128, nHeads_, 1};
+  return {((sq_ + 15) / 16) * 256, nHeads_, 1};
 }
 
 std::vector<uint8_t> DiTAttentionOpNode::pushConstants() const {

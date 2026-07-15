@@ -2,9 +2,9 @@
 
 %DTYPE_DEFINES_INPUT%
 
-#define WG_SIZE 128
+#define WG_SIZE 256
 #define KV_TILE 128
-#define Q_TILE 8
+#define Q_TILE 16
 #define ROW_LANES 16   // WG_SIZE / Q_TILE lanes cooperate per row
 
 // Fused non-causal multi-head attention for DiT models (LTX): no KV cache,
@@ -12,7 +12,7 @@
 // with heads interleaved along the channel dim (head h = columns
 // h*headDim .. (h+1)*headDim-1). Online softmax streams over KV tiles, so no
 // [sq, skv] score matrix is ever materialized. Query tiling: each workgroup
-// processes Q_TILE query rows (same head) so K/V global reads amortize 8x
+// processes Q_TILE query rows (same head) so K/V global reads amortize 16x
 // and every thread stays busy in the V-accumulate phase.
 // Uses float4-typed buffer views for vectorized global-memory access.
 
@@ -87,24 +87,26 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
         //    each K element loaded once into a register. The qq loops MUST be
         //    unrolled so `partial` stays in registers (dynamic indexing would
         //    spill it to local memory).
-        if (j < pc.skv) {
-            float partial[Q_TILE];
-            [unroll] for (uint qz = 0; qz < Q_TILE; qz++) partial[qz] = 0.0;
-            uint kBase4 = (j * pc.strideKV + h * pc.headDim) >> 2;
-            for (uint i4 = 0; i4 < hd4; i4++) {
-                float4 kv = kIn[kBase4 + i4];
-                [unroll] for (uint qq = 0; qq < Q_TILE; qq++) {
-                    partial[qq] += sQ[qq][i4 * 4 + 0] * kv.x
-                                 + sQ[qq][i4 * 4 + 1] * kv.y
-                                 + sQ[qq][i4 * 4 + 2] * kv.z
-                                 + sQ[qq][i4 * 4 + 3] * kv.w;
+        if (tid < KV_TILE) {
+            if (j < pc.skv) {
+                float partial[Q_TILE];
+                [unroll] for (uint qz = 0; qz < Q_TILE; qz++) partial[qz] = 0.0;
+                uint kBase4 = (j * pc.strideKV + h * pc.headDim) >> 2;
+                for (uint i4 = 0; i4 < hd4; i4++) {
+                    float4 kv = kIn[kBase4 + i4];
+                    [unroll] for (uint qq = 0; qq < Q_TILE; qq++) {
+                        partial[qq] += sQ[qq][i4 * 4 + 0] * kv.x
+                                     + sQ[qq][i4 * 4 + 1] * kv.y
+                                     + sQ[qq][i4 * 4 + 2] * kv.z
+                                     + sQ[qq][i4 * 4 + 3] * kv.w;
+                    }
                 }
+                [unroll] for (uint qw = 0; qw < Q_TILE; qw++)
+                    sS[qw][tid] = partial[qw] * pc.scale;
+            } else {
+                [unroll] for (uint qq = 0; qq < Q_TILE; qq++)
+                    sS[qq][tid] = -1e30;
             }
-            [unroll] for (uint qw = 0; qw < Q_TILE; qw++)
-                sS[qw][tid] = partial[qw] * pc.scale;
-        } else {
-            [unroll] for (uint qq = 0; qq < Q_TILE; qq++)
-                sS[qq][tid] = -1e30;
         }
         GroupMemoryBarrierWithGroupSync();
 
@@ -129,9 +131,11 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
         GroupMemoryBarrierWithGroupSync();
 
         // c. probabilities — every thread converts its column in all rows
-        bool valid = (j < pc.skv);
-        [unroll] for (uint qq = 0; qq < Q_TILE; qq++)
-            sS[qq][tid] = valid ? exp(sS[qq][tid] - sRowM[qq]) : 0.0;
+        if (tid < KV_TILE) {
+            bool valid = (j < pc.skv);
+            [unroll] for (uint qq = 0; qq < Q_TILE; qq++)
+                sS[qq][tid] = valid ? exp(sS[qq][tid] - sRowM[qq]) : 0.0;
+        }
         GroupMemoryBarrierWithGroupSync();
 
         // d. per-row sum + normalizer update: 16 lanes cooperate per row
