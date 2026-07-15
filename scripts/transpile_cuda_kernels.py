@@ -222,6 +222,25 @@ def _struct_wrap(text, buffers, push, shared_vars, shared_decls, sig):
     return "\n".join(out)
 
 
+def _append_scalar_binaryop_wrapper(text):
+    """HLSL lets a float4 binaryOp(float4,float4) be called with scalars
+    (implicit splat) and the result assigned to a scalar (implicit .x
+    truncation); C++ does neither, so scalar kernel variants that share the
+    vec4 opFunc fail NVRTC. Emit an explicit scalar wrapper next to the vec4
+    definition."""
+    for vec, scal, cast in (("float4", "float", "cut_cast_f4"),):
+        m = re.search(r"__device__\s+%s\s+binaryOp\s*\(\s*%s\s+\w+\s*,\s*%s\s+\w+\s*\)\s*\{"
+                      % (vec, vec, vec), text)
+        if m is None:
+            continue
+        end = _match_brace(text, text.index("{", m.start()))
+        wrapper = ("\n__device__ __forceinline__ %s binaryOp(%s a, %s b) {\n"
+                   "    return binaryOp(%s(a), %s(b)).x;\n"
+                   "}\n" % (scal, scal, scal, cast, cast))
+        text = text[:end] + wrapper + text[end:]
+    return text
+
+
 def transpile(source, func_name):
     """Transpile one preprocessed HLSL shader to CUDA. Returns (cu, meta) or None."""
     specs = []          # list of (id, name)
@@ -381,6 +400,9 @@ def transpile(source, func_name):
                 lines.append("    " + _SV_SETUP[sem].format(n=name))
             return "\n".join(lines) + "\n" + shared_block
         text = _MAIN_RE.sub(main_repl, text)
+
+    # Append scalar wrappers for vec4 binaryOp functions.
+    text = _append_scalar_binaryop_wrapper(text)
 
     # Nothing HLSL-specific should remain after rewriting.
     for marker in ("[[vk::", "StructuredBuffer", "numthreads", "groupshared",

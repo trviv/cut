@@ -114,6 +114,14 @@ __device__ __forceinline__ uint4 cut_mk_u4(uint x, uint y, uint z, uint w) {
   uint4 r; r.x = x; r.y = y; r.z = z; r.w = w; return r;
 }
 
+// Single-argument constructor forms (HLSL "float4(expr)"): identity for a
+// same-type vector and a scalar splat. The half4-widening form lives below,
+// after cut_h2f.
+__device__ __forceinline__ float4 cut_mk_f4(float4 v) { return v; }
+__device__ __forceinline__ float4 cut_mk_f4(float s) {
+  return cut_mk_f4(s, s, s, s);
+}
+
 // cut_cast_f4 — broadcast a scalar, identity for float4, convert int4 masks/ints.
 __device__ __forceinline__ float4 cut_cast_f4(float s) { return cut_mk_f4(s, s, s, s); }
 __device__ __forceinline__ float4 cut_cast_f4(double s) { return cut_cast_f4((float)s); }
@@ -176,6 +184,22 @@ CUT_F4_BINOP(-)
 CUT_F4_BINOP(*)
 CUT_F4_BINOP(/)
 #undef CUT_F4_BINOP
+
+// Compound assignments (HLSL "a += b;" etc. on float4).
+#define CUT_F4_COMPOUND(op)                                                    \
+  __device__ __forceinline__ float4 &operator op##=(float4 &a, float4 b) {     \
+    a = a op b;                                                                \
+    return a;                                                                  \
+  }                                                                            \
+  __device__ __forceinline__ float4 &operator op##=(float4 &a, float b) {      \
+    a = a op cut_cast_f4(b);                                                   \
+    return a;                                                                  \
+  }
+CUT_F4_COMPOUND(+)
+CUT_F4_COMPOUND(-)
+CUT_F4_COMPOUND(*)
+CUT_F4_COMPOUND(/)
+#undef CUT_F4_COMPOUND
 
 __device__ __forceinline__ float4 operator-(float4 a) {
   return cut_mk_f4(-a.x, -a.y, -a.z, -a.w);
@@ -427,6 +451,8 @@ __device__ __forceinline__ float4 cut_h2f(half4 a) {
   return cut_mk_f4(__half2float(a.x), __half2float(a.y), __half2float(a.z),
                    __half2float(a.w));
 }
+// HLSL "float4(half4-expr)" — lane-wise widening constructor.
+__device__ __forceinline__ float4 cut_mk_f4(half4 v) { return cut_h2f(v); }
 __device__ __forceinline__ half4 cut_f2h(float4 v) {
   half4 r;
   r.x = __float2half(v.x); r.y = __float2half(v.y);
