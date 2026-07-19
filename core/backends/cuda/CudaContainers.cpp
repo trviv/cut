@@ -15,10 +15,10 @@ namespace cut {
 
 namespace {
 
-// NVRTC-compiles the transpiled kernel for @p spirv (looked up by normalized
-// hash) and loads it into @p out. On any failure the module/function stay null
-// and the dispatch is skipped — the backend degrades gracefully for kernels
-// that have not been transpiled yet.
+// NVRTC-compiles the CUDA kernel for @p spirv (native .cu or transpiled,
+// looked up by normalized hash) and loads it into @p out. On any failure the
+// module/function stay null and the dispatch is skipped — the backend degrades
+// gracefully for kernels that have no CUDA implementation yet.
 void compileCudaKernel(CUcontext context,
                        const std::vector<uint32_t> &spirv,
                        CudaShaderStruct &out) {
@@ -32,12 +32,20 @@ void compileCudaKernel(CUcontext context,
   const std::string full =
       std::string("#include \"cut_cuda_prelude.cuh\"\n") + entry->source;
 
-  const char *hdrSrcs[2] = {cudaPreludeSource(), cudaEnumsSource()};
-  const char *hdrNames[2] = {"cut_cuda_prelude.cuh", "ComputeOpsShared.h"};
+  std::vector<const char *> hdrSrcs = {cudaPreludeSource(), cudaEnumsSource()};
+  std::vector<const char *> hdrNames = {"cut_cuda_prelude.cuh",
+                                        "ComputeOpsShared.h"};
+  const size_t extraHeaders = cudaKernelHeaderCount();
+  for (size_t i = 0; i < extraHeaders; ++i) {
+    const CudaKernelHeader *hdr = cudaKernelHeader(i);
+    hdrSrcs.push_back(hdr->source);
+    hdrNames.push_back(hdr->name);
+  }
 
   nvrtcProgram prog;
-  if (nvrtcCreateProgram(&prog, full.c_str(), "cut_kernel.cu", 2, hdrSrcs,
-                         hdrNames) != NVRTC_SUCCESS) {
+  if (nvrtcCreateProgram(&prog, full.c_str(), "cut_kernel.cu",
+                         static_cast<int>(hdrSrcs.size()), hdrSrcs.data(),
+                         hdrNames.data()) != NVRTC_SUCCESS) {
     return;
   }
 
@@ -62,6 +70,20 @@ void compileCudaKernel(CUcontext context,
     optStrs.push_back("-DCUT_SPEC_" + std::to_string(sv.id) + "=" +
                       std::to_string(sv.value));
   }
+
+  // Per-variant dtype/config defines (native kernels; "" for transpiled).
+  const char *defs = entry->defines;
+  while (defs != nullptr && *defs != '\0') {
+    const char *end = defs;
+    while (*end != '\0' && *end != ' ') {
+      ++end;
+    }
+    if (end != defs) {
+      optStrs.push_back("-D" + std::string(defs, end));
+    }
+    defs = (*end == ' ') ? end + 1 : end;
+  }
+
   std::vector<const char *> opts;
   opts.reserve(optStrs.size());
   for (const auto &o : optStrs) {

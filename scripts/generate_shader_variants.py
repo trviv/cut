@@ -165,6 +165,25 @@ def full_name_for(cpp_prefix, variant_name):
     return cpp_prefix + variant_name
 
 
+def _native_defines_for_combo(slots, combo, variant):
+    """Build the NVRTC define list (KEY=VAL strings) for one dtype combo."""
+    defines = []
+    for slot in slots:
+        d = DTYPE_DEFS[combo[slot]]
+        s = slot.upper()
+        defines.append(f"CUT_VEC_DTYPE_{s}={d['vec']}")
+        defines.append(f"CUT_SCALAR_DTYPE_{s}={d['scalar']}")
+        defines.append(f"CUT_DTYPE_SIZE_{s}={d['size']}")
+        for tmpl in _SLOT_DEFINE_TEMPLATES[combo[slot]]:
+            # "#define DTYPE_{SLOT}_IS_FLOAT 1" -> "CUT_DTYPE_INPUT_IS_FLOAT=1"
+            token = tmpl.replace("#define ", "").replace("{SLOT}", s)
+            name, value = token.split()
+            defines.append(f"CUT_{name}={value}")
+    for key, value in variant.get("defines", {}).items():
+        defines.append(f"{key}={value}")
+    return defines
+
+
 # =============================================================================
 # Shader file generation (template expansion + dtype preprocessing)
 # =============================================================================
@@ -204,12 +223,17 @@ def _load_shader_content(variant, fname, group_dir):
         return f.read()
 
 
-def generate_shader_files(config, group_dir, output_dir, impl_dir):
+def generate_shader_files(config, group_dir, output_dir, impl_dir,
+                          native_kernels=None):
     """Generate dtype-preprocessed .shader files for all variants.
 
     Returns a list of (full_name, dtype_suffix, output_path, source_hash, slots)
     tuples.  slots is the ordered list of slot names and dtype_suffix is the
     dtypes in slot order joined by "_", e.g. "Float32_Float32".
+
+    When native_kernels is a dict, variants whose source dir contains a native
+    CUDA counterpart (<template-or-variant-source>.cu) get one manifest entry
+    per dtype combo: stem -> {cu, entry, defines}.
     """
     cpp_prefix = config.get("cpp_prefix", "")
     generated = []
@@ -227,6 +251,12 @@ def generate_shader_files(config, group_dir, output_dir, impl_dir):
 
         # Compute source hash (after include resolution, before dtype substitution)
         source_hash = hashlib.md5(base_content.encode()).hexdigest()
+
+        # Native CUDA counterpart: resolved the same way as the shader source,
+        # but with a .cu extension (no dtype preprocessing of its contents).
+        cu_stem = variant["template"] if "template" in variant else fname
+        cu_path = os.path.join(group_dir, cu_stem + ".cu")
+        has_native_cu = os.path.exists(cu_path)
 
         ds = variant["dtype_slots"]
         combos = ds["combos"]
@@ -257,6 +287,14 @@ def generate_shader_files(config, group_dir, output_dir, impl_dir):
 
             generated.append(
                 (fname, suffix, out_path, source_hash, slots))
+
+            if native_kernels is not None and has_native_cu:
+                native_kernels[f"{fname}_{suffix}"] = {
+                    "cu": os.path.abspath(cu_path),
+                    "entry": "cut_main",
+                    "defines": _native_defines_for_combo(slots, combo,
+                                                         variant),
+                }
 
     return generated
 
@@ -519,6 +557,31 @@ def generate_cmake_manifest(all_generated, output_dir):
 
 
 # =============================================================================
+# Native CUDA manifest generation
+# =============================================================================
+
+def generate_native_manifest(impl_dir, native_kernels, manifest_path):
+    """Write the native CUDA manifest JSON (kernels + shared .cuh headers)."""
+    headers = []
+    for entry in sorted(os.listdir(impl_dir)):
+        group_dir = os.path.join(impl_dir, entry)
+        if not os.path.isdir(group_dir):
+            continue
+        for fn in sorted(os.listdir(group_dir)):
+            if fn.endswith(".cuh"):
+                headers.append(
+                    {"name": fn,
+                     "path": os.path.abspath(os.path.join(group_dir, fn))})
+    manifest = {"headers": headers,
+                "kernels": {k: native_kernels[k]
+                            for k in sorted(native_kernels)}}
+    content = json.dumps(manifest, indent=2) + "\n"
+    write_if_changed(manifest_path, content)
+    print(f"Native CUDA manifest: {len(native_kernels)} kernel variant(s), "
+          f"{len(headers)} header(s)")
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -534,6 +597,10 @@ def main():
         "--output-dir", required=True,
         help="Output directory for dtype-preprocessed shader files"
     )
+    parser.add_argument(
+        "--cuda-native-manifest", default=None,
+        help="Optional path to write the native CUDA kernel manifest JSON"
+    )
     args = parser.parse_args()
 
     impl_dir = args.impl_dir
@@ -547,6 +614,9 @@ def main():
 
     # Collect all generated shader files across groups
     all_generated = []
+
+    # Native CUDA manifest entries (only collected when requested)
+    native_kernels = {} if args.cuda_native_manifest else None
 
     # Scan subdirectories for shaders.json
     processed = 0
@@ -574,7 +644,7 @@ def main():
 
             # Generate dtype-preprocessed shader files
             generated = generate_shader_files(config, group_dir, output_dir,
-                                                     impl_dir)
+                                                     impl_dir, native_kernels)
             all_generated.extend(generated)
 
             # Generate appropriate header
@@ -587,6 +657,11 @@ def main():
 
     # Write CMake manifest
     generate_cmake_manifest(all_generated, output_dir)
+
+    # Write native CUDA manifest if requested
+    if args.cuda_native_manifest:
+        generate_native_manifest(impl_dir, native_kernels,
+                                 args.cuda_native_manifest)
 
     print(f"Done. Processed {processed} shader group(s), "
           f"generated {len(all_generated)} shader file(s).")

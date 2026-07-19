@@ -2,6 +2,7 @@
 #include <CudaCompute.h>
 
 #include <ComputeCommon.h>
+#include <CudaKernelRegistry.h>
 
 #include <cstdlib>
 #include <cstring>
@@ -60,9 +61,24 @@ CudaCompute::CudaCompute(CudaContextConfig config) {
   CU_CHECK(cuCtxSetCurrent(context_));
 
   // Publish device capabilities consumed by operators. CUDA warps are 32-wide.
+  int ccMajor = 0, ccMinor = 0;
+  cuDeviceGetAttribute(&ccMajor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
+                       device_);
+  cuDeviceGetAttribute(&ccMinor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
+                       device_);
+  const int cc = ccMajor * 10 + ccMinor;
   caps_.subgroupSize = 32;
-  caps_.cooperativeMatrix = false;
-  caps_.integerDotProduct = false;
+  // Capability flags flip only once the corresponding native CUDA kernels are
+  // registered (WMMA coopmat GEMM / __dp4a Q8 dot); until then the transpiled
+  // path keeps them off and op selection is unchanged.
+  caps_.cooperativeMatrix =
+      cc >= 70 &&
+      lookupCudaKernelByName("MatMulCoopMatTiled_Float16_Float16_Float32") !=
+          nullptr;
+  caps_.integerDotProduct =
+      cc >= 61 &&
+      lookupCudaKernelByName("MatMulQ8GemvDot_Float32_Float16_Float32") !=
+          nullptr;
 
   containers_ = std::make_unique<CudaContainers>(context_);
   setCommandBufferContainer(std::make_unique<CudaCommandBufferContainer>(

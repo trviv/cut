@@ -300,12 +300,24 @@ set(SHADER_VARIANT_GENERATOR ${CMAKE_SOURCE_DIR}/scripts/generate_shader_variant
 set(GENERATED_SHADER_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated_shaders)
 file(MAKE_DIRECTORY ${GENERATED_SHADER_DIR})
 
+# The CUDA generation dir and native manifest are defined up front so the
+# variant generator can emit the native-kernel manifest alongside the shaders.
+if(ENABLE_CUDA_BACKEND)
+    set(CUDA_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated_cuda)
+    file(MAKE_DIRECTORY ${CUDA_GEN_DIR})
+    set(CUDA_NATIVE_MANIFEST ${CUDA_GEN_DIR}/native_manifest.json)
+    set(SHADER_GEN_EXTRA_ARGS --cuda-native-manifest ${CUDA_NATIVE_MANIFEST})
+else()
+    set(SHADER_GEN_EXTRA_ARGS "")
+endif()
+
 # Run the generator at configure time to produce preprocessed .shader files
 # and the generated_shaders.cmake manifest.
 execute_process(
     COMMAND ${Python3_EXECUTABLE} ${SHADER_VARIANT_GENERATOR}
         --impl-dir ${SHADER_SOURCE_DIR}
         --output-dir ${GENERATED_SHADER_DIR}
+        ${SHADER_GEN_EXTRA_ARGS}
     RESULT_VARIABLE SHADER_GEN_RESULT
 )
 if(NOT SHADER_GEN_RESULT EQUAL 0)
@@ -351,8 +363,6 @@ endif()
 # and embed them (keyed by normalized SPIR-V hash) into CompiledCudaKernels.cpp.
 # =============================================================================
 if(ENABLE_CUDA_BACKEND)
-    set(CUDA_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated_cuda)
-    file(MAKE_DIRECTORY ${CUDA_GEN_DIR})
     set(CUDA_TRANSPILER ${CMAKE_SOURCE_DIR}/scripts/transpile_cuda_kernels.py)
     set(CUDA_EMBEDDER ${CMAKE_SOURCE_DIR}/scripts/embed_cuda_kernels.py)
     set(CUDA_PRELUDE ${CMAKE_SOURCE_DIR}/operators/runtime/cuda/cut_cuda_prelude.cuh)
@@ -370,13 +380,21 @@ if(ENABLE_CUDA_BACKEND)
         message(FATAL_ERROR "CUDA kernel transpilation failed")
     endif()
 
+    # Native CUDA kernel sources: any edit re-embeds (and GLOB at configure
+    # time also retriggers configure when files are added/removed).
+    file(GLOB_RECURSE CUDA_NATIVE_SOURCES CONFIGURE_DEPENDS
+        ${SHADER_SOURCE_DIR}/*.cu ${SHADER_SOURCE_DIR}/*.cuh)
+
     # Ensure the embedded source exists for the initial configure graph; the
     # real contents are regenerated at build time once the .spv hashes exist.
     if(NOT EXISTS ${COMPILED_CUDA_FILE})
         file(WRITE ${COMPILED_CUDA_FILE}
             "#include <CudaKernelRegistry.h>\nnamespace cut {\n"
             "const CudaKernelEntry *lookupCudaKernelByHash(uint64_t) { return nullptr; }\n"
+            "const CudaKernelEntry *lookupCudaKernelByName(const char *) { return nullptr; }\n"
             "size_t cudaKernelCount() { return 0; }\n"
+            "size_t cudaKernelHeaderCount() { return 0; }\n"
+            "const CudaKernelHeader *cudaKernelHeader(size_t) { return nullptr; }\n"
             "const char *cudaPreludeSource() { return \"\"; }\n"
             "const char *cudaEnumsSource() { return \"\"; }\n} // namespace cut\n")
     endif()
@@ -387,10 +405,12 @@ if(ENABLE_CUDA_BACKEND)
         COMMAND ${Python3_EXECUTABLE} ${CUDA_EMBEDDER}
             --cu-dir ${CUDA_GEN_DIR}
             --spv-dir ${SHADER_BINARY_DIR}
+            --native-manifest ${CUDA_NATIVE_MANIFEST}
             --prelude ${CUDA_PRELUDE}
             --enums ${CUDA_ENUMS}
             --output ${COMPILED_CUDA_FILE}
-        DEPENDS ${COMPILED_SHADERS} ${CUDA_TRANSPILER} ${CUDA_EMBEDDER} ${CUDA_PRELUDE}
+        DEPENDS ${COMPILED_SHADERS} ${CUDA_TRANSPILER} ${CUDA_EMBEDDER}
+            ${CUDA_PRELUDE} ${CUDA_NATIVE_SOURCES} ${CUDA_NATIVE_MANIFEST}
         COMMENT "Embedding CUDA kernels into CompiledCudaKernels.cpp"
         VERBATIM
     )
