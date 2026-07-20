@@ -1,7 +1,9 @@
 #pragma once
 #include "harness/OpRefs.h"
+#include "impl/avgpool2d/AvgPool2DVariants.generated.h"
 #include "impl/conv1d/Conv1DVariants.generated.h"
 #include "impl/conv2d/Conv2DVariants.generated.h"
+#include "impl/maxpool2d/MaxPool2DVariants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
 #include <ComputeOps.h>
@@ -1136,6 +1138,152 @@ inline Tensor conv2dRun(Runtime& rt) {
   return rt.ops().conv2d(bufIn, bufW);
 }
 
+// ===========================================================================
+// MaxPool2D / AvgPool2D / AdaptiveAvgPool2D families
+// ===========================================================================
+inline std::vector<float> maxPool2dRefCPU(const std::vector<float>& input,
+    uint32_t N, uint32_t C, uint32_t H_in, uint32_t W_in,
+    uint32_t kH, uint32_t kW, uint32_t sH, uint32_t sW, uint32_t pH, uint32_t pW) {
+  uint32_t H_out = (H_in + 2 * pH - kH) / sH + 1;
+  uint32_t W_out = (W_in + 2 * pW - kW) / sW + 1;
+  std::vector<float> output(static_cast<size_t>(N) * C * H_out * W_out);
+  for (uint32_t n = 0; n < N; n++)
+    for (uint32_t c = 0; c < C; c++)
+      for (uint32_t ho = 0; ho < H_out; ho++)
+        for (uint32_t wo = 0; wo < W_out; wo++) {
+          float maxVal = -std::numeric_limits<float>::infinity();
+          for (uint32_t kh = 0; kh < kH; kh++)
+            for (uint32_t kw = 0; kw < kW; kw++) {
+              int hi = static_cast<int>(ho * sH + kh) - static_cast<int>(pH);
+              int wi = static_cast<int>(wo * sW + kw) - static_cast<int>(pW);
+              if (hi >= 0 && hi < static_cast<int>(H_in) && wi >= 0 && wi < static_cast<int>(W_in))
+                maxVal = std::max(maxVal, input[n * C * H_in * W_in + c * H_in * W_in + hi * W_in + wi]);
+            }
+          output[n * C * H_out * W_out + c * H_out * W_out + ho * W_out + wo] = maxVal;
+        }
+  return output;
+}
+
+inline std::vector<float> avgPool2dRefCPU(const std::vector<float>& input,
+    uint32_t N, uint32_t C, uint32_t H_in, uint32_t W_in,
+    uint32_t kH, uint32_t kW, uint32_t sH, uint32_t sW, uint32_t pH, uint32_t pW) {
+  uint32_t H_out = (H_in + 2 * pH - kH) / sH + 1;
+  uint32_t W_out = (W_in + 2 * pW - kW) / sW + 1;
+  std::vector<float> output(static_cast<size_t>(N) * C * H_out * W_out);
+  for (uint32_t n = 0; n < N; n++)
+    for (uint32_t c = 0; c < C; c++)
+      for (uint32_t ho = 0; ho < H_out; ho++)
+        for (uint32_t wo = 0; wo < W_out; wo++) {
+          float sum = 0.0f; uint32_t count = 0;
+          for (uint32_t kh = 0; kh < kH; kh++)
+            for (uint32_t kw = 0; kw < kW; kw++) {
+              int hi = static_cast<int>(ho * sH + kh) - static_cast<int>(pH);
+              int wi = static_cast<int>(wo * sW + kw) - static_cast<int>(pW);
+              if (hi >= 0 && hi < static_cast<int>(H_in) && wi >= 0 && wi < static_cast<int>(W_in)) {
+                sum += input[n * C * H_in * W_in + c * H_in * W_in + hi * W_in + wi];
+                count++;
+              }
+            }
+          output[n * C * H_out * W_out + c * H_out * W_out + ho * W_out + wo] = count > 0 ? sum / count : 0.0f;
+        }
+  return output;
+}
+
+inline VerifyResult maxPoolCheck(Runtime& rt, const std::vector<float>& input,
+    uint32_t N, uint32_t C, uint32_t H, uint32_t W,
+    uint32_t kH, uint32_t kW, uint32_t sH, uint32_t sW, uint32_t pH, uint32_t pW,
+    float relTol, float absTol) {
+  auto ref = maxPool2dRefCPU(input, N, C, H, W, kH, kW, sH, sW, pH, pW);
+  auto bufIn = rt.createTensor({N, C, H, W}, DataType::Float32, input.data());
+  auto bufOut = rt.ops().maxPool2d(bufIn, kH, kW, sH, sW, pH, pW);
+  std::vector<float> output(ref.size());
+  rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+  for (size_t i = 0; i < ref.size(); ++i)
+    if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * relTol + absTol)
+      return {false, "maxpool mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult avgPoolCheck(Runtime& rt, const std::vector<float>& input,
+    uint32_t N, uint32_t C, uint32_t H, uint32_t W,
+    uint32_t kH, uint32_t kW, uint32_t sH, uint32_t sW, uint32_t pH, uint32_t pW,
+    float relTol, float absTol) {
+  auto ref = avgPool2dRefCPU(input, N, C, H, W, kH, kW, sH, sW, pH, pW);
+  auto bufIn = rt.createTensor({N, C, H, W}, DataType::Float32, input.data());
+  auto bufOut = rt.ops().avgPool2d(bufIn, kH, kW, sH, sW, pH, pW);
+  std::vector<float> output(ref.size());
+  rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+  for (size_t i = 0; i < ref.size(); ++i)
+    if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * relTol + absTol)
+      return {false, "avgpool mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult maxPoolVariantsCheck(Runtime& rt,
+    uint32_t N, uint32_t C, uint32_t H, uint32_t W,
+    uint32_t kH, uint32_t kW, uint32_t sH, uint32_t sW, uint32_t pH, uint32_t pW,
+    int inSeed, float relTol, float absTol) {
+  auto input = generateTestData<float>(N * C * H * W, inSeed);
+  auto ref = maxPool2dRefCPU(input, N, C, H, W, kH, kW, sH, sW, pH, pW);
+  for (int vi = 0; vi < kMaxPool2DVariantCount; ++vi) {
+    auto bufIn = rt.createTensor({N, C, H, W}, DataType::Float32, input.data());
+    auto bufOut = rt.ops().maxPool2d(bufIn, kH, kW, sH, sW, pH, pW, vi);
+    std::vector<float> output(ref.size());
+    rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+    for (size_t i = 0; i < ref.size(); ++i)
+      if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * relTol + absTol)
+        return {false, std::string("maxpool variant ") + getMaxPool2DVariantName(vi) + " mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+inline VerifyResult avgPoolVariantsCheck(Runtime& rt,
+    uint32_t N, uint32_t C, uint32_t H, uint32_t W,
+    uint32_t kH, uint32_t kW, uint32_t sH, uint32_t sW, uint32_t pH, uint32_t pW,
+    int inSeed, float relTol, float absTol) {
+  auto input = generateTestData<float>(N * C * H * W, inSeed);
+  auto ref = avgPool2dRefCPU(input, N, C, H, W, kH, kW, sH, sW, pH, pW);
+  for (int vi = 0; vi < kAvgPool2DVariantCount; ++vi) {
+    auto bufIn = rt.createTensor({N, C, H, W}, DataType::Float32, input.data());
+    auto bufOut = rt.ops().avgPool2d(bufIn, kH, kW, sH, sW, pH, pW, vi);
+    std::vector<float> output(ref.size());
+    rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+    for (size_t i = 0; i < ref.size(); ++i)
+      if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * relTol + absTol)
+        return {false, std::string("avgpool variant ") + getAvgPool2DVariantName(vi) + " mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+// Adaptive avg pool where H%outH==0 and W%outW==0: equivalent to avgpool with
+// kernel=stride=(H/outH, W/outW), pad 0.
+inline VerifyResult adaptiveAvgPoolCheck(Runtime& rt, const std::vector<float>& input,
+    uint32_t N, uint32_t C, uint32_t H, uint32_t W, uint32_t outH, uint32_t outW,
+    float relTol, float absTol) {
+  uint32_t kH = H / outH, kW = W / outW;
+  auto ref = avgPool2dRefCPU(input, N, C, H, W, kH, kW, kH, kW, 0, 0);
+  auto bufIn = rt.createTensor({N, C, H, W}, DataType::Float32, input.data());
+  auto bufOut = rt.ops().adaptiveAvgPool2d(bufIn, outH, outW);
+  std::vector<float> output(ref.size());
+  rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+  for (size_t i = 0; i < ref.size(); ++i)
+    if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * relTol + absTol)
+      return {false, "adaptive avgpool mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline Tensor maxPoolRun(Runtime& rt) {
+  auto input = generateTestData<float>(1 * 2 * 8 * 8, 42);
+  auto bufIn = rt.createTensor({1, 2, 8, 8}, DataType::Float32, input.data());
+  return rt.ops().maxPool2d(bufIn, 2, 2, 2, 2, 0, 0);
+}
+
+inline Tensor avgPoolRun(Runtime& rt) {
+  auto input = generateTestData<float>(1 * 2 * 8 * 8, 42);
+  auto bufIn = rt.createTensor({1, 2, 8, 8}, DataType::Float32, input.data());
+  return rt.ops().avgPool2d(bufIn, 2, 2, 2, 2, 0, 0);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -1734,6 +1882,118 @@ cases.push_back(std::move(c));
     c.run = [](Runtime &rt, int) { return conv2dRun(rt); };
     c.verify = [](Runtime &rt, const Tensor &) {
       return conv2dVariantsCheck(rt, 1, 2, 6, 6, 2, 3, 3, 1, 1, 1, 1, 42, 123);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // MaxPool2D family
+  {
+    OpCase c;
+    c.name = "maxpool/basic";
+    c.family = "maxpool";
+    c.run = [](Runtime &rt, int) { return maxPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+      return maxPoolCheck(rt, input, 1, 1, 4, 4, 2, 2, 2, 2, 0, 0, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "maxpool/padding";
+    c.family = "maxpool";
+    c.run = [](Runtime &rt, int) { return maxPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(1 * 1 * 4 * 4, 42);
+      return maxPoolCheck(rt, input, 1, 1, 4, 4, 3, 3, 1, 1, 1, 1, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "maxpool/multichannel";
+    c.family = "maxpool";
+    c.run = [](Runtime &rt, int) { return maxPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(2 * 3 * 8 * 8, 42);
+      return maxPoolCheck(rt, input, 2, 3, 8, 8, 2, 2, 2, 2, 0, 0, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "maxpool/variants_basic";
+    c.family = "maxpool";
+    c.run = [](Runtime &rt, int) { return maxPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return maxPoolVariantsCheck(rt, 1, 2, 8, 8, 2, 2, 2, 2, 0, 0, 42, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // AvgPool2D family (incl. adaptive)
+  {
+    OpCase c;
+    c.name = "avgpool/basic";
+    c.family = "avgpool";
+    c.run = [](Runtime &rt, int) { return avgPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+      return avgPoolCheck(rt, input, 1, 1, 4, 4, 2, 2, 2, 2, 0, 0, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "avgpool/padding";
+    c.family = "avgpool";
+    c.run = [](Runtime &rt, int) { return avgPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(1 * 2 * 4 * 4, 42);
+      return avgPoolCheck(rt, input, 1, 2, 4, 4, 3, 3, 1, 1, 1, 1, 0.0f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "avgpool/multichannel";
+    c.family = "avgpool";
+    c.run = [](Runtime &rt, int) { return avgPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(2 * 3 * 8 * 8, 42);
+      return avgPoolCheck(rt, input, 2, 3, 8, 8, 2, 2, 2, 2, 0, 0, 0.0f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "avgpool/variants_basic";
+    c.family = "avgpool";
+    c.run = [](Runtime &rt, int) { return avgPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return avgPoolVariantsCheck(rt, 1, 2, 8, 8, 2, 2, 2, 2, 0, 0, 42, 1e-5f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "avgpool/adaptive_basic";
+    c.family = "avgpool";
+    c.run = [](Runtime &rt, int) { return avgPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(1 * 1 * 8 * 8, 42);
+      return adaptiveAvgPoolCheck(rt, input, 1, 1, 8, 8, 2, 2, 0.0f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "avgpool/adaptive_global";
+    c.family = "avgpool";
+    c.run = [](Runtime &rt, int) { return avgPoolRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(2 * 3 * 4 * 4, 42);
+      return adaptiveAvgPoolCheck(rt, input, 2, 3, 4, 4, 1, 1, 1e-4f, 1e-5f);
     };
     cases.push_back(std::move(c));
   }

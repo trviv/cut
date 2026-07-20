@@ -5007,178 +5007,90 @@ protected:
 };
 
 TEST_F(PoolingTest, MaxPool2D_Basic) {
-  const DataType dtype = DataType::Float32;
-
-  // [1, 1, 4, 4] input, 2x2 kernel, stride 2
-  const uint32_t N = 1, C = 1, H = 4, W = 4;
-  std::vector<float> input = {1, 2,  3,  4,  5,  6,  7,  8,
-                              9, 10, 11, 12, 13, 14, 15, 16};
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufOut = runtime_->ops().maxPool2d(bufIn, 2, 2, 2, 2, 0, 0);
-
-  // Output: [1, 1, 2, 2] = [[6, 8], [14, 16]]
-  std::vector<float> output(N * C * 2 * 2);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = maxPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "maxpool/basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PoolingTest, MaxPool2D_WithPadding) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t N = 1, C = 1, H = 4, W = 4;
-  auto input = generateTestData<float>(N * C * H * W, 42);
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufOut = runtime_->ops().maxPool2d(bufIn, 3, 3, 1, 1, 1, 1);
-
-  uint32_t H_out = (H + 2 - 3) / 1 + 1; // 4
-  uint32_t W_out = (W + 2 - 3) / 1 + 1; // 4
-  std::vector<float> output(N * C * H_out * W_out);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = maxPool2dRef(input, N, C, H, W, 3, 3, 1, 1, 1, 1);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "maxpool/padding")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PoolingTest, MaxPool2D_MultiChannel) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t N = 2, C = 3, H = 8, W = 8;
-  auto input = generateTestData<float>(N * C * H * W, 42);
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufOut = runtime_->ops().maxPool2d(bufIn, 2, 2, 2, 2, 0, 0);
-
-  uint32_t H_out = 4, W_out = 4;
-  std::vector<float> output(N * C * H_out * W_out);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = maxPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "maxpool/multichannel")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PoolingTest, AvgPool2D_Basic) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t N = 1, C = 1, H = 4, W = 4;
-  std::vector<float> input = {1, 2,  3,  4,  5,  6,  7,  8,
-                              9, 10, 11, 12, 13, 14, 15, 16};
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufOut = runtime_->ops().avgPool2d(bufIn, 2, 2, 2, 2, 0, 0);
-
-  std::vector<float> output(N * C * 2 * 2);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = avgPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "avgpool/basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PoolingTest, AvgPool2D_WithPadding) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t N = 1, C = 2, H = 4, W = 4;
-  auto input = generateTestData<float>(N * C * H * W, 42);
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufOut = runtime_->ops().avgPool2d(bufIn, 3, 3, 1, 1, 1, 1);
-
-  uint32_t H_out = 4, W_out = 4;
-  std::vector<float> output(N * C * H_out * W_out);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = avgPool2dRef(input, N, C, H, W, 3, 3, 1, 1, 1, 1);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "avgpool/padding")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PoolingTest, AvgPool2D_MultiChannel) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t N = 2, C = 3, H = 8, W = 8;
-  auto input = generateTestData<float>(N * C * H * W, 42);
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufOut = runtime_->ops().avgPool2d(bufIn, 2, 2, 2, 2, 0, 0);
-
-  uint32_t H_out = 4, W_out = 4;
-  std::vector<float> output(N * C * H_out * W_out);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = avgPool2dRef(input, N, C, H, W, 2, 2, 2, 2, 0, 0);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "avgpool/multichannel")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PoolingTest, AdaptiveAvgPool2D_Basic) {
-  const DataType dtype = DataType::Float32;
-
-  // [1, 1, 8, 8] -> adaptive pool to [1, 1, 2, 2]
-  const uint32_t N = 1, C = 1, H = 8, W = 8;
-  auto input = generateTestData<float>(N * C * H * W, 42);
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufOut = runtime_->ops().adaptiveAvgPool2d(bufIn, 2, 2);
-
-  // adaptive_avg_pool2d(H=8, outH=2): stride=4, kernel=4
-  uint32_t outH = 2, outW = 2;
-  std::vector<float> output(N * C * outH * outW);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = avgPool2dRef(input, N, C, H, W, 4, 4, 4, 4, 0, 0);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "avgpool/adaptive_basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PoolingTest, AdaptiveAvgPool2D_GlobalPool) {
-  const DataType dtype = DataType::Float32;
-
-  // Global average pooling: [2, 3, 4, 4] -> [2, 3, 1, 1]
-  const uint32_t N = 2, C = 3, H = 4, W = 4;
-  auto input = generateTestData<float>(N * C * H * W, 42);
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufOut = runtime_->ops().adaptiveAvgPool2d(bufIn, 1, 1);
-
-  std::vector<float> output(N * C);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  // Global pool = avg over all spatial dims per channel
-  for (uint32_t n = 0; n < N; n++) {
-    for (uint32_t c = 0; c < C; c++) {
-      float sum = 0.0f;
-      for (uint32_t h = 0; h < H; h++) {
-        for (uint32_t w = 0; w < W; w++) {
-          sum += input[n * C * H * W + c * H * W + h * W + w];
-        }
-      }
-      float expected = sum / (H * W);
-      ASSERT_NEAR(output[n * C + c], expected,
-                  std::abs(expected) * 1e-4f + 1e-5f)
-          << "Mismatch at [" << n << ", " << c << "]";
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "avgpool/adaptive_global")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -5729,45 +5641,13 @@ TEST_F(ConvolutionTest, Conv2DVariants_WithPadding) {
 // ============================================================================
 
 TEST_F(PoolingTest, MaxPool2DVariants_Basic) {
-  const DataType dtype = DataType::Float32;
-  const uint32_t N = 1, C = 2, H_in = 8, W_in = 8;
-  const uint32_t kH = 2, kW = 2, sH = 2, sW = 2;
-
-  auto inputData = generateTestData<float>(N * C * H_in * W_in, 42);
-
-  uint32_t H_out = (H_in - kH) / sH + 1;
-  uint32_t W_out = (W_in - kW) / sW + 1;
-  std::vector<float> expected(N * C * H_out * W_out);
-  for (uint32_t n = 0; n < N; ++n)
-    for (uint32_t c = 0; c < C; ++c)
-      for (uint32_t oh = 0; oh < H_out; ++oh)
-        for (uint32_t ow = 0; ow < W_out; ++ow) {
-          float maxVal = -std::numeric_limits<float>::max();
-          for (uint32_t kh = 0; kh < kH; ++kh)
-            for (uint32_t kw = 0; kw < kW; ++kw) {
-              uint32_t ih = oh * sH + kh;
-              uint32_t iw = ow * sW + kw;
-              float v = inputData[n * C * H_in * W_in + c * H_in * W_in +
-                                  ih * W_in + iw];
-              maxVal = std::max(maxVal, v);
-            }
-          expected[n * C * H_out * W_out + c * H_out * W_out + oh * W_out +
-                   ow] = maxVal;
-        }
-
-  for (int vi = 0; vi < kMaxPool2DVariantCount; ++vi) {
-    SCOPED_TRACE(std::string("Variant: ") + getMaxPool2DVariantName(vi));
-    auto bufIn =
-        runtime_->createTensor({N, C, H_in, W_in}, dtype, inputData.data());
-    auto bufOut = runtime_->ops().maxPool2d(bufIn, kH, kW, sH, sW, 0, 0, vi);
-
-    std::vector<float> output(N * C * H_out * W_out);
-    runtime_->copyFromTensor(bufOut, output.data(),
-                             output.size() * sizeof(float));
-
-    for (size_t i = 0; i < expected.size(); ++i) {
-      ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "maxpool/variants_basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -5776,45 +5656,13 @@ TEST_F(PoolingTest, MaxPool2DVariants_Basic) {
 // ============================================================================
 
 TEST_F(PoolingTest, AvgPool2DVariants_Basic) {
-  const DataType dtype = DataType::Float32;
-  const uint32_t N = 1, C = 2, H_in = 8, W_in = 8;
-  const uint32_t kH = 2, kW = 2, sH = 2, sW = 2;
-
-  auto inputData = generateTestData<float>(N * C * H_in * W_in, 42);
-
-  uint32_t H_out = (H_in - kH) / sH + 1;
-  uint32_t W_out = (W_in - kW) / sW + 1;
-  std::vector<float> expected(N * C * H_out * W_out);
-  for (uint32_t n = 0; n < N; ++n)
-    for (uint32_t c = 0; c < C; ++c)
-      for (uint32_t oh = 0; oh < H_out; ++oh)
-        for (uint32_t ow = 0; ow < W_out; ++ow) {
-          float sum = 0.0f;
-          for (uint32_t kh = 0; kh < kH; ++kh)
-            for (uint32_t kw = 0; kw < kW; ++kw) {
-              uint32_t ih = oh * sH + kh;
-              uint32_t iw = ow * sW + kw;
-              sum += inputData[n * C * H_in * W_in + c * H_in * W_in +
-                               ih * W_in + iw];
-            }
-          expected[n * C * H_out * W_out + c * H_out * W_out + oh * W_out +
-                   ow] = sum / static_cast<float>(kH * kW);
-        }
-
-  for (int vi = 0; vi < kAvgPool2DVariantCount; ++vi) {
-    SCOPED_TRACE(std::string("Variant: ") + getAvgPool2DVariantName(vi));
-    auto bufIn =
-        runtime_->createTensor({N, C, H_in, W_in}, dtype, inputData.data());
-    auto bufOut = runtime_->ops().avgPool2d(bufIn, kH, kW, sH, sW, 0, 0, vi);
-
-    std::vector<float> output(N * C * H_out * W_out);
-    runtime_->copyFromTensor(bufOut, output.data(),
-                             output.size() * sizeof(float));
-
-    for (size_t i = 0; i < expected.size(); ++i) {
-      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-5f + 1e-5f)
-          << "Mismatch at index " << i;
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "avgpool/variants_basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
