@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "Runtime.h"
 
 #include "Dispatcher.h"
@@ -379,7 +380,11 @@ void Runtime::flushPendingCommands(size_t deviceId) {
       auto gpuUs =
           std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0)
               .count();
-      logMsg("[Runtime] GPU wait: %lld us", gpuUs);
+      {
+        static const bool q = std::getenv("CUT_PROFILE_QUIET") != nullptr;
+        if (!q)
+          logMsg("[Runtime] GPU wait: %lld us", gpuUs);
+      }
     } else {
       ctx.interface->wait(ctx.pendingCmd);
     }
@@ -398,8 +403,13 @@ void Runtime::flushPendingCommands(size_t deviceId) {
       auto gpuUs =
           std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
               .count();
-      logMsg("[Runtime] CPU submit: %lld us, GPU wait: %lld us, total: %lld us",
-             cpuUs, gpuUs, cpuUs + gpuUs);
+      {
+        static const bool q = std::getenv("CUT_PROFILE_QUIET") != nullptr;
+        if (!q)
+          logMsg("[Runtime] CPU submit: %lld us, GPU wait: %lld us, "
+                 "total: %lld us",
+                 cpuUs, gpuUs, cpuUs + gpuUs);
+      }
     } else {
       Tensor cmd = ctx.interface->submit();
       ctx.interface->wait(cmd);

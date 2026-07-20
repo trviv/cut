@@ -304,7 +304,211 @@ benchTranspose(Runtime &rt, int warmup, int iters, std::ostream &json) {
   json << "    }";
 }
 
+static void benchElementwise(Runtime &rt, int warmup, int iters, std::ostream &json) {
+  struct Shape {
+    uint32_t rows, cols;
+  };
+  std::vector<Shape> shapes = {
+      {1024, 1024}, {2048, 2048}, {4096, 4096}, {256, 4096}
+  };
+
+  json << "    \"Elementwise\": {\n";
+  json << "      \"raw_data\": [\n";
+
+  for (size_t si = 0; si < shapes.size(); si++) {
+    const auto &s = shapes[si];
+    auto hostA = randomFloats(s.rows * s.cols, 42);
+    auto hostB = randomFloats(s.rows * s.cols, 123);
+
+    std::cerr << "Elementwise rows=" << s.rows << " cols=" << s.cols << " ..."
+              << std::flush;
+
+    json << "        {\n";
+    json << "          \"shape\": [" << s.rows << ", " << s.cols << "],\n";
+    json << "          \"results\": [\n";
+
+    // Add
+    Stat addStat = timeOpGpu(
+        rt,
+        [&]() {
+          auto a = rt.createTensor({s.rows, s.cols}, DataType::Float32, hostA.data());
+          auto b = rt.createTensor({s.rows, s.cols}, DataType::Float32, hostB.data());
+          rt.ops().binaryOp(BinaryAdd, a, b);
+        },
+        warmup, iters);
+    json << "            {\"op\": \"add\", \"min_us\": " << std::fixed << std::setprecision(4)
+         << addStat.minUs << ", \"median_us\": " << addStat.medianUs
+         << ", \"mean_us\": " << addStat.meanUs << "},\n";
+
+    // ReLU
+    Stat reluStat = timeOpGpu(
+        rt,
+        [&]() {
+          auto a = rt.createTensor({s.rows, s.cols}, DataType::Float32, hostA.data());
+          rt.ops().unaryOp(UnaryRelu, a);
+        },
+        warmup, iters);
+    json << "            {\"op\": \"relu\", \"min_us\": " << std::fixed << std::setprecision(4)
+         << reluStat.minUs << ", \"median_us\": " << reluStat.medianUs
+         << ", \"mean_us\": " << reluStat.meanUs << "},\n";
+
+    // GELU
+    Stat geluStat = timeOpGpu(
+        rt,
+        [&]() {
+          auto a = rt.createTensor({s.rows, s.cols}, DataType::Float32, hostA.data());
+          rt.ops().unaryOp(UnaryGelu, a);
+        },
+        warmup, iters);
+    json << "            {\"op\": \"gelu\", \"min_us\": " << std::fixed << std::setprecision(4)
+         << geluStat.minUs << ", \"median_us\": " << geluStat.medianUs
+         << ", \"mean_us\": " << geluStat.meanUs << "}\n";
+
+    json << "          ]\n";
+    json << "        }";
+    if (si < shapes.size() - 1)
+      json << ",";
+    json << "\n";
+
+    std::cerr << " done" << std::endl;
+  }
+
+  json << "      ]\n";
+  json << "    }";
+}
+
+static void benchReduce(Runtime &rt, int warmup, int iters, std::ostream &json) {
+  std::vector<uint32_t> sizes = {1 << 16, 1 << 18, 1 << 20, 1 << 22};
+
+  json << "    \"Reduce\": {\n";
+  json << "      \"raw_data\": [\n";
+
+  for (size_t si = 0; si < sizes.size(); si++) {
+    uint32_t N = sizes[si];
+    auto host = randomFloats(N, 42);
+
+    std::cerr << "Reduce N=" << N << " ..." << std::flush;
+
+    Stat st = timeOpGpu(
+        rt,
+        [&]() {
+          auto a = rt.createTensor({N}, DataType::Float32, host.data());
+          rt.ops().reduce(ReduceSum, a);
+        },
+        warmup, iters);
+
+    json << "        {\n";
+    json << "          \"shape\": [" << N << "],\n";
+    json << "          \"op\": \"reduce_sum\",\n";
+    json << "          \"min_us\": " << std::fixed << std::setprecision(4)
+         << st.minUs << ", \"median_us\": " << st.medianUs
+         << ", \"mean_us\": " << st.meanUs << "\n";
+    json << "        }";
+    if (si < sizes.size() - 1)
+      json << ",";
+    json << "\n";
+
+    std::cerr << " done" << std::endl;
+  }
+
+  json << "      ]\n";
+  json << "    }";
+}
+
+static void benchSoftmax(Runtime &rt, int warmup, int iters, std::ostream &json) {
+  struct Shape {
+    uint32_t rows, cols;
+  };
+  std::vector<Shape> shapes = {
+      {1024, 1024}, {4096, 4096}, {32, 32000}
+  };
+
+  json << "    \"Softmax\": {\n";
+  json << "      \"raw_data\": [\n";
+
+  for (size_t si = 0; si < shapes.size(); si++) {
+    const auto &s = shapes[si];
+    auto host = randomFloats(s.rows * s.cols, 42);
+
+    std::cerr << "Softmax rows=" << s.rows << " cols=" << s.cols << " ..."
+              << std::flush;
+
+    Stat st = timeOpGpu(
+        rt,
+        [&]() {
+          auto a = rt.createTensor({s.rows, s.cols}, DataType::Float32, host.data());
+          rt.ops().softmax(a, 1);
+        },
+        warmup, iters);
+
+    json << "        {\n";
+    json << "          \"shape\": [" << s.rows << ", " << s.cols << "],\n";
+    json << "          \"op\": \"softmax_dim1\",\n";
+    json << "          \"min_us\": " << std::fixed << std::setprecision(4)
+         << st.minUs << ", \"median_us\": " << st.medianUs
+         << ", \"mean_us\": " << st.meanUs << "\n";
+    json << "        }";
+    if (si < shapes.size() - 1)
+      json << ",";
+    json << "\n";
+
+    std::cerr << " done" << std::endl;
+  }
+
+  json << "      ]\n";
+  json << "    }";
+}
+
+static void benchRMSNorm(Runtime &rt, int warmup, int iters, std::ostream &json) {
+  struct Shape {
+    uint32_t N, D;
+  };
+  std::vector<Shape> shapes = {
+      {1024, 2048}, {4096, 4096}, {8192, 4096}
+  };
+
+  json << "    \"RMSNorm\": {\n";
+  json << "      \"raw_data\": [\n";
+
+  for (size_t si = 0; si < shapes.size(); si++) {
+    const auto &s = shapes[si];
+    auto hostX = randomFloats(s.N * s.D, 42);
+    auto hostW = randomFloats(s.D, 123);
+
+    std::cerr << "RMSNorm N=" << s.N << " D=" << s.D << " ..." << std::flush;
+
+    Stat st = timeOpGpu(
+        rt,
+        [&]() {
+          auto x = rt.createTensor({s.N, s.D}, DataType::Float32, hostX.data());
+          auto w = rt.createTensor({s.D}, DataType::Float32, hostW.data());
+          rt.ops().rmsNorm(x, w, 1e-5f);
+        },
+        warmup, iters);
+
+    json << "        {\n";
+    json << "          \"shape\": [" << s.N << ", " << s.D << "],\n";
+    json << "          \"op\": \"rmsnorm\",\n";
+    json << "          \"min_us\": " << std::fixed << std::setprecision(4)
+         << st.minUs << ", \"median_us\": " << st.medianUs
+         << ", \"mean_us\": " << st.meanUs << "\n";
+    json << "        }";
+    if (si < shapes.size() - 1)
+      json << ",";
+    json << "\n";
+
+    std::cerr << " done" << std::endl;
+  }
+
+  json << "      ]\n";
+  json << "    }";
+}
+
 int main(int argc, char **argv) {
+  // Silence the Vulkan per-dispatch [GPU Profile] stderr log; op_bench reads GPU
+  // timings via Runtime::lastDispatchTimings() instead.
+  setenv("CUT_PROFILE_QUIET", "1", 1);
+
   std::string backendStr = "vulkan";
   int warmup = 5;
   int iters = 20;
@@ -355,6 +559,14 @@ int main(int argc, char **argv) {
   benchMatMul(runtime, warmup, iters, outFile);
   outFile << ",\n";
   benchTranspose(runtime, warmup, iters, outFile);
+  outFile << ",\n";
+  benchElementwise(runtime, warmup, iters, outFile);
+  outFile << ",\n";
+  benchReduce(runtime, warmup, iters, outFile);
+  outFile << ",\n";
+  benchSoftmax(runtime, warmup, iters, outFile);
+  outFile << ",\n";
+  benchRMSNorm(runtime, warmup, iters, outFile);
 
   outFile << "\n  }\n";
   outFile << "}\n";

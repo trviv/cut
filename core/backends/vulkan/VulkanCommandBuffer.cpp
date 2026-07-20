@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "VulkanStructs.h"
 #include "vulkan/vulkan_core.h"
 #include <ComputeCommon.h>
@@ -585,15 +586,18 @@ void VulkanCommandBuffer::end() {
         return std::chrono::duration_cast<std::chrono::microseconds>(duration)
             .count();
       };
-      logMsg("[VulkanCommandBuffer::end] createDescriptorSets: %lld us",
-             toUs(descriptorSetsEnd - descriptorSetsStart));
-      logMsg("[VulkanCommandBuffer::end] createComputePipelines: %lld us",
-             toUs(pipelinesEnd - pipelinesStart));
-
-      logMsg("[VulkanCommandBuffer::end] vkUpdateDescriptorSets: %lld us",
-             toUs(updateDescriptorsEnd - updateDescriptorsStart));
-      logMsg("[VulkanCommandBuffer::end] recordCommands: %lld us",
-             toUs(recordCommandsEnd - recordCommandsStart));
+      static const bool endLogQuiet =
+          std::getenv("CUT_PROFILE_QUIET") != nullptr;
+      if (!endLogQuiet) {
+        logMsg("[VulkanCommandBuffer::end] createDescriptorSets: %lld us",
+               toUs(descriptorSetsEnd - descriptorSetsStart));
+        logMsg("[VulkanCommandBuffer::end] createComputePipelines: %lld us",
+               toUs(pipelinesEnd - pipelinesStart));
+        logMsg("[VulkanCommandBuffer::end] vkUpdateDescriptorSets: %lld us",
+               toUs(updateDescriptorsEnd - updateDescriptorsStart));
+        logMsg("[VulkanCommandBuffer::end] recordCommands: %lld us",
+               toUs(recordCommandsEnd - recordCommandsStart));
+      }
     }
   }
 
@@ -611,10 +615,14 @@ void VulkanCommandBuffer::end() {
       return std::chrono::duration_cast<std::chrono::microseconds>(duration)
           .count();
     };
-    logMsg("[VulkanCommandBuffer::end] vkEndCommandBuffer: %lld us",
-           toUs(endCommandBufferEnd - endCommandBufferStart));
-    logMsg("[VulkanCommandBuffer::end] total: %lld us",
-           toUs(endCommandBufferEnd - endStart));
+    static const bool endLogQuiet2 =
+        std::getenv("CUT_PROFILE_QUIET") != nullptr;
+    if (!endLogQuiet2) {
+      logMsg("[VulkanCommandBuffer::end] vkEndCommandBuffer: %lld us",
+             toUs(endCommandBufferEnd - endCommandBufferStart));
+      logMsg("[VulkanCommandBuffer::end] total: %lld us",
+             toUs(endCommandBufferEnd - endStart));
+    }
   }
 }
 
@@ -679,18 +687,23 @@ void VulkanCommandBuffer::wait() {
         labelCounts[label]++;
       }
 
-      // Sort by total time descending
-      std::vector<std::pair<std::string, double>> sorted(labelTotals.begin(),
-                                                         labelTotals.end());
-      std::sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) {
-        return a.second > b.second;
-      });
-      for (const auto &[label, us] : sorted) {
-        logMsg("[GPU Profile] %-30s %9.1f us  (%dx)", label.c_str(), us,
-               labelCounts[label]);
+      // The programmatic timings_ above are always populated; the human-readable
+      // per-dispatch log is silenced by setting CUT_PROFILE_QUIET (used by
+      // benchmarks that read timings via Runtime::lastDispatchTimings()).
+      static const bool quiet = std::getenv("CUT_PROFILE_QUIET") != nullptr;
+      if (!quiet) {
+        // Sort by total time descending
+        std::vector<std::pair<std::string, double>> sorted(labelTotals.begin(),
+                                                           labelTotals.end());
+        std::sort(sorted.begin(), sorted.end(),
+                  [](const auto &a, const auto &b) { return a.second > b.second; });
+        for (const auto &[label, us] : sorted) {
+          logMsg("[GPU Profile] %-30s %9.1f us  (%dx)", label.c_str(), us,
+                 labelCounts[label]);
+        }
+        logMsg("[GPU Profile] %-30s %9.1f us  (%d dispatches)", "TOTAL", totalUs,
+               queryCount_);
       }
-      logMsg("[GPU Profile] %-30s %9.1f us  (%d dispatches)", "TOTAL", totalUs,
-             queryCount_);
     }
 
     vkDestroyQueryPool(device_, queryPool_, nullptr);
