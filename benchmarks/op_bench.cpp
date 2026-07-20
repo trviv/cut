@@ -19,6 +19,7 @@
 #include "impl/conv2d/Conv2DVariants.generated.h"
 #include "impl/maxpool2d/MaxPool2DVariants.generated.h"
 #include "impl/avgpool2d/AvgPool2DVariants.generated.h"
+#include "harness/OpRegistry.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <Operations.h>
@@ -793,6 +794,25 @@ static void benchPool(Runtime &rt, int warmup, int iters, std::ostream &json) {
   json << "    }";
 }
 
+static void benchRegistry(Runtime &rt, int warmup, int iters, std::ostream &json) {
+  const auto &cases = opregistry::allOpCases();
+  json << "    \"Registry\": {\n";
+  json << "      \"raw_data\": [\n";
+  for (size_t ci = 0; ci < cases.size(); ci++) {
+    const auto &c = cases[ci];
+    std::cerr << "Registry " << c.name << " ..." << std::flush;
+    Stat st = timeOpGpu(rt, [&]() { c.run(rt, -1); }, warmup, iters);
+    json << "        {\"name\": \"" << escapeJson(c.name) << "\", \"family\": \""
+         << escapeJson(c.family) << "\", \"median_us\": " << std::fixed
+         << std::setprecision(4) << st.medianUs << "}";
+    if (ci < cases.size() - 1) json << ",";
+    json << "\n";
+    std::cerr << " done" << std::endl;
+  }
+  json << "      ]\n";
+  json << "    }";
+}
+
 int main(int argc, char **argv) {
   // Silence the Vulkan per-dispatch [GPU Profile] stderr log; op_bench reads GPU
   // timings via Runtime::lastDispatchTimings() instead.
@@ -862,6 +882,8 @@ int main(int argc, char **argv) {
   benchConv2d(runtime, warmup, iters, outFile);
   outFile << ",\n";
   benchPool(runtime, warmup, iters, outFile);
+  outFile << ",\n";
+  benchRegistry(runtime, warmup, iters, outFile);
 
   outFile << "\n  }\n";
   outFile << "}\n";

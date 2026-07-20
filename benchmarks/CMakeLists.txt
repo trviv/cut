@@ -36,5 +36,6 @@ add_executable(op_bench
     op_bench.cpp
 )
 target_include_directories(op_bench PRIVATE ${BENCH_INCLUDE_DIRS})
+target_include_directories(op_bench PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_link_libraries(op_bench PRIVATE CUTLib)
 target_compile_options(op_bench PRIVATE -O2)
