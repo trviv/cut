@@ -2665,131 +2665,35 @@ TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
 // Helper: convert float to float16 bits (IEEE 754 half-precision)
 
 TEST_F(MatrixOpsTest, MatMulQ8_Simple) {
-  // Test matmulQ8 with known data: A[M,K] * B[K,N] = C[M,N]
-  // B stored as Int8 [K,N], scales as Float16 [K/32,N]
-  // With scale=1.0, dequantized B values equal the int8 values.
-  const uint32_t M = 1, K = 32, N = 2;
-  const uint32_t blocksK = K / 32; // = 1
-
-  // Activation A[1, 32]: all ones
-  std::vector<float> dataA(M * K, 1.0f);
-
-  // Weight B[32, 2] as Int8: col 0 = all 1s, col 1 = all 2s
-  std::vector<int8_t> dataB(K * N);
-  for (uint32_t k = 0; k < K; ++k) {
-    dataB[k * N + 0] = 1; // col 0
-    dataB[k * N + 1] = 2; // col 1
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "quantmatmul/q8_simple")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
-
-  // Scales [1, 2] as Float16: all 1.0
-  uint16_t f16_one = f32_to_f16(1.0f);
-  std::vector<uint16_t> scales(blocksK * N, f16_one);
-
-  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
-  auto bufS =
-      runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
-
-  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
-
-  std::vector<float> output(M * N);
-  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
-
-  // Expected: C[0][0] = sum(1.0 * 1 * 1.0) = 32.0
-  //           C[0][1] = sum(1.0 * 2 * 1.0) = 64.0
-  ASSERT_NEAR(output[0], 32.0f, 1e-3f) << "C[0][0] mismatch";
-  ASSERT_NEAR(output[1], 64.0f, 1e-3f) << "C[0][1] mismatch";
 }
 
 TEST_F(MatrixOpsTest, MatMulQ8_WithScales) {
-  // Test that scales are applied correctly
-  const uint32_t M = 1, K = 64, N = 2;
-  const uint32_t blocksK = K / 32; // = 2
-
-  // A[1, 64]: all ones
-  std::vector<float> dataA(M * K, 1.0f);
-
-  // B[64, 2] as Int8: all 4s
-  std::vector<int8_t> dataB(K * N, 4);
-
-  // Scales [2, 2] as [K/32, N]: transposed from original [N, K/32]
-  // Original: n=0 → {0.5, 1.0}, n=1 → {2.0, 0.25}
-  // Transposed [K/32=2, N=2]: row0={0.5, 2.0}, row1={1.0, 0.25}
-  std::vector<uint16_t> scales = {
-      f32_to_f16(0.5f),
-      f32_to_f16(2.0f), // block 0 scales for n=0, n=1
-      f32_to_f16(1.0f),
-      f32_to_f16(0.25f) // block 1 scales for n=0, n=1
-  };
-
-  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
-  auto bufS =
-      runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
-
-  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
-
-  std::vector<float> output(M * N);
-  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
-
-  // C[0][0] = sum_k(1.0 * 4 * scale[k/32][0])
-  //         = 32 * (4 * 0.5) + 32 * (4 * 1.0) = 64 + 128 = 192
-  // C[0][1] = 32 * (4 * 2.0) + 32 * (4 * 0.25) = 256 + 32 = 288
-  ASSERT_NEAR(output[0], 192.0f, 1.0f) << "C[0][0] mismatch";
-  ASSERT_NEAR(output[1], 288.0f, 1.0f) << "C[0][1] mismatch";
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "quantmatmul/q8_withscales")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
 }
 
 TEST_F(MatrixOpsTest, MatMulQ8_VsRegularMatMul) {
-  // Compare matmulQ8 output against regular matmul with manually
-  // dequantized weights to verify correctness end-to-end.
-  const uint32_t M = 2, K = 64, N = 4;
-  const uint32_t blocksPerRow = K / 32;
-
-  auto dataA = generateTestData<float>(M * K, 42);
-
-  // Generate int8 weight values in range [-10, 10] in [K, N] layout
-  // (transposed at load time, matching regular matmul convention)
-  std::vector<int8_t> dataB(K * N);
-  for (size_t i = 0; i < dataB.size(); ++i) {
-    dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
-  }
-
-  // Generate scale values in [blocksPerRow, N] layout: small positive floats
-  std::vector<float> scaleFloats(blocksPerRow * N);
-  for (size_t i = 0; i < scaleFloats.size(); ++i) {
-    scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
-  }
-  std::vector<uint16_t> scaleF16(scaleFloats.size());
-  for (size_t i = 0; i < scaleFloats.size(); ++i) {
-    scaleF16[i] = f32_to_f16(scaleFloats[i]);
-  }
-
-  // Run matmulQ8 on GPU — B is [K, N], scales are [blocksPerRow, N]
-  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
-  auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16,
-                                     scaleF16.data());
-  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
-
-  std::vector<float> gpuOutput(M * N);
-  runtime_->copyFromTensor(bufC, gpuOutput.data(), M * N * sizeof(float));
-
-  // CPU reference: dequantize B then matmul
-  // B is [K, N], scales are [K/32, N]
-  // C[m][n] = sum_k(A[m][k] * B[k][n] * scale[k/32][n])
-  for (uint32_t m = 0; m < M; ++m) {
-    for (uint32_t n = 0; n < N; ++n) {
-      float expected = 0.0f;
-      for (uint32_t k = 0; k < K; ++k) {
-        float a = dataA[m * K + k];
-        float b = static_cast<float>(dataB[k * N + n]);
-        float s = scaleFloats[(k / 32) * N + n];
-        expected += a * b * s;
-      }
-      ASSERT_NEAR(gpuOutput[m * N + n], expected,
-                  std::abs(expected) * 0.01f + 0.1f)
-          << "Mismatch at C[" << m << "][" << n << "]";
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "quantmatmul/q8_vsregular")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -3335,247 +3239,58 @@ TEST_F(MatrixOpsTest, BinaryOpRowBcast_AddMul_MatchesCPU) {
 // Helper: pack two nibble values (0-15) into one byte: low nibble + high nibble
 
 TEST_F(MatrixOpsTest, MatMulQ4_Simple) {
-  // Test matmulQ4 with known data: A[M,K] * dequant(B)[K,N] = C[M,N]
-  // B stored as packed nibbles [K, N/2] Int8, scales [K/32, N] Float16
-  // Dequant: value = (nibble - 8) * scale
-  // With scale=1.0 and nibble=9, dequantized value = 1.0.
-  const uint32_t M = 1, K = 32, N = 2;
-  const uint32_t blocksK = K / 32; // = 1
-
-  // Activation A[1, 32]: all ones
-  std::vector<float> dataA(M * K, 1.0f);
-
-  // PackedB [32, 1] (N/2=1): pack two N values into one byte.
-  // N=0: nibble=9 (dequant: 9-8=1), N=1: nibble=10 (dequant: 10-8=2)
-  // Byte = packNibbles(9, 10) = 0xA9
-  std::vector<uint8_t> packedB(K * (N / 2));
-  for (uint32_t k = 0; k < K; ++k) {
-    packedB[k * (N / 2)] = packNibbles(9, 10); // lo=n0(9), hi=n1(10)
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "quantmatmul/q4_simple")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
-
-  // Scales [1, 2] as Float16: all 1.0
-  uint16_t f16_one = f32_to_f16(1.0f);
-  std::vector<uint16_t> scales(blocksK * N, f16_one);
-
-  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB =
-      runtime_->createTensor({K, N / 2}, DataType::Int8, packedB.data());
-  auto bufS =
-      runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
-
-  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
-
-  std::vector<float> output(M * N);
-  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
-
-  // Expected: C[0][0] = sum(1.0 * (9-8) * 1.0) = 32 * 1 = 32.0
-  //           C[0][1] = sum(1.0 * (10-8) * 1.0) = 32 * 2 = 64.0
-  ASSERT_NEAR(output[0], 32.0f, 1e-3f) << "C[0][0] mismatch";
-  ASSERT_NEAR(output[1], 64.0f, 1e-3f) << "C[0][1] mismatch";
 }
 
 TEST_F(MatrixOpsTest, MatMulQ4_WithScales) {
-  // Test that scales are applied correctly with Q4 dequantization
-  const uint32_t M = 1, K = 64, N = 2;
-  const uint32_t blocksK = K / 32; // = 2
-
-  // A[1, 64]: all ones
-  std::vector<float> dataA(M * K, 1.0f);
-
-  // PackedB [64, 1]: nibble=12 for both N values -> dequant = 12-8 = 4
-  std::vector<uint8_t> packedB(K * (N / 2));
-  for (uint32_t k = 0; k < K; ++k) {
-    packedB[k * (N / 2)] = packNibbles(12, 12); // both nibbles = 12
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "quantmatmul/q4_withscales")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
-
-  // Scales [2, 2] as [K/32, N]: same pattern as Q8 test
-  // Row 0: {0.5, 2.0}, Row 1: {1.0, 0.25}
-  std::vector<uint16_t> scales = {
-      f32_to_f16(0.5f),
-      f32_to_f16(2.0f), // block 0 scales for n=0, n=1
-      f32_to_f16(1.0f),
-      f32_to_f16(0.25f) // block 1 scales for n=0, n=1
-  };
-
-  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB =
-      runtime_->createTensor({K, N / 2}, DataType::Int8, packedB.data());
-  auto bufS =
-      runtime_->createTensor({blocksK, N}, DataType::Float16, scales.data());
-
-  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
-
-  std::vector<float> output(M * N);
-  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
-
-  // Dequant value = (12-8) * scale = 4 * scale
-  // C[0][0] = 32 * (4 * 0.5) + 32 * (4 * 1.0) = 64 + 128 = 192
-  // C[0][1] = 32 * (4 * 2.0) + 32 * (4 * 0.25) = 256 + 32 = 288
-  ASSERT_NEAR(output[0], 192.0f, 1.0f) << "C[0][0] mismatch";
-  ASSERT_NEAR(output[1], 288.0f, 1.0f) << "C[0][1] mismatch";
 }
 
 TEST_F(MatrixOpsTest, MatMulQ4_VsReference) {
-  // Compare matmulQ4 GPU output against CPU reference.
-  // B is [K, N/2] packed nibbles, scales [K/32, N].
-  const uint32_t M = 2, K = 64, N = 4;
-  const uint32_t blocksPerRow = K / 32;
-
-  auto dataA = generateTestData<float>(M * K, 42);
-
-  // Generate nibble values in range [0, 15] and pack into [K, N/2] bytes
-  // Also keep unpacked nibbles for CPU reference
-  std::vector<uint8_t> nibbles(K * N);
-  for (size_t i = 0; i < nibbles.size(); ++i) {
-    nibbles[i] = static_cast<uint8_t>((i * 7 + 3) % 16);
-  }
-
-  std::vector<uint8_t> packedB(K * (N / 2));
-  for (uint32_t k = 0; k < K; ++k) {
-    for (uint32_t n = 0; n < N; n += 2) {
-      uint8_t lo = nibbles[k * N + n];
-      uint8_t hi = nibbles[k * N + n + 1];
-      packedB[k * (N / 2) + n / 2] = packNibbles(lo, hi);
-    }
-  }
-
-  // Generate scales [blocksPerRow, N]: small positive floats
-  std::vector<float> scaleFloats(blocksPerRow * N);
-  for (size_t i = 0; i < scaleFloats.size(); ++i) {
-    scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
-  }
-  std::vector<uint16_t> scaleF16(scaleFloats.size());
-  for (size_t i = 0; i < scaleFloats.size(); ++i) {
-    scaleF16[i] = f32_to_f16(scaleFloats[i]);
-  }
-
-  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB =
-      runtime_->createTensor({K, N / 2}, DataType::Int8, packedB.data());
-  auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16,
-                                     scaleF16.data());
-  auto bufC = runtime_->ops().matmul(bufA, bufB, bufS);
-
-  std::vector<float> gpuOutput(M * N);
-  runtime_->copyFromTensor(bufC, gpuOutput.data(), M * N * sizeof(float));
-
-  // CPU reference: C[m][n] = sum_k(A[m][k] * (nibble[k][n] - 8) *
-  // scale[k/32][n])
-  for (uint32_t m = 0; m < M; ++m) {
-    for (uint32_t n = 0; n < N; ++n) {
-      float expected = 0.0f;
-      for (uint32_t k = 0; k < K; ++k) {
-        float a = dataA[m * K + k];
-        float dequant =
-            static_cast<float>(static_cast<int>(nibbles[k * N + n]) - 8);
-        float s = scaleFloats[(k / 32) * N + n];
-        expected += a * dequant * s;
-      }
-      ASSERT_NEAR(gpuOutput[m * N + n], expected,
-                  std::abs(expected) * 0.01f + 0.1f)
-          << "Mismatch at C[" << m << "][" << n << "]";
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "quantmatmul/q4_vsreference")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(MatrixOpsTest, MatMulQ8_AllVariants_VsReference) {
-  const uint32_t M = 1, K = 512, N = 16;
-  const uint32_t blocksPerRow = K / 32;
-  auto dataA = generateTestData<float>(M * K, 42);
-  std::vector<int8_t> dataB(K * N);
-  for (size_t i = 0; i < dataB.size(); ++i)
-    dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
-  std::vector<float> scaleFloats(blocksPerRow * N);
-  for (size_t i = 0; i < scaleFloats.size(); ++i)
-    scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
-  std::vector<uint16_t> scaleF16(scaleFloats.size());
-  for (size_t i = 0; i < scaleFloats.size(); ++i)
-    scaleF16[i] = f32_to_f16(scaleFloats[i]);
-  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
-  auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16, scaleF16.data());
-  // CPU reference
-  std::vector<float> ref(M * N, 0.0f);
-  for (uint32_t m = 0; m < M; ++m)
-    for (uint32_t n = 0; n < N; ++n)
-      for (uint32_t k = 0; k < K; ++k)
-        ref[m * N + n] += dataA[m * K + k] * static_cast<float>(dataB[k * N + n]) *
-                          scaleFloats[(k / 32) * N + n];
-  int tested = 0;
-  for (int vi = 0; vi < kMatMulQ8VariantCount; ++vi) {
-    if (!getCompiledMatMulQ8(vi, DataType::Float32, DataType::Float16,
-                             DataType::Float32)
-             .has_value())
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "quantmatmul/q8_allvariants")
       continue;
-    std::string name = getMatMulQ8VariantName(vi);
-    // Skip variants that need a specialized packed-weight layout not produced
-    // by this plain [K,N] int8 + f16-scale reference: integer-dot ("Dot") and
-    // cooperative-matrix ("CoopMat") kernels expect pre-packed operands and are
-    // exercised via their own dedicated paths.
-    if (name.find("Dot") != std::string::npos ||
-        name.find("CoopMat") != std::string::npos)
-      continue;
-    SCOPED_TRACE(std::string("Q8 variant ") + std::to_string(vi) + " " + name);
-    auto bufC = runtime_->ops().matmul(bufA, bufB, bufS, vi);
-    std::vector<float> got(M * N);
-    runtime_->copyFromTensor(bufC, got.data(), M * N * sizeof(float));
-    for (uint32_t i = 0; i < M * N; ++i)
-      ASSERT_NEAR(got[i], ref[i], std::abs(ref[i]) * 0.02f + 0.1f) << "i=" << i;
-    ++tested;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
-  ASSERT_GT(tested, 1) << "expected multiple compiled Q8 variants";
 }
 
 TEST_F(MatrixOpsTest, MatMulQ4_AllVariants_VsReference) {
-  const uint32_t M = 1, K = 64, N = 4;
-  const uint32_t blocksPerRow = K / 32;
-  auto dataA = generateTestData<float>(M * K, 42);
-  std::vector<uint8_t> nibbles(K * N);
-  for (size_t i = 0; i < nibbles.size(); ++i)
-    nibbles[i] = static_cast<uint8_t>((i * 7 + 3) % 16);
-  std::vector<uint8_t> packedB(K * (N / 2));
-  for (uint32_t k = 0; k < K; ++k)
-    for (uint32_t n = 0; n < N; n += 2)
-      packedB[k * (N / 2) + n / 2] = packNibbles(nibbles[k * N + n], nibbles[k * N + n + 1]);
-  std::vector<float> scaleFloats(blocksPerRow * N);
-  for (size_t i = 0; i < scaleFloats.size(); ++i)
-    scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
-  std::vector<uint16_t> scaleF16(scaleFloats.size());
-  for (size_t i = 0; i < scaleFloats.size(); ++i)
-    scaleF16[i] = f32_to_f16(scaleFloats[i]);
-  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
-  auto bufB = runtime_->createTensor({K, N / 2}, DataType::Int8, packedB.data());
-  auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16, scaleF16.data());
-  std::vector<float> ref(M * N, 0.0f);
-  for (uint32_t m = 0; m < M; ++m)
-    for (uint32_t n = 0; n < N; ++n)
-      for (uint32_t k = 0; k < K; ++k)
-        ref[m * N + n] += dataA[m * K + k] *
-                          static_cast<float>(static_cast<int>(nibbles[k * N + n]) - 8) *
-                          scaleFloats[(k / 32) * N + n];
-  int tested = 0;
-  for (int vi = 0; vi < kMatMulQ4VariantCount; ++vi) {
-    if (!getCompiledMatMulQ4(vi, DataType::Float32, DataType::Float16,
-                             DataType::Float32)
-             .has_value())
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "quantmatmul/q4_allvariants")
       continue;
-    std::string name = getMatMulQ4VariantName(vi);
-    // Skip variants that need a specialized packed-weight layout not produced
-    // by this plain [K,N] int8 + f16-scale reference: integer-dot ("Dot") and
-    // cooperative-matrix ("CoopMat") kernels expect pre-packed operands and are
-    // exercised via their own dedicated paths.
-    if (name.find("Dot") != std::string::npos ||
-        name.find("CoopMat") != std::string::npos)
-      continue;
-    SCOPED_TRACE(std::string("Q4 variant ") + std::to_string(vi) + " " + name);
-    auto bufC = runtime_->ops().matmul(bufA, bufB, bufS, vi);
-    std::vector<float> got(M * N);
-    runtime_->copyFromTensor(bufC, got.data(), M * N * sizeof(float));
-    for (uint32_t i = 0; i < M * N; ++i)
-      ASSERT_NEAR(got[i], ref[i], std::abs(ref[i]) * 0.02f + 0.1f) << "i=" << i;
-    ++tested;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
-  ASSERT_GT(tested, 0) << "expected at least one compiled Q4 variant";
 }
 
 // =========================================================================

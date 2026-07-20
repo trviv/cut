@@ -4,8 +4,10 @@
 #include "impl/conv1d/Conv1DVariants.generated.h"
 #include "impl/conv2d/Conv2DVariants.generated.h"
 #include "impl/dequant/DequantOp.h"
-#include "impl/maxpool2d/MaxPool2DVariants.generated.h"
+#include "impl/matmul/MatMulQ4Variants.generated.h"
+#include "impl/matmul/MatMulQ8Variants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
+#include "impl/maxpool2d/MaxPool2DVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
 #include <ComputeOps.h>
 #include <Operations.h>
@@ -1867,6 +1869,220 @@ inline Tensor dequantRun(Runtime& rt) {
   return rt.ops().dequantize(raw, static_cast<uint32_t>(DequantFormat::BF16), rows, cols);
 }
 
+// ===========================================================================
+// Quantized matmul family (Q8 int8 + Q4 packed-nibble, Float16 scales)
+// ===========================================================================
+inline VerifyResult q8SimpleVerify(Runtime& rt) {
+  const uint32_t M = 1, K = 32, N = 2, blocksK = K / 32;
+  std::vector<float> dataA(M * K, 1.0f);
+  std::vector<int8_t> dataB(K * N);
+  for (uint32_t k = 0; k < K; ++k) { dataB[k * N + 0] = 1; dataB[k * N + 1] = 2; }
+  std::vector<uint16_t> scales(blocksK * N, f32_to_f16(1.0f));
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS = rt.createTensor({blocksK, N}, DataType::Float16, scales.data());
+  auto bufC = rt.ops().matmul(bufA, bufB, bufS);
+  std::vector<float> out(M * N);
+  rt.copyFromTensor(bufC, out.data(), M * N * sizeof(float));
+  if (std::abs(out[0] - 32.0f) > 1e-3f) return {false, "q8 simple C[0][0]"};
+  if (std::abs(out[1] - 64.0f) > 1e-3f) return {false, "q8 simple C[0][1]"};
+  return {true, ""};
+}
+
+inline VerifyResult q8WithScalesVerify(Runtime& rt) {
+  const uint32_t M = 1, K = 64, N = 2, blocksK = K / 32;
+  std::vector<float> dataA(M * K, 1.0f);
+  std::vector<int8_t> dataB(K * N, 4);
+  std::vector<uint16_t> scales = {f32_to_f16(0.5f), f32_to_f16(2.0f), f32_to_f16(1.0f), f32_to_f16(0.25f)};
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS = rt.createTensor({blocksK, N}, DataType::Float16, scales.data());
+  auto bufC = rt.ops().matmul(bufA, bufB, bufS);
+  std::vector<float> out(M * N);
+  rt.copyFromTensor(bufC, out.data(), M * N * sizeof(float));
+  if (std::abs(out[0] - 192.0f) > 1.0f) return {false, "q8 scales C[0][0]"};
+  if (std::abs(out[1] - 288.0f) > 1.0f) return {false, "q8 scales C[0][1]"};
+  return {true, ""};
+}
+
+inline VerifyResult q8VsRegularVerify(Runtime& rt) {
+  const uint32_t M = 2, K = 64, N = 4, blocksPerRow = K / 32;
+  auto dataA = generateTestData<float>(M * K, 42);
+  std::vector<int8_t> dataB(K * N);
+  for (size_t i = 0; i < dataB.size(); ++i) dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
+  std::vector<float> scaleFloats(blocksPerRow * N);
+  for (size_t i = 0; i < scaleFloats.size(); ++i) scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
+  std::vector<uint16_t> scaleF16(scaleFloats.size());
+  for (size_t i = 0; i < scaleFloats.size(); ++i) scaleF16[i] = f32_to_f16(scaleFloats[i]);
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS = rt.createTensor({blocksPerRow, N}, DataType::Float16, scaleF16.data());
+  auto bufC = rt.ops().matmul(bufA, bufB, bufS);
+  std::vector<float> got(M * N);
+  rt.copyFromTensor(bufC, got.data(), M * N * sizeof(float));
+  for (uint32_t m = 0; m < M; ++m)
+    for (uint32_t n = 0; n < N; ++n) {
+      float expected = 0.0f;
+      for (uint32_t k = 0; k < K; ++k)
+        expected += dataA[m * K + k] * static_cast<float>(dataB[k * N + n]) * scaleFloats[(k / 32) * N + n];
+      if (std::abs(got[m * N + n] - expected) > std::abs(expected) * 0.01f + 0.1f)
+        return {false, "q8 vsreg mismatch"};
+    }
+  return {true, ""};
+}
+
+inline VerifyResult q4SimpleVerify(Runtime& rt) {
+  const uint32_t M = 1, K = 32, N = 2, blocksK = K / 32;
+  std::vector<float> dataA(M * K, 1.0f);
+  std::vector<uint8_t> packedB(K * (N / 2));
+  for (uint32_t k = 0; k < K; ++k) packedB[k * (N / 2)] = packNibbles(9, 10);
+  std::vector<uint16_t> scales(blocksK * N, f32_to_f16(1.0f));
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N / 2}, DataType::Int8, packedB.data());
+  auto bufS = rt.createTensor({blocksK, N}, DataType::Float16, scales.data());
+  auto bufC = rt.ops().matmul(bufA, bufB, bufS);
+  std::vector<float> out(M * N);
+  rt.copyFromTensor(bufC, out.data(), M * N * sizeof(float));
+  if (std::abs(out[0] - 32.0f) > 1e-3f) return {false, "q4 simple C[0][0]"};
+  if (std::abs(out[1] - 64.0f) > 1e-3f) return {false, "q4 simple C[0][1]"};
+  return {true, ""};
+}
+
+inline VerifyResult q4WithScalesVerify(Runtime& rt) {
+  const uint32_t M = 1, K = 64, N = 2, blocksK = K / 32;
+  std::vector<float> dataA(M * K, 1.0f);
+  std::vector<uint8_t> packedB(K * (N / 2));
+  for (uint32_t k = 0; k < K; ++k) packedB[k * (N / 2)] = packNibbles(12, 12);
+  std::vector<uint16_t> scales = {f32_to_f16(0.5f), f32_to_f16(2.0f), f32_to_f16(1.0f), f32_to_f16(0.25f)};
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N / 2}, DataType::Int8, packedB.data());
+  auto bufS = rt.createTensor({blocksK, N}, DataType::Float16, scales.data());
+  auto bufC = rt.ops().matmul(bufA, bufB, bufS);
+  std::vector<float> out(M * N);
+  rt.copyFromTensor(bufC, out.data(), M * N * sizeof(float));
+  if (std::abs(out[0] - 192.0f) > 1.0f) return {false, "q4 scales C[0][0]"};
+  if (std::abs(out[1] - 288.0f) > 1.0f) return {false, "q4 scales C[0][1]"};
+  return {true, ""};
+}
+
+inline VerifyResult q4VsReferenceVerify(Runtime& rt) {
+  const uint32_t M = 2, K = 64, N = 4, blocksPerRow = K / 32;
+  auto dataA = generateTestData<float>(M * K, 42);
+  std::vector<uint8_t> nibbles(K * N);
+  for (size_t i = 0; i < nibbles.size(); ++i) nibbles[i] = static_cast<uint8_t>((i * 7 + 3) % 16);
+  std::vector<uint8_t> packedB(K * (N / 2));
+  for (uint32_t k = 0; k < K; ++k)
+    for (uint32_t n = 0; n < N; n += 2)
+      packedB[k * (N / 2) + n / 2] = packNibbles(nibbles[k * N + n], nibbles[k * N + n + 1]);
+  std::vector<float> scaleFloats(blocksPerRow * N);
+  for (size_t i = 0; i < scaleFloats.size(); ++i) scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
+  std::vector<uint16_t> scaleF16(scaleFloats.size());
+  for (size_t i = 0; i < scaleFloats.size(); ++i) scaleF16[i] = f32_to_f16(scaleFloats[i]);
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N / 2}, DataType::Int8, packedB.data());
+  auto bufS = rt.createTensor({blocksPerRow, N}, DataType::Float16, scaleF16.data());
+  auto bufC = rt.ops().matmul(bufA, bufB, bufS);
+  std::vector<float> got(M * N);
+  rt.copyFromTensor(bufC, got.data(), M * N * sizeof(float));
+  for (uint32_t m = 0; m < M; ++m)
+    for (uint32_t n = 0; n < N; ++n) {
+      float expected = 0.0f;
+      for (uint32_t k = 0; k < K; ++k)
+        expected += dataA[m * K + k] * static_cast<float>(static_cast<int>(nibbles[k * N + n]) - 8) * scaleFloats[(k / 32) * N + n];
+      if (std::abs(got[m * N + n] - expected) > std::abs(expected) * 0.01f + 0.1f)
+        return {false, "q4 vsref mismatch"};
+    }
+  return {true, ""};
+}
+
+inline VerifyResult q8AllVariantsVerify(Runtime& rt) {
+  const uint32_t M = 1, K = 512, N = 16, blocksPerRow = K / 32;
+  auto dataA = generateTestData<float>(M * K, 42);
+  std::vector<int8_t> dataB(K * N);
+  for (size_t i = 0; i < dataB.size(); ++i) dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
+  std::vector<float> scaleFloats(blocksPerRow * N);
+  for (size_t i = 0; i < scaleFloats.size(); ++i) scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
+  std::vector<uint16_t> scaleF16(scaleFloats.size());
+  for (size_t i = 0; i < scaleFloats.size(); ++i) scaleF16[i] = f32_to_f16(scaleFloats[i]);
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS = rt.createTensor({blocksPerRow, N}, DataType::Float16, scaleF16.data());
+  std::vector<float> ref(M * N, 0.0f);
+  for (uint32_t m = 0; m < M; ++m)
+    for (uint32_t n = 0; n < N; ++n)
+      for (uint32_t k = 0; k < K; ++k)
+        ref[m * N + n] += dataA[m * K + k] * static_cast<float>(dataB[k * N + n]) * scaleFloats[(k / 32) * N + n];
+  int tested = 0;
+  for (int vi = 0; vi < kMatMulQ8VariantCount; ++vi) {
+    if (!getCompiledMatMulQ8(vi, DataType::Float32, DataType::Float16, DataType::Float32).has_value())
+      continue;
+    std::string name = getMatMulQ8VariantName(vi);
+    if (name.find("Dot") != std::string::npos || name.find("CoopMat") != std::string::npos)
+      continue;
+    auto bufC = rt.ops().matmul(bufA, bufB, bufS, vi);
+    std::vector<float> got(M * N);
+    rt.copyFromTensor(bufC, got.data(), M * N * sizeof(float));
+    for (uint32_t i = 0; i < M * N; ++i)
+      if (std::abs(got[i] - ref[i]) > std::abs(ref[i]) * 0.02f + 0.1f)
+        return {false, std::string("q8 variant ") + name + " mismatch at " + std::to_string(i)};
+    ++tested;
+  }
+  if (tested <= 1) return {false, "expected multiple compiled Q8 variants, got " + std::to_string(tested)};
+  return {true, ""};
+}
+
+inline VerifyResult q4AllVariantsVerify(Runtime& rt) {
+  const uint32_t M = 1, K = 64, N = 4, blocksPerRow = K / 32;
+  auto dataA = generateTestData<float>(M * K, 42);
+  std::vector<uint8_t> nibbles(K * N);
+  for (size_t i = 0; i < nibbles.size(); ++i) nibbles[i] = static_cast<uint8_t>((i * 7 + 3) % 16);
+  std::vector<uint8_t> packedB(K * (N / 2));
+  for (uint32_t k = 0; k < K; ++k)
+    for (uint32_t n = 0; n < N; n += 2)
+      packedB[k * (N / 2) + n / 2] = packNibbles(nibbles[k * N + n], nibbles[k * N + n + 1]);
+  std::vector<float> scaleFloats(blocksPerRow * N);
+  for (size_t i = 0; i < scaleFloats.size(); ++i) scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
+  std::vector<uint16_t> scaleF16(scaleFloats.size());
+  for (size_t i = 0; i < scaleFloats.size(); ++i) scaleF16[i] = f32_to_f16(scaleFloats[i]);
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N / 2}, DataType::Int8, packedB.data());
+  auto bufS = rt.createTensor({blocksPerRow, N}, DataType::Float16, scaleF16.data());
+  std::vector<float> ref(M * N, 0.0f);
+  for (uint32_t m = 0; m < M; ++m)
+    for (uint32_t n = 0; n < N; ++n)
+      for (uint32_t k = 0; k < K; ++k)
+        ref[m * N + n] += dataA[m * K + k] * static_cast<float>(static_cast<int>(nibbles[k * N + n]) - 8) * scaleFloats[(k / 32) * N + n];
+  int tested = 0;
+  for (int vi = 0; vi < kMatMulQ4VariantCount; ++vi) {
+    if (!getCompiledMatMulQ4(vi, DataType::Float32, DataType::Float16, DataType::Float32).has_value())
+      continue;
+    std::string name = getMatMulQ4VariantName(vi);
+    if (name.find("Dot") != std::string::npos || name.find("CoopMat") != std::string::npos)
+      continue;
+    auto bufC = rt.ops().matmul(bufA, bufB, bufS, vi);
+    std::vector<float> got(M * N);
+    rt.copyFromTensor(bufC, got.data(), M * N * sizeof(float));
+    for (uint32_t i = 0; i < M * N; ++i)
+      if (std::abs(got[i] - ref[i]) > std::abs(ref[i]) * 0.02f + 0.1f)
+        return {false, std::string("q4 variant ") + name + " mismatch at " + std::to_string(i)};
+    ++tested;
+  }
+  if (tested <= 0) return {false, "expected at least one compiled Q4 variant"};
+  return {true, ""};
+}
+
+inline Tensor quantMatmulRun(Runtime& rt) {
+  const uint32_t M = 1, K = 32, N = 2, blocksK = K / 32;
+  std::vector<float> dataA(M * K, 1.0f);
+  std::vector<int8_t> dataB(K * N);
+  for (uint32_t k = 0; k < K; ++k) { dataB[k * N + 0] = 1; dataB[k * N + 1] = 2; }
+  std::vector<uint16_t> scales(blocksK * N, f32_to_f16(1.0f));
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS = rt.createTensor({blocksK, N}, DataType::Float16, scales.data());
+  return rt.ops().matmul(bufA, bufB, bufS);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -3250,6 +3466,72 @@ cases.push_back(std::move(c));
     c.family = "dequant";
     c.run = [](Runtime &rt, int) { return dequantRun(rt); };
     c.verify = [](Runtime &rt, const Tensor &) { return dequantQ6KVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+
+  // Quantized matmul family
+  {
+    OpCase c;
+    c.name = "quantmatmul/q8_simple";
+    c.family = "quantmatmul";
+    c.run = [](Runtime &rt, int) { return quantMatmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return q8SimpleVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "quantmatmul/q8_withscales";
+    c.family = "quantmatmul";
+    c.run = [](Runtime &rt, int) { return quantMatmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return q8WithScalesVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "quantmatmul/q8_vsregular";
+    c.family = "quantmatmul";
+    c.run = [](Runtime &rt, int) { return quantMatmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return q8VsRegularVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "quantmatmul/q4_simple";
+    c.family = "quantmatmul";
+    c.run = [](Runtime &rt, int) { return quantMatmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return q4SimpleVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "quantmatmul/q4_withscales";
+    c.family = "quantmatmul";
+    c.run = [](Runtime &rt, int) { return quantMatmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return q4WithScalesVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "quantmatmul/q4_vsreference";
+    c.family = "quantmatmul";
+    c.run = [](Runtime &rt, int) { return quantMatmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return q4VsReferenceVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "quantmatmul/q8_allvariants";
+    c.family = "quantmatmul";
+    c.run = [](Runtime &rt, int) { return quantMatmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return q8AllVariantsVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "quantmatmul/q4_allvariants";
+    c.family = "quantmatmul";
+    c.run = [](Runtime &rt, int) { return quantMatmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return q4AllVariantsVerify(rt); };
     cases.push_back(std::move(c));
   }
 
