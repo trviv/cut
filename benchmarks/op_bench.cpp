@@ -14,6 +14,11 @@
 
 #include "impl/matmul/MatMulVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
+#include "impl/matmul/MatMulQ8Variants.generated.h"
+#include "impl/matmul/MatMulQ4Variants.generated.h"
+#include "impl/conv2d/Conv2DVariants.generated.h"
+#include "impl/maxpool2d/MaxPool2DVariants.generated.h"
+#include "impl/avgpool2d/AvgPool2DVariants.generated.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <Operations.h>
@@ -504,6 +509,290 @@ static void benchRMSNorm(Runtime &rt, int warmup, int iters, std::ostream &json)
   json << "    }";
 }
 
+static void benchQuantMatMul(Runtime &rt, int warmup, int iters, std::ostream &json) {
+  struct Shape {
+    uint32_t M, K, N;
+  };
+  std::vector<Shape> shapes = {
+      {1, 2048, 2048}, {1, 4096, 4096}, {1, 4096, 11008}
+  };
+
+  json << "    \"QuantMatMul\": {\n";
+  json << "      \"raw_data\": [\n";
+
+  for (size_t si = 0; si < shapes.size(); si++) {
+    const auto &s = shapes[si];
+    auto hostA = randomFloats(s.M * s.K, 42);
+
+    std::vector<int8_t> q8B(s.K * s.N);
+    for (size_t i = 0; i < q8B.size(); i++) {
+      q8B[i] = (int8_t)((i * 7 + 3) % 21 - 10);
+    }
+
+    std::vector<uint8_t> q4B(s.K * (s.N / 2));
+    for (size_t i = 0; i < q4B.size(); i++) {
+      q4B[i] = (uint8_t)((i * 5 + 1) % 16) | (((uint8_t)((i * 3 + 2) % 16)) << 4);
+    }
+
+    std::vector<uint16_t> scales((s.K / 32) * s.N, 0x3C00);
+
+    std::cerr << "QuantMatMul M=" << s.M << " K=" << s.K << " N=" << s.N << " ..."
+              << std::flush;
+
+    json << "        {\n";
+    json << "          \"shape\": [" << s.M << ", " << s.K << ", " << s.N << "],\n";
+
+    // Q8
+    json << "          \"q8\": [\n";
+    std::vector<std::tuple<int, Stat, double>> q8Results;
+    for (int vi = 0; vi < kMatMulQ8VariantCount; ++vi) {
+      const char *name = getMatMulQ8VariantName(vi);
+      if (std::string(name).find("CoopMat") != std::string::npos)
+        continue;
+      if (!getCompiledMatMulQ8(vi, DataType::Float32, DataType::Float16,
+                               DataType::Float32)
+               .has_value())
+        continue;
+
+      Stat st = timeOpGpu(
+          rt,
+          [&]() {
+            auto bufA = rt.createTensor({s.M, s.K}, DataType::Float32, hostA.data());
+            auto bufB = rt.createTensor({s.K, s.N}, DataType::Int8, q8B.data());
+            auto bufS = rt.createTensor({s.K / 32, s.N}, DataType::Float16, scales.data());
+            rt.ops().matmul(bufA, bufB, bufS, vi);
+          },
+          warmup, iters);
+
+      double gflops = (st.medianUs > 0) ? (2.0 * s.M * s.K * s.N) / (st.medianUs * 1e3) : 0.0;
+      q8Results.push_back({vi, st, gflops});
+    }
+    for (size_t ri = 0; ri < q8Results.size(); ++ri) {
+      const auto &r = q8Results[ri];
+      json << "            {\"variant\": " << std::get<0>(r) << ", \"name\": \""
+           << escapeJson(getMatMulQ8VariantName(std::get<0>(r))) << "\""
+           << ", \"median_us\": " << std::fixed << std::setprecision(4)
+           << std::get<1>(r).medianUs
+           << ", \"gflops\": " << std::setprecision(2) << std::get<2>(r) << "}";
+      if (ri < q8Results.size() - 1)
+        json << ",";
+      json << "\n";
+    }
+    json << "          ],\n";
+
+    // Q4
+    json << "          \"q4\": [\n";
+    std::vector<std::tuple<int, Stat, double>> q4Results;
+    for (int vi = 0; vi < kMatMulQ4VariantCount; ++vi) {
+      const char *name = getMatMulQ4VariantName(vi);
+      if (std::string(name).find("CoopMat") != std::string::npos)
+        continue;
+      if (!getCompiledMatMulQ4(vi, DataType::Float32, DataType::Float16,
+                               DataType::Float32)
+               .has_value())
+        continue;
+
+      Stat st = timeOpGpu(
+          rt,
+          [&]() {
+            auto bufA = rt.createTensor({s.M, s.K}, DataType::Float32, hostA.data());
+            auto bufB = rt.createTensor({s.K, s.N / 2}, DataType::Int8, q4B.data());
+            auto bufS = rt.createTensor({s.K / 32, s.N}, DataType::Float16, scales.data());
+            rt.ops().matmul(bufA, bufB, bufS, vi);
+          },
+          warmup, iters);
+
+      double gflops = (st.medianUs > 0) ? (2.0 * s.M * s.K * s.N) / (st.medianUs * 1e3) : 0.0;
+      q4Results.push_back({vi, st, gflops});
+    }
+    for (size_t ri = 0; ri < q4Results.size(); ++ri) {
+      const auto &r = q4Results[ri];
+      json << "            {\"variant\": " << std::get<0>(r) << ", \"name\": \""
+           << escapeJson(getMatMulQ4VariantName(std::get<0>(r))) << "\""
+           << ", \"median_us\": " << std::fixed << std::setprecision(4)
+           << std::get<1>(r).medianUs
+           << ", \"gflops\": " << std::setprecision(2) << std::get<2>(r) << "}";
+      if (ri < q4Results.size() - 1)
+        json << ",";
+      json << "\n";
+    }
+    json << "          ]\n";
+
+    json << "        }";
+    if (si < shapes.size() - 1)
+      json << ",";
+    json << "\n";
+
+    std::cerr << " done" << std::endl;
+  }
+
+  json << "      ]\n";
+  json << "    }";
+}
+
+static void benchConv2d(Runtime &rt, int warmup, int iters, std::ostream &json) {
+  struct Shape {
+    uint32_t N, Cin, H, W, Cout, kH, kW;
+  };
+  std::vector<Shape> shapes = {
+      {1, 32, 56, 56, 32, 3, 3},
+      {1, 64, 28, 28, 64, 3, 3}
+  };
+
+  json << "    \"Conv2D\": {\n";
+  json << "      \"variant_count\": " << kConv2DVariantCount << ",\n";
+  json << "      \"raw_data\": [\n";
+
+  for (size_t si = 0; si < shapes.size(); si++) {
+    const auto &s = shapes[si];
+    auto hostIn = randomFloats(s.N * s.Cin * s.H * s.W, 42);
+    auto hostW = randomFloats(s.Cout * s.Cin * s.kH * s.kW, 123);
+
+    std::cerr << "Conv2D N=" << s.N << " Cin=" << s.Cin << " H=" << s.H
+              << " W=" << s.W << " Cout=" << s.Cout << " kH=" << s.kH
+              << " kW=" << s.kW << " ..." << std::flush;
+
+    json << "        {\n";
+    json << "          \"shape\": [" << s.N << ", " << s.Cin << ", " << s.H
+         << ", " << s.W << ", " << s.Cout << ", " << s.kH << ", " << s.kW << "],\n";
+    json << "          \"results\": [\n";
+
+    std::vector<std::pair<int, Stat>> results;
+    for (int vi = 0; vi < kConv2DVariantCount; ++vi) {
+      if (!getCompiledConv2D(vi, DataType::Float32, DataType::Float32)
+               .has_value())
+        continue;
+
+      Stat st = timeOpGpu(
+          rt,
+          [&]() {
+            auto in = rt.createTensor({s.N, s.Cin, s.H, s.W}, DataType::Float32, hostIn.data());
+            auto w = rt.createTensor({s.Cout, s.Cin, s.kH, s.kW}, DataType::Float32, hostW.data());
+            rt.ops().conv2d(in, w, 1, 1, 1, 1, vi);
+          },
+          warmup, iters);
+
+      results.push_back({vi, st});
+    }
+    for (size_t ri = 0; ri < results.size(); ++ri) {
+      const auto &r = results[ri];
+      json << "            {\"variant\": " << r.first << ", \"name\": \""
+           << escapeJson(getConv2DVariantName(r.first)) << "\""
+           << ", \"median_us\": " << std::fixed << std::setprecision(4)
+           << r.second.medianUs << "}";
+      if (ri < results.size() - 1)
+        json << ",";
+      json << "\n";
+    }
+    json << "          ]\n";
+
+    json << "        }";
+    if (si < shapes.size() - 1)
+      json << ",";
+    json << "\n";
+
+    std::cerr << " done" << std::endl;
+  }
+
+  json << "      ]\n";
+  json << "    }";
+}
+
+static void benchPool(Runtime &rt, int warmup, int iters, std::ostream &json) {
+  struct Shape {
+    uint32_t N, C, H, W;
+  };
+  std::vector<Shape> shapes = {
+      {1, 64, 112, 112},
+      {1, 128, 56, 56}
+  };
+
+  json << "    \"Pool\": {\n";
+  json << "      \"raw_data\": [\n";
+
+  for (size_t si = 0; si < shapes.size(); si++) {
+    const auto &s = shapes[si];
+    auto host = randomFloats(s.N * s.C * s.H * s.W, 42);
+
+    std::cerr << "Pool N=" << s.N << " C=" << s.C << " H=" << s.H
+              << " W=" << s.W << " ..." << std::flush;
+
+    json << "        {\n";
+    json << "          \"shape\": [" << s.N << ", " << s.C << ", " << s.H
+         << ", " << s.W << "],\n";
+
+    // MaxPool
+    json << "          \"max\": [\n";
+    std::vector<std::pair<int, Stat>> maxResults;
+    for (int vi = 0; vi < kMaxPool2DVariantCount; ++vi) {
+      if (!getCompiledMaxPool2D(vi, DataType::Float32, DataType::Float32)
+               .has_value())
+        continue;
+
+      Stat st = timeOpGpu(
+          rt,
+          [&]() {
+            auto in = rt.createTensor({s.N, s.C, s.H, s.W}, DataType::Float32, host.data());
+            rt.ops().maxPool2d(in, 2, 2, 2, 2, 0, 0, vi);
+          },
+          warmup, iters);
+
+      maxResults.push_back({vi, st});
+    }
+    for (size_t ri = 0; ri < maxResults.size(); ++ri) {
+      const auto &r = maxResults[ri];
+      json << "            {\"variant\": " << r.first << ", \"name\": \""
+           << escapeJson(getMaxPool2DVariantName(r.first)) << "\""
+           << ", \"median_us\": " << std::fixed << std::setprecision(4)
+           << r.second.medianUs << "}";
+      if (ri < maxResults.size() - 1)
+        json << ",";
+      json << "\n";
+    }
+    json << "          ],\n";
+
+    // AvgPool
+    json << "          \"avg\": [\n";
+    std::vector<std::pair<int, Stat>> avgResults;
+    for (int vi = 0; vi < kAvgPool2DVariantCount; ++vi) {
+      if (!getCompiledAvgPool2D(vi, DataType::Float32, DataType::Float32)
+               .has_value())
+        continue;
+
+      Stat st = timeOpGpu(
+          rt,
+          [&]() {
+            auto in = rt.createTensor({s.N, s.C, s.H, s.W}, DataType::Float32, host.data());
+            rt.ops().avgPool2d(in, 2, 2, 2, 2, 0, 0, vi);
+          },
+          warmup, iters);
+
+      avgResults.push_back({vi, st});
+    }
+    for (size_t ri = 0; ri < avgResults.size(); ++ri) {
+      const auto &r = avgResults[ri];
+      json << "            {\"variant\": " << r.first << ", \"name\": \""
+           << escapeJson(getAvgPool2DVariantName(r.first)) << "\""
+           << ", \"median_us\": " << std::fixed << std::setprecision(4)
+           << r.second.medianUs << "}";
+      if (ri < avgResults.size() - 1)
+        json << ",";
+      json << "\n";
+    }
+    json << "          ]\n";
+
+    json << "        }";
+    if (si < shapes.size() - 1)
+      json << ",";
+    json << "\n";
+
+    std::cerr << " done" << std::endl;
+  }
+
+  json << "      ]\n";
+  json << "    }";
+}
+
 int main(int argc, char **argv) {
   // Silence the Vulkan per-dispatch [GPU Profile] stderr log; op_bench reads GPU
   // timings via Runtime::lastDispatchTimings() instead.
@@ -567,6 +856,12 @@ int main(int argc, char **argv) {
   benchSoftmax(runtime, warmup, iters, outFile);
   outFile << ",\n";
   benchRMSNorm(runtime, warmup, iters, outFile);
+  outFile << ",\n";
+  benchQuantMatMul(runtime, warmup, iters, outFile);
+  outFile << ",\n";
+  benchConv2d(runtime, warmup, iters, outFile);
+  outFile << ",\n";
+  benchPool(runtime, warmup, iters, outFile);
 
   outFile << "\n  }\n";
   outFile << "}\n";
