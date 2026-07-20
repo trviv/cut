@@ -237,5 +237,42 @@ TEST_F(OpCoverageTest, LogSoftmax_SingleRow_KnownValues) {
   for (uint32_t i=0;i<D;++i) ASSERT_NEAR(got[i], (x[i]-mx)-logsum, 1e-4f) << "i="<<i;
 }
 
+TEST_F(OpCoverageTest, RepetitionPenalty_PositiveDivide_NegativeMultiply) {
+  std::vector<float> logits  = {2.f,-2.f,0.5f,-0.5f, 3.f,-3.f,1.f,-1.f};
+  std::vector<float> factors = {1.5f,1.5f,2.f,2.f, 1.f,1.f,1.1f,1.1f};
+  const uint32_t N = 8;
+  auto lg = rt_->createTensor({N}, DataType::Float32, logits.data());
+  auto ft = rt_->createTensor({N}, DataType::Float32, factors.data());
+  auto out = rt_->ops().repetitionPenalty(lg, ft);
+  std::vector<float> got(N);
+  rt_->copyFromTensor(out, got.data(), N*sizeof(float));
+  for (uint32_t i=0;i<N;++i) {
+    float e = logits[i] > 0.f ? logits[i]/factors[i] : logits[i]*factors[i];
+    ASSERT_NEAR(got[i], e, 1e-5f) << "i="<<i;
+  }
+}
+
+TEST_F(OpCoverageTest, TransposeQ4_Nibble_BitExact) {
+  const uint32_t N = 32, K = 32;
+  auto M = [](uint32_t n, uint32_t k) -> uint8_t {
+    return static_cast<uint8_t>((n * K + k) & 0xF);
+  };
+  std::vector<uint8_t> in(N * (K/2));
+  for (uint32_t n=0;n<N;++n)
+    for (uint32_t j=0;j<K/2;++j)
+      in[n*(K/2) + j] = static_cast<uint8_t>(M(n,j) | (M(n, j+16) << 4));
+  auto tIn = rt_->createTensor({N, K/2}, DataType::Int8, in.data());
+  auto out = rt_->ops().transposeQ4(tIn, N, K);
+  ASSERT_EQ(rt_->getTensor(out).getShape(), (std::vector<uint32_t>{K, N/2}));
+  std::vector<uint8_t> expected(K * (N/2));
+  for (uint32_t k=0;k<K;++k)
+    for (uint32_t n=0;n<N;n+=2)
+      expected[k*(N/2) + n/2] = static_cast<uint8_t>(M(n,k) | (M(n+1,k) << 4));
+  std::vector<uint8_t> got(K * (N/2));
+  rt_->copyFromTensor(out, got.data(), got.size());
+  for (size_t i=0;i<got.size();++i)
+    ASSERT_EQ(got[i], expected[i]) << "byte " << i;
+}
+
 } // namespace
 } // namespace cut
