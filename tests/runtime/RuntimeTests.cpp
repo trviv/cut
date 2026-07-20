@@ -17,6 +17,7 @@
 #include <SharedRuntime.h>
 
 #include "harness/OpRefs.h"
+#include "harness/OpRegistry.h"
 
 #include <algorithm>
 #include <array>
@@ -272,235 +273,22 @@ protected:
   }
 };
 
-// Helper template for binary vec-vec operator testing per C++ type
-template <typename T>
-void testBinaryVecVec(Runtime *runtime, DataType dtype) {
-  constexpr bool isFloat = std::is_floating_point_v<T>;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(T);
-
-      auto dataA = generateTestData<T>(elements, 42);
-      auto dataB = generateTestData<T>(elements, 123);
-
-      auto bufferA = runtime->createTensor(shape, dtype, dataA.data());
-      auto bufferB = runtime->createTensor(shape, dtype, dataB.data());
-
-      // For integer types, prepare shift-clamped data
-      std::vector<T> dataBShift;
-      Tensor bufferBShift;
-      if constexpr (!isFloat) {
-        dataBShift = dataB;
-        for (auto &v : dataBShift)
-          v = v % 16;
-        bufferBShift = runtime->createTensor(shape, dtype, dataBShift.data());
-      }
-
-      auto testOp = [&](OperatorEnum op) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        Tensor rhsBuf = bufferB;
-        const std::vector<T> *rhsData = &dataB;
-        if constexpr (!isFloat) {
-          if (op == BinaryLeftShift || op == BinaryRightShift) {
-            rhsBuf = bufferBShift;
-            rhsData = &dataBShift;
-          }
-        }
-
-        auto bufferOut = runtime->ops().binaryOp(op, bufferA, rhsBuf);
-
-        // Comparison ops (VecVecCmp) produce UInt32 output
-        bool isCmp = (op >= BinaryEqual && op <= BinaryGreaterEqual);
-        if (isCmp) {
-          std::vector<uint32_t> output(elements);
-          runtime->copyFromTensor(bufferOut, output.data(),
-                                  elements * sizeof(uint32_t));
-          for (uint32_t i = 0; i < elements; ++i) {
-            T refVal = binaryVecVecRef(op, dataA[i], (*rhsData)[i]);
-            uint32_t expected = (refVal != T(0)) ? 1u : 0u;
-            ASSERT_EQ(output[i], expected)
-                << "Mismatch at index " << i << " for " << operatorName(op);
-          }
-        } else {
-          std::vector<T> output(elements);
-          runtime->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-          for (uint32_t i = 0; i < elements; ++i) {
-            T expected = binaryVecVecRef(op, dataA[i], (*rhsData)[i]);
-            if constexpr (isFloat) {
-              if (std::isnan(expected) && std::isnan(output[i]))
-                continue;
-              if (std::isinf(expected) && std::isinf(output[i]) &&
-                  std::signbit(expected) == std::signbit(output[i]))
-                continue;
-              float tol = (op == BinaryPow)
-                              ? std::max(1e-5f, std::abs(expected) * 1e-5f)
-                              : 1e-5f;
-              ASSERT_NEAR(output[i], expected, tol)
-                  << "Mismatch at index " << i << " for " << operatorName(op);
-            } else {
-              ASSERT_EQ(output[i], expected)
-                  << "Mismatch at index " << i << " for " << operatorName(op);
-            }
-          }
-        }
-      };
-
-      if constexpr (isFloat) {
-        for (OperatorEnum op : kBinaryVecVecOps)
-          testOp(op);
-      } else {
-        for (OperatorEnum op : kIntBinaryVecVecOps)
-          testOp(op);
-      }
-    }
-  }
-}
-
-// Float16 variant: generate float data, convert to fp16 for GPU, compare in
-// float with relaxed tolerance
-void testBinaryVecVecFloat16(Runtime *runtime) {
-  const DataType dtype = DataType::Float16;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(uint16_t);
-
-      // Generate in float, then convert to fp16 for upload
-      auto dataAf = generateTestData<float>(elements, 42);
-      auto dataBf = generateTestData<float>(elements, 123);
-      auto dataA16 = floatsToHalves(dataAf);
-      auto dataB16 = floatsToHalves(dataBf);
-
-      // Round-trip so CPU reference uses the same precision as GPU
-      auto dataA = halvesToFloats(dataA16);
-      auto dataB = halvesToFloats(dataB16);
-
-      auto bufferA = runtime->createTensor(shape, dtype, dataA16.data());
-      auto bufferB = runtime->createTensor(shape, dtype, dataB16.data());
-
-      for (OperatorEnum op : kBinaryVecVecOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferOut = runtime->ops().binaryOp(op, bufferA, bufferB);
-
-        // Comparison ops (VecVecCmp) produce UInt32 output
-        bool isCmp = (op >= BinaryEqual && op <= BinaryGreaterEqual);
-        if (isCmp) {
-          std::vector<uint32_t> output(elements);
-          runtime->copyFromTensor(bufferOut, output.data(),
-                                  elements * sizeof(uint32_t));
-          for (uint32_t i = 0; i < elements; ++i) {
-            float refVal = binaryVecVecRef(op, dataA[i], dataB[i]);
-            uint32_t expected = (refVal != 0.0f) ? 1u : 0u;
-            ASSERT_EQ(output[i], expected)
-                << "Mismatch at index " << i << " for " << operatorName(op);
-          }
-        } else {
-          std::vector<uint16_t> output16(elements);
-          runtime->copyFromTensor(bufferOut, output16.data(), bufferSize);
-          auto output = halvesToFloats(output16);
-
-          for (uint32_t i = 0; i < elements; ++i) {
-            float expected;
-            // Bitwise/shift ops must use 16-bit representation to match GPU
-            // (GPU uses asint16/asfloat16, not 32-bit reinterpret)
-            if (op == BinaryBitwiseAnd || op == BinaryBitwiseOr ||
-                op == BinaryBitwiseXor || op == BinaryLeftShift ||
-                op == BinaryRightShift) {
-              uint16_t ha = dataA16[i], hb = dataB16[i];
-              uint16_t hr;
-              switch (op) {
-              case BinaryBitwiseAnd:
-                hr = ha & hb;
-                break;
-              case BinaryBitwiseOr:
-                hr = ha | hb;
-                break;
-              case BinaryBitwiseXor:
-                hr = ha ^ hb;
-                break;
-              case BinaryLeftShift:
-                hr = ha << (hb & 0xF);
-                break;
-              case BinaryRightShift: {
-                int16_t ia;
-                std::memcpy(&ia, &ha, sizeof(int16_t));
-                hr = static_cast<uint16_t>(ia >> (hb & 0xF));
-                break;
-              }
-              default:
-                hr = 0;
-                break;
-              }
-              expected = halfToFloat(hr);
-            } else {
-              expected = binaryVecVecRef(op, dataA[i], dataB[i]);
-              // Round-trip through fp16 to match GPU overflow/underflow
-              expected = halfToFloat(floatToHalf(expected));
-            }
-            if (std::isnan(expected) && std::isnan(output[i]))
-              continue;
-            if (std::isinf(expected) && std::isinf(output[i]) &&
-                std::signbit(expected) == std::signbit(output[i]))
-              continue;
-            // fp16 pow: GPU may overflow to +inf when expected is near fp16 max
-            // (65504) due to exp(b*log(a)) rounding in the shader.
-            if (op == BinaryPow && std::isinf(output[i]) &&
-                !std::isinf(expected) && expected > 32752.0f)
-              continue;
-            // fp16 has ~3 decimal digits of precision; pow() can accumulate
-            // more error via exp(b*log(a)), so use 2% for BinaryPow
-            float relTol = (op == BinaryPow) ? 2e-2f : 1e-2f;
-            float tol = std::max(1e-2f, std::abs(expected) * relTol);
-            if (op == BinaryMod || op == BinaryFmod) {
-              float b = dataB[i];
-              float diff = output[i] - expected;
-              float adj = diff - std::round(diff / b) * b;
-              ASSERT_NEAR(adj, 0.0f, tol)
-                  << "Mismatch at index " << i << " for " << operatorName(op);
-            } else if (op == BinaryFloorDiv) {
-              float diff = std::abs(output[i] - expected);
-              ASSERT_TRUE(diff <= tol || std::abs(diff - 1.0f) <= tol)
-                  << "Mismatch at index " << i << " for " << operatorName(op)
-                  << " expected=" << expected << " got=" << output[i];
-            } else {
-              ASSERT_NEAR(output[i], expected, tol)
-                  << "Mismatch at index " << i << " for " << operatorName(op);
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-// Test binary vec-vec operators across all data types
+// Test binary vec-vec operators across all data types.
+// Retrofitted to drive the shared op-case registry (family "binary_vecvec"),
+// so the correctness sweep and the op_bench perf path share one definition.
 TEST_F(VulkanBackendTest, BinaryVecVecOperators) {
-  for (DataType dtype : kAllDataTypes) {
-    SCOPED_TRACE(std::string("DataType: ") + dataTypeName(dtype));
-
-    switch (dtype) {
-    case DataType::Float32:
-      testBinaryVecVec<float>(runtime_, dtype);
-      break;
-    case DataType::Float16:
-      testBinaryVecVecFloat16(runtime_);
-      break;
-    case DataType::Int32:
-      testBinaryVecVec<int32_t>(runtime_, dtype);
-      break;
-    case DataType::UInt32:
-      testBinaryVecVec<uint32_t>(runtime_, dtype);
-      break;
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "binary_vecvec")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    ASSERT_TRUE(static_cast<bool>(c.verify));
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0) << "no binary_vecvec cases found in registry";
 }
 
 // Test unary operators with Float32
