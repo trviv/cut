@@ -144,6 +144,20 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   containers_ = std::make_unique<VulkanContainers>(device_);
   containers_->timestampPeriod = deviceProperties_.limits.timestampPeriod;
 
+  // Timestamp valid-bit count for masking raw query results.
+  {
+    uint32_t qfCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &qfCount, nullptr);
+    std::vector<VkQueueFamilyProperties> qfProps(qfCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &qfCount,
+                                             qfProps.data());
+    if (computeQueueFamilyIndex_ < qfCount &&
+        qfProps[computeQueueFamilyIndex_].timestampValidBits > 0) {
+      containers_->timestampValidBits =
+          qfProps[computeQueueFamilyIndex_].timestampValidBits;
+    }
+  }
+
   // Vma dependent initializations
   IF_VMA_ENABLED_THEN(containers_->bufferContainer.setAllocator(allocator_));
 

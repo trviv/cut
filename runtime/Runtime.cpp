@@ -299,6 +299,10 @@ void Runtime::setProfilingEnabled(bool enabled) {
   }
 }
 
+std::vector<DispatchTiming> Runtime::lastDispatchTimings(size_t deviceId) {
+  return device(deviceId).interface->takeLastTimings();
+}
+
 // =========================================================================
 // Operator Dispatch
 // =========================================================================

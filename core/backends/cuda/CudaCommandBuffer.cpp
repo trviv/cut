@@ -29,10 +29,21 @@ CudaCommandBuffer::~CudaCommandBuffer() {
     cuEventDestroy(doneEvent_);
     doneEvent_ = nullptr;
   }
+  clearTimingSlots();
 }
 
 void CudaCommandBuffer::begin() {
   ended_ = false;
+}
+
+void CudaCommandBuffer::clearTimingSlots() {
+  for (auto &slot : timingSlots_) {
+    if (slot.start)
+      cuEventDestroy(slot.start);
+    if (slot.stop)
+      cuEventDestroy(slot.stop);
+  }
+  timingSlots_.clear();
 }
 
 void CudaCommandBuffer::launchDispatch(const ComputeDispatch &dispatch,
@@ -137,14 +148,28 @@ void CudaCommandBuffer::launchDispatch(const ComputeDispatch &dispatch,
   const uint32_t gy = ceilDiv(std::max(wgSize.y, 1u), by);
   const uint32_t gz = ceilDiv(std::max(wgSize.z, 1u), bz);
 
-  CU_CHECK(cuLaunchKernel(function, gx, gy, gz, bx, by, bz,
-                          /*sharedMemBytes=*/0, stream_, kernelParams.data(),
-                          /*extra=*/nullptr));
+  if (isProfilingEnabled()) {
+    CUevent start = nullptr, stop = nullptr;
+    CU_CHECK(cuEventCreate(&start, CU_EVENT_DEFAULT));
+    CU_CHECK(cuEventCreate(&stop, CU_EVENT_DEFAULT));
+    CU_CHECK(cuEventRecord(start, stream_));
+    CU_CHECK(cuLaunchKernel(function, gx, gy, gz, bx, by, bz,
+                            /*sharedMemBytes=*/0, stream_, kernelParams.data(),
+                            /*extra=*/nullptr));
+    CU_CHECK(cuEventRecord(stop, stream_));
+    timingSlots_.push_back({start, stop, dispatch.label()});
+  } else {
+    CU_CHECK(cuLaunchKernel(function, gx, gy, gz, bx, by, bz,
+                            /*sharedMemBytes=*/0, stream_, kernelParams.data(),
+                            /*extra=*/nullptr));
+  }
   (void)index;
 }
 
 void CudaCommandBuffer::end() {
   CudaContextGuard guard(context_);
+  if (isProfilingEnabled())
+    clearTimingSlots();
   uint32_t index = 0;
   for (const auto &dispatch : dispatches()) {
     launchDispatch(dispatch, index++);
@@ -167,6 +192,16 @@ void CudaCommandBuffer::wait() {
     CU_CHECK(cuEventSynchronize(doneEvent_));
   } else {
     CU_CHECK(cuStreamSynchronize(stream_));
+  }
+  if (isProfilingEnabled() && !timingSlots_.empty()) {
+    timings_.clear();
+    timings_.reserve(timingSlots_.size());
+    for (auto &slot : timingSlots_) {
+      float ms = 0.0f;
+      cuEventElapsedTime(&ms, slot.start, slot.stop);
+      timings_.push_back({slot.label, static_cast<double>(ms) * 1000.0});
+    }
+    clearTimingSlots();
   }
 }
 

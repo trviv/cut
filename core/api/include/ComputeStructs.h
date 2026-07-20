@@ -431,6 +431,12 @@ private:
   ComputeHandle outputHandle_; ///< Output buffer for dependency tracking.
 };
 
+/// One GPU-timestamped compute dispatch, filled by backends during wait().
+struct DispatchTiming {
+  std::string label;      ///< Dispatch label (== OpNode display name).
+  double gpuMicros = 0.0; ///< GPU-side elapsed time in microseconds.
+};
+
 /**
  * Represents a command buffer that records a sequence of compute dispatches.
  * Dispatches are executed in the order they are encoded.
@@ -495,12 +501,21 @@ public:
   /// Returns true if GPU profiling is enabled.
   bool isProfilingEnabled() const { return profilingEnabled_; }
 
+  /// Per-dispatch GPU timings recorded during the most recent wait().
+  /// Populated only when profiling is enabled; empty otherwise.
+  const std::vector<DispatchTiming> &lastTimings() const { return timings_; }
+
+  /// Clears stored timings (call before re-recording).
+  void clearTimings() { timings_.clear(); }
+
 protected:
   /// Returns the list of encoded compute dispatches.
   const std::vector<ComputeDispatch> &dispatches() { return dispatches_; }
 
   bool profilingEnabled_ = false; ///< Per-dispatch GPU profiling flag.
   bool reusable_ = false;         ///< Whether this CB can be re-submitted.
+  std::vector<DispatchTiming>
+      timings_; ///< Per-dispatch GPU timings from last wait().
 
 private:
   std::vector<ComputeDispatch> dispatches_; ///< List of compute dispatches.

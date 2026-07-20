@@ -652,20 +652,29 @@ void VulkanCommandBuffer::wait() {
 
     if (result == VK_SUCCESS) {
       const float periodNs = containers_.timestampPeriod;
+      const uint32_t validBits = containers_.timestampValidBits;
+      const uint64_t mask =
+          (validBits >= 64) ? ~0ull : ((1ull << validBits) - 1ull);
       double totalUs = 0.0;
+
+      // Store per-dispatch timings for programmatic retrieval (benchmarking).
+      timings_.clear();
+      timings_.reserve(queryCount_);
 
       // Aggregate by label for compact output
       std::unordered_map<std::string, double> labelTotals;
       std::unordered_map<std::string, int> labelCounts;
       for (uint32_t i = 0; i < queryCount_; ++i) {
-        double durationUs =
-            static_cast<double>(timestamps[i * 2 + 1] - timestamps[i * 2]) *
-            periodNs / 1000.0;
+        const uint64_t t0 = timestamps[i * 2] & mask;
+        const uint64_t t1 = timestamps[i * 2 + 1] & mask;
+        const double durationUs =
+            (t1 >= t0) ? static_cast<double>(t1 - t0) * periodNs / 1000.0 : 0.0;
         totalUs += durationUs;
         std::string label =
             (i < dispatchLabels_.size() && !dispatchLabels_[i].empty())
                 ? dispatchLabels_[i]
                 : "unknown";
+        timings_.push_back({label, durationUs});
         labelTotals[label] += durationUs;
         labelCounts[label]++;
       }

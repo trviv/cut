@@ -287,6 +287,14 @@ public:
   void setProfilingEnabled(bool enabled);
 
   /**
+   * Returns and clears the per-dispatch GPU timings collected since the last
+   * call (populated by flush()/flushPendingCommands()). Empty unless profiling
+   * is enabled via setProfilingEnabled(true). Backend-agnostic (Vulkan
+   * timestamp queries / CUDA events). Use for operator micro-benchmarking.
+   */
+  std::vector<DispatchTiming> lastDispatchTimings(size_t deviceId = 0);
+
+  /**
    * Dispatches a compute operator using an OpNode.
    * The OpNode provides all operator-level information.
    */

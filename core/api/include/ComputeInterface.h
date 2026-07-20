@@ -214,6 +214,13 @@ public:
    */
   void wait(const ComputeHandle &commandBufferHandle);
 
+  /**
+   * Returns and clears the per-dispatch GPU timings accumulated by the command
+   * buffers waited on since the last call. Empty unless profiling is enabled.
+   * Backend-agnostic (Vulkan timestamp queries / CUDA events).
+   */
+  std::vector<DispatchTiming> takeLastTimings();
+
 protected:
   /**
    * Copies data from actual-sized host memory to aligned buffer memory.
@@ -270,6 +277,10 @@ private:
   ComputeHandle activeCommandBuffer_;
 
   bool profilingEnabled_ = false; ///< Per-dispatch GPU profiling flag.
+
+  ///< Per-dispatch GPU timings accumulated across waits, drained by
+  ///< takeLastTimings().
+  std::vector<DispatchTiming> lastTimings_;
 };
 
 } // namespace cut

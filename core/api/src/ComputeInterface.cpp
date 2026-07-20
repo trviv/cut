@@ -68,7 +68,15 @@ void ComputeInterface::wait(const ComputeHandle &commandBufferHandle) {
     logErr("Invalid command buffer handle. "
            "Call submit() to get a valid handle.");
   }
-  commandBufferContainer_->get(commandBufferHandle)->wait();
+  auto *cb = commandBufferContainer_->get(commandBufferHandle);
+  cb->wait();
+  const auto &t = cb->lastTimings();
+  if (!t.empty())
+    lastTimings_.insert(lastTimings_.end(), t.begin(), t.end());
+}
+
+std::vector<DispatchTiming> ComputeInterface::takeLastTimings() {
+  return std::move(lastTimings_);
 }
 
 void ComputeInterface::setCommandBufferContainer(

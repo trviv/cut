@@ -3,6 +3,7 @@
 #include <ComputeStructs.h>
 #include <CudaCommon.h>
 
+#include <string>
 #include <vector>
 
 namespace cut {
@@ -42,6 +43,18 @@ public:
 private:
   /// Launches a single dispatch as a CUDA kernel (no-op if not yet translated).
   void launchDispatch(const ComputeDispatch &dispatch, uint32_t index);
+
+  /// One timing-enabled event pair around a single kernel launch.
+  struct CudaTimingSlot {
+    CUevent start = nullptr;
+    CUevent stop = nullptr;
+    std::string label;
+  };
+  /// Filled during end() when profiling is enabled, drained in wait().
+  std::vector<CudaTimingSlot> timingSlots_;
+
+  /// Destroys any pending timing events (context must be current).
+  void clearTimingSlots();
 
   CUcontext context_;
   CUstream stream_ = nullptr;
