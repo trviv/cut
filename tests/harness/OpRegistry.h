@@ -1,4 +1,5 @@
 #pragma once
+#include "harness/OpRefs.h"
 #include <ComputeOps.h>
 #include <Operations.h>
 #include <Runtime.h>
