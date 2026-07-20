@@ -1,5 +1,7 @@
 #pragma once
 #include "harness/OpRefs.h"
+#include "impl/conv1d/Conv1DVariants.generated.h"
+#include "impl/conv2d/Conv2DVariants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
 #include <ComputeOps.h>
@@ -991,6 +993,149 @@ inline Tensor dotRun(Runtime& rt) {
   return rt.ops().dot(bufA, bufB);
 }
 
+// ===========================================================================
+// Conv1D / Conv2D families
+// ===========================================================================
+inline std::vector<float> conv1dRefCPU(const std::vector<float>& input,
+                                       const std::vector<float>& weight,
+                                       uint32_t N, uint32_t C_in, uint32_t L_in,
+                                       uint32_t C_out, uint32_t kL,
+                                       uint32_t stride, uint32_t padding) {
+  uint32_t L_out = (L_in + 2 * padding - kL) / stride + 1;
+  std::vector<float> output(static_cast<size_t>(N) * C_out * L_out, 0.0f);
+  for (uint32_t n = 0; n < N; n++)
+    for (uint32_t co = 0; co < C_out; co++)
+      for (uint32_t lo = 0; lo < L_out; lo++) {
+        float sum = 0.0f;
+        for (uint32_t ci = 0; ci < C_in; ci++)
+          for (uint32_t k = 0; k < kL; k++) {
+            int li = static_cast<int>(lo * stride + k) - static_cast<int>(padding);
+            if (li < 0 || li >= static_cast<int>(L_in)) continue;
+            sum += input[n * C_in * L_in + ci * L_in + li] *
+                   weight[co * C_in * kL + ci * kL + k];
+          }
+        output[n * C_out * L_out + co * L_out + lo] = sum;
+      }
+  return output;
+}
+
+inline std::vector<float> conv2dRefCPU(const std::vector<float>& input,
+                                       const std::vector<float>& weight,
+                                       uint32_t N, uint32_t C_in, uint32_t H_in, uint32_t W_in,
+                                       uint32_t C_out, uint32_t kH, uint32_t kW,
+                                       uint32_t sH, uint32_t sW, uint32_t pH, uint32_t pW) {
+  uint32_t H_out = (H_in + 2 * pH - kH) / sH + 1;
+  uint32_t W_out = (W_in + 2 * pW - kW) / sW + 1;
+  std::vector<float> output(static_cast<size_t>(N) * C_out * H_out * W_out, 0.0f);
+  for (uint32_t n = 0; n < N; n++)
+    for (uint32_t co = 0; co < C_out; co++)
+      for (uint32_t ho = 0; ho < H_out; ho++)
+        for (uint32_t wo = 0; wo < W_out; wo++) {
+          float sum = 0.0f;
+          for (uint32_t ci = 0; ci < C_in; ci++)
+            for (uint32_t kh = 0; kh < kH; kh++)
+              for (uint32_t kw = 0; kw < kW; kw++) {
+                int hi = static_cast<int>(ho * sH + kh) - static_cast<int>(pH);
+                int wi = static_cast<int>(wo * sW + kw) - static_cast<int>(pW);
+                if (hi < 0 || hi >= static_cast<int>(H_in) || wi < 0 || wi >= static_cast<int>(W_in)) continue;
+                sum += input[n * C_in * H_in * W_in + ci * H_in * W_in + hi * W_in + wi] *
+                       weight[co * C_in * kH * kW + ci * kH * kW + kh * kW + kw];
+              }
+          output[n * C_out * H_out * W_out + co * H_out * W_out + ho * W_out + wo] = sum;
+        }
+  return output;
+}
+
+inline VerifyResult conv1dCheck(Runtime& rt, const std::vector<float>& input,
+                                const std::vector<float>& weight,
+                                uint32_t N, uint32_t C_in, uint32_t L_in, uint32_t C_out,
+                                uint32_t kL, uint32_t stride, uint32_t padding,
+                                bool defOverload, float relTol, float absTol) {
+  auto ref = conv1dRefCPU(input, weight, N, C_in, L_in, C_out, kL, stride, padding);
+  auto bufIn = rt.createTensor({N, C_in, L_in}, DataType::Float32, input.data());
+  auto bufW = rt.createTensor({C_out, C_in, kL}, DataType::Float32, weight.data());
+  Tensor bufOut = defOverload ? rt.ops().conv1d(bufIn, bufW)
+                              : rt.ops().conv1d(bufIn, bufW, stride, padding);
+  std::vector<float> output(ref.size());
+  rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+  for (size_t i = 0; i < ref.size(); ++i)
+    if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * relTol + absTol)
+      return {false, "conv1d mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult conv1dVariantsCheck(Runtime& rt, uint32_t N, uint32_t C_in, uint32_t L_in,
+                                        uint32_t C_out, uint32_t kL, uint32_t stride, uint32_t padding,
+                                        int inSeed, int wSeed) {
+  auto input = generateTestData<float>(N * C_in * L_in, inSeed);
+  auto weight = generateTestData<float>(C_out * C_in * kL, wSeed);
+  auto ref = conv1dRefCPU(input, weight, N, C_in, L_in, C_out, kL, stride, padding);
+  for (int vi = 0; vi < kConv1DVariantCount; ++vi) {
+    auto bufIn = rt.createTensor({N, C_in, L_in}, DataType::Float32, input.data());
+    auto bufW = rt.createTensor({C_out, C_in, kL}, DataType::Float32, weight.data());
+    auto bufOut = rt.ops().conv1d(bufIn, bufW, stride, padding, vi);
+    std::vector<float> output(ref.size());
+    rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+    for (size_t i = 0; i < ref.size(); ++i)
+      if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * 1e-4f + 1e-5f)
+        return {false, std::string("conv1d variant ") + getConv1DVariantName(vi) + " mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+inline VerifyResult conv2dCheck(Runtime& rt, const std::vector<float>& input,
+                                const std::vector<float>& weight,
+                                uint32_t N, uint32_t C_in, uint32_t H_in, uint32_t W_in, uint32_t C_out,
+                                uint32_t kH, uint32_t kW, uint32_t sH, uint32_t sW, uint32_t pH, uint32_t pW,
+                                bool defOverload, float relTol, float absTol) {
+  auto ref = conv2dRefCPU(input, weight, N, C_in, H_in, W_in, C_out, kH, kW, sH, sW, pH, pW);
+  auto bufIn = rt.createTensor({N, C_in, H_in, W_in}, DataType::Float32, input.data());
+  auto bufW = rt.createTensor({C_out, C_in, kH, kW}, DataType::Float32, weight.data());
+  Tensor bufOut = defOverload ? rt.ops().conv2d(bufIn, bufW)
+                              : rt.ops().conv2d(bufIn, bufW, sH, sW, pH, pW);
+  std::vector<float> output(ref.size());
+  rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+  for (size_t i = 0; i < ref.size(); ++i)
+    if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * relTol + absTol)
+      return {false, "conv2d mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult conv2dVariantsCheck(Runtime& rt, uint32_t N, uint32_t C_in, uint32_t H_in, uint32_t W_in,
+                                        uint32_t C_out, uint32_t kH, uint32_t kW, uint32_t sH, uint32_t sW,
+                                        uint32_t pH, uint32_t pW, int inSeed, int wSeed) {
+  auto input = generateTestData<float>(N * C_in * H_in * W_in, inSeed);
+  auto weight = generateTestData<float>(C_out * C_in * kH * kW, wSeed);
+  auto ref = conv2dRefCPU(input, weight, N, C_in, H_in, W_in, C_out, kH, kW, sH, sW, pH, pW);
+  for (int vi = 0; vi < kConv2DVariantCount; ++vi) {
+    auto bufIn = rt.createTensor({N, C_in, H_in, W_in}, DataType::Float32, input.data());
+    auto bufW = rt.createTensor({C_out, C_in, kH, kW}, DataType::Float32, weight.data());
+    auto bufOut = rt.ops().conv2d(bufIn, bufW, sH, sW, pH, pW, vi);
+    std::vector<float> output(ref.size());
+    rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+    for (size_t i = 0; i < ref.size(); ++i)
+      if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * 1e-4f + 1e-5f)
+        return {false, std::string("conv2d variant ") + getConv2DVariantName(vi) + " mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+inline Tensor conv1dRun(Runtime& rt) {
+  auto input = generateTestData<float>(1 * 3 * 16, 42);
+  auto weight = generateTestData<float>(2 * 3 * 3, 123);
+  auto bufIn = rt.createTensor({1, 3, 16}, DataType::Float32, input.data());
+  auto bufW = rt.createTensor({2, 3, 3}, DataType::Float32, weight.data());
+  return rt.ops().conv1d(bufIn, bufW);
+}
+
+inline Tensor conv2dRun(Runtime& rt) {
+  auto input = generateTestData<float>(1 * 3 * 8 * 8, 42);
+  auto weight = generateTestData<float>(2 * 3 * 3 * 3, 123);
+  auto bufIn = rt.createTensor({1, 3, 8, 8}, DataType::Float32, input.data());
+  auto bufW = rt.createTensor({2, 3, 3, 3}, DataType::Float32, weight.data());
+  return rt.ops().conv2d(bufIn, bufW);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -1438,6 +1583,158 @@ cases.push_back(std::move(c));
     c.family = "dot";
     c.run = [](Runtime &rt, int) { return dotRun(rt); };
     c.verify = [](Runtime &rt, const Tensor &) { return dotLargerVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+
+  // Conv1D family
+  {
+    OpCase c;
+    c.name = "conv1d/basic";
+    c.family = "conv1d";
+    c.run = [](Runtime &rt, int) { return conv1dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4, 5};
+      std::vector<float> weight = {1, 0, -1};
+      return conv1dCheck(rt, input, weight, 1, 1, 5, 1, 3, 1, 0, true, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv1d/padding";
+    c.family = "conv1d";
+    c.run = [](Runtime &rt, int) { return conv1dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4, 5};
+      std::vector<float> weight = {1, 1, 1};
+      return conv1dCheck(rt, input, weight, 1, 1, 5, 1, 3, 1, 1, false, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv1d/stride";
+    c.family = "conv1d";
+    c.run = [](Runtime &rt, int) { return conv1dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(1 * 1 * 8, 42);
+      auto weight = generateTestData<float>(1 * 1 * 3, 99);
+      return conv1dCheck(rt, input, weight, 1, 1, 8, 1, 3, 2, 0, false, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv1d/multichannel";
+    c.family = "conv1d";
+    c.run = [](Runtime &rt, int) { return conv1dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(2 * 3 * 8, 42);
+      auto weight = generateTestData<float>(4 * 3 * 3, 123);
+      return conv1dCheck(rt, input, weight, 2, 3, 8, 4, 3, 1, 0, true, 1e-3f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv1d/variants_basic";
+    c.family = "conv1d";
+    c.run = [](Runtime &rt, int) { return conv1dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return conv1dVariantsCheck(rt, 1, 3, 16, 2, 3, 1, 0, 42, 123);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv1d/variants_padding";
+    c.family = "conv1d";
+    c.run = [](Runtime &rt, int) { return conv1dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return conv1dVariantsCheck(rt, 1, 2, 8, 2, 3, 1, 1, 42, 123);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Conv2D family
+  {
+    OpCase c;
+    c.name = "conv2d/basic";
+    c.family = "conv2d";
+    c.run = [](Runtime &rt, int) { return conv2dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+      std::vector<float> weight = {1, 0, -1, 1, 0, -1, 1, 0, -1};
+      return conv2dCheck(rt, input, weight, 1, 1, 4, 4, 1, 3, 3, 1, 1, 0, 0, true, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv2d/padding";
+    c.family = "conv2d";
+    c.run = [](Runtime &rt, int) { return conv2dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(1 * 1 * 4 * 4, 42);
+      auto weight = generateTestData<float>(1 * 1 * 3 * 3, 99);
+      return conv2dCheck(rt, input, weight, 1, 1, 4, 4, 1, 3, 3, 1, 1, 1, 1, false, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv2d/stride";
+    c.family = "conv2d";
+    c.run = [](Runtime &rt, int) { return conv2dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(1 * 1 * 8 * 8, 42);
+      auto weight = generateTestData<float>(1 * 1 * 3 * 3, 99);
+      return conv2dCheck(rt, input, weight, 1, 1, 8, 8, 1, 3, 3, 2, 2, 0, 0, false, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv2d/multichannel";
+    c.family = "conv2d";
+    c.run = [](Runtime &rt, int) { return conv2dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(2 * 3 * 8 * 8, 42);
+      auto weight = generateTestData<float>(4 * 3 * 3 * 3, 123);
+      return conv2dCheck(rt, input, weight, 2, 3, 8, 8, 4, 3, 3, 1, 1, 0, 0, true, 1e-3f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv2d/stridepadding";
+    c.family = "conv2d";
+    c.run = [](Runtime &rt, int) { return conv2dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(1 * 2 * 7 * 7, 42);
+      auto weight = generateTestData<float>(3 * 2 * 3 * 3, 77);
+      return conv2dCheck(rt, input, weight, 1, 2, 7, 7, 3, 3, 3, 2, 2, 1, 1, false, 1e-3f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv2d/variants_basic";
+    c.family = "conv2d";
+    c.run = [](Runtime &rt, int) { return conv2dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return conv2dVariantsCheck(rt, 1, 3, 8, 8, 2, 3, 3, 1, 1, 0, 0, 42, 123);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "conv2d/variants_padding";
+    c.family = "conv2d";
+    c.run = [](Runtime &rt, int) { return conv2dRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return conv2dVariantsCheck(rt, 1, 2, 6, 6, 2, 3, 3, 1, 1, 1, 1, 42, 123);
+    };
     cases.push_back(std::move(c));
   }
 
