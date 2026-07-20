@@ -118,6 +118,35 @@ Then a full `bash scripts/run_tests_both_backends.sh` before committing.
 - Device caps: `runtime.store().caps().integerDotProduct` /
   `.cooperativeMatrix` gate hw-specific variants.
 
+## Findings from session 1 (7 families done: refs extract, binary vec-vec,
+## binary vec-scalar, unary, ternary, global reduce, dim-reduce, normdim —
+## commits dd15d16..bb194b3). Bake these into your approach:
+- **Ollama (`devstral-small-2:24b`) pitfalls, recurring:** it emits C++20
+  designated initializers (`.name=…`) and `const char* + const char*` name
+  concatenation, and sometimes omits a referenced struct def. WRITE PLANS THAT
+  DEMAND C++17: build cases as `OpCase c; c.name = std::string("…") +
+  operatorName(op) + …; c.family = "…"; c.run = …; c.verify = …;
+  cases.push_back(std::move(c));` and include every struct. Review/fix each
+  generation for these before applying. Fragment-A (math/sweep helpers) is
+  usually faithful; Fragment-B (the case-builder) needs the most fixing.
+- **`VerifyResult` must be UNQUALIFIED** inside `namespace cut::opregistry`
+  (the model writes `cut::VerifyResult`, which won't compile).
+- **Double-execution (address this):** `OpRegistry.AllBuiltinCasesMatchReference`
+  verifies EVERY family, and each per-family driver verifies its family AGAIN, so
+  migrated families run their verify twice and the suite keeps getting slower.
+  FIX: make `AllBuiltinCasesMatchReference` run-only (call `run` for coverage of
+  perf-path compilation but drop its `verify` loop), leaving the per-family
+  drivers as the single correctness path. Do this early in session 2.
+- Pattern used per family: `run(rt,variant)` = one representative dispatch (for
+  op_bench timing); `verify(rt,out)` = the FULL original sweep (all shapes/dtypes/
+  tolerances) so no coverage is lost; the old per-family gtest becomes a thin
+  driver iterating that family (`filter on c.family + a name substring`).
+- `createTensor` takes a single `const std::vector<uint32_t>&` — braced `{64,64}`
+  args compile fine.
+- Run big Ollama generations in the BACKGROUND (its ~300s timeout + stream-to-file).
+  NEVER run codegen during a CUDA test pass — the ~20 GB model + CUDA tests
+  contend on the 24 GB 3090; `ollama stop devstral-small-2:24b` before each CUDA pass.
+
 ## Build/run cheat-sheet
 - Vulkan ASan dev build: `build/` ; CUDA release build: `build-cuda-rel/`.
 - Reconfigure after adding a source: `cmake -S . -B build` (and `build-cuda-rel`).
