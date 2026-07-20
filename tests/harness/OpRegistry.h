@@ -1541,6 +1541,82 @@ inline Tensor batchNormRun(Runtime& rt) {
   return rt.ops().batchNorm(bufIn, bufMean, bufVar);
 }
 
+// ===========================================================================
+// Softmax / LogSoftmax families (2D+; fused compared vs composite reference)
+// ===========================================================================
+inline VerifyResult softmaxCompositeVsFusedVerify(Runtime& rt,
+    const std::vector<float>& data, const std::vector<uint32_t>& shape, int dim) {
+  auto a = rt.createTensor(shape, DataType::Float32, data.data());
+  auto composite = rt.ops().softmax(a, dim);
+  auto fused = rt.ops().softmaxFused(a, dim);
+  rt.flush();
+  size_t n = data.size();
+  std::vector<float> cOut(n), fOut(n);
+  rt.copyFromTensor(composite, cOut.data(), n * sizeof(float));
+  rt.copyFromTensor(fused, fOut.data(), n * sizeof(float));
+  for (size_t i = 0; i < n; ++i)
+    if (std::abs(cOut[i] - fOut[i]) > 1e-5f)
+      return {false, "softmax fused!=composite at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult logSoftmaxCompositeVsFusedVerify(Runtime& rt,
+    const std::vector<float>& data, const std::vector<uint32_t>& shape, int dim) {
+  auto a = rt.createTensor(shape, DataType::Float32, data.data());
+  auto composite = rt.ops().logSoftmax(a, dim);
+  auto fused = rt.ops().logSoftmaxFused(a, dim);
+  rt.flush();
+  size_t n = data.size();
+  std::vector<float> cOut(n), fOut(n);
+  rt.copyFromTensor(composite, cOut.data(), n * sizeof(float));
+  rt.copyFromTensor(fused, fOut.data(), n * sizeof(float));
+  for (size_t i = 0; i < n; ++i)
+    if (std::abs(cOut[i] - fOut[i]) > 1e-5f)
+      return {false, "logsoftmax fused!=composite at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult softmaxKnownVerify(Runtime& rt) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f};
+  auto a = rt.createTensor({3u}, DataType::Float32, data.data());
+  auto result = rt.ops().softmaxFused(a, 0);
+  std::vector<float> out(4);
+  rt.copyFromTensor(result, out.data(), 4 * sizeof(float));
+  float e1 = std::exp(1.0f), e2 = std::exp(2.0f), e3 = std::exp(3.0f);
+  float sum = e1 + e2 + e3;
+  if (std::abs(out[0] - e1 / sum) > 1e-5f) return {false, "softmax known [0]"};
+  if (std::abs(out[1] - e2 / sum) > 1e-5f) return {false, "softmax known [1]"};
+  if (std::abs(out[2] - e3 / sum) > 1e-5f) return {false, "softmax known [2]"};
+  return {true, ""};
+}
+
+inline VerifyResult logSoftmaxKnownVerify(Runtime& rt) {
+  std::vector<float> data = {1.0f, 2.0f, 3.0f};
+  auto a = rt.createTensor({3u}, DataType::Float32, data.data());
+  auto result = rt.ops().logSoftmaxFused(a, 0);
+  std::vector<float> out(4);
+  rt.copyFromTensor(result, out.data(), 4 * sizeof(float));
+  float e1 = std::exp(1.0f), e2 = std::exp(2.0f), e3 = std::exp(3.0f);
+  float logsum = std::log(e1 + e2 + e3);
+  if (std::abs(out[0] - (1.0f - logsum)) > 1e-5f) return {false, "logsoftmax known [0]"};
+  if (std::abs(out[1] - (2.0f - logsum)) > 1e-5f) return {false, "logsoftmax known [1]"};
+  if (std::abs(out[2] - (3.0f - logsum)) > 1e-5f) return {false, "logsoftmax known [2]"};
+  return {true, ""};
+}
+
+inline Tensor softmaxRun(Runtime& rt) {
+  std::vector<float> data(8 * 128);
+  for (uint32_t i = 0; i < 8 * 128; ++i) data[i] = static_cast<float>(i) * 0.01f - 5.0f;
+  auto a = rt.createTensor({8, 128}, DataType::Float32, data.data());
+  return rt.ops().softmaxFused(a, 1);
+}
+inline Tensor logSoftmaxRun(Runtime& rt) {
+  std::vector<float> data(8 * 128);
+  for (uint32_t i = 0; i < 8 * 128; ++i) data[i] = static_cast<float>(i) * 0.01f - 5.0f;
+  auto a = rt.createTensor({8, 128}, DataType::Float32, data.data());
+  return rt.ops().logSoftmaxFused(a, 1);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -2533,6 +2609,95 @@ cases.push_back(std::move(c));
       std::vector<float> mean = {0.0f, 0.0f, 0.0f};
       std::vector<float> var = {1.0f, 1.0f, 1.0f};
       return batchNormCheck(rt, input, {2u, 3u}, 2, 3, 1, mean, var, false, {}, {}, 0.0f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Softmax family
+  {
+    OpCase c;
+    c.name = "softmax/composite_dim1";
+    c.family = "softmax";
+    c.run = [](Runtime &rt, int) { return softmaxRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data = {1, 2, 3, 4, 5, 6};
+      return softmaxCompositeVsFusedVerify(rt, data, {2u, 3u}, 1);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "softmax/composite_dim0";
+    c.family = "softmax";
+    c.run = [](Runtime &rt, int) { return softmaxRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data = {1, 2, 3, 4, 5, 6};
+      return softmaxCompositeVsFusedVerify(rt, data, {2u, 3u}, 0);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "softmax/known";
+    c.family = "softmax";
+    c.run = [](Runtime &rt, int) { return softmaxRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return softmaxKnownVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "softmax/larger";
+    c.family = "softmax";
+    c.run = [](Runtime &rt, int) { return softmaxRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data(8 * 128);
+      for (uint32_t i = 0; i < 8 * 128; ++i) data[i] = static_cast<float>(i) * 0.01f - 5.0f;
+      return softmaxCompositeVsFusedVerify(rt, data, {8u, 128u}, 1);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "softmax/3d";
+    c.family = "softmax";
+    c.run = [](Runtime &rt, int) { return softmaxRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data(2 * 4 * 4);
+      for (uint32_t i = 0; i < 2 * 4 * 4; ++i) data[i] = static_cast<float>(i) * 0.1f - 1.0f;
+      return softmaxCompositeVsFusedVerify(rt, data, {2u, 4u, 4u}, 1);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // LogSoftmax family
+  {
+    OpCase c;
+    c.name = "logsoftmax/composite";
+    c.family = "logsoftmax";
+    c.run = [](Runtime &rt, int) { return logSoftmaxRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data = {1, 2, 3, 4, 5, 6};
+      return logSoftmaxCompositeVsFusedVerify(rt, data, {2u, 3u}, 1);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "logsoftmax/known";
+    c.family = "logsoftmax";
+    c.run = [](Runtime &rt, int) { return logSoftmaxRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return logSoftmaxKnownVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "logsoftmax/larger";
+    c.family = "logsoftmax";
+    c.run = [](Runtime &rt, int) { return logSoftmaxRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data(8 * 128);
+      for (uint32_t i = 0; i < 8 * 128; ++i) data[i] = static_cast<float>(i) * 0.01f - 5.0f;
+      return logSoftmaxCompositeVsFusedVerify(rt, data, {8u, 128u}, 1);
     };
     cases.push_back(std::move(c));
   }

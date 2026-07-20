@@ -6226,148 +6226,90 @@ TEST_F(VulkanBackendTest, SinglePassReductions_Timing) {
 // ===========================================================================
 
 TEST_F(RuntimeOperatorTest, SoftmaxFused_MatchesComposite_Dim1) {
-  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
-  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
-
-  auto composite = runtime_->ops().softmax(a, 1);
-  auto fused = runtime_->ops().softmaxFused(a, 1);
-  runtime_->flush();
-
-  std::vector<float> cOut(6), fOut(6);
-  runtime_->copyFromTensor(composite, cOut.data(), 6 * sizeof(float));
-  runtime_->copyFromTensor(fused, fOut.data(), 6 * sizeof(float));
-
-  for (int i = 0; i < 6; ++i) {
-    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "softmax/composite_dim1")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(RuntimeOperatorTest, SoftmaxFused_MatchesComposite_Dim0) {
-  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
-  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
-
-  auto composite = runtime_->ops().softmax(a, 0);
-  auto fused = runtime_->ops().softmaxFused(a, 0);
-  runtime_->flush();
-
-  std::vector<float> cOut(6), fOut(6);
-  runtime_->copyFromTensor(composite, cOut.data(), 6 * sizeof(float));
-  runtime_->copyFromTensor(fused, fOut.data(), 6 * sizeof(float));
-
-  for (int i = 0; i < 6; ++i) {
-    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "softmax/composite_dim0")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(RuntimeOperatorTest, SoftmaxFused_KnownValues) {
-  // softmax([1, 2, 3]) = [e^1, e^2, e^3] / sum
-  std::vector<float> data = {1.0f, 2.0f, 3.0f};
-  auto a = runtime_->createTensor({3}, DataType::Float32, data.data());
-  auto result = runtime_->ops().softmaxFused(a, 0);
-
-  std::vector<float> out(4); // aligned to 4
-  runtime_->copyFromTensor(result, out.data(), 4 * sizeof(float));
-
-  float e1 = std::exp(1.0f), e2 = std::exp(2.0f), e3 = std::exp(3.0f);
-  float sum = e1 + e2 + e3;
-  EXPECT_NEAR(out[0], e1 / sum, 1e-5f);
-  EXPECT_NEAR(out[1], e2 / sum, 1e-5f);
-  EXPECT_NEAR(out[2], e3 / sum, 1e-5f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "softmax/known")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
 }
 
 TEST_F(RuntimeOperatorTest, SoftmaxFused_LargerArray) {
-  // Use 2D shape since composite softmax doesn't support 1D
-  const uint32_t M = 8, N = 128;
-  std::vector<float> data(M * N);
-  for (uint32_t i = 0; i < M * N; ++i)
-    data[i] = static_cast<float>(i) * 0.01f - 5.0f;
-
-  auto a = runtime_->createTensor({M, N}, DataType::Float32, data.data());
-  auto composite = runtime_->ops().softmax(a, 1);
-  auto fused = runtime_->ops().softmaxFused(a, 1);
-  runtime_->flush();
-
-  std::vector<float> cOut(M * N), fOut(M * N);
-  runtime_->copyFromTensor(composite, cOut.data(), M * N * sizeof(float));
-  runtime_->copyFromTensor(fused, fOut.data(), M * N * sizeof(float));
-
-  for (uint32_t i = 0; i < M * N; ++i) {
-    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "softmax/larger")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(RuntimeOperatorTest, SoftmaxFused_3D) {
-  // 3D tensor, softmax along middle dimension
-  // Use aligned inner dim (4) to avoid padding issues in composite path
-  std::vector<float> data(2 * 4 * 4);
-  for (size_t i = 0; i < data.size(); ++i)
-    data[i] = static_cast<float>(i) * 0.1f - 1.0f;
-
-  auto a = runtime_->createTensor({2, 4, 4}, DataType::Float32, data.data());
-  auto composite = runtime_->ops().softmax(a, 1);
-  auto fused = runtime_->ops().softmaxFused(a, 1);
-  runtime_->flush();
-
-  uint32_t total = 2 * 4 * 4;
-  std::vector<float> cOut(total), fOut(total);
-  runtime_->copyFromTensor(composite, cOut.data(), total * sizeof(float));
-  runtime_->copyFromTensor(fused, fOut.data(), total * sizeof(float));
-
-  for (uint32_t i = 0; i < total; ++i) {
-    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "softmax/3d")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(RuntimeOperatorTest, LogSoftmaxFused_MatchesComposite) {
-  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
-  auto a = runtime_->createTensor({2, 3}, DataType::Float32, data.data());
-
-  auto composite = runtime_->ops().logSoftmax(a, 1);
-  auto fused = runtime_->ops().logSoftmaxFused(a, 1);
-  runtime_->flush();
-
-  std::vector<float> cOut(6), fOut(6);
-  runtime_->copyFromTensor(composite, cOut.data(), 6 * sizeof(float));
-  runtime_->copyFromTensor(fused, fOut.data(), 6 * sizeof(float));
-
-  for (int i = 0; i < 6; ++i) {
-    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "logsoftmax/composite")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(RuntimeOperatorTest, LogSoftmaxFused_KnownValues) {
-  std::vector<float> data = {1.0f, 2.0f, 3.0f};
-  auto a = runtime_->createTensor({3}, DataType::Float32, data.data());
-  auto result = runtime_->ops().logSoftmaxFused(a, 0);
-
-  std::vector<float> out(4);
-  runtime_->copyFromTensor(result, out.data(), 4 * sizeof(float));
-
-  float e1 = std::exp(1.0f), e2 = std::exp(2.0f), e3 = std::exp(3.0f);
-  float logsum = std::log(e1 + e2 + e3);
-  EXPECT_NEAR(out[0], 1.0f - logsum, 1e-5f);
-  EXPECT_NEAR(out[1], 2.0f - logsum, 1e-5f);
-  EXPECT_NEAR(out[2], 3.0f - logsum, 1e-5f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "logsoftmax/known")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
 }
 
 TEST_F(RuntimeOperatorTest, LogSoftmaxFused_LargerArray) {
-  // Use 2D shape since composite logSoftmax doesn't support 1D
-  const uint32_t M = 8, N = 128;
-  std::vector<float> data(M * N);
-  for (uint32_t i = 0; i < M * N; ++i)
-    data[i] = static_cast<float>(i) * 0.01f - 5.0f;
-
-  auto a = runtime_->createTensor({M, N}, DataType::Float32, data.data());
-  auto composite = runtime_->ops().logSoftmax(a, 1);
-  auto fused = runtime_->ops().logSoftmaxFused(a, 1);
-  runtime_->flush();
-
-  std::vector<float> cOut(M * N), fOut(M * N);
-  runtime_->copyFromTensor(composite, cOut.data(), M * N * sizeof(float));
-  runtime_->copyFromTensor(fused, fOut.data(), M * N * sizeof(float));
-
-  for (uint32_t i = 0; i < M * N; ++i) {
-    EXPECT_NEAR(cOut[i], fOut[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "logsoftmax/larger")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
