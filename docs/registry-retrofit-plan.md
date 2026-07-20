@@ -168,21 +168,21 @@ Then a full `bash scripts/run_tests_both_backends.sh` before committing.
   - `2c05135` softmax, logsoftmax (fused cross-checked vs composite; 2D+).
   - `1c59290` cumsum/cumprod ("cumulative" family, 1D/2D/3D + large multipass).
   - `495677e` prefix scan (exclusive/inclusive), sort (bitonic float + radix uint32).
+  - `528c144` dequant (BF16 round-trip + Q4_K/Q6_K super-block dequant); removed the
+    now-unused `f16_bits_to_f32` static helper from RuntimeTests.
+  - `6485e25` quantized matmul (Q8/Q4: simple/withscales/vs-reference + gated all-variant
+    sweeps). Gates on `getCompiledMatMulQ8/Q4(vi, Float32, Float16, Float32)` and skips
+    "Dot"/"CoopMat" variant names (need pre-packed operands). The batched-vs-per-row
+    Mistral-geometry Q8 tests and the DISABLED_ test were left as-is (intricate).
   Test count held at **462/462 green on BOTH backends after every commit** (the migrated
   gtests keep their names, just become thin drivers, so the total does not change).
-- **STILL REMAINING (not started — the hardest, left for a fresh session):**
-  - **dequant** — `MatrixOpsTest.Dequant_BF16` / `Dequant_Q4K` / `Dequant_Q6K`
-    (RuntimeTests.cpp ~L4100-4230). Block-quant formats (Q4_K/Q6_K super-blocks, BF16);
-    reference math is in the test bodies. `#include "impl/dequant/DequantOp.h"` is already
-    in RuntimeTests. Uses `f32_to_f16`/`packNibbles` from OpRefs.h.
-  - **quant matmul (Q8/Q4)** — `MatMulQ8_*` / `MatMulQ4_*` incl.
-    `MatMulQ8_AllVariants_VsReference` / `MatMulQ4_AllVariants_VsReference`
-    (RuntimeTests.cpp ~L3000-4050). GATE on `getCompiledMatMulQ8(vi, Float32, Float16, Float32)`
-    (scales dtype is **Float16**, not Float32 — see Known pitfalls). SKIP variant names
-    containing "Dot" or "CoopMat" (they need pre-packed operands; `MatMulQ8GemvDot`
-    returns garbage with the plain [K,N] int8 layout — suspected real bug). Leave the
-    DISABLED_ test and the batched-vs-per-row Mistral-geometry tests as-is (intricate).
-  - Attention / rope / multi-device: intentionally NOT migrated (too intricate, per brief).
+- **ALL families from the brief are now migrated.** The op-case registry (family strings
+  in `OpRegistry.h`): binary_vecvec, binary_vecscalar, unary, ternary, reduce, dimreduce,
+  normdim (session 1) + matmul, transpose, dot, conv1d, conv2d, maxpool, avgpool, norm,
+  rms, logsumexp, embedding, pad, layernorm, batchnorm, softmax, logsoftmax, cumulative,
+  prefixscan, sort, dequant, quantmatmul (session 2).
+- **Intentionally NOT migrated** (too intricate, per brief): attention, rope, multi-device,
+  and the Q8 batched-vs-per-row Mistral-geometry / DISABLED tests.
 - **Workflow that worked well this session (use it):**
   - Pass a SMALL context to Ollama, NOT the growing `OpRegistry.h` (now ~2000 lines).
     Use `scratchpad/pattern_ref.txt` (a ~40-line pattern reference). When the full file is
