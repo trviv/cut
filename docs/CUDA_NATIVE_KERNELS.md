@@ -1,6 +1,18 @@
 # Native CUDA Kernels: Architecture & Migration Plan
 
-Status: IN PROGRESS (2026-07-18)
+Status: COMPLETE (2026-07-20) — all phases landed and verified.
+Verification (RTX 3090, 0ddf513): C++ suite 442/442 on `CUT_TEST_BACKEND=cuda`;
+SmolLM2 token IDs identical to Vulkan; LTX 2B 10-step latents within
+cross-backend tolerance of Vulkan (mean |diff| 0.003) at **1.72 s/step native
+(WMMA tensor cores) vs 2.37 transpiled** — `CUT_CUDA_KERNELS=transpiled` is
+bit-identical to the pre-migration baseline. Remaining perf gap vs Vulkan
+fp16+coopmat (1.20 s/step): CUDA has no autotune data and the WMMA/attention
+kernels are untuned first ports.
+
+> Hard-won lesson: every embedded `.cuh` is passed to `nvrtcCreateProgram` by
+> basename, and NVRTC rejects duplicate header names — which disables EVERY
+> kernel at runtime. Header basenames must be unique repo-wide; the embedder
+> now fails the build on collisions (see 0ddf513).
 
 ## Goal
 
