@@ -62,10 +62,12 @@ CudaCompute::CudaCompute(CudaContextConfig config) {
 
   // Publish device capabilities consumed by operators. CUDA warps are 32-wide.
   int ccMajor = 0, ccMinor = 0;
-  cuDeviceGetAttribute(&ccMajor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
-                       device_);
-  cuDeviceGetAttribute(&ccMinor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
-                       device_);
+  CU_CHECK(cuDeviceGetAttribute(
+      &ccMajor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device_));
+  CU_CHECK(cuDeviceGetAttribute(
+      &ccMinor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, device_));
+  // On query failure the attributes stay 0 (CU_CHECK logged it); cc = 0 keeps
+  // the capability flags below off, a safe default.
   const int cc = ccMajor * 10 + ccMinor;
   caps_.subgroupSize = 32;
   // Capability flags flip only once the corresponding native CUDA kernels are
@@ -75,6 +77,9 @@ CudaCompute::CudaCompute(CudaContextConfig config) {
       cc >= 70 &&
       lookupCudaKernelByName("MatMulCoopMatTiled_Float16_Float16_Float32") !=
           nullptr;
+  // Presence check uses one representative stem (the GemvDot variant); the
+  // TiledDot dp4a kernel is generated from the same shaders.json group and
+  // registered alongside it, mirroring the coopmat single-stem gate above.
   caps_.integerDotProduct =
       cc >= 61 &&
       lookupCudaKernelByName("MatMulQ8GemvDot_Float32_Float16_Float32") !=
