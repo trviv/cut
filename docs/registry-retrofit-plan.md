@@ -153,3 +153,54 @@ Then a full `bash scripts/run_tests_both_backends.sh` before committing.
 - Single test bin run: `ASAN_OPTIONS=detect_leaks=0 build/tests/tests
   --gtest_filter='...'` (Vulkan) ; add `CUT_TEST_BACKEND=cuda` +
   `build-cuda-rel/tests/tests` for CUDA.
+
+## Session 2 progress (commits `0359c51`..`495677e`). Bake these into your approach:
+- **Double-execution FIXED first** (commit `0359c51`): `OpRegistry.AllBuiltinCasesMatchReference`
+  is now RUN-ONLY (calls `c.run` for perf-path coverage, no `verify` loop). Per-family
+  drivers in `RuntimeTests.cpp` are the single correctness path.
+- **Families migrated this session (one family-group per commit):**
+  - `f67e983` matmul (default + variant sweeps), transpose (default + variants), dot.
+  - `3aa2b00` conv1d, conv2d (default + variants).
+  - `e1f354b` maxpool, avgpool, adaptive avgpool.
+  - `0368bae` global norm, rms (global+dim), logsumexp (global+dim).
+  - `d028e48` embedding, pad.
+  - `912186d` layernorm, batchnorm.
+  - `2c05135` softmax, logsoftmax (fused cross-checked vs composite; 2D+).
+  - `1c59290` cumsum/cumprod ("cumulative" family, 1D/2D/3D + large multipass).
+  - `495677e` prefix scan (exclusive/inclusive), sort (bitonic float + radix uint32).
+  Test count held at **462/462 green on BOTH backends after every commit** (the migrated
+  gtests keep their names, just become thin drivers, so the total does not change).
+- **STILL REMAINING (not started — the hardest, left for a fresh session):**
+  - **dequant** — `MatrixOpsTest.Dequant_BF16` / `Dequant_Q4K` / `Dequant_Q6K`
+    (RuntimeTests.cpp ~L4100-4230). Block-quant formats (Q4_K/Q6_K super-blocks, BF16);
+    reference math is in the test bodies. `#include "impl/dequant/DequantOp.h"` is already
+    in RuntimeTests. Uses `f32_to_f16`/`packNibbles` from OpRefs.h.
+  - **quant matmul (Q8/Q4)** — `MatMulQ8_*` / `MatMulQ4_*` incl.
+    `MatMulQ8_AllVariants_VsReference` / `MatMulQ4_AllVariants_VsReference`
+    (RuntimeTests.cpp ~L3000-4050). GATE on `getCompiledMatMulQ8(vi, Float32, Float16, Float32)`
+    (scales dtype is **Float16**, not Float32 — see Known pitfalls). SKIP variant names
+    containing "Dot" or "CoopMat" (they need pre-packed operands; `MatMulQ8GemvDot`
+    returns garbage with the plain [K,N] int8 layout — suspected real bug). Leave the
+    DISABLED_ test and the batched-vs-per-row Mistral-geometry tests as-is (intricate).
+  - Attention / rope / multi-device: intentionally NOT migrated (too intricate, per brief).
+- **Workflow that worked well this session (use it):**
+  - Pass a SMALL context to Ollama, NOT the growing `OpRegistry.h` (now ~2000 lines).
+    Use `scratchpad/pattern_ref.txt` (a ~40-line pattern reference). When the full file is
+    passed as context the model tends to regurgitate + hit its 16k `num_predict` cap and
+    truncate mid-output (this bit the pooling generation).
+  - Ask Ollama to emit just two marker-delimited sections: `===HELPERS===` and `===CASES===`
+    (plus `===INCLUDES===` if new generated-variant headers are needed). Write near-final
+    C++17 in the plan; the model reproduces it faithfully at small context. Review then apply.
+  - `scratchpad/replace_tests.py <file> <spec.json>` mechanically rewrites each
+    `TEST_F(Fixture, Name){...}` into a thin driver that iterates `opregistry::allOpCases()`
+    filtered on an exact `c.name`. spec.json = list of `[fixture, test_name, case_name]`.
+    This is the fast path for the driver conversion (fixtures use `runtime_`). Fixture
+    member ref-helpers (e.g. `conv1dRef`) left unused are harmless (no -Wunused for members).
+  - Poll for codegen completion by grepping the OUTPUT FILE for the last case name — do NOT
+    `pgrep -f ollama_code.py` from a bash wrapper (its own command line self-matches → the
+    wait loop never exits). Foreground `sleep` is blocked; use background bash `until` loops.
+- **Pre-existing (not introduced here):** a UBSan `signed integer overflow` note at
+  `OpRefs.h:1035` (int `ReduceProd` reference) prints during runs but is non-fatal; suite
+  stays green. Leave it or fix the reference to accumulate in a wider type in a separate commit.
+- `Norm`, `CumSum`, `CumProd`, `PrefixScanExclusiveSum`, `PrefixScanInclusiveSum` are
+  `OperatorEnum` values usable UNQUALIFIED inside `namespace cut::opregistry`.
