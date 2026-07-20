@@ -1,5 +1,7 @@
 #pragma once
 #include "harness/OpRefs.h"
+#include "impl/matmul/MatMulVariants.generated.h"
+#include "impl/transpose/TransposeVariants.generated.h"
 #include <ComputeOps.h>
 #include <Operations.h>
 #include <Runtime.h>
@@ -764,6 +766,231 @@ inline Tensor normDimRun3D(Runtime &rt) {
   return rt.ops().norm(bufIn, 1);
 }
 
+// ===========================================================================
+// MatMul / Transpose / Dot families
+// ===========================================================================
+struct MKN { uint32_t M; uint32_t K; uint32_t N; };
+
+inline std::vector<float> matmulRefCPU(const std::vector<float>& A,
+                                       const std::vector<float>& B,
+                                       uint32_t M, uint32_t K, uint32_t N) {
+  std::vector<float> out(static_cast<size_t>(M) * N, 0.0f);
+  for (uint32_t i = 0; i < M; ++i)
+    for (uint32_t k = 0; k < K; ++k)
+      for (uint32_t j = 0; j < N; ++j)
+        out[i * N + j] += A[i * K + k] * B[k * N + j];
+  return out;
+}
+
+inline bool shouldSkipMatMulVariant(int vi, uint32_t K, uint32_t N) {
+  std::string name(getMatMulVariantName(vi));
+  if (name.find("Aligned") != std::string::npos) {
+    if (K % 16 != 0 || N % 64 != 0) return true;
+  }
+  return false;
+}
+
+inline VerifyResult matmulSquareVerify(Runtime& rt) {
+  const uint32_t M = 4, K = 4, N = 4;
+  std::vector<float> A = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+  std::vector<float> B = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, A.data());
+  auto bufB = rt.createTensor({K, N}, DataType::Float32, B.data());
+  auto bufC = rt.ops().matmul(bufA, bufB);
+  std::vector<float> output(M * N);
+  rt.copyFromTensor(bufC, output.data(), M * N * sizeof(float));
+  for (uint32_t i = 0; i < M * N; ++i)
+    if (std::abs(output[i] - A[i]) > 1e-5f)
+      return {false, "matmul square mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult matmulRectVerify(Runtime& rt) {
+  const uint32_t M = 2, K = 4, N = 8;
+  auto dataA = generateTestData<float>(M * K, 42);
+  auto dataB = generateTestData<float>(K * N, 123);
+  auto ref = matmulRefCPU(dataA, dataB, M, K, N);
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N}, DataType::Float32, dataB.data());
+  auto bufC = rt.ops().matmul(bufA, bufB);
+  std::vector<float> output(M * N);
+  rt.copyFromTensor(bufC, output.data(), M * N * sizeof(float));
+  for (uint32_t idx = 0; idx < M * N; ++idx)
+    if (std::abs(output[idx] - ref[idx]) > std::abs(ref[idx]) * 1e-4f + 1e-5f)
+      return {false, "matmul rect mismatch at " + std::to_string(idx)};
+  return {true, ""};
+}
+
+inline VerifyResult matmulLargerVerify(Runtime& rt) {
+  const MKN cases[] = {{8,8,8},{16,16,16},{7,12,4},{4,4,16}};
+  for (const auto& tc : cases) {
+    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
+    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
+    auto ref = matmulRefCPU(dataA, dataB, tc.M, tc.K, tc.N);
+    auto bufA = rt.createTensor({tc.M, tc.K}, DataType::Float32, dataA.data());
+    auto bufB = rt.createTensor({tc.K, tc.N}, DataType::Float32, dataB.data());
+    auto bufC = rt.ops().matmul(bufA, bufB);
+    std::vector<float> output(tc.M * tc.N);
+    rt.copyFromTensor(bufC, output.data(), tc.M * tc.N * sizeof(float));
+    for (uint32_t idx = 0; idx < tc.M * tc.N; ++idx)
+      if (std::abs(output[idx] - ref[idx]) > std::abs(ref[idx]) * 1e-4f + 1e-5f)
+        return {false, "matmul larger mismatch at " + std::to_string(idx)};
+  }
+  return {true, ""};
+}
+
+inline VerifyResult matmulVariantsSweep(Runtime& rt, const std::vector<MKN>& cases, bool kTol) {
+  for (const auto& tc : cases) {
+    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
+    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
+    auto ref = matmulRefCPU(dataA, dataB, tc.M, tc.K, tc.N);
+    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+      if (!getCompiledMatMul(vi, DataType::Float32, DataType::Float32, DataType::Float32).has_value())
+        continue;
+      if (shouldSkipMatMulVariant(vi, tc.K, tc.N)) continue;
+      auto bufA = rt.createTensor({tc.M, tc.K}, DataType::Float32, dataA.data());
+      auto bufB = rt.createTensor({tc.K, tc.N}, DataType::Float32, dataB.data());
+      auto bufC = rt.ops().matmul(bufA, bufB, vi);
+      std::vector<float> output(tc.M * tc.N);
+      rt.copyFromTensor(bufC, output.data(), tc.M * tc.N * sizeof(float));
+      for (uint32_t idx = 0; idx < tc.M * tc.N; ++idx) {
+        float tol = kTol ? (tc.K * 5e-5f) : (std::abs(ref[idx]) * 1e-4f + 1e-5f);
+        if (std::abs(output[idx] - ref[idx]) > tol)
+          return {false, std::string("matmul variant ") + getMatMulVariantName(vi) + " mismatch at " + std::to_string(idx)};
+      }
+    }
+  }
+  return {true, ""};
+}
+
+inline VerifyResult matmulVariantsIdentitySweep(Runtime& rt) {
+  const uint32_t N = 16;
+  auto dataA = generateTestData<float>(N * N, 42);
+  std::vector<float> identity(N * N, 0.0f);
+  for (uint32_t i = 0; i < N; ++i) identity[i * N + i] = 1.0f;
+  for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
+    if (!getCompiledMatMul(vi, DataType::Float32, DataType::Float32, DataType::Float32).has_value())
+      continue;
+    if (shouldSkipMatMulVariant(vi, N, N)) continue;
+    if (std::string(getMatMulVariantName(vi)).find("SiLU") != std::string::npos) continue;
+    auto bufA = rt.createTensor({N, N}, DataType::Float32, dataA.data());
+    auto bufI = rt.createTensor({N, N}, DataType::Float32, identity.data());
+    auto bufC = rt.ops().matmul(bufA, bufI, vi);
+    std::vector<float> output(N * N);
+    rt.copyFromTensor(bufC, output.data(), N * N * sizeof(float));
+    for (uint32_t i = 0; i < N * N; ++i)
+      if (std::abs(output[i] - dataA[i]) > 1e-5f)
+        return {false, std::string("matmul identity variant ") + getMatMulVariantName(vi) + " mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+inline Tensor matmulRun(Runtime& rt) {
+  const uint32_t M = 32, K = 32, N = 32;
+  auto dataA = generateTestData<float>(M * K, 42);
+  auto dataB = generateTestData<float>(K * N, 123);
+  auto bufA = rt.createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({K, N}, DataType::Float32, dataB.data());
+  return rt.ops().matmul(bufA, bufB);
+}
+
+struct MN { uint32_t M; uint32_t N; };
+
+inline VerifyResult transposeSquareVerify(Runtime& rt) {
+  const uint32_t M = 4, N = 4;
+  std::vector<float> data = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+  auto bufIn = rt.createTensor({M, N}, DataType::Float32, data.data());
+  auto bufOut = rt.ops().transpose(bufIn);
+  std::vector<float> output(M * N);
+  rt.copyFromTensor(bufOut, output.data(), M * N * sizeof(float));
+  for (uint32_t i = 0; i < M; ++i)
+    for (uint32_t j = 0; j < N; ++j)
+      if (std::abs(output[j * M + i] - data[i * N + j]) > 1e-5f)
+        return {false, "transpose square mismatch"};
+  return {true, ""};
+}
+
+inline VerifyResult transposeRectVerify(Runtime& rt) {
+  const MN cases[] = {{3,4},{4,8},{7,12}};
+  for (const auto& tc : cases) {
+    auto dataIn = generateTestData<float>(tc.M * tc.N, 42);
+    auto bufIn = rt.createTensor({tc.M, tc.N}, DataType::Float32, dataIn.data());
+    auto bufOut = rt.ops().transpose(bufIn);
+    std::vector<float> output(tc.M * tc.N);
+    rt.copyFromTensor(bufOut, output.data(), tc.M * tc.N * sizeof(float));
+    for (uint32_t i = 0; i < tc.M; ++i)
+      for (uint32_t j = 0; j < tc.N; ++j)
+        if (std::abs(output[j * tc.M + i] - dataIn[i * tc.N + j]) > 1e-5f)
+          return {false, "transpose rect mismatch"};
+  }
+  return {true, ""};
+}
+
+inline VerifyResult transposeVariantsSweep(Runtime& rt, const std::vector<MN>& cases) {
+  for (const auto& tc : cases) {
+    auto data = generateTestData<float>(tc.M * tc.N, 42);
+    std::vector<float> expected(tc.M * tc.N);
+    for (uint32_t i = 0; i < tc.M; ++i)
+      for (uint32_t j = 0; j < tc.N; ++j)
+        expected[j * tc.M + i] = data[i * tc.N + j];
+    for (int vi = 0; vi < kTransposeVariantCount; ++vi) {
+      auto buf = rt.createTensor({tc.M, tc.N}, DataType::Float32, data.data());
+      auto bufOut = rt.ops().transpose(buf, vi);
+      std::vector<float> output(tc.M * tc.N);
+      rt.copyFromTensor(bufOut, output.data(), tc.M * tc.N * sizeof(float));
+      for (uint32_t idx = 0; idx < tc.M * tc.N; ++idx)
+        if (std::abs(output[idx] - expected[idx]) > 1e-5f)
+          return {false, std::string("transpose variant ") + getTransposeVariantName(vi) + " mismatch at " + std::to_string(idx)};
+    }
+  }
+  return {true, ""};
+}
+
+inline Tensor transposeRun(Runtime& rt) {
+  auto data = generateTestData<float>(64 * 64, 42);
+  auto buf = rt.createTensor({64, 64}, DataType::Float32, data.data());
+  return rt.ops().transpose(buf);
+}
+
+inline VerifyResult dotBasicVerify(Runtime& rt) {
+  std::vector<float> dataA = {1.0f, 2.0f, 3.0f, 4.0f};
+  std::vector<float> dataB = {5.0f, 6.0f, 7.0f, 8.0f};
+  auto bufA = rt.createTensor({4u}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({4u}, DataType::Float32, dataB.data());
+  auto dotOut = rt.ops().dot(bufA, bufB);
+  float output = 0.0f;
+  rt.copyFromTensor(dotOut, &output, sizeof(float));
+  if (std::abs(output - 70.0f) > 1e-4f) return {false, "dot basic mismatch"};
+  return {true, ""};
+}
+
+inline VerifyResult dotLargerVerify(Runtime& rt) {
+  for (uint32_t elements : {8u, 16u, 100u, 256u, 1024u}) {
+    auto dataA = generateTestData<float>(elements, 42);
+    auto dataB = generateTestData<float>(elements, 123);
+    auto bufA = rt.createTensor({elements}, DataType::Float32, dataA.data());
+    auto bufB = rt.createTensor({elements}, DataType::Float32, dataB.data());
+    auto dotOut = rt.ops().dot(bufA, bufB);
+    float output = 0.0f;
+    rt.copyFromTensor(dotOut, &output, sizeof(float));
+    double expected = 0.0;
+    for (uint32_t i = 0; i < elements; ++i)
+      expected += static_cast<double>(dataA[i]) * static_cast<double>(dataB[i]);
+    if (std::abs(output - static_cast<float>(expected)) >
+        std::abs(static_cast<float>(expected)) * 1e-3f + 1e-4f)
+      return {false, "dot larger mismatch elements=" + std::to_string(elements)};
+  }
+  return {true, ""};
+}
+
+inline Tensor dotRun(Runtime& rt) {
+  auto dataA = generateTestData<float>(1024, 42);
+  auto dataB = generateTestData<float>(1024, 123);
+  auto bufA = rt.createTensor({1024u}, DataType::Float32, dataA.data());
+  auto bufB = rt.createTensor({1024u}, DataType::Float32, dataB.data());
+  return rt.ops().dot(bufA, bufB);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -1074,6 +1301,145 @@ c.family = "normdim";
 c.run = [](Runtime &rt, int) { return normDimRun2D(rt, 0); };
 c.verify = [](Runtime &rt, const Tensor &) { return normDimKnown(rt); };
 cases.push_back(std::move(c));
+
+  // MatMul family
+  {
+    OpCase c;
+    c.name = "matmul/square";
+    c.family = "matmul";
+    c.run = [](Runtime &rt, int) { return matmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return matmulSquareVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "matmul/rectangular";
+    c.family = "matmul";
+    c.run = [](Runtime &rt, int) { return matmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return matmulRectVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "matmul/larger";
+    c.family = "matmul";
+    c.run = [](Runtime &rt, int) { return matmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return matmulLargerVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "matmul/variants_square";
+    c.family = "matmul";
+    c.run = [](Runtime &rt, int) { return matmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return matmulVariantsSweep(rt, {{32, 32, 32}}, false);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "matmul/variants_rectangular";
+    c.family = "matmul";
+    c.run = [](Runtime &rt, int) { return matmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return matmulVariantsSweep(
+          rt, {{16, 32, 64}, {64, 16, 32}, {8, 64, 8}, {48, 24, 36}}, false);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "matmul/variants_nonmultiple";
+    c.family = "matmul";
+    c.run = [](Runtime &rt, int) { return matmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return matmulVariantsSweep(
+          rt, {{7, 13, 5}, {15, 17, 9}, {33, 7, 31}, {3, 65, 11}}, false);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "matmul/variants_larger";
+    c.family = "matmul";
+    c.run = [](Runtime &rt, int) { return matmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return matmulVariantsSweep(
+          rt, {{64, 64, 64}, {128, 128, 128}, {128, 256, 64}}, true);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "matmul/variants_identity";
+    c.family = "matmul";
+    c.run = [](Runtime &rt, int) { return matmulRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return matmulVariantsIdentitySweep(rt);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Transpose family
+  {
+    OpCase c;
+    c.name = "transpose/square";
+    c.family = "transpose";
+    c.run = [](Runtime &rt, int) { return transposeRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return transposeSquareVerify(rt);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "transpose/rectangular";
+    c.family = "transpose";
+    c.run = [](Runtime &rt, int) { return transposeRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return transposeRectVerify(rt);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "transpose/variants_square";
+    c.family = "transpose";
+    c.run = [](Runtime &rt, int) { return transposeRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return transposeVariantsSweep(rt, {{8, 8}, {16, 16}, {32, 32}, {64, 64}});
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "transpose/variants_rectangular";
+    c.family = "transpose";
+    c.run = [](Runtime &rt, int) { return transposeRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return transposeVariantsSweep(rt, {{16, 32}, {64, 8}, {48, 24}, {7, 13}});
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Dot family
+  {
+    OpCase c;
+    c.name = "dot/basic";
+    c.family = "dot";
+    c.run = [](Runtime &rt, int) { return dotRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return dotBasicVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "dot/larger";
+    c.family = "dot";
+    c.run = [](Runtime &rt, int) { return dotRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return dotLargerVerify(rt); };
+    cases.push_back(std::move(c));
+  }
 
   return cases;
 }

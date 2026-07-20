@@ -2440,96 +2440,39 @@ protected:
   }
 };
 
+// Registry-driven: verifies the "matmul/square" case (default matmul, 4x4 identity).
 TEST_F(MatrixOpsTest, MatMul_Square) {
-  const DataType dtype = DataType::Float32;
-
-  // 4x4 * 4x4 = 4x4
-  const uint32_t M = 4, K = 4, N = 4;
-  std::vector<float> A = {1, 2,  3,  4,  5,  6,  7,  8,
-                          9, 10, 11, 12, 13, 14, 15, 16};
-  std::vector<float> B = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-  // A * I = A
-
-  auto bufA = runtime_->createTensor({M, K}, dtype, A.data());
-  auto bufB = runtime_->createTensor({K, N}, dtype, B.data());
-
-  auto bufC = runtime_->ops().matmul(bufA, bufB);
-
-  std::vector<float> output(M * N);
-  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
-
-  for (uint32_t i = 0; i < M * N; ++i) {
-    ASSERT_NEAR(output[i], A[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "matmul/square")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
+// Registry-driven: verifies the "matmul/rectangular" case.
 TEST_F(MatrixOpsTest, MatMul_Rectangular) {
-  const DataType dtype = DataType::Float32;
-
-  // 2x4 * 4x8 = 2x8
-  const uint32_t M = 2, K = 4, N = 8;
-  auto dataA = generateTestData<float>(M * K, 42);
-  auto dataB = generateTestData<float>(K * N, 123);
-
-  auto bufA = runtime_->createTensor({M, K}, dtype, dataA.data());
-  auto bufB = runtime_->createTensor({K, N}, dtype, dataB.data());
-
-  auto bufC = runtime_->ops().matmul(bufA, bufB);
-
-  std::vector<float> output(M * N);
-  runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
-
-  // Reference matmul
-  for (uint32_t i = 0; i < M; ++i) {
-    for (uint32_t j = 0; j < N; ++j) {
-      float expected = 0.0f;
-      for (uint32_t k = 0; k < K; ++k) {
-        expected += dataA[i * K + k] * dataB[k * N + j];
-      }
-      ASSERT_NEAR(output[i * N + j], expected,
-                  std::abs(expected) * 1e-4f + 1e-5f)
-          << "Mismatch at [" << i << ", " << j << "]";
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "matmul/rectangular")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
+// Registry-driven: verifies the "matmul/larger" case (several sizes).
 TEST_F(MatrixOpsTest, MatMul_LargerMatrices) {
-  const DataType dtype = DataType::Float32;
-
-  // Test several sizes including non-multiples of tile size (16)
-  struct TestCase {
-    uint32_t M, K, N;
-  };
-  std::array<TestCase, 4> testCases = {
-      {{8, 8, 8}, {16, 16, 16}, {7, 12, 4}, {4, 4, 16}}};
-
-  for (const auto &tc : testCases) {
-    SCOPED_TRACE("MatMul [" + std::to_string(tc.M) + "x" +
-                 std::to_string(tc.K) + "] * [" + std::to_string(tc.K) + "x" +
-                 std::to_string(tc.N) + "]");
-
-    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
-    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
-
-    auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
-    auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
-
-    auto bufC = runtime_->ops().matmul(bufA, bufB);
-
-    std::vector<float> output(tc.M * tc.N);
-    runtime_->copyFromTensor(bufC, output.data(), tc.M * tc.N * sizeof(float));
-
-    for (uint32_t i = 0; i < tc.M; ++i) {
-      for (uint32_t j = 0; j < tc.N; ++j) {
-        float expected = 0.0f;
-        for (uint32_t k = 0; k < tc.K; ++k) {
-          expected += dataA[i * tc.K + k] * dataB[k * tc.N + j];
-        }
-        ASSERT_NEAR(output[i * tc.N + j], expected,
-                    std::abs(expected) * 1e-4f + 1e-5f)
-            << "Mismatch at [" << i << ", " << j << "]";
-      }
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "matmul/larger")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -3067,243 +3010,66 @@ TEST_F(MatrixOpsTest, MatMul_LlamaPrefillQKV_F32xF16) {
 
 // Matmul variant count and names come from MatMulVariants.generated.h
 // via impl/matmul/MatMul.h (kMatMulVariantCount, getMatMulVariantName)
+// The variant sweep now lives in the op-case registry (family "matmul");
+// see tests/harness/OpRegistry.h shouldSkipMatMulVariant / matmulVariantsSweep.
 
-// Skip variants that require specific dimension alignment.
-// The Aligned variant assumes K % 16 == 0 and N % 64 == 0.
-static bool shouldSkipMatMulVariant(int vi, uint32_t K, uint32_t N) {
-  std::string name(getMatMulVariantName(vi));
-  if (name.find("Aligned") != std::string::npos) {
-    if (K % 16 != 0 || N % 64 != 0)
-      return true;
-  }
-  return false;
-}
-
+// Registry-driven: verifies the "matmul/variants_square" case (variant sweep).
 TEST_F(MatrixOpsTest, MatMulVariants_Square) {
-  const DataType dtype = DataType::Float32;
-  const uint32_t M = 32, K = 32, N = 32;
-
-  auto dataA = generateTestData<float>(M * K, 42);
-  auto dataB = generateTestData<float>(K * N, 123);
-
-  // CPU reference
-  std::vector<float> expected(M * N, 0.0f);
-  for (uint32_t i = 0; i < M; ++i)
-    for (uint32_t k = 0; k < K; ++k)
-      for (uint32_t j = 0; j < N; ++j)
-        expected[i * N + j] += dataA[i * K + k] * dataB[k * N + j];
-
-  for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
-    // Skip variants that don't support the requested dtype combination
-    if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "matmul/variants_square")
       continue;
-    if (shouldSkipMatMulVariant(vi, K, N))
-      continue;
-    SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
-
-    auto bufA = runtime_->createTensor({M, K}, dtype, dataA.data());
-    auto bufB = runtime_->createTensor({K, N}, dtype, dataB.data());
-    auto bufC = runtime_->ops().matmul(bufA, bufB, vi);
-
-    std::vector<float> output(M * N);
-    runtime_->copyFromTensor(bufC, output.data(), M * N * sizeof(float));
-
-    for (uint32_t i = 0; i < M; ++i) {
-      for (uint32_t j = 0; j < N; ++j) {
-        ASSERT_NEAR(output[i * N + j], expected[i * N + j],
-                    std::abs(expected[i * N + j]) * 1e-4f + 1e-5f)
-            << "Mismatch at [" << i << ", " << j << "]";
-      }
-    }
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
+// Registry-driven: verifies the "matmul/variants_rectangular" case.
 TEST_F(MatrixOpsTest, MatMulVariants_Rectangular) {
-  const DataType dtype = DataType::Float32;
-
-  struct TestCase {
-    uint32_t M, K, N;
-  };
-  std::array<TestCase, 4> testCases = {
-      {{16, 32, 64}, {64, 16, 32}, {8, 64, 8}, {48, 24, 36}}};
-
-  for (const auto &tc : testCases) {
-    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.K) +
-                 "] * [" + std::to_string(tc.K) + "x" + std::to_string(tc.N) +
-                 "]");
-
-    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
-    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
-
-    // CPU reference
-    std::vector<float> expected(tc.M * tc.N, 0.0f);
-    for (uint32_t i = 0; i < tc.M; ++i)
-      for (uint32_t k = 0; k < tc.K; ++k)
-        for (uint32_t j = 0; j < tc.N; ++j)
-          expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
-
-    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
-      // Skip variants that don't support the requested dtype combination
-      if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
-        continue;
-      if (shouldSkipMatMulVariant(vi, tc.K, tc.N))
-        continue;
-      SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
-
-      auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
-      auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
-      auto bufC = runtime_->ops().matmul(bufA, bufB, vi);
-
-      std::vector<float> output(tc.M * tc.N);
-      runtime_->copyFromTensor(bufC, output.data(),
-                               tc.M * tc.N * sizeof(float));
-
-      for (uint32_t i = 0; i < tc.M; ++i) {
-        for (uint32_t j = 0; j < tc.N; ++j) {
-          ASSERT_NEAR(output[i * tc.N + j], expected[i * tc.N + j],
-                      std::abs(expected[i * tc.N + j]) * 1e-4f + 1e-5f)
-              << "Mismatch at [" << i << ", " << j << "]";
-        }
-      }
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "matmul/variants_rectangular")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
+// Registry-driven: verifies the "matmul/variants_nonmultiple" case.
 TEST_F(MatrixOpsTest, MatMulVariants_NonMultipleOfTileSize) {
-  const DataType dtype = DataType::Float32;
-
-  struct TestCase {
-    uint32_t M, K, N;
-  };
-  std::array<TestCase, 4> testCases = {
-      {{7, 13, 5}, {15, 17, 9}, {33, 7, 31}, {3, 65, 11}}};
-
-  for (const auto &tc : testCases) {
-    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.K) +
-                 "] * [" + std::to_string(tc.K) + "x" + std::to_string(tc.N) +
-                 "]");
-
-    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
-    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
-
-    // CPU reference
-    std::vector<float> expected(tc.M * tc.N, 0.0f);
-    for (uint32_t i = 0; i < tc.M; ++i)
-      for (uint32_t k = 0; k < tc.K; ++k)
-        for (uint32_t j = 0; j < tc.N; ++j)
-          expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
-
-    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
-      // Skip variants that don't support the requested dtype combination
-      if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
-        continue;
-      if (shouldSkipMatMulVariant(vi, tc.K, tc.N))
-        continue;
-      SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
-
-      auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
-      auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
-      auto bufC = runtime_->ops().matmul(bufA, bufB, vi);
-
-      std::vector<float> output(tc.M * tc.N);
-      runtime_->copyFromTensor(bufC, output.data(),
-                               tc.M * tc.N * sizeof(float));
-
-      for (uint32_t i = 0; i < tc.M; ++i) {
-        for (uint32_t j = 0; j < tc.N; ++j) {
-          ASSERT_NEAR(output[i * tc.N + j], expected[i * tc.N + j],
-                      std::abs(expected[i * tc.N + j]) * 1e-4f + 1e-5f)
-              << "Mismatch at [" << i << ", " << j << "]";
-        }
-      }
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "matmul/variants_nonmultiple")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
+// Registry-driven: verifies the "matmul/variants_larger" case (tol = K*5e-5).
 TEST_F(MatrixOpsTest, MatMulVariants_LargerMatrices) {
-  const DataType dtype = DataType::Float32;
-
-  struct TestCase {
-    uint32_t M, K, N;
-  };
-  std::array<TestCase, 3> testCases = {
-      {{64, 64, 64}, {128, 128, 128}, {128, 256, 64}}};
-
-  for (const auto &tc : testCases) {
-    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.K) +
-                 "] * [" + std::to_string(tc.K) + "x" + std::to_string(tc.N) +
-                 "]");
-
-    auto dataA = generateTestData<float>(tc.M * tc.K, 42);
-    auto dataB = generateTestData<float>(tc.K * tc.N, 123);
-
-    // CPU reference
-    std::vector<float> expected(tc.M * tc.N, 0.0f);
-    for (uint32_t i = 0; i < tc.M; ++i)
-      for (uint32_t k = 0; k < tc.K; ++k)
-        for (uint32_t j = 0; j < tc.N; ++j)
-          expected[i * tc.N + j] += dataA[i * tc.K + k] * dataB[k * tc.N + j];
-
-    float tolerance = tc.K * 5e-5f;
-
-    for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
-      // Skip variants that don't support the requested dtype combination
-      if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
-        continue;
-      if (shouldSkipMatMulVariant(vi, tc.K, tc.N))
-        continue;
-      SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
-
-      auto bufA = runtime_->createTensor({tc.M, tc.K}, dtype, dataA.data());
-      auto bufB = runtime_->createTensor({tc.K, tc.N}, dtype, dataB.data());
-      auto bufC = runtime_->ops().matmul(bufA, bufB, vi);
-
-      std::vector<float> output(tc.M * tc.N);
-      runtime_->copyFromTensor(bufC, output.data(),
-                               tc.M * tc.N * sizeof(float));
-
-      for (uint32_t i = 0; i < tc.M; ++i) {
-        for (uint32_t j = 0; j < tc.N; ++j) {
-          ASSERT_NEAR(output[i * tc.N + j], expected[i * tc.N + j], tolerance)
-              << "Mismatch at [" << i << ", " << j << "]";
-        }
-      }
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "matmul/variants_larger")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
+// Registry-driven: verifies the "matmul/variants_identity" case (skips SiLU).
 TEST_F(MatrixOpsTest, MatMulVariants_Identity) {
-  const DataType dtype = DataType::Float32;
-  const uint32_t N = 16;
-
-  auto dataA = generateTestData<float>(N * N, 42);
-
-  // Identity matrix
-  std::vector<float> identity(N * N, 0.0f);
-  for (uint32_t i = 0; i < N; ++i)
-    identity[i * N + i] = 1.0f;
-
-  for (int vi = 0; vi < kMatMulVariantCount; ++vi) {
-    // Skip variants that don't support the requested dtype combination
-    if (!getCompiledMatMul(vi, dtype, dtype, dtype).has_value())
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "matmul/variants_identity")
       continue;
-    if (shouldSkipMatMulVariant(vi, N, N))
-      continue;
-    // Skip fused activation variants (e.g. MatMulUnary) — tested separately
-    if (std::string(getMatMulVariantName(vi)).find("SiLU") != std::string::npos)
-      continue;
-    SCOPED_TRACE(std::string("Variant: ") + getMatMulVariantName(vi));
-
-    auto bufA = runtime_->createTensor({N, N}, dtype, dataA.data());
-    auto bufI = runtime_->createTensor({N, N}, dtype, identity.data());
-    auto bufC = runtime_->ops().matmul(bufA, bufI, vi);
-
-    std::vector<float> output(N * N);
-    runtime_->copyFromTensor(bufC, output.data(), N * N * sizeof(float));
-
-    for (uint32_t i = 0; i < N * N; ++i) {
-      ASSERT_NEAR(output[i], dataA[i], 1e-5f) << "Mismatch at index " << i;
-    }
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -4409,99 +4175,51 @@ TEST_F(MatrixOpsTest, Dequant_Q6K) {
   }
 }
 
+// Registry-driven: verifies the "transpose/square" case.
 TEST_F(MatrixOpsTest, Transpose_Square) {
-  const DataType dtype = DataType::Float32;
-  const uint32_t M = 4, N = 4;
-
-  std::vector<float> data = {1, 2,  3,  4,  5,  6,  7,  8,
-                             9, 10, 11, 12, 13, 14, 15, 16};
-
-  auto bufIn = runtime_->createTensor({M, N}, dtype, data.data());
-
-  auto bufOut = runtime_->ops().transpose(bufIn);
-
-  std::vector<float> output(M * N);
-  runtime_->copyFromTensor(bufOut, output.data(), M * N * sizeof(float));
-
-  for (uint32_t i = 0; i < M; ++i) {
-    for (uint32_t j = 0; j < N; ++j) {
-      ASSERT_NEAR(output[j * M + i], data[i * N + j], 1e-5f)
-          << "Mismatch at [" << j << ", " << i << "]";
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "transpose/square")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
+// Registry-driven: verifies the "transpose/rectangular" case.
 TEST_F(MatrixOpsTest, Transpose_Rectangular) {
-  const DataType dtype = DataType::Float32;
-
-  struct TestCase {
-    uint32_t M, N;
-  };
-  std::array<TestCase, 3> testCases = {{{3, 4}, {4, 8}, {7, 12}}};
-
-  for (const auto &tc : testCases) {
-    SCOPED_TRACE("Transpose [" + std::to_string(tc.M) + "x" +
-                 std::to_string(tc.N) + "]");
-
-    auto dataIn = generateTestData<float>(tc.M * tc.N, 42);
-
-    auto bufIn = runtime_->createTensor({tc.M, tc.N}, dtype, dataIn.data());
-
-    auto bufOut = runtime_->ops().transpose(bufIn);
-
-    std::vector<float> output(tc.M * tc.N);
-    runtime_->copyFromTensor(bufOut, output.data(),
-                             tc.M * tc.N * sizeof(float));
-
-    for (uint32_t i = 0; i < tc.M; ++i) {
-      for (uint32_t j = 0; j < tc.N; ++j) {
-        ASSERT_NEAR(output[j * tc.M + i], dataIn[i * tc.N + j], 1e-5f)
-            << "Mismatch at [" << j << ", " << i << "]";
-      }
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "transpose/rectangular")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
+// Registry-driven: verifies the "dot/basic" case.
 TEST_F(MatrixOpsTest, Dot_Basic) {
-  const DataType dtype = DataType::Float32;
-
-  std::vector<float> dataA = {1.0f, 2.0f, 3.0f, 4.0f};
-  std::vector<float> dataB = {5.0f, 6.0f, 7.0f, 8.0f};
-  const uint32_t elements = 4;
-
-  auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
-  auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
-
-  auto dotOut = runtime_->ops().dot(bufA, bufB);
-  float output = 0.0f;
-  runtime_->copyFromTensor(dotOut, &output, sizeof(float));
-
-  float expected = 1 * 5 + 2 * 6 + 3 * 7 + 4 * 8; // = 70
-  ASSERT_NEAR(output, expected, 1e-4f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "dot/basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
 }
 
+// Registry-driven: verifies the "dot/larger" case.
 TEST_F(MatrixOpsTest, Dot_LargerVectors) {
-  const DataType dtype = DataType::Float32;
-
-  for (uint32_t elements : {8u, 16u, 100u, 256u, 1024u}) {
-    SCOPED_TRACE("Dot elements=" + std::to_string(elements));
-
-    auto dataA = generateTestData<float>(elements, 42);
-    auto dataB = generateTestData<float>(elements, 123);
-
-    auto bufA = runtime_->createTensor({elements}, dtype, dataA.data());
-    auto bufB = runtime_->createTensor({elements}, dtype, dataB.data());
-
-    auto dotOut = runtime_->ops().dot(bufA, bufB);
-    float output = 0.0f;
-    runtime_->copyFromTensor(dotOut, &output, sizeof(float));
-
-    double expected = 0.0;
-    for (uint32_t i = 0; i < elements; ++i) {
-      expected += static_cast<double>(dataA[i]) * static_cast<double>(dataB[i]);
-    }
-    ASSERT_NEAR(output, static_cast<float>(expected),
-                std::abs(static_cast<float>(expected)) * 1e-3f + 1e-4f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "dot/larger")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -6090,76 +5808,27 @@ TEST_F(PadTest, PadWithFillValue) {
 // Transpose Variant Tests
 // ============================================================================
 
+// Registry-driven: verifies the "transpose/variants_square" case.
 TEST_F(MatrixOpsTest, TransposeVariants_Square) {
-  const DataType dtype = DataType::Float32;
-  struct TestCase {
-    uint32_t M, N;
-  };
-  std::array<TestCase, 4> testCases = {{{8, 8}, {16, 16}, {32, 32}, {64, 64}}};
-
-  for (const auto &tc : testCases) {
-    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.N) +
-                 "]");
-    auto data = generateTestData<float>(tc.M * tc.N, 42);
-
-    // CPU reference: transpose
-    std::vector<float> expected(tc.M * tc.N);
-    for (uint32_t i = 0; i < tc.M; ++i)
-      for (uint32_t j = 0; j < tc.N; ++j)
-        expected[j * tc.M + i] = data[i * tc.N + j];
-
-    for (int vi = 0; vi < kTransposeVariantCount; ++vi) {
-      SCOPED_TRACE(std::string("Variant: ") + getTransposeVariantName(vi));
-      auto buf = runtime_->createTensor({tc.M, tc.N}, dtype, data.data());
-      auto bufOut = runtime_->ops().transpose(buf, vi);
-
-      std::vector<float> output(tc.M * tc.N);
-      runtime_->copyFromTensor(bufOut, output.data(),
-                               tc.M * tc.N * sizeof(float));
-
-      for (uint32_t i = 0; i < tc.N; ++i) {
-        for (uint32_t j = 0; j < tc.M; ++j) {
-          ASSERT_NEAR(output[i * tc.M + j], expected[i * tc.M + j], 1e-5f)
-              << "Mismatch at [" << i << ", " << j << "]";
-        }
-      }
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "transpose/variants_square")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
+// Registry-driven: verifies the "transpose/variants_rectangular" case.
 TEST_F(MatrixOpsTest, TransposeVariants_Rectangular) {
-  const DataType dtype = DataType::Float32;
-  struct TestCase {
-    uint32_t M, N;
-  };
-  std::array<TestCase, 4> testCases = {{{16, 32}, {64, 8}, {48, 24}, {7, 13}}};
-
-  for (const auto &tc : testCases) {
-    SCOPED_TRACE("Size [" + std::to_string(tc.M) + "x" + std::to_string(tc.N) +
-                 "]");
-    auto data = generateTestData<float>(tc.M * tc.N, 42);
-
-    std::vector<float> expected(tc.M * tc.N);
-    for (uint32_t i = 0; i < tc.M; ++i)
-      for (uint32_t j = 0; j < tc.N; ++j)
-        expected[j * tc.M + i] = data[i * tc.N + j];
-
-    for (int vi = 0; vi < kTransposeVariantCount; ++vi) {
-      SCOPED_TRACE(std::string("Variant: ") + getTransposeVariantName(vi));
-      auto buf = runtime_->createTensor({tc.M, tc.N}, dtype, data.data());
-      auto bufOut = runtime_->ops().transpose(buf, vi);
-
-      std::vector<float> output(tc.M * tc.N);
-      runtime_->copyFromTensor(bufOut, output.data(),
-                               tc.M * tc.N * sizeof(float));
-
-      for (uint32_t i = 0; i < tc.N; ++i) {
-        for (uint32_t j = 0; j < tc.M; ++j) {
-          ASSERT_NEAR(output[i * tc.M + j], expected[i * tc.M + j], 1e-5f)
-              << "Mismatch at [" << i << ", " << j << "]";
-        }
-      }
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "transpose/variants_rectangular")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
