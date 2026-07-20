@@ -3,6 +3,9 @@
 
 #include <ComputeCommon.h>
 
+#include <set>
+#include <string>
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -55,14 +58,15 @@ void CudaCommandBuffer::launchDispatch(const ComputeDispatch &dispatch,
   if (function == nullptr) {
     // Kernel translation not available yet for this shader. Skip the launch;
     // the shader-translation phase fills in CudaShaderStruct::function.
-    static bool warned = false;
-    if (!warned) {
+    // Warn once per distinct dispatch label — a single once-per-process flag
+    // previously hid wholesale skipping behind one log line.
+    static std::set<std::string> warnedLabels;
+    if (warnedLabels.insert(dispatch.label()).second) {
       // Non-fatal (logErr throws): skip the launch and keep going so partially
       // translated workloads still run their supported dispatches.
       logMsg("CUDA backend: no translated kernel for dispatch '%s' "
              "(kernel launch skipped; shader translation pending)",
              dispatch.label().c_str());
-      warned = true;
     }
     return;
   }

@@ -43,9 +43,15 @@ void compileCudaKernel(CUcontext context,
   }
 
   nvrtcProgram prog;
-  if (nvrtcCreateProgram(&prog, full.c_str(), "cut_kernel.cu",
+  const nvrtcResult createRes =
+      nvrtcCreateProgram(&prog, full.c_str(), "cut_kernel.cu",
                          static_cast<int>(hdrSrcs.size()), hdrSrcs.data(),
-                         hdrNames.data()) != NVRTC_SUCCESS) {
+                         hdrNames.data());
+  if (createRes != NVRTC_SUCCESS) {
+    // Loud, not silent: a create failure (e.g. duplicate header names) means
+    // EVERY kernel is disabled and all dispatches silently skip.
+    logMsg("CUDA kernel program creation failed for entry %s: nvrtc error %d",
+           entry->entry, static_cast<int>(createRes));
     return;
   }
 

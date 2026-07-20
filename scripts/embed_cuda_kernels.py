@@ -154,7 +154,16 @@ def main():
             native_srcs.append((f"kNativeSrc{idx}", f.read()))
 
     native_headers = []  # (name, contents)
+    header_paths = {}  # basename -> path (duplicate names break nvrtcCreateProgram)
     for header in native_manifest["headers"]:
+        if header["name"] in header_paths:
+            print(f"ERROR: duplicate header name '{header['name']}' from "
+                  f"{header_paths[header['name']]} and {header['path']}; "
+                  f"NVRTC rejects duplicate header names, which disables "
+                  f"EVERY CUDA kernel at runtime. Rename one of the files.",
+                  file=sys.stderr)
+            sys.exit(1)
+        header_paths[header["name"]] = header["path"]
         with open(header["path"]) as f:
             native_headers.append((header["name"], f.read()))
 

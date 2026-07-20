@@ -1,7 +1,7 @@
 // Native CUDA counterpart of MaxPool2DTiled.shader (block dims TILE_W x TILE_H
 // x 1; shared-memory input tile + halo with OOB sentinel) — keep semantics in
 // lockstep.
-#include "Pool2DCommon.cuh"
+#include "MaxPool2DCommon.cuh"
 
 #ifndef TILE_W
 #define TILE_W 16

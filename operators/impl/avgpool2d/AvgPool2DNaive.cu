@@ -1,6 +1,6 @@
 // Native CUDA counterpart of AvgPool2DNaive.shader (block dims 16x16x1;
 // 4-wide vectorized output) — keep semantics in lockstep.
-#include "Pool2DCommon.cuh"
+#include "AvgPool2DCommon.cuh"
 
 extern "C" __global__ void cut_main(const cut_pool_t* __restrict__ input_data,
                                     cut_pool_vec* __restrict__ output_data,
