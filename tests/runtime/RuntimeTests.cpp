@@ -1692,94 +1692,46 @@ protected:
 };
 
 TEST_F(PrefixScanTest, ExclusiveSum_Small) {
-  // Small array: single workgroup
-  for (uint32_t elements : {1u, 4u, 16u, 100u, 256u}) {
-    SCOPED_TRACE("elements=" + std::to_string(elements));
-
-    auto data = generateTestData<float>(elements, 42);
-    auto bufIn =
-        runtime_->createTensor({elements}, DataType::Float32, data.data());
-
-    auto bufOut = runtime_->ops().prefixScan(bufIn, PrefixScanExclusiveSum);
-
-    std::vector<float> output(elements);
-    runtime_->copyFromTensor(bufOut, output.data(), elements * sizeof(float));
-
-    // Verify exclusive prefix sum: output[i] = sum(input[0..i-1])
-    float runningSum = 0.0f;
-    for (uint32_t i = 0; i < elements; ++i) {
-      ASSERT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-4f + 1e-5f)
-          << "Mismatch at index " << i;
-      runningSum += data[i];
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "prefixscan/exclusive_small")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PrefixScanTest, ExclusiveSum_Large) {
-  // Large array: multi-workgroup (>256 elements)
-  for (uint32_t elements : {257u, 1000u, 10000u}) {
-    SCOPED_TRACE("elements=" + std::to_string(elements));
-
-    auto data = generateTestData<float>(elements, 42);
-    auto bufIn =
-        runtime_->createTensor({elements}, DataType::Float32, data.data());
-
-    auto bufOut = runtime_->ops().prefixScan(bufIn, PrefixScanExclusiveSum);
-
-    std::vector<float> output(elements);
-    runtime_->copyFromTensor(bufOut, output.data(), elements * sizeof(float));
-
-    float runningSum = 0.0f;
-    for (uint32_t i = 0; i < elements; ++i) {
-      ASSERT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-3f + 1e-4f)
-          << "Mismatch at index " << i;
-      runningSum += data[i];
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "prefixscan/exclusive_large")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PrefixScanTest, InclusiveSum_Small) {
-  for (uint32_t elements : {1u, 4u, 16u, 100u, 256u}) {
-    SCOPED_TRACE("elements=" + std::to_string(elements));
-
-    auto data = generateTestData<float>(elements, 42);
-    auto bufIn =
-        runtime_->createTensor({elements}, DataType::Float32, data.data());
-
-    auto bufOut = runtime_->ops().prefixScan(bufIn, PrefixScanInclusiveSum);
-
-    std::vector<float> output(elements);
-    runtime_->copyFromTensor(bufOut, output.data(), elements * sizeof(float));
-
-    // Verify inclusive prefix sum: output[i] = sum(input[0..i])
-    float runningSum = 0.0f;
-    for (uint32_t i = 0; i < elements; ++i) {
-      runningSum += data[i];
-      ASSERT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-4f + 1e-5f)
-          << "Mismatch at index " << i;
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "prefixscan/inclusive_small")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PrefixScanTest, InclusiveSum_Large) {
-  for (uint32_t elements : {257u, 1000u, 10000u}) {
-    SCOPED_TRACE("elements=" + std::to_string(elements));
-
-    auto data = generateTestData<float>(elements, 42);
-    auto bufIn =
-        runtime_->createTensor({elements}, DataType::Float32, data.data());
-
-    auto bufOut = runtime_->ops().prefixScan(bufIn, PrefixScanInclusiveSum);
-
-    std::vector<float> output(elements);
-    runtime_->copyFromTensor(bufOut, output.data(), elements * sizeof(float));
-
-    float runningSum = 0.0f;
-    for (uint32_t i = 0; i < elements; ++i) {
-      runningSum += data[i];
-      ASSERT_NEAR(output[i], runningSum, std::abs(runningSum) * 1e-3f + 1e-4f)
-          << "Mismatch at index " << i;
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "prefixscan/inclusive_large")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -1796,161 +1748,57 @@ protected:
 };
 
 TEST_F(BitonicSortTest, Sort_SmallArrays) {
-  for (uint32_t elements : {1u, 2u, 4u, 16u, 100u, 256u}) {
-    SCOPED_TRACE("elements=" + std::to_string(elements));
-
-    auto data = generateTestData<float>(elements, 42);
-
-    // Create indices [0, 1, 2, ..., N-1]
-    std::vector<uint32_t> indices(elements);
-    for (uint32_t i = 0; i < elements; ++i)
-      indices[i] = i;
-
-    auto bufKeys =
-        runtime_->createTensor({elements}, DataType::Float32, data.data());
-    auto bufVals =
-        runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-    runtime_->ops().sortBitonic(bufKeys, bufVals);
-
-    std::vector<float> sortedKeys(elements);
-    std::vector<uint32_t> sortedVals(elements);
-    runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                             elements * sizeof(float));
-    runtime_->copyFromTensor(bufVals, sortedVals.data(),
-                             elements * sizeof(uint32_t));
-
-    // Verify ascending order
-    for (uint32_t i = 1; i < elements; ++i) {
-      ASSERT_LE(sortedKeys[i - 1], sortedKeys[i])
-          << "Not sorted at index " << i;
-    }
-
-    // Verify indices are a valid permutation
-    std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
-    std::sort(sortedIndices.begin(), sortedIndices.end());
-    for (uint32_t i = 0; i < elements; ++i) {
-      ASSERT_EQ(sortedIndices[i], i) << "Invalid permutation at index " << i;
-    }
-
-    // Verify key-index correspondence
-    for (uint32_t i = 0; i < elements; ++i) {
-      ASSERT_EQ(sortedKeys[i], data[sortedVals[i]])
-          << "Key-index mismatch at position " << i;
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/bitonic_small")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(BitonicSortTest, Sort_LargeArray) {
-  for (uint32_t elements : {1000u, 10000u}) {
-    SCOPED_TRACE("elements=" + std::to_string(elements));
-
-    auto data = generateTestData<float>(elements, 42);
-    std::vector<uint32_t> indices(elements);
-    for (uint32_t i = 0; i < elements; ++i)
-      indices[i] = i;
-
-    auto bufKeys =
-        runtime_->createTensor({elements}, DataType::Float32, data.data());
-    auto bufVals =
-        runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-    runtime_->ops().sortBitonic(bufKeys, bufVals);
-
-    std::vector<float> sortedKeys(elements);
-    std::vector<uint32_t> sortedVals(elements);
-    runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                             elements * sizeof(float));
-    runtime_->copyFromTensor(bufVals, sortedVals.data(),
-                             elements * sizeof(uint32_t));
-
-    // Verify ascending order
-    for (uint32_t i = 1; i < elements; ++i) {
-      ASSERT_LE(sortedKeys[i - 1], sortedKeys[i])
-          << "Not sorted at index " << i;
-    }
-
-    // Verify indices are a valid permutation
-    std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
-    std::sort(sortedIndices.begin(), sortedIndices.end());
-    for (uint32_t i = 0; i < elements; ++i) {
-      ASSERT_EQ(sortedIndices[i], i);
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/bitonic_large")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(BitonicSortTest, Sort_AlreadySorted) {
-  uint32_t elements = 100;
-  std::vector<float> data(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    data[i] = static_cast<float>(i);
-
-  std::vector<uint32_t> indices(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    indices[i] = i;
-
-  auto bufKeys =
-      runtime_->createTensor({elements}, DataType::Float32, data.data());
-  auto bufVals =
-      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-  runtime_->ops().sortBitonic(bufKeys, bufVals);
-
-  std::vector<float> sortedKeys(elements);
-  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                           elements * sizeof(float));
-
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_EQ(sortedKeys[i], static_cast<float>(i));
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/bitonic_alreadysorted")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(BitonicSortTest, Sort_ReverseSorted) {
-  uint32_t elements = 100;
-  std::vector<float> data(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    data[i] = static_cast<float>(elements - 1 - i);
-
-  std::vector<uint32_t> indices(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    indices[i] = i;
-
-  auto bufKeys =
-      runtime_->createTensor({elements}, DataType::Float32, data.data());
-  auto bufVals =
-      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-  runtime_->ops().sortBitonic(bufKeys, bufVals);
-
-  std::vector<float> sortedKeys(elements);
-  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                           elements * sizeof(float));
-
-  for (uint32_t i = 1; i < elements; ++i) {
-    ASSERT_LE(sortedKeys[i - 1], sortedKeys[i]) << "Not sorted at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/bitonic_reversesorted")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(BitonicSortTest, Sort_AllSameValues) {
-  uint32_t elements = 100;
-  std::vector<float> data(elements, 5.0f);
-  std::vector<uint32_t> indices(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    indices[i] = i;
-
-  auto bufKeys =
-      runtime_->createTensor({elements}, DataType::Float32, data.data());
-  auto bufVals =
-      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-  runtime_->ops().sortBitonic(bufKeys, bufVals);
-
-  std::vector<float> sortedKeys(elements);
-  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                           elements * sizeof(float));
-
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_EQ(sortedKeys[i], 5.0f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/bitonic_allsame")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -1967,157 +1815,57 @@ protected:
 };
 
 TEST_F(RadixSortTest, Sort_SmallArrays_UInt32) {
-  for (uint32_t elements : {1u, 2u, 16u, 100u, 256u}) {
-    SCOPED_TRACE("elements=" + std::to_string(elements));
-
-    auto data = generateTestData<uint32_t>(elements, 42);
-    std::vector<uint32_t> indices(elements);
-    for (uint32_t i = 0; i < elements; ++i)
-      indices[i] = i;
-
-    auto bufKeys =
-        runtime_->createTensor({elements}, DataType::UInt32, data.data());
-    auto bufVals =
-        runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-    runtime_->ops().sortRadix(bufKeys, bufVals);
-
-    std::vector<uint32_t> sortedKeys(elements);
-    std::vector<uint32_t> sortedVals(elements);
-    runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                             elements * sizeof(uint32_t));
-    runtime_->copyFromTensor(bufVals, sortedVals.data(),
-                             elements * sizeof(uint32_t));
-
-    // Verify ascending order
-    for (uint32_t i = 1; i < elements; ++i) {
-      ASSERT_LE(sortedKeys[i - 1], sortedKeys[i])
-          << "Not sorted at index " << i;
-    }
-
-    // Verify indices are a valid permutation
-    std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
-    std::sort(sortedIndices.begin(), sortedIndices.end());
-    for (uint32_t i = 0; i < elements; ++i) {
-      ASSERT_EQ(sortedIndices[i], i) << "Invalid permutation at index " << i;
-    }
-
-    // Verify key-index correspondence
-    for (uint32_t i = 0; i < elements; ++i) {
-      ASSERT_EQ(sortedKeys[i], data[sortedVals[i]])
-          << "Key-index mismatch at position " << i;
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/radix_small")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(RadixSortTest, Sort_LargeArray_UInt32) {
-  for (uint32_t elements : {1000u, 10000u}) {
-    SCOPED_TRACE("elements=" + std::to_string(elements));
-
-    auto data = generateTestData<uint32_t>(elements, 42);
-    std::vector<uint32_t> indices(elements);
-    for (uint32_t i = 0; i < elements; ++i)
-      indices[i] = i;
-
-    auto bufKeys =
-        runtime_->createTensor({elements}, DataType::UInt32, data.data());
-    auto bufVals =
-        runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-    runtime_->ops().sortRadix(bufKeys, bufVals);
-
-    std::vector<uint32_t> sortedKeys(elements);
-    std::vector<uint32_t> sortedVals(elements);
-    runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                             elements * sizeof(uint32_t));
-    runtime_->copyFromTensor(bufVals, sortedVals.data(),
-                             elements * sizeof(uint32_t));
-
-    for (uint32_t i = 1; i < elements; ++i) {
-      ASSERT_LE(sortedKeys[i - 1], sortedKeys[i])
-          << "Not sorted at index " << i;
-    }
-
-    std::vector<uint32_t> sortedIndices(sortedVals.begin(), sortedVals.end());
-    std::sort(sortedIndices.begin(), sortedIndices.end());
-    for (uint32_t i = 0; i < elements; ++i) {
-      ASSERT_EQ(sortedIndices[i], i);
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/radix_large")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(RadixSortTest, Sort_AlreadySorted_UInt32) {
-  uint32_t elements = 100;
-  std::vector<uint32_t> data(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    data[i] = i;
-
-  std::vector<uint32_t> indices(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    indices[i] = i;
-
-  auto bufKeys =
-      runtime_->createTensor({elements}, DataType::UInt32, data.data());
-  auto bufVals =
-      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-  runtime_->ops().sortRadix(bufKeys, bufVals);
-
-  std::vector<uint32_t> sortedKeys(elements);
-  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                           elements * sizeof(uint32_t));
-
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_EQ(sortedKeys[i], i);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/radix_alreadysorted")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(RadixSortTest, Sort_ReverseSorted_UInt32) {
-  uint32_t elements = 100;
-  std::vector<uint32_t> data(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    data[i] = elements - 1 - i;
-
-  std::vector<uint32_t> indices(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    indices[i] = i;
-
-  auto bufKeys =
-      runtime_->createTensor({elements}, DataType::UInt32, data.data());
-  auto bufVals =
-      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-  runtime_->ops().sortRadix(bufKeys, bufVals);
-
-  std::vector<uint32_t> sortedKeys(elements);
-  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                           elements * sizeof(uint32_t));
-
-  for (uint32_t i = 1; i < elements; ++i) {
-    ASSERT_LE(sortedKeys[i - 1], sortedKeys[i]) << "Not sorted at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/radix_reversesorted")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(RadixSortTest, Sort_AllSameValues_UInt32) {
-  uint32_t elements = 100;
-  std::vector<uint32_t> data(elements, 42u);
-  std::vector<uint32_t> indices(elements);
-  for (uint32_t i = 0; i < elements; ++i)
-    indices[i] = i;
-
-  auto bufKeys =
-      runtime_->createTensor({elements}, DataType::UInt32, data.data());
-  auto bufVals =
-      runtime_->createTensor({elements}, DataType::UInt32, indices.data());
-
-  runtime_->ops().sortRadix(bufKeys, bufVals);
-
-  std::vector<uint32_t> sortedKeys(elements);
-  runtime_->copyFromTensor(bufKeys, sortedKeys.data(),
-                           elements * sizeof(uint32_t));
-
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_EQ(sortedKeys[i], 42u);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "sort/radix_allsame")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 

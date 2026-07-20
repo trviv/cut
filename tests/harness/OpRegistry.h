@@ -1670,6 +1670,115 @@ inline Tensor cumRun(Runtime& rt) {
   return rt.ops().cumOp(bufIn, CumSum, 0);
 }
 
+// ===========================================================================
+// Prefix scan / Sort (bitonic + radix) families
+// ===========================================================================
+inline VerifyResult prefixScanSweep(Runtime& rt, const std::vector<uint32_t>& counts,
+    OperatorEnum op, bool inclusive, float relTol, float absTol) {
+  for (uint32_t elements : counts) {
+    auto data = generateTestData<float>(elements, 42);
+    auto bufIn = rt.createTensor({elements}, DataType::Float32, data.data());
+    auto bufOut = rt.ops().prefixScan(bufIn, op);
+    std::vector<float> output(elements);
+    rt.copyFromTensor(bufOut, output.data(), elements * sizeof(float));
+    float running = 0.0f;
+    for (uint32_t i = 0; i < elements; ++i) {
+      if (inclusive) {
+        running += data[i];
+        if (std::abs(output[i] - running) > std::abs(running) * relTol + absTol)
+          return {false, "prefixscan mismatch at " + std::to_string(i)};
+      } else {
+        if (std::abs(output[i] - running) > std::abs(running) * relTol + absTol)
+          return {false, "prefixscan mismatch at " + std::to_string(i)};
+        running += data[i];
+      }
+    }
+  }
+  return {true, ""};
+}
+
+inline VerifyResult bitonicVerify(Runtime& rt, const std::vector<float>& data) {
+  uint32_t elements = static_cast<uint32_t>(data.size());
+  std::vector<uint32_t> indices(elements);
+  for (uint32_t i = 0; i < elements; ++i) indices[i] = i;
+  auto bufKeys = rt.createTensor({elements}, DataType::Float32, data.data());
+  auto bufVals = rt.createTensor({elements}, DataType::UInt32, indices.data());
+  rt.ops().sortBitonic(bufKeys, bufVals);
+  std::vector<float> sortedKeys(elements);
+  std::vector<uint32_t> sortedVals(elements);
+  rt.copyFromTensor(bufKeys, sortedKeys.data(), elements * sizeof(float));
+  rt.copyFromTensor(bufVals, sortedVals.data(), elements * sizeof(uint32_t));
+  for (uint32_t i = 1; i < elements; ++i)
+    if (sortedKeys[i - 1] > sortedKeys[i])
+      return {false, "bitonic not sorted at " + std::to_string(i)};
+  std::vector<uint32_t> perm(sortedVals.begin(), sortedVals.end());
+  std::sort(perm.begin(), perm.end());
+  for (uint32_t i = 0; i < elements; ++i)
+    if (perm[i] != i)
+      return {false, "bitonic bad permutation at " + std::to_string(i)};
+  for (uint32_t i = 0; i < elements; ++i)
+    if (sortedKeys[i] != data[sortedVals[i]])
+      return {false, "bitonic key-index mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult radixVerify(Runtime& rt, const std::vector<uint32_t>& data) {
+  uint32_t elements = static_cast<uint32_t>(data.size());
+  std::vector<uint32_t> indices(elements);
+  for (uint32_t i = 0; i < elements; ++i) indices[i] = i;
+  auto bufKeys = rt.createTensor({elements}, DataType::UInt32, data.data());
+  auto bufVals = rt.createTensor({elements}, DataType::UInt32, indices.data());
+  rt.ops().sortRadix(bufKeys, bufVals);
+  std::vector<uint32_t> sortedKeys(elements);
+  std::vector<uint32_t> sortedVals(elements);
+  rt.copyFromTensor(bufKeys, sortedKeys.data(), elements * sizeof(uint32_t));
+  rt.copyFromTensor(bufVals, sortedVals.data(), elements * sizeof(uint32_t));
+  for (uint32_t i = 1; i < elements; ++i)
+    if (sortedKeys[i - 1] > sortedKeys[i])
+      return {false, "radix not sorted at " + std::to_string(i)};
+  std::vector<uint32_t> perm(sortedVals.begin(), sortedVals.end());
+  std::sort(perm.begin(), perm.end());
+  for (uint32_t i = 0; i < elements; ++i)
+    if (perm[i] != i)
+      return {false, "radix bad permutation at " + std::to_string(i)};
+  for (uint32_t i = 0; i < elements; ++i)
+    if (sortedKeys[i] != data[sortedVals[i]])
+      return {false, "radix key-index mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult bitonicSweep(Runtime& rt, const std::vector<uint32_t>& counts) {
+  for (uint32_t elements : counts) {
+    auto data = generateTestData<float>(elements, 42);
+    auto r = bitonicVerify(rt, data);
+    if (!r.ok) return r;
+  }
+  return {true, ""};
+}
+inline VerifyResult radixSweep(Runtime& rt, const std::vector<uint32_t>& counts) {
+  for (uint32_t elements : counts) {
+    auto data = generateTestData<uint32_t>(elements, 42);
+    auto r = radixVerify(rt, data);
+    if (!r.ok) return r;
+  }
+  return {true, ""};
+}
+
+inline Tensor prefixScanRun(Runtime& rt) {
+  auto data = generateTestData<float>(256, 42);
+  auto bufIn = rt.createTensor({256u}, DataType::Float32, data.data());
+  return rt.ops().prefixScan(bufIn, PrefixScanInclusiveSum);
+}
+inline Tensor sortRun(Runtime& rt) {
+  auto data = generateTestData<float>(256, 42);
+  std::vector<uint32_t> indices(256);
+  for (uint32_t i = 0; i < 256; ++i) indices[i] = i;
+  auto bufKeys = rt.createTensor({256u}, DataType::Float32, data.data());
+  auto bufVals = rt.createTensor({256u}, DataType::UInt32, indices.data());
+  rt.ops().sortBitonic(bufKeys, bufVals);
+  return bufKeys;
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -2876,6 +2985,156 @@ cases.push_back(std::move(c));
       float acc = 1.0f;
       for (uint32_t i = 0; i < n; ++i) { acc *= 1.001f; expected[i] = acc; }
       return cumOpCheck(rt, data, {n}, CumProd, 0, expected, 1e-4f, 0.0f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Prefix scan family
+  {
+    OpCase c;
+    c.name = "prefixscan/exclusive_small";
+    c.family = "prefixscan";
+    c.run = [](Runtime &rt, int) { return prefixScanRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return prefixScanSweep(rt, {1u, 4u, 16u, 100u, 256u}, PrefixScanExclusiveSum, false, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "prefixscan/exclusive_large";
+    c.family = "prefixscan";
+    c.run = [](Runtime &rt, int) { return prefixScanRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return prefixScanSweep(rt, {257u, 1000u, 10000u}, PrefixScanExclusiveSum, false, 1e-3f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "prefixscan/inclusive_small";
+    c.family = "prefixscan";
+    c.run = [](Runtime &rt, int) { return prefixScanRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return prefixScanSweep(rt, {1u, 4u, 16u, 100u, 256u}, PrefixScanInclusiveSum, true, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "prefixscan/inclusive_large";
+    c.family = "prefixscan";
+    c.run = [](Runtime &rt, int) { return prefixScanRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return prefixScanSweep(rt, {257u, 1000u, 10000u}, PrefixScanInclusiveSum, true, 1e-3f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Sort family (bitonic + radix)
+  {
+    OpCase c;
+    c.name = "sort/bitonic_small";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return bitonicSweep(rt, {1u, 2u, 4u, 16u, 100u, 256u});
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "sort/bitonic_large";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return bitonicSweep(rt, {1000u, 10000u}); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "sort/bitonic_alreadysorted";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data(100);
+      for (uint32_t i = 0; i < 100; ++i) data[i] = static_cast<float>(i);
+      return bitonicVerify(rt, data);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "sort/bitonic_reversesorted";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data(100);
+      for (uint32_t i = 0; i < 100; ++i) data[i] = static_cast<float>(99 - i);
+      return bitonicVerify(rt, data);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "sort/bitonic_allsame";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data(100, 5.0f);
+      return bitonicVerify(rt, data);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "sort/radix_small";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return radixSweep(rt, {1u, 2u, 16u, 100u, 256u});
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "sort/radix_large";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return radixSweep(rt, {1000u, 10000u}); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "sort/radix_alreadysorted";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<uint32_t> data(100);
+      for (uint32_t i = 0; i < 100; ++i) data[i] = i;
+      return radixVerify(rt, data);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "sort/radix_reversesorted";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<uint32_t> data(100);
+      for (uint32_t i = 0; i < 100; ++i) data[i] = 99u - i;
+      return radixVerify(rt, data);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "sort/radix_allsame";
+    c.family = "sort";
+    c.run = [](Runtime &rt, int) { return sortRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<uint32_t> data(100, 42u);
+      return radixVerify(rt, data);
     };
     cases.push_back(std::move(c));
   }
