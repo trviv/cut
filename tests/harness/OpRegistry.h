@@ -595,6 +595,175 @@ inline constexpr std::array<OperatorEnum, 7> kReduceGlobalOps = {
 inline constexpr std::array<OperatorEnum, 6> kReduceGlobalIntOps = {
     ReduceSum, ReduceMin, ReduceMax, ReduceProd, ReduceAny, ReduceAll};
 
+// ===========================================================================
+// Dim-reduce and NormDim families
+// ===========================================================================
+struct DR2D { uint32_t rows; uint32_t cols; };
+inline constexpr std::array<DR2D, 4> kDimr2DCases = {{{3, 4}, {7, 8}, {4, 12}, {13, 16}}};
+
+inline VerifyResult dimReduce2DSweep(Runtime &rt, OperatorEnum op, uint32_t dim) {
+  for (const auto &tc : kDimr2DCases) {
+    uint32_t rows = tc.rows;
+    uint32_t cols = tc.cols;
+    uint32_t elements = rows * cols;
+    auto dataIn = generateTestData<float>(elements, 42);
+    auto bufIn = rt.createTensor({rows, cols}, DataType::Float32, dataIn.data());
+
+    uint32_t outerSize, reduceSize, innerSize, outLen;
+    if (dim == 0) {
+      outerSize = 1;
+      reduceSize = rows;
+      innerSize = cols;
+      outLen = cols;
+    } else {
+      outerSize = rows;
+      reduceSize = cols;
+      innerSize = 1;
+      outLen = rows;
+    }
+
+    auto bufOut = rt.ops().reduce(op, bufIn, dim);
+    std::vector<float> output(outLen);
+    rt.copyFromTensor(bufOut, output.data(), outLen * sizeof(float));
+
+    auto expected = dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
+    for (uint32_t i = 0; i < outLen; ++i) {
+      if (std::abs(output[i] - expected[i]) > std::abs(expected[i]) * 1e-4f + 1e-5f) {
+        return {false, std::string(operatorName(op)) + " dim reduce mismatch at idx " + std::to_string(i)};
+      }
+    }
+  }
+  return {true, ""};
+}
+
+inline VerifyResult dimReduce3DSweep(Runtime &rt, OperatorEnum op) {
+  const uint32_t d0 = 3, d1 = 5, d2 = 4;
+  const uint32_t elements = d0 * d1 * d2;
+  auto dataIn = generateTestData<float>(elements, 42);
+  auto bufIn = rt.createTensor({d0, d1, d2}, DataType::Float32, dataIn.data());
+
+  uint32_t outerSize = d0;
+  uint32_t reduceSize = d1;
+  uint32_t innerSize = d2;
+  uint32_t outLen = outerSize * innerSize;
+
+  auto bufOut = rt.ops().reduce(op, bufIn, 1);
+  std::vector<float> output(outLen);
+  rt.copyFromTensor(bufOut, output.data(), outLen * sizeof(float));
+
+  auto expected = dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
+  for (uint32_t i = 0; i < outLen; ++i) {
+    if (std::abs(output[i] - expected[i]) > std::abs(expected[i]) * 1e-4f + 1e-5f) {
+      return {false, std::string(operatorName(op)) + " dim reduce mismatch at idx " + std::to_string(i)};
+    }
+  }
+  return {true, ""};
+}
+
+inline VerifyResult normDim2DSweep(Runtime &rt, uint32_t dim) {
+  for (const auto &tc : kDimr2DCases) {
+    uint32_t rows = tc.rows;
+    uint32_t cols = tc.cols;
+    uint32_t elements = rows * cols;
+    auto dataIn = generateTestData<float>(elements, 42);
+    auto bufIn = rt.createTensor({rows, cols}, DataType::Float32, dataIn.data());
+
+    uint32_t outerSize, reduceSize, innerSize, outLen;
+    if (dim == 0) {
+      outerSize = 1;
+      reduceSize = rows;
+      innerSize = cols;
+      outLen = cols;
+    } else {
+      outerSize = rows;
+      reduceSize = cols;
+      innerSize = 1;
+      outLen = rows;
+    }
+
+    auto bufOut = rt.ops().norm(bufIn, dim);
+    std::vector<float> output(outLen);
+    rt.copyFromTensor(bufOut, output.data(), outLen * sizeof(float));
+
+    auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
+    for (uint32_t i = 0; i < outLen; ++i) {
+      if (std::abs(output[i] - expected[i]) > std::abs(expected[i]) * 1e-4f + 1e-5f) {
+        return {false, "norm dim mismatch at idx " + std::to_string(i)};
+      }
+    }
+  }
+  return {true, ""};
+}
+
+inline VerifyResult normDim3DSweep(Runtime &rt) {
+  const uint32_t d0 = 3, d1 = 5, d2 = 4;
+  const uint32_t elements = d0 * d1 * d2;
+  auto dataIn = generateTestData<float>(elements, 42);
+  auto bufIn = rt.createTensor({d0, d1, d2}, DataType::Float32, dataIn.data());
+
+  uint32_t outerSize = d0;
+  uint32_t reduceSize = d1;
+  uint32_t innerSize = d2;
+  uint32_t outLen = outerSize * innerSize;
+
+  auto bufOut = rt.ops().norm(bufIn, 1);
+  std::vector<float> output(outLen);
+  rt.copyFromTensor(bufOut, output.data(), outLen * sizeof(float));
+
+  auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
+  for (uint32_t i = 0; i < outLen; ++i) {
+    if (std::abs(output[i] - expected[i]) > std::abs(expected[i]) * 1e-4f + 1e-5f) {
+      return {false, "norm dim mismatch at idx " + std::to_string(i)};
+    }
+  }
+  return {true, ""};
+}
+
+inline VerifyResult normDimKnown(Runtime &rt) {
+  std::vector<float> dataIn = {3.0f, 5.0f, 4.0f, 12.0f};
+  auto bufIn = rt.createTensor({2, 2}, DataType::Float32, dataIn.data());
+  auto bufOut = rt.ops().norm(bufIn, 0);
+  std::vector<float> output(2);
+  rt.copyFromTensor(bufOut, output.data(), 2 * sizeof(float));
+
+  if (std::abs(output[0] - 5.0f) > 1e-5f || std::abs(output[1] - 13.0f) > 1e-5f) {
+    return {false, "norm known mismatch"};
+  }
+  return {true, ""};
+}
+
+inline Tensor dimReduceRun2D(Runtime &rt, OperatorEnum op, uint32_t dim) {
+  const uint32_t rows = 7, cols = 8;
+  const uint32_t elements = rows * cols;
+  auto dataIn = generateTestData<float>(elements, 42);
+  auto bufIn = rt.createTensor({rows, cols}, DataType::Float32, dataIn.data());
+  return rt.ops().reduce(op, bufIn, dim);
+}
+
+inline Tensor dimReduceRun3D(Runtime &rt, OperatorEnum op) {
+  const uint32_t d0 = 3, d1 = 5, d2 = 4;
+  const uint32_t elements = d0 * d1 * d2;
+  auto dataIn = generateTestData<float>(elements, 42);
+  auto bufIn = rt.createTensor({d0, d1, d2}, DataType::Float32, dataIn.data());
+  return rt.ops().reduce(op, bufIn, 1);
+}
+
+inline Tensor normDimRun2D(Runtime &rt, uint32_t dim) {
+  const uint32_t rows = 7, cols = 8;
+  const uint32_t elements = rows * cols;
+  auto dataIn = generateTestData<float>(elements, 42);
+  auto bufIn = rt.createTensor({rows, cols}, DataType::Float32, dataIn.data());
+  return rt.ops().norm(bufIn, dim);
+}
+
+inline Tensor normDimRun3D(Runtime &rt) {
+  const uint32_t d0 = 3, d1 = 5, d2 = 4;
+  const uint32_t elements = d0 * d1 * d2;
+  auto dataIn = generateTestData<float>(elements, 42);
+  auto bufIn = rt.createTensor({d0, d1, d2}, DataType::Float32, dataIn.data());
+  return rt.ops().norm(bufIn, 1);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -859,6 +1028,52 @@ inline std::vector<OpCase> buildOpCases() {
     };
     cases.push_back(std::move(c));
   }
+
+for (auto op : kDimReductionOps) {
+  OpCase c;
+  c.name = std::string("dimreduce/") + operatorName(op) + "/2d_dim0";
+  c.family = "dimreduce";
+  c.run = [op](Runtime &rt, int) { return dimReduceRun2D(rt, op, 0); };
+  c.verify = [op](Runtime &rt, const Tensor &) { return dimReduce2DSweep(rt, op, 0); };
+  cases.push_back(std::move(c));
+
+  c.name = std::string("dimreduce/") + operatorName(op) + "/2d_dim1";
+  c.family = "dimreduce";
+  c.run = [op](Runtime &rt, int) { return dimReduceRun2D(rt, op, 1); };
+  c.verify = [op](Runtime &rt, const Tensor &) { return dimReduce2DSweep(rt, op, 1); };
+  cases.push_back(std::move(c));
+
+  c.name = std::string("dimreduce/") + operatorName(op) + "/3d_mid";
+  c.family = "dimreduce";
+  c.run = [op](Runtime &rt, int) { return dimReduceRun3D(rt, op); };
+  c.verify = [op](Runtime &rt, const Tensor &) { return dimReduce3DSweep(rt, op); };
+  cases.push_back(std::move(c));
+}
+
+OpCase c;
+c.name = "normdim/2d_dim0";
+c.family = "normdim";
+c.run = [](Runtime &rt, int) { return normDimRun2D(rt, 0); };
+c.verify = [](Runtime &rt, const Tensor &) { return normDim2DSweep(rt, 0); };
+cases.push_back(std::move(c));
+
+c.name = "normdim/2d_dim1";
+c.family = "normdim";
+c.run = [](Runtime &rt, int) { return normDimRun2D(rt, 1); };
+c.verify = [](Runtime &rt, const Tensor &) { return normDim2DSweep(rt, 1); };
+cases.push_back(std::move(c));
+
+c.name = "normdim/3d_mid";
+c.family = "normdim";
+c.run = [](Runtime &rt, int) { return normDimRun3D(rt); };
+c.verify = [](Runtime &rt, const Tensor &) { return normDim3DSweep(rt); };
+cases.push_back(std::move(c));
+
+c.name = "normdim/known";
+c.family = "normdim";
+c.run = [](Runtime &rt, int) { return normDimRun2D(rt, 0); };
+c.verify = [](Runtime &rt, const Tensor &) { return normDimKnown(rt); };
+cases.push_back(std::move(c));
 
   return cases;
 }

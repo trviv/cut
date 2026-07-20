@@ -979,125 +979,47 @@ TEST_F(VulkanBackendTest, TernarySelect_Float32) {
 
 // Test dim reduction operators on 2D tensors reducing along dim 0
 TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim0) {
-  const DataType dtype = DataType::Float32;
-
-  struct TestCase {
-    uint32_t rows;
-    uint32_t cols;
-  };
-  constexpr std::array<TestCase, 4> testCases = {
-      {{3, 4}, {7, 8}, {4, 12}, {13, 16}}};
-
-  for (const auto &tc : testCases) {
-    const uint32_t elements = tc.rows * tc.cols;
-    auto dataIn = generateTestData<float>(elements, 42);
-
-    // Reduce along dim 0: outerSize=1, reduceSize=rows, innerSize=cols
-    uint32_t outerSize = 1;
-    uint32_t reduceSize = tc.rows;
-    uint32_t innerSize = tc.cols;
-
-    auto bufferIn =
-        runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
-
-    for (OperatorEnum op : kDimReductionOps) {
-      SCOPED_TRACE(std::string("Op: ") + operatorName(op) + " Shape: [" +
-                   std::to_string(tc.rows) + ", " + std::to_string(tc.cols) +
-                   "] dim=0");
-
-      auto bufferOut = runtime_->ops().reduce(op, bufferIn, 0);
-
-      std::vector<float> output(innerSize);
-      runtime_->copyFromTensor(bufferOut, output.data(),
-                               innerSize * sizeof(float));
-
-      auto expected =
-          dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
-      for (uint32_t i = 0; i < innerSize; ++i) {
-        ASSERT_NEAR(output[i], expected[i],
-                    std::abs(expected[i]) * 1e-4f + 1e-5f)
-            << "Mismatch at index " << i;
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "dimreduce" || c.name.find("/2d_dim0") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // Test dim reduction operators on 2D tensors reducing along dim 1
 TEST_F(VulkanBackendTest, DimReductionOperators_2D_Dim1) {
-  const DataType dtype = DataType::Float32;
-
-  struct TestCase {
-    uint32_t rows;
-    uint32_t cols;
-  };
-  constexpr std::array<TestCase, 4> testCases = {
-      {{3, 4}, {7, 8}, {4, 12}, {13, 16}}};
-
-  for (const auto &tc : testCases) {
-    const uint32_t elements = tc.rows * tc.cols;
-    auto dataIn = generateTestData<float>(elements, 42);
-
-    // Reduce along dim 1: outerSize=rows, reduceSize=cols, innerSize=1
-    uint32_t outerSize = tc.rows;
-    uint32_t reduceSize = tc.cols;
-    uint32_t innerSize = 1;
-
-    auto bufferIn =
-        runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
-
-    for (OperatorEnum op : kDimReductionOps) {
-      SCOPED_TRACE(std::string("Op: ") + operatorName(op) + " Shape: [" +
-                   std::to_string(tc.rows) + ", " + std::to_string(tc.cols) +
-                   "] dim=1");
-
-      auto bufferOut = runtime_->ops().reduce(op, bufferIn, 1);
-
-      std::vector<float> output(outerSize);
-      runtime_->copyFromTensor(bufferOut, output.data(),
-                               outerSize * sizeof(float));
-
-      auto expected =
-          dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
-      for (uint32_t i = 0; i < outerSize; ++i) {
-        ASSERT_NEAR(output[i], expected[i],
-                    std::abs(expected[i]) * 1e-4f + 1e-5f)
-            << "Mismatch at index " << i;
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "dimreduce" || c.name.find("/2d_dim1") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // Test dim reduction on 3D tensor reducing along the middle dimension
 TEST_F(VulkanBackendTest, DimReductionOperators_3D_MiddleDim) {
-  const DataType dtype = DataType::Float32;
-  const uint32_t d0 = 3, d1 = 5, d2 = 4;
-  const uint32_t elements = d0 * d1 * d2;
-  auto dataIn = generateTestData<float>(elements, 42);
-
-  // Reduce along dim 1: outerSize=d0, reduceSize=d1, innerSize=d2
-  uint32_t outerSize = d0;
-  uint32_t reduceSize = d1;
-  uint32_t innerSize = d2;
-  uint32_t numOutputs = outerSize * innerSize;
-
-  auto bufferIn = runtime_->createTensor({d0, d1, d2}, dtype, dataIn.data());
-
-  for (OperatorEnum op : kDimReductionOps) {
-    SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                 " Shape: [3, 5, 4] dim=1");
-
-    auto bufferOut = runtime_->ops().reduce(op, bufferIn, 1);
-
-    std::vector<float> output(numOutputs);
-    runtime_->copyFromTensor(bufferOut, output.data(),
-                             numOutputs * sizeof(float));
-
-    auto expected = dimReduceRef(op, dataIn, outerSize, reduceSize, innerSize);
-    for (uint32_t i = 0; i < numOutputs; ++i) {
-      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
-          << "Mismatch at index " << i;
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "dimreduce" || c.name.find("/3d_mid") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // ============================================================================
@@ -1106,131 +1028,62 @@ TEST_F(VulkanBackendTest, DimReductionOperators_3D_MiddleDim) {
 
 // Test NormDim on 2D tensors reducing along dim 0
 TEST_F(VulkanBackendTest, NormDim_2D_Dim0) {
-  const DataType dtype = DataType::Float32;
-
-  struct TestCase {
-    uint32_t rows;
-    uint32_t cols;
-  };
-  constexpr std::array<TestCase, 4> testCases = {
-      {{3, 4}, {7, 8}, {4, 12}, {13, 16}}};
-
-  for (const auto &tc : testCases) {
-    const uint32_t elements = tc.rows * tc.cols;
-    auto dataIn = generateTestData<float>(elements, 42);
-
-    uint32_t outerSize = 1;
-    uint32_t reduceSize = tc.rows;
-    uint32_t innerSize = tc.cols;
-
-    SCOPED_TRACE(std::string("Shape: [") + std::to_string(tc.rows) + ", " +
-                 std::to_string(tc.cols) + "] dim=0");
-
-    auto bufferIn =
-        runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
-
-    auto bufferOut = runtime_->ops().norm(bufferIn, 0);
-
-    std::vector<float> output(innerSize);
-    runtime_->copyFromTensor(bufferOut, output.data(),
-                             innerSize * sizeof(float));
-
-    auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
-    for (uint32_t i = 0; i < innerSize; ++i) {
-      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
-          << "Mismatch at index " << i;
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "normdim/2d_dim0")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // Test NormDim on 2D tensors reducing along dim 1
 TEST_F(VulkanBackendTest, NormDim_2D_Dim1) {
-  const DataType dtype = DataType::Float32;
-
-  struct TestCase {
-    uint32_t rows;
-    uint32_t cols;
-  };
-  constexpr std::array<TestCase, 4> testCases = {
-      {{3, 4}, {7, 8}, {4, 12}, {13, 16}}};
-
-  for (const auto &tc : testCases) {
-    const uint32_t elements = tc.rows * tc.cols;
-    auto dataIn = generateTestData<float>(elements, 42);
-
-    uint32_t outerSize = tc.rows;
-    uint32_t reduceSize = tc.cols;
-    uint32_t innerSize = 1;
-
-    SCOPED_TRACE(std::string("Shape: [") + std::to_string(tc.rows) + ", " +
-                 std::to_string(tc.cols) + "] dim=1");
-
-    auto bufferIn =
-        runtime_->createTensor({tc.rows, tc.cols}, dtype, dataIn.data());
-
-    auto bufferOut = runtime_->ops().norm(bufferIn, 1);
-
-    std::vector<float> output(outerSize);
-    runtime_->copyFromTensor(bufferOut, output.data(),
-                             outerSize * sizeof(float));
-
-    auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
-    for (uint32_t i = 0; i < outerSize; ++i) {
-      ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
-          << "Mismatch at index " << i;
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "normdim/2d_dim1")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // Test NormDim on 3D tensor reducing along middle dimension
 TEST_F(VulkanBackendTest, NormDim_3D_MiddleDim) {
-  const DataType dtype = DataType::Float32;
-  const uint32_t d0 = 3, d1 = 5, d2 = 4;
-  const uint32_t elements = d0 * d1 * d2;
-  auto dataIn = generateTestData<float>(elements, 42);
-
-  uint32_t outerSize = d0;
-  uint32_t reduceSize = d1;
-  uint32_t innerSize = d2;
-  uint32_t numOutputs = outerSize * innerSize;
-
-  SCOPED_TRACE("Shape: [3, 5, 4] dim=1");
-
-  auto bufferIn = runtime_->createTensor({d0, d1, d2}, dtype, dataIn.data());
-
-  auto bufferOut = runtime_->ops().norm(bufferIn, 1);
-
-  std::vector<float> output(numOutputs);
-  runtime_->copyFromTensor(bufferOut, output.data(),
-                           numOutputs * sizeof(float));
-
-  auto expected = normDimRef(dataIn, outerSize, reduceSize, innerSize);
-  for (uint32_t i = 0; i < numOutputs; ++i) {
-    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
-        << "Mismatch at index " << i;
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "normdim/3d_mid")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // Test NormDim with known values (3-4-5 triangle)
 TEST_F(VulkanBackendTest, NormDim_KnownValues) {
-  const DataType dtype = DataType::Float32;
-
-  // [[3, 5], [4, 12]] -> norm along dim 0 -> [sqrt(9+16), sqrt(25+144)]
-  //                                        = [5, 13]
-  std::vector<float> dataIn = {3.0f, 5.0f, 4.0f, 12.0f};
-  uint32_t outerSize = 1;
-  uint32_t reduceSize = 2;
-  uint32_t innerSize = 2;
-
-  auto bufferIn = runtime_->createTensor({2, 2}, dtype, dataIn.data());
-
-  auto bufferOut = runtime_->ops().norm(bufferIn, 0);
-
-  std::vector<float> output(2);
-  runtime_->copyFromTensor(bufferOut, output.data(), 2 * sizeof(float));
-
-  ASSERT_NEAR(output[0], 5.0f, 1e-5f);
-  ASSERT_NEAR(output[1], 13.0f, 1e-5f);
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "normdim/known")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
+  }
+  EXPECT_GT(ran, 0);
 }
 
 // ============================================================================
