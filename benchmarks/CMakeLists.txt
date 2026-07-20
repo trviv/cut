@@ -31,3 +31,10 @@ add_executable(autotune
 target_include_directories(autotune PRIVATE ${BENCH_INCLUDE_DIRS})
 target_link_libraries(autotune PRIVATE CUTLib)
 target_compile_options(autotune PRIVATE -O2)
+
+add_executable(op_bench
+    op_bench.cpp
+)
+target_include_directories(op_bench PRIVATE ${BENCH_INCLUDE_DIRS})
+target_link_libraries(op_bench PRIVATE CUTLib)
+target_compile_options(op_bench PRIVATE -O2)
