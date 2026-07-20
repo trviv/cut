@@ -5112,69 +5112,35 @@ protected:
 };
 
 TEST_F(LayerNormTest, Basic_NoWeightBias) {
-  const DataType dtype = DataType::Float32;
-
-  // [2, 4] input, normalize over last dim (4)
-  const uint32_t outer = 2, inner = 4;
-  std::vector<float> input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
-
-  auto bufIn = runtime_->createTensor({outer, inner}, dtype, input.data());
-  auto bufOut = runtime_->ops().layerNorm(bufIn, {inner});
-  runtime_->flush();
-
-  std::vector<float> output(outer * inner);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = layerNormRef(input, outer, inner, nullptr, nullptr, 1e-5f);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "layernorm/basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(LayerNormTest, WithWeightAndBias) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t outer = 3, inner = 4;
-  auto input = generateTestData<float>(outer * inner, 42);
-  std::vector<float> weight = {1.0f, 2.0f, 0.5f, 1.5f};
-  std::vector<float> bias = {0.1f, -0.1f, 0.2f, -0.2f};
-
-  auto bufIn = runtime_->createTensor({outer, inner}, dtype, input.data());
-  auto bufW = runtime_->createTensor({inner}, dtype, weight.data());
-  auto bufB = runtime_->createTensor({inner}, dtype, bias.data());
-
-  auto bufOut = runtime_->ops().layerNorm(bufIn, {inner}, &bufW, &bufB);
-  runtime_->flush();
-
-  std::vector<float> output(outer * inner);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = layerNormRef(input, outer, inner, &weight, &bias, 1e-5f);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "layernorm/weightbias")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(LayerNormTest, HigherDimensional) {
-  const DataType dtype = DataType::Float32;
-
-  // [2, 3, 4] input, normalize over last 2 dims (3, 4)
-  const uint32_t N = 2, H = 3, W = 4;
-  auto input = generateTestData<float>(N * H * W, 42);
-
-  auto bufIn = runtime_->createTensor({N, H, W}, dtype, input.data());
-  auto bufOut = runtime_->ops().layerNorm(bufIn, {H, W});
-  runtime_->flush();
-
-  std::vector<float> output(N * H * W);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = layerNormRef(input, N, H * W, nullptr, nullptr, 1e-5f);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "layernorm/higherdim")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -5217,88 +5183,35 @@ protected:
 };
 
 TEST_F(BatchNormTest, Basic_NoWeightBias) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t N = 2, C = 3, H = 4, W = 4;
-  auto input = generateTestData<float>(N * C * H * W, 42);
-  std::vector<float> runningMean = {1.0f, 2.0f, 3.0f};
-  std::vector<float> runningVar = {0.5f, 1.0f, 2.0f};
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufMean = runtime_->createTensor({C}, dtype, runningMean.data());
-  auto bufVar = runtime_->createTensor({C}, dtype, runningVar.data());
-
-  auto bufOut = runtime_->ops().batchNorm(bufIn, bufMean, bufVar);
-  runtime_->flush();
-
-  std::vector<float> output(N * C * H * W);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = batchNormRef(input, runningMean, runningVar, nullptr, nullptr,
-                               N, C, H * W, 1e-5f);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
-        << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "batchnorm/basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(BatchNormTest, WithWeightAndBias) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t N = 2, C = 4, H = 4, W = 4;
-  auto input = generateTestData<float>(N * C * H * W, 42);
-  std::vector<float> runningMean = {0.5f, 1.0f, -0.5f, 2.0f};
-  std::vector<float> runningVar = {1.0f, 0.5f, 2.0f, 1.5f};
-  std::vector<float> weight = {1.0f, 2.0f, 0.5f, 1.5f};
-  std::vector<float> bias = {0.1f, -0.2f, 0.3f, -0.1f};
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  auto bufMean = runtime_->createTensor({C}, dtype, runningMean.data());
-  auto bufVar = runtime_->createTensor({C}, dtype, runningVar.data());
-  auto bufW = runtime_->createTensor({C}, dtype, weight.data());
-  auto bufB = runtime_->createTensor({C}, dtype, bias.data());
-
-  auto bufOut = runtime_->ops().batchNorm(bufIn, bufMean, bufVar, &bufW, &bufB);
-  runtime_->flush();
-
-  std::vector<float> output(N * C * H * W);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  auto expected = batchNormRef(input, runningMean, runningVar, &weight, &bias,
-                               N, C, H * W, 1e-5f);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
-        << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "batchnorm/weightbias")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(BatchNormTest, SingleSpatial) {
-  const DataType dtype = DataType::Float32;
-
-  // [2, 3] input (no spatial dims)
-  const uint32_t N = 2, C = 3;
-  std::vector<float> input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
-  std::vector<float> runningMean = {0.0f, 0.0f, 0.0f};
-  std::vector<float> runningVar = {1.0f, 1.0f, 1.0f};
-
-  auto bufIn = runtime_->createTensor({N, C}, dtype, input.data());
-  auto bufMean = runtime_->createTensor({C}, dtype, runningMean.data());
-  auto bufVar = runtime_->createTensor({C}, dtype, runningVar.data());
-
-  auto bufOut = runtime_->ops().batchNorm(bufIn, bufMean, bufVar);
-  runtime_->flush();
-
-  std::vector<float> output(N * C);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  // With mean=0, var=1, eps=1e-5: output ~= input / sqrt(1+1e-5) ~= input
-  auto expected = batchNormRef(input, runningMean, runningVar, nullptr, nullptr,
-                               N, C, 1, 1e-5f);
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-4f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "batchnorm/singlespatial")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 

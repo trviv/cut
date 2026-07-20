@@ -1438,6 +1438,109 @@ inline Tensor padRun(Runtime& rt) {
   return rt.ops().pad(bufIn, {1u, 2u}, 0.0f);
 }
 
+// ===========================================================================
+// LayerNorm / BatchNorm families
+// ===========================================================================
+inline std::vector<float> layerNormRefCPU(const std::vector<float>& input,
+    size_t outerSize, size_t normSize, const std::vector<float>* weight,
+    const std::vector<float>* bias, float eps) {
+  std::vector<float> result(input.size());
+  for (size_t o = 0; o < outerSize; ++o) {
+    size_t base = o * normSize;
+    double sum = 0.0;
+    for (size_t i = 0; i < normSize; ++i) sum += input[base + i];
+    float mean = static_cast<float>(sum / normSize);
+    double varSum = 0.0;
+    for (size_t i = 0; i < normSize; ++i) { double d = input[base + i] - mean; varSum += d * d; }
+    float invStd = 1.0f / std::sqrt(static_cast<float>(varSum / normSize) + eps);
+    for (size_t i = 0; i < normSize; ++i) {
+      float n = (input[base + i] - mean) * invStd;
+      if (weight) n *= (*weight)[i];
+      if (bias) n += (*bias)[i];
+      result[base + i] = n;
+    }
+  }
+  return result;
+}
+
+inline std::vector<float> batchNormRefCPU(const std::vector<float>& input,
+    const std::vector<float>& runningMean, const std::vector<float>& runningVar,
+    const std::vector<float>* weight, const std::vector<float>* bias,
+    uint32_t N, uint32_t C, size_t spatialSize, float eps) {
+  std::vector<float> result(input.size());
+  for (uint32_t n = 0; n < N; ++n)
+    for (uint32_t c = 0; c < C; ++c) {
+      float invStd = 1.0f / std::sqrt(runningVar[c] + eps);
+      float scale = weight ? (*weight)[c] * invStd : invStd;
+      float shift = bias ? (*bias)[c] - runningMean[c] * scale : -runningMean[c] * scale;
+      size_t base = (static_cast<size_t>(n) * C + c) * spatialSize;
+      for (size_t s = 0; s < spatialSize; ++s) result[base + s] = input[base + s] * scale + shift;
+    }
+  return result;
+}
+
+inline VerifyResult layerNormCheck(Runtime& rt, const std::vector<float>& input,
+    const std::vector<uint32_t>& inShape, const std::vector<uint32_t>& normShape,
+    bool hasWB, const std::vector<float>& weight, const std::vector<float>& bias,
+    size_t outerSize, size_t normSize, float absTol) {
+  auto ref = layerNormRefCPU(input, outerSize, normSize, hasWB ? &weight : nullptr, hasWB ? &bias : nullptr, 1e-5f);
+  auto bufIn = rt.createTensor(inShape, DataType::Float32, input.data());
+  std::vector<float> output(input.size());
+  if (hasWB) {
+    auto bufW = rt.createTensor({static_cast<uint32_t>(weight.size())}, DataType::Float32, weight.data());
+    auto bufB = rt.createTensor({static_cast<uint32_t>(bias.size())}, DataType::Float32, bias.data());
+    auto out = rt.ops().layerNorm(bufIn, normShape, &bufW, &bufB);
+    rt.copyFromTensor(out, output.data(), output.size() * sizeof(float));
+  } else {
+    auto out = rt.ops().layerNorm(bufIn, normShape);
+    rt.copyFromTensor(out, output.data(), output.size() * sizeof(float));
+  }
+  for (size_t i = 0; i < ref.size(); ++i)
+    if (std::abs(output[i] - ref[i]) > absTol)
+      return {false, "layernorm mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult batchNormCheck(Runtime& rt, const std::vector<float>& input,
+    const std::vector<uint32_t>& inShape, uint32_t N, uint32_t C, size_t spatialSize,
+    const std::vector<float>& mean, const std::vector<float>& var,
+    bool hasWB, const std::vector<float>& weight, const std::vector<float>& bias,
+    float relTol, float absTol) {
+  auto ref = batchNormRefCPU(input, mean, var, hasWB ? &weight : nullptr, hasWB ? &bias : nullptr, N, C, spatialSize, 1e-5f);
+  auto bufIn = rt.createTensor(inShape, DataType::Float32, input.data());
+  auto bufMean = rt.createTensor({C}, DataType::Float32, mean.data());
+  auto bufVar = rt.createTensor({C}, DataType::Float32, var.data());
+  std::vector<float> output(input.size());
+  if (hasWB) {
+    auto bufW = rt.createTensor({C}, DataType::Float32, weight.data());
+    auto bufB = rt.createTensor({C}, DataType::Float32, bias.data());
+    auto out = rt.ops().batchNorm(bufIn, bufMean, bufVar, &bufW, &bufB);
+    rt.copyFromTensor(out, output.data(), output.size() * sizeof(float));
+  } else {
+    auto out = rt.ops().batchNorm(bufIn, bufMean, bufVar);
+    rt.copyFromTensor(out, output.data(), output.size() * sizeof(float));
+  }
+  for (size_t i = 0; i < ref.size(); ++i)
+    if (std::abs(output[i] - ref[i]) > std::abs(ref[i]) * relTol + absTol)
+      return {false, "batchnorm mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline Tensor layerNormRun(Runtime& rt) {
+  auto input = generateTestData<float>(3 * 4, 42);
+  auto bufIn = rt.createTensor({3, 4}, DataType::Float32, input.data());
+  return rt.ops().layerNorm(bufIn, {4u});
+}
+inline Tensor batchNormRun(Runtime& rt) {
+  auto input = generateTestData<float>(2 * 3 * 4 * 4, 42);
+  std::vector<float> mean = {1.0f, 2.0f, 3.0f};
+  std::vector<float> var = {0.5f, 1.0f, 2.0f};
+  auto bufIn = rt.createTensor({2, 3, 4, 4}, DataType::Float32, input.data());
+  auto bufMean = rt.createTensor({3u}, DataType::Float32, mean.data());
+  auto bufVar = rt.createTensor({3u}, DataType::Float32, var.data());
+  return rt.ops().batchNorm(bufIn, bufMean, bufVar);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -2350,6 +2453,86 @@ cases.push_back(std::move(c));
       std::vector<float> input = {1, 2, 3, 4};
       std::vector<float> expected = {99, 99, 1, 2, 3, 4, 99, 99};
       return padCheck(rt, input, {4u}, {2u, 2u}, 99.0f, expected);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // LayerNorm family
+  {
+    OpCase c;
+    c.name = "layernorm/basic";
+    c.family = "layernorm";
+    c.run = [](Runtime &rt, int) { return layerNormRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
+      return layerNormCheck(rt, input, {2u, 4u}, {4u}, false, {}, {}, 2, 4, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "layernorm/weightbias";
+    c.family = "layernorm";
+    c.run = [](Runtime &rt, int) { return layerNormRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(3 * 4, 42);
+      std::vector<float> weight = {1.0f, 2.0f, 0.5f, 1.5f};
+      std::vector<float> bias = {0.1f, -0.1f, 0.2f, -0.2f};
+      return layerNormCheck(rt, input, {3u, 4u}, {4u}, true, weight, bias, 3, 4, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "layernorm/higherdim";
+    c.family = "layernorm";
+    c.run = [](Runtime &rt, int) { return layerNormRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(2 * 3 * 4, 42);
+      return layerNormCheck(rt, input, {2u, 3u, 4u}, {3u, 4u}, false, {}, {}, 2, 12, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // BatchNorm family
+  {
+    OpCase c;
+    c.name = "batchnorm/basic";
+    c.family = "batchnorm";
+    c.run = [](Runtime &rt, int) { return batchNormRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(2 * 3 * 4 * 4, 42);
+      std::vector<float> mean = {1.0f, 2.0f, 3.0f};
+      std::vector<float> var = {0.5f, 1.0f, 2.0f};
+      return batchNormCheck(rt, input, {2u, 3u, 4u, 4u}, 2, 3, 16, mean, var, false, {}, {}, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "batchnorm/weightbias";
+    c.family = "batchnorm";
+    c.run = [](Runtime &rt, int) { return batchNormRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto input = generateTestData<float>(2 * 4 * 4 * 4, 42);
+      std::vector<float> mean = {0.5f, 1.0f, -0.5f, 2.0f};
+      std::vector<float> var = {1.0f, 0.5f, 2.0f, 1.5f};
+      std::vector<float> weight = {1.0f, 2.0f, 0.5f, 1.5f};
+      std::vector<float> bias = {0.1f, -0.2f, 0.3f, -0.1f};
+      return batchNormCheck(rt, input, {2u, 4u, 4u, 4u}, 2, 4, 16, mean, var, true, weight, bias, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "batchnorm/singlespatial";
+    c.family = "batchnorm";
+    c.run = [](Runtime &rt, int) { return batchNormRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+      std::vector<float> mean = {0.0f, 0.0f, 0.0f};
+      std::vector<float> var = {1.0f, 1.0f, 1.0f};
+      return batchNormCheck(rt, input, {2u, 3u}, 2, 3, 1, mean, var, false, {}, {}, 0.0f, 1e-4f);
     };
     cases.push_back(std::move(c));
   }
