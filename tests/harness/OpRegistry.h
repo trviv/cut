@@ -1617,6 +1617,59 @@ inline Tensor logSoftmaxRun(Runtime& rt) {
   return rt.ops().logSoftmaxFused(a, 1);
 }
 
+// ===========================================================================
+// Cumulative (cumsum / cumprod) family
+// ===========================================================================
+inline VerifyResult cumOpCheck(Runtime& rt, const std::vector<float>& data,
+    const std::vector<uint32_t>& shape, OperatorEnum op, int dim,
+    const std::vector<float>& expected, float relTol, float absTol) {
+  auto bufIn = rt.createTensor(shape, DataType::Float32, data.data());
+  auto bufOut = rt.ops().cumOp(bufIn, op, dim);
+  std::vector<float> output(expected.size());
+  rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+  for (size_t i = 0; i < expected.size(); ++i)
+    if (std::abs(output[i] - expected[i]) > std::abs(expected[i]) * relTol + absTol)
+      return {false, "cum mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult cumSum3DVerify(Runtime& rt) {
+  std::vector<float> data(24);
+  for (int i = 0; i < 24; ++i) data[i] = static_cast<float>(i + 1);
+  std::vector<uint32_t> shape = {2, 3, 4};
+  auto idx = [](int a, int b, int c) { return a * 12 + b * 4 + c; };
+  for (int dim = 0; dim < 3; ++dim) {
+    auto bufIn = rt.createTensor(shape, DataType::Float32, data.data());
+    auto bufOut = rt.ops().cumOp(bufIn, CumSum, dim);
+    std::vector<float> output(24);
+    rt.copyFromTensor(bufOut, output.data(), 24 * sizeof(float));
+    std::vector<float> expected(24, 0.0f);
+    if (dim == 0) {
+      for (int j = 0; j < 3; ++j) for (int k = 0; k < 4; ++k) {
+        float acc = 0; for (int i = 0; i < 2; ++i) { acc += data[idx(i,j,k)]; expected[idx(i,j,k)] = acc; }
+      }
+    } else if (dim == 1) {
+      for (int i = 0; i < 2; ++i) for (int k = 0; k < 4; ++k) {
+        float acc = 0; for (int j = 0; j < 3; ++j) { acc += data[idx(i,j,k)]; expected[idx(i,j,k)] = acc; }
+      }
+    } else {
+      for (int i = 0; i < 2; ++i) for (int j = 0; j < 3; ++j) {
+        float acc = 0; for (int k = 0; k < 4; ++k) { acc += data[idx(i,j,k)]; expected[idx(i,j,k)] = acc; }
+      }
+    }
+    for (uint32_t i = 0; i < 24; ++i)
+      if (std::abs(output[i] - expected[i]) > 1e-5f)
+        return {false, "cumsum 3d dim" + std::to_string(dim) + " mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+inline Tensor cumRun(Runtime& rt) {
+  std::vector<float> data = {1, 2, 3, 4, 5, 6, 7, 8};
+  auto bufIn = rt.createTensor({8u}, DataType::Float32, data.data());
+  return rt.ops().cumOp(bufIn, CumSum, 0);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -2698,6 +2751,131 @@ cases.push_back(std::move(c));
       std::vector<float> data(8 * 128);
       for (uint32_t i = 0; i < 8 * 128; ++i) data[i] = static_cast<float>(i) * 0.01f - 5.0f;
       return logSoftmaxCompositeVsFusedVerify(rt, data, {8u, 128u}, 1);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Cumulative family
+  {
+    OpCase c;
+    c.name = "cumulative/cumsum_1d";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data = {1, 2, 3, 4, 5, 6, 7, 8};
+      std::vector<float> expected = {1, 3, 6, 10, 15, 21, 28, 36};
+      return cumOpCheck(rt, data, {8u}, CumSum, 0, expected, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "cumulative/cumprod_1d";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data = {1, 2, 3, 4};
+      std::vector<float> expected = {1, 2, 6, 24};
+      return cumOpCheck(rt, data, {4u}, CumProd, 0, expected, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "cumulative/cumsum_2d_dim0";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+      std::vector<float> expected = {1, 2, 3, 4, 6, 8, 10, 12, 15, 18, 21, 24};
+      return cumOpCheck(rt, data, {3u, 4u}, CumSum, 0, expected, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "cumulative/cumprod_2d_dim0";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data = {1, 2, 3, 4, 5, 6, 7, 8};
+      std::vector<float> expected = {1, 2, 3, 4, 5, 12, 21, 32};
+      return cumOpCheck(rt, data, {2u, 4u}, CumProd, 0, expected, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "cumulative/cumsum_2d_dim1";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+      std::vector<float> expected = {1, 3, 6, 10, 5, 11, 18, 26, 9, 19, 30, 42};
+      return cumOpCheck(rt, data, {3u, 4u}, CumSum, 1, expected, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "cumulative/cumprod_2d_dim1";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> data = {1, 2, 3, 4, 2, 3, 1, 2};
+      std::vector<float> expected = {1, 2, 6, 24, 2, 6, 6, 12};
+      return cumOpCheck(rt, data, {2u, 4u}, CumProd, 1, expected, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "cumulative/cumsum_large_multipass";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      const uint32_t n = 4096;
+      std::vector<float> data(n), expected(n);
+      for (uint32_t i = 0; i < n; ++i) {
+        data[i] = static_cast<float>(i + 1);
+        expected[i] = static_cast<float>((i + 1) * (i + 2)) / 2.0f;
+      }
+      return cumOpCheck(rt, data, {n}, CumSum, 0, expected, 1e-5f, 0.0f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "cumulative/cumsum_large_manyworkgroups";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      const uint32_t n = 10000;
+      std::vector<float> data(n, 1.0f), expected(n);
+      for (uint32_t i = 0; i < n; ++i) expected[i] = static_cast<float>(i + 1);
+      return cumOpCheck(rt, data, {n}, CumSum, 0, expected, 0.0f, 1e-3f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "cumulative/cumsum_3d_alldims";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return cumSum3DVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "cumulative/cumprod_large_multipass";
+    c.family = "cumulative";
+    c.run = [](Runtime &rt, int) { return cumRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      const uint32_t n = 4096;
+      std::vector<float> data(n, 1.001f), expected(n);
+      float acc = 1.0f;
+      for (uint32_t i = 0; i < n; ++i) { acc *= 1.001f; expected[i] = acc; }
+      return cumOpCheck(rt, data, {n}, CumProd, 0, expected, 1e-4f, 0.0f);
     };
     cases.push_back(std::move(c));
   }

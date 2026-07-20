@@ -1319,275 +1319,112 @@ protected:
 };
 
 TEST_F(CumsumCumprodTest, CumSum_1D) {
-  const DataType dtype = DataType::Float32;
-  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
-  const uint32_t elements = static_cast<uint32_t>(data.size());
-
-  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
-
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumSum, 0);
-
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
-
-  std::vector<float> expected = {1.0f,  3.0f,  6.0f,  10.0f,
-                                 15.0f, 21.0f, 28.0f, 36.0f};
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f)
-        << "CumSum mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumsum_1d")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(CumsumCumprodTest, CumProd_1D) {
-  const DataType dtype = DataType::Float32;
-  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
-  const uint32_t elements = static_cast<uint32_t>(data.size());
-
-  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
-
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumProd, 0);
-
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
-
-  std::vector<float> expected = {1.0f, 2.0f, 6.0f, 24.0f};
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f)
-        << "CumProd mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumprod_1d")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(CumsumCumprodTest, CumSum_2D_Dim0) {
-  const DataType dtype = DataType::Float32;
-  // 3x4 matrix, cumsum along dim 0
-  std::vector<float> data = {
-      1.0f, 2.0f,  3.0f,  4.0f, // row 0
-      5.0f, 6.0f,  7.0f,  8.0f, // row 1
-      9.0f, 10.0f, 11.0f, 12.0f // row 2
-  };
-  std::vector<uint32_t> shape = {3, 4};
-  const uint32_t elements = 12;
-
-  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
-
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumSum, 0);
-
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
-
-  // Expected: cumsum along rows
-  std::vector<float> expected = {
-      1.0f,  2.0f,  3.0f,  4.0f,  // row 0
-      6.0f,  8.0f,  10.0f, 12.0f, // row 0 + row 1
-      15.0f, 18.0f, 21.0f, 24.0f  // row 0 + row 1 + row 2
-  };
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f)
-        << "CumSum 2D dim0 mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumsum_2d_dim0")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(CumsumCumprodTest, CumProd_2D_Dim0) {
-  const DataType dtype = DataType::Float32;
-  // 2x4 matrix, cumprod along dim 0
-  std::vector<float> data = {
-      1.0f, 2.0f, 3.0f, 4.0f, // row 0
-      5.0f, 6.0f, 7.0f, 8.0f  // row 1
-  };
-  std::vector<uint32_t> shape = {2, 4};
-  const uint32_t elements = 8;
-
-  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
-
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumProd, 0);
-
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
-
-  std::vector<float> expected = {
-      1.0f, 2.0f,  3.0f,  4.0f, // row 0
-      5.0f, 12.0f, 21.0f, 32.0f // row 0 * row 1
-  };
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f)
-        << "CumProd 2D dim0 mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumprod_2d_dim0")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(CumsumCumprodTest, CumSum_2D_Dim1) {
-  const DataType dtype = DataType::Float32;
-  // 3x4 matrix, cumsum along dim 1
-  std::vector<float> data = {
-      1.0f, 2.0f,  3.0f,  4.0f, // row 0
-      5.0f, 6.0f,  7.0f,  8.0f, // row 1
-      9.0f, 10.0f, 11.0f, 12.0f // row 2
-  };
-  std::vector<uint32_t> shape = {3, 4};
-  const uint32_t elements = 12;
-
-  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumSum, 1);
-
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
-
-  // Expected: cumsum along columns within each row
-  std::vector<float> expected = {
-      1.0f, 3.0f,  6.0f,  10.0f, // row 0
-      5.0f, 11.0f, 18.0f, 26.0f, // row 1
-      9.0f, 19.0f, 30.0f, 42.0f  // row 2
-  };
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f)
-        << "CumSum 2D dim1 mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumsum_2d_dim1")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(CumsumCumprodTest, CumProd_2D_Dim1) {
-  const DataType dtype = DataType::Float32;
-  // 2x4 matrix, cumprod along dim 1
-  std::vector<float> data = {
-      1.0f, 2.0f, 3.0f, 4.0f, // row 0
-      2.0f, 3.0f, 1.0f, 2.0f  // row 1
-  };
-  std::vector<uint32_t> shape = {2, 4};
-  const uint32_t elements = 8;
-
-  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumProd, 1);
-
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
-
-  std::vector<float> expected = {
-      1.0f, 2.0f, 6.0f, 24.0f, // row 0: 1, 1*2, 1*2*3, 1*2*3*4
-      2.0f, 6.0f, 6.0f, 12.0f  // row 1: 2, 2*3, 2*3*1, 2*3*1*2
-  };
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f)
-        << "CumProd 2D dim1 mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumprod_2d_dim1")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(CumsumCumprodTest, CumSum_Large_1D_MultiPass) {
-  const DataType dtype = DataType::Float32;
-  // 4096 elements — exceeds tile size (2048), forces multi-pass path
-  const uint32_t elements = 4096;
-  std::vector<float> data(elements);
-  for (uint32_t i = 0; i < elements; ++i) {
-    data[i] = static_cast<float>(i + 1);
-  }
-
-  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumSum, 0);
-
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
-
-  // Expected: cumulative sum 1+2+...+n = n*(n+1)/2
-  for (uint32_t i = 0; i < elements; ++i) {
-    float expected = static_cast<float>((i + 1) * (i + 2)) / 2.0f;
-    ASSERT_NEAR(output[i], expected, expected * 1e-5f)
-        << "CumSum large mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumsum_large_multipass")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(CumsumCumprodTest, CumSum_Large_1D_ManyWorkgroups) {
-  const DataType dtype = DataType::Float32;
-  // 10000 elements — multiple workgroups in multi-pass path
-  const uint32_t elements = 10000;
-  std::vector<float> data(elements);
-  for (uint32_t i = 0; i < elements; ++i) {
-    data[i] = 1.0f; // all ones: cumsum should be 1, 2, 3, ...
-  }
-
-  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumSum, 0);
-
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
-
-  for (uint32_t i = 0; i < elements; ++i) {
-    ASSERT_NEAR(output[i], static_cast<float>(i + 1), 1e-3f)
-        << "CumSum all-ones mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumsum_large_manyworkgroups")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(CumsumCumprodTest, CumSum_3D_AllDims) {
-  const DataType dtype = DataType::Float32;
-  // 2x3x4 tensor, test cumsum along each dimension
-  std::vector<float> data(24);
-  for (int i = 0; i < 24; ++i) {
-    data[i] = static_cast<float>(i + 1);
-  }
-  std::vector<uint32_t> shape = {2, 3, 4};
-
-  for (int dim = 0; dim < 3; ++dim) {
-    auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
-    auto bufferOut = runtime_->ops().cumOp(bufferIn, CumSum, dim);
-
-    std::vector<float> output(24);
-    runtime_->copyFromTensor(bufferOut, output.data(), 24 * sizeof(float));
-
-    // Compute expected via CPU reference
-    // Shape [2][3][4], strides: dim0=12, dim1=4, dim2=1 (logical)
-    // Note: innermost dim is aligned to 4, which matches here since dim2=4
-    std::vector<float> expected(24, 0.0f);
-    auto idx = [](int a, int b, int c) { return a * 12 + b * 4 + c; };
-
-    if (dim == 0) {
-      for (int j = 0; j < 3; ++j)
-        for (int k = 0; k < 4; ++k) {
-          float acc = 0;
-          for (int i = 0; i < 2; ++i) {
-            acc += data[idx(i, j, k)];
-            expected[idx(i, j, k)] = acc;
-          }
-        }
-    } else if (dim == 1) {
-      for (int i = 0; i < 2; ++i)
-        for (int k = 0; k < 4; ++k) {
-          float acc = 0;
-          for (int j = 0; j < 3; ++j) {
-            acc += data[idx(i, j, k)];
-            expected[idx(i, j, k)] = acc;
-          }
-        }
-    } else {
-      for (int i = 0; i < 2; ++i)
-        for (int j = 0; j < 3; ++j) {
-          float acc = 0;
-          for (int k = 0; k < 4; ++k) {
-            acc += data[idx(i, j, k)];
-            expected[idx(i, j, k)] = acc;
-          }
-        }
-    }
-
-    for (uint32_t i = 0; i < 24; ++i) {
-      ASSERT_NEAR(output[i], expected[i], 1e-5f)
-          << "CumSum 3D dim" << dim << " mismatch at index " << i;
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumsum_3d_alldims")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(CumsumCumprodTest, CumProd_Large_1D_MultiPass) {
-  const DataType dtype = DataType::Float32;
-  // Use small values to avoid overflow: 4096 elements of 1.001
-  const uint32_t elements = 4096;
-  std::vector<float> data(elements, 1.001f);
-
-  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
-  auto bufferOut = runtime_->ops().cumOp(bufferIn, CumProd, 0);
-
-  std::vector<float> output(elements);
-  runtime_->copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
-
-  float acc = 1.0f;
-  for (uint32_t i = 0; i < elements; ++i) {
-    acc *= 1.001f;
-    ASSERT_NEAR(output[i], acc, acc * 1e-4f)
-        << "CumProd large mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "cumulative/cumprod_large_multipass")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
