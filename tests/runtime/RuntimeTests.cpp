@@ -927,109 +927,47 @@ TEST_F(VulkanNonAlignedInnermostTest, Unary_NonAlignedInnermost) {
 
 // Test reduction operators with Float32 on Vulkan
 TEST_F(VulkanBackendTest, ReductionOperators_Float32) {
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataIn = generateTestData<float>(elements, 42);
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-
-      for (OperatorEnum op : kReductionOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto outTensor = runtime_->ops().reduce(op, bufferIn);
-        float output = 0.0f;
-        runtime_->copyFromTensor(outTensor, &output, sizeof(float));
-
-        // Verify result
-        float expected = reduceRef(op, dataIn);
-        if (std::isinf(expected) && std::isinf(output) &&
-            std::signbit(expected) == std::signbit(output)) {
-          // Both are same-sign infinity — pass
-        } else if (op == ReduceMean || op == ReduceSum || op == ReduceProd) {
-          ASSERT_NEAR(output, expected, std::abs(expected) * 1e-4f + 1e-5f)
-              << "Mismatch for " << operatorName(op);
-        } else {
-          ASSERT_NEAR(output, expected, 1e-5f)
-              << "Mismatch for " << operatorName(op);
-        }
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "reduce" || c.name.find("/f32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // Test ternary clamp operator with Float32 on Vulkan
 TEST_F(VulkanBackendTest, TernaryClamp_Float32) {
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataIn = generateTestData<float>(elements, 42);
-      float clampVals[2] = {2.0f, 8.0f};
-
-      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-
-      auto bufferOut =
-          runtime_->ops().clamp(bufferIn, DataReference(clampVals));
-
-      std::vector<float> output(elements);
-      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-      // Verify results
-      for (uint32_t i = 0; i < elements; ++i) {
-        float expected = ternaryClampRef(dataIn[i], clampVals[0], clampVals[1]);
-        ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "ternary" || c.name.find("clamp/f32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
-// Test ternary select operator with Float32 on Vulkan
+// Test ternary select operator with Float32 on Vulkan (registry-driven).
 TEST_F(VulkanBackendTest, TernarySelect_Float32) {
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataCond = generateTestData<float>(elements, 42);
-      auto dataX = generateTestData<float>(elements, 123);
-      auto dataY = generateTestData<float>(elements, 456);
-
-      // Make condition more varied (some zeros, some non-zeros)
-      for (size_t i = 0; i < dataCond.size(); ++i) {
-        dataCond[i] = (i % 3 == 0) ? 0.0f : dataCond[i];
-      }
-
-      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
-
-      auto bufferCond = runtime_->createTensor(shape, dtype, dataCond.data());
-      auto bufferX = runtime_->createTensor(shape, dtype, dataX.data());
-      auto bufferY = runtime_->createTensor(shape, dtype, dataY.data());
-
-      auto bufferOut = runtime_->ops().where(bufferCond, bufferX, bufferY);
-
-      std::vector<float> output(elements);
-      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-      // Verify results
-      for (uint32_t i = 0; i < elements; ++i) {
-        float expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
-        ASSERT_NEAR(output[i], expected, 1e-5f) << "Mismatch at index " << i;
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "ternary" || c.name.find("select/f32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // ============================================================================
@@ -2550,133 +2488,59 @@ TEST_F(VulkanBackendTest, UnaryOperators_UInt32) {
 // ============================================================================
 
 TEST_F(VulkanBackendTest, TernaryClamp_Int32) {
-  const DataType dtype = DataType::Int32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(int32_t);
-
-      auto dataIn = generateTestData<int32_t>(elements, 42);
-      int32_t clampVals[2] = {20, 80};
-
-      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-
-      auto bufferOut =
-          runtime_->ops().clamp(bufferIn, DataReference(clampVals));
-
-      std::vector<int32_t> output(elements);
-      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-      for (uint32_t i = 0; i < elements; ++i) {
-        int32_t expected =
-            ternaryClampRef(dataIn[i], clampVals[0], clampVals[1]);
-        ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "ternary" || c.name.find("clamp/i32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 TEST_F(VulkanBackendTest, TernaryClamp_UInt32) {
-  const DataType dtype = DataType::UInt32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(uint32_t);
-
-      auto dataIn = generateTestData<uint32_t>(elements, 42);
-      uint32_t clampVals[2] = {20, 80};
-
-      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-
-      auto bufferOut =
-          runtime_->ops().clamp(bufferIn, DataReference(clampVals));
-
-      std::vector<uint32_t> output(elements);
-      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-      for (uint32_t i = 0; i < elements; ++i) {
-        uint32_t expected =
-            ternaryClampRef(dataIn[i], clampVals[0], clampVals[1]);
-        ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "ternary" || c.name.find("clamp/u32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 TEST_F(VulkanBackendTest, TernarySelect_Int32) {
-  const DataType dtype = DataType::Int32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(int32_t);
-
-      auto dataCond = generateTestData<int32_t>(elements, 42);
-      auto dataX = generateTestData<int32_t>(elements, 123);
-      auto dataY = generateTestData<int32_t>(elements, 456);
-
-      for (size_t i = 0; i < dataCond.size(); ++i) {
-        dataCond[i] = (i % 3 == 0) ? 0 : dataCond[i];
-      }
-
-      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
-
-      auto bufferCond = runtime_->createTensor(shape, dtype, dataCond.data());
-      auto bufferX = runtime_->createTensor(shape, dtype, dataX.data());
-      auto bufferY = runtime_->createTensor(shape, dtype, dataY.data());
-
-      auto bufferOut = runtime_->ops().where(bufferCond, bufferX, bufferY);
-
-      std::vector<int32_t> output(elements);
-      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-      for (uint32_t i = 0; i < elements; ++i) {
-        int32_t expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
-        ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "ternary" || c.name.find("select/i32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 TEST_F(VulkanBackendTest, TernarySelect_UInt32) {
-  const DataType dtype = DataType::UInt32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(uint32_t);
-
-      auto dataCond = generateTestData<uint32_t>(elements, 42);
-      auto dataX = generateTestData<uint32_t>(elements, 123);
-      auto dataY = generateTestData<uint32_t>(elements, 456);
-
-      for (size_t i = 0; i < dataCond.size(); ++i) {
-        dataCond[i] = (i % 3 == 0) ? 0u : dataCond[i];
-      }
-
-      SCOPED_TRACE(std::string("Shape: ") + shapeToString(shape));
-
-      auto bufferCond = runtime_->createTensor(shape, dtype, dataCond.data());
-      auto bufferX = runtime_->createTensor(shape, dtype, dataX.data());
-      auto bufferY = runtime_->createTensor(shape, dtype, dataY.data());
-
-      auto bufferOut = runtime_->ops().where(bufferCond, bufferX, bufferY);
-
-      std::vector<uint32_t> output(elements);
-      runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-      for (uint32_t i = 0; i < elements; ++i) {
-        uint32_t expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
-        ASSERT_EQ(output[i], expected) << "Mismatch at index " << i;
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "ternary" || c.name.find("select/u32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // ============================================================================
@@ -2684,71 +2548,31 @@ TEST_F(VulkanBackendTest, TernarySelect_UInt32) {
 // ============================================================================
 
 TEST_F(VulkanBackendTest, ReductionOperators_Int32) {
-  const DataType dtype = DataType::Int32;
-
-  // Int32 supports all reduction ops except Mean (integer division)
-  constexpr std::array<OperatorEnum, 6> kInt32ReductionOps = {
-      ReduceSum, ReduceMin, ReduceMax, ReduceProd, ReduceAny, ReduceAll};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-
-      // Use small values to avoid overflow with ReduceProd
-      std::mt19937 gen(42);
-      std::uniform_int_distribution<int32_t> dist(1, 3);
-      std::vector<int32_t> dataIn(elements);
-      for (auto &v : dataIn)
-        v = dist(gen);
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-
-      for (OperatorEnum op : kInt32ReductionOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto outTensor = runtime_->ops().reduce(op, bufferIn);
-        int32_t output = 0;
-        runtime_->copyFromTensor(outTensor, &output, sizeof(int32_t));
-
-        int32_t expected = reduceRef(op, dataIn);
-        ASSERT_EQ(output, expected) << "Mismatch for " << operatorName(op);
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "reduce" || c.name.find("/i32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 TEST_F(VulkanBackendTest, ReductionOperators_UInt32) {
-  const DataType dtype = DataType::UInt32;
-
-  constexpr std::array<OperatorEnum, 6> kUInt32ReductionOps = {
-      ReduceSum, ReduceMin, ReduceMax, ReduceProd, ReduceAny, ReduceAll};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-
-      std::mt19937 gen(42);
-      std::uniform_int_distribution<uint32_t> dist(1, 3);
-      std::vector<uint32_t> dataIn(elements);
-      for (auto &v : dataIn)
-        v = dist(gen);
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-
-      for (OperatorEnum op : kUInt32ReductionOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto outTensor = runtime_->ops().reduce(op, bufferIn);
-        uint32_t output = 0;
-        runtime_->copyFromTensor(outTensor, &output, sizeof(uint32_t));
-
-        uint32_t expected = reduceRef(op, dataIn);
-        ASSERT_EQ(output, expected) << "Mismatch for " << operatorName(op);
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "reduce" || c.name.find("/u32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // ============================================================================

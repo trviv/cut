@@ -413,6 +413,188 @@ inline Tensor unaryRunInt(Runtime &rt, DataType dtype, OperatorEnum op) {
   return rt.ops().unaryOp(op, bufferIn);
 }
 
+// ===========================================================================
+// Ternary (clamp/select) and Reduce (global) families
+// ===========================================================================
+// Ternary helpers
+template <typename T>
+inline VerifyResult ternaryClampSweep(Runtime &rt, DataType dtype, T lo, T hi) {
+  for (size_t numDims : kBvvDimCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      auto dataIn = generateTestData<T>(elements, 42);
+      auto bufferIn = rt.createTensor(shape, dtype, dataIn.data());
+
+      T clampVals[2] = {lo, hi};
+      auto bufferOut = rt.ops().clamp(bufferIn, DataReference(clampVals));
+
+      std::vector<T> output(elements);
+      rt.copyFromTensor(bufferOut, output.data(), elements * sizeof(T));
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        T expected = ternaryClampRef(dataIn[i], lo, hi);
+        if constexpr (std::is_floating_point_v<T>) {
+          if (std::abs(output[i] - expected) > 1e-5f) {
+            return {false, "clamp mismatch at idx " + std::to_string(i)};
+          }
+        } else {
+          if (output[i] != expected) {
+            return {false, "clamp mismatch at idx " + std::to_string(i)};
+          }
+        }
+      }
+    }
+  }
+  return {true, ""};
+}
+
+template <typename T>
+inline VerifyResult ternarySelectSweep(Runtime &rt, DataType dtype) {
+  for (size_t numDims : kBvvDimCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      auto dataCond = generateTestData<T>(elements, 42);
+      auto dataX = generateTestData<T>(elements, 123);
+      auto dataY = generateTestData<T>(elements, 456);
+
+      for (size_t i = 0; i < dataCond.size(); ++i) {
+        dataCond[i] = (i % 3 == 0) ? T(0) : dataCond[i];
+      }
+
+      auto bufferCond = rt.createTensor(shape, dtype, dataCond.data());
+      auto bufferX = rt.createTensor(shape, dtype, dataX.data());
+      auto bufferY = rt.createTensor(shape, dtype, dataY.data());
+
+      auto bufferOut = rt.ops().where(bufferCond, bufferX, bufferY);
+
+      std::vector<T> output(elements);
+      rt.copyFromTensor(bufferOut, output.data(), elements * sizeof(T));
+
+      for (uint32_t i = 0; i < elements; ++i) {
+        T expected = ternarySelectRef(dataCond[i], dataX[i], dataY[i]);
+        if constexpr (std::is_floating_point_v<T>) {
+          if (std::abs(output[i] - expected) > 1e-5f) {
+            return {false, "select mismatch at idx " + std::to_string(i)};
+          }
+        } else {
+          if (output[i] != expected) {
+            return {false, "select mismatch at idx " + std::to_string(i)};
+          }
+        }
+      }
+    }
+  }
+  return {true, ""};
+}
+
+template <typename T>
+inline Tensor ternaryClampRun(Runtime &rt, DataType dtype, T lo, T hi) {
+  std::vector<T> dataIn = generateTestData<T>(4096, 42);
+  auto bufferIn = rt.createTensor({64, 64}, dtype, dataIn.data());
+  T clampVals[2] = {lo, hi};
+  return rt.ops().clamp(bufferIn, DataReference(clampVals));
+}
+
+template <typename T>
+inline Tensor ternarySelectRun(Runtime &rt, DataType dtype) {
+  std::vector<T> dataCond = generateTestData<T>(4096, 42);
+  std::vector<T> dataX = generateTestData<T>(4096, 123);
+  std::vector<T> dataY = generateTestData<T>(4096, 456);
+
+  for (size_t i = 0; i < dataCond.size(); ++i) {
+    dataCond[i] = (i % 3 == 0) ? T(0) : dataCond[i];
+  }
+
+  auto bufferCond = rt.createTensor({64, 64}, dtype, dataCond.data());
+  auto bufferX = rt.createTensor({64, 64}, dtype, dataX.data());
+  auto bufferY = rt.createTensor({64, 64}, dtype, dataY.data());
+
+  return rt.ops().where(bufferCond, bufferX, bufferY);
+}
+
+// Reduction helpers
+inline VerifyResult reduceSweepF32(Runtime &rt, OperatorEnum op) {
+  for (size_t numDims : kBvvDimCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      auto dataIn = generateTestData<float>(elements, 42);
+      auto bufferIn = rt.createTensor(shape, DataType::Float32, dataIn.data());
+
+      auto outTensor = rt.ops().reduce(op, bufferIn);
+      float output = 0.0f;
+      rt.copyFromTensor(outTensor, &output, sizeof(float));
+
+      float expected = reduceRef(op, dataIn);
+      if (std::isinf(expected) && std::isinf(output) &&
+          std::signbit(expected) == std::signbit(output)) {
+        continue;
+      }
+
+      float tol;
+      if (op == ReduceMean || op == ReduceSum || op == ReduceProd) {
+        tol = std::abs(expected) * 1e-4f + 1e-5f;
+      } else {
+        tol = 1e-5f;
+      }
+
+      if (std::abs(output - expected) > tol) {
+        return {false, "reduce mismatch"};
+      }
+    }
+  }
+  return {true, ""};
+}
+
+template <typename T>
+inline VerifyResult reduceSweepInt(Runtime &rt, DataType dtype, OperatorEnum op) {
+  for (size_t numDims : kBvvDimCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      std::vector<T> dataIn(elements);
+      std::mt19937 gen(42);
+      std::uniform_int_distribution<T> dist(1, 3);
+      for (auto &v : dataIn) {
+        v = dist(gen);
+      }
+
+      auto bufferIn = rt.createTensor(shape, dtype, dataIn.data());
+      auto outTensor = rt.ops().reduce(op, bufferIn);
+      T output = 0;
+      rt.copyFromTensor(outTensor, &output, sizeof(T));
+
+      T expected = reduceRef(op, dataIn);
+      if (output != expected) {
+        return {false, "reduce mismatch"};
+      }
+    }
+  }
+  return {true, ""};
+}
+
+inline Tensor reduceRunF32(Runtime &rt, OperatorEnum op) {
+  std::vector<float> dataIn = generateTestData<float>(4096, 42);
+  auto bufferIn = rt.createTensor({64, 64}, DataType::Float32, dataIn.data());
+  return rt.ops().reduce(op, bufferIn);
+}
+
+template <typename T>
+inline Tensor reduceRunInt(Runtime &rt, DataType dtype, OperatorEnum op) {
+  std::vector<T> dataIn(4096);
+  std::mt19937 gen(42);
+  std::uniform_int_distribution<T> dist(1, 3);
+  for (auto &v : dataIn) {
+    v = dist(gen);
+  }
+  auto bufferIn = rt.createTensor({64, 64}, dtype, dataIn.data());
+  return rt.ops().reduce(op, bufferIn);
+}
+
+// Reduction operator lists
+inline constexpr std::array<OperatorEnum, 7> kReduceGlobalOps = {
+    ReduceSum, ReduceMean, ReduceMin, ReduceMax, ReduceProd, ReduceAny, ReduceAll};
+inline constexpr std::array<OperatorEnum, 6> kReduceGlobalIntOps = {
+    ReduceSum, ReduceMin, ReduceMax, ReduceProd, ReduceAny, ReduceAll};
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -552,6 +734,128 @@ inline std::vector<OpCase> buildOpCases() {
     };
     c.verify = [op_](Runtime &rt, const Tensor &) {
       return unarySweepInt<uint32_t>(rt, DataType::UInt32, op_);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Ternary operations
+  {
+    OpCase c;
+    c.name = std::string("ternary/clamp/f32");
+    c.family = "ternary";
+    c.run = [](Runtime &rt, int) {
+      return ternaryClampRun<float>(rt, DataType::Float32, 2.0f, 8.0f);
+    };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return ternaryClampSweep<float>(rt, DataType::Float32, 2.0f, 8.0f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  {
+    OpCase c;
+    c.name = std::string("ternary/clamp/i32");
+    c.family = "ternary";
+    c.run = [](Runtime &rt, int) {
+      return ternaryClampRun<int32_t>(rt, DataType::Int32, 20, 80);
+    };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return ternaryClampSweep<int32_t>(rt, DataType::Int32, 20, 80);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  {
+    OpCase c;
+    c.name = std::string("ternary/clamp/u32");
+    c.family = "ternary";
+    c.run = [](Runtime &rt, int) {
+      return ternaryClampRun<uint32_t>(rt, DataType::UInt32, 20u, 80u);
+    };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return ternaryClampSweep<uint32_t>(rt, DataType::UInt32, 20u, 80u);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  {
+    OpCase c;
+    c.name = std::string("ternary/select/f32");
+    c.family = "ternary";
+    c.run = [](Runtime &rt, int) {
+      return ternarySelectRun<float>(rt, DataType::Float32);
+    };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return ternarySelectSweep<float>(rt, DataType::Float32);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  {
+    OpCase c;
+    c.name = std::string("ternary/select/i32");
+    c.family = "ternary";
+    c.run = [](Runtime &rt, int) {
+      return ternarySelectRun<int32_t>(rt, DataType::Int32);
+    };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return ternarySelectSweep<int32_t>(rt, DataType::Int32);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  {
+    OpCase c;
+    c.name = std::string("ternary/select/u32");
+    c.family = "ternary";
+    c.run = [](Runtime &rt, int) {
+      return ternarySelectRun<uint32_t>(rt, DataType::UInt32);
+    };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return ternarySelectSweep<uint32_t>(rt, DataType::UInt32);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Reduction operations
+  for (auto op : kReduceGlobalOps) {
+    auto op_ = op;
+    OpCase c;
+    c.name = std::string("reduce/") + operatorName(op_) + "/f32";
+    c.family = "reduce";
+    c.run = [op_](Runtime &rt, int) {
+      return reduceRunF32(rt, op_);
+    };
+    c.verify = [op_](Runtime &rt, const Tensor &) {
+      return reduceSweepF32(rt, op_);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  for (auto op : kReduceGlobalIntOps) {
+    auto op_ = op;
+    OpCase c;
+    c.name = std::string("reduce/") + operatorName(op_) + "/i32";
+    c.family = "reduce";
+    c.run = [op_](Runtime &rt, int) {
+      return reduceRunInt<int32_t>(rt, DataType::Int32, op_);
+    };
+    c.verify = [op_](Runtime &rt, const Tensor &) {
+      return reduceSweepInt<int32_t>(rt, DataType::Int32, op_);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  for (auto op : kReduceGlobalIntOps) {
+    auto op_ = op;
+    OpCase c;
+    c.name = std::string("reduce/") + operatorName(op_) + "/u32";
+    c.family = "reduce";
+    c.run = [op_](Runtime &rt, int) {
+      return reduceRunInt<uint32_t>(rt, DataType::UInt32, op_);
+    };
+    c.verify = [op_](Runtime &rt, const Tensor &) {
+      return reduceSweepInt<uint32_t>(rt, DataType::UInt32, op_);
     };
     cases.push_back(std::move(c));
   }
