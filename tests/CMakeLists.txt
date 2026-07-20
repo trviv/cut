@@ -49,6 +49,7 @@ set(COMBINED_TEST_SOURCES
 # Runtime test sources
 set(RUNTIME_TEST_SOURCES
     runtime/RuntimeTests.cpp
+    runtime/OpCoverageTests.cpp
 )
 
 # Graph test sources
