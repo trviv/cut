@@ -1391,6 +1391,53 @@ inline Tensor logSumExpRun(Runtime& rt) {
   return rt.ops().logSumExp(buf);
 }
 
+// ===========================================================================
+// Embedding / Pad families
+// ===========================================================================
+inline VerifyResult embeddingCheck(Runtime& rt, const std::vector<float>& weight,
+    const std::vector<uint32_t>& indices, uint32_t numEmb, uint32_t embDim) {
+  uint32_t numIdx = static_cast<uint32_t>(indices.size());
+  auto bufW = rt.createTensor({numEmb, embDim}, DataType::Float32, weight.data());
+  auto bufIdx = rt.createTensor({numIdx}, DataType::UInt32, indices.data());
+  auto bufOut = rt.ops().embedding(bufIdx, bufW);
+  std::vector<float> output(static_cast<size_t>(numIdx) * embDim);
+  rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+  for (uint32_t i = 0; i < numIdx; ++i)
+    for (uint32_t d = 0; d < embDim; ++d) {
+      float exp = weight[indices[i] * embDim + d];
+      if (std::abs(output[i * embDim + d] - exp) > 1e-5f)
+        return {false, "embedding mismatch at " + std::to_string(i) + "," + std::to_string(d)};
+    }
+  return {true, ""};
+}
+
+inline Tensor embeddingRun(Runtime& rt) {
+  auto weight = generateTestData<float>(100 * 16, 42);
+  std::vector<uint32_t> indices = {0, 50, 99, 25, 75, 1, 98, 50};
+  auto bufW = rt.createTensor({100, 16}, DataType::Float32, weight.data());
+  auto bufIdx = rt.createTensor({8u}, DataType::UInt32, indices.data());
+  return rt.ops().embedding(bufIdx, bufW);
+}
+
+inline VerifyResult padCheck(Runtime& rt, const std::vector<float>& input,
+    const std::vector<uint32_t>& inShape, const std::vector<uint32_t>& padWidths,
+    float fill, const std::vector<float>& expected) {
+  auto bufIn = rt.createTensor(inShape, DataType::Float32, input.data());
+  auto bufOut = rt.ops().pad(bufIn, padWidths, fill);
+  std::vector<float> output(expected.size());
+  rt.copyFromTensor(bufOut, output.data(), output.size() * sizeof(float));
+  for (size_t i = 0; i < expected.size(); ++i)
+    if (std::abs(output[i] - expected[i]) > 1e-5f)
+      return {false, "pad mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline Tensor padRun(Runtime& rt) {
+  std::vector<float> input = {1, 2, 3, 4};
+  auto bufIn = rt.createTensor({4u}, DataType::Float32, input.data());
+  return rt.ops().pad(bufIn, {1u, 2u}, 0.0f);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -2198,6 +2245,111 @@ cases.push_back(std::move(c));
     c.run = [](Runtime &rt, int) { return logSumExpRun(rt); };
     c.verify = [](Runtime &rt, const Tensor &) {
       return logSumExpDimVerify(rt, 8, 16, 42, 1e-4f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Embedding family
+  {
+    OpCase c;
+    c.name = "embedding/basic";
+    c.family = "embedding";
+    c.run = [](Runtime &rt, int) { return embeddingRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> weight = {0.1f, 0.2f, 0.3f, 0.4f, 1.1f, 1.2f, 1.3f, 1.4f,
+                                   2.1f, 2.2f, 2.3f, 2.4f, 3.1f, 3.2f, 3.3f, 3.4f,
+                                   4.1f, 4.2f, 4.3f, 4.4f};
+      std::vector<uint32_t> indices = {0u, 2u, 4u, 1u};
+      return embeddingCheck(rt, weight, indices, 5, 4);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "embedding/larger";
+    c.family = "embedding";
+    c.run = [](Runtime &rt, int) { return embeddingRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto weight = generateTestData<float>(100 * 16, 42);
+      std::vector<uint32_t> indices = {0u, 50u, 99u, 25u, 75u, 1u, 98u, 50u};
+      return embeddingCheck(rt, weight, indices, 100, 16);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "embedding/repeated";
+    c.family = "embedding";
+    c.run = [](Runtime &rt, int) { return embeddingRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> weight = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
+                                   9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f};
+      std::vector<uint32_t> indices = {2u, 2u, 2u, 2u};
+      return embeddingCheck(rt, weight, indices, 4, 4);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Pad family
+  {
+    OpCase c;
+    c.name = "pad/1d_basic";
+    c.family = "pad";
+    c.run = [](Runtime &rt, int) { return padRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4};
+      std::vector<float> expected = {0, 1, 2, 3, 4, 0, 0};
+      return padCheck(rt, input, {4u}, {1u, 2u}, 0.0f, expected);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "pad/2d_basic";
+    c.family = "pad";
+    c.run = [](Runtime &rt, int) { return padRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
+      std::vector<float> expected = {0, 1, 2, 3, 4, 0, 0, 5, 6, 7, 8, 0};
+      return padCheck(rt, input, {2u, 4u}, {1u, 1u}, 0.0f, expected);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "pad/2d_multidims";
+    c.family = "pad";
+    c.run = [](Runtime &rt, int) { return padRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
+      std::vector<float> expected = {-1, -1, -1, -1, -1, -1, -1, 1, 2, 3, 4, -1,
+                                     -1, 5, 6, 7, 8, -1, -1, -1, -1, -1, -1, -1};
+      return padCheck(rt, input, {2u, 4u}, {1u, 1u, 1u, 1u}, -1.0f, expected);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "pad/4d_image";
+    c.family = "pad";
+    c.run = [](Runtime &rt, int) { return padRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
+      std::vector<float> expected = {0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0,
+                                     0, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0};
+      return padCheck(rt, input, {1u, 1u, 2u, 4u}, {1u, 1u, 1u, 1u}, 0.0f, expected);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "pad/fillvalue";
+    c.family = "pad";
+    c.run = [](Runtime &rt, int) { return padRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      std::vector<float> input = {1, 2, 3, 4};
+      std::vector<float> expected = {99, 99, 1, 2, 3, 4, 99, 99};
+      return padCheck(rt, input, {4u}, {2u, 2u}, 99.0f, expected);
     };
     cases.push_back(std::move(c));
   }

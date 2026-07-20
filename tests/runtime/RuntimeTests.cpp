@@ -5315,94 +5315,35 @@ protected:
 };
 
 TEST_F(EmbeddingTest, Basic) {
-  const DataType dtype = DataType::Float32;
-
-  // Weight table: 5 embeddings of dim 4
-  const uint32_t numEmb = 5, embDim = 4;
-  std::vector<float> weight = {
-      0.1f, 0.2f, 0.3f, 0.4f, // index 0
-      1.1f, 1.2f, 1.3f, 1.4f, // index 1
-      2.1f, 2.2f, 2.3f, 2.4f, // index 2
-      3.1f, 3.2f, 3.3f, 3.4f, // index 3
-      4.1f, 4.2f, 4.3f, 4.4f  // index 4
-  };
-  std::vector<uint32_t> indices = {0, 2, 4, 1};
-  const uint32_t numIdx = 4;
-
-  auto bufW = runtime_->createTensor({numEmb, embDim}, dtype, weight.data());
-  auto bufIdx =
-      runtime_->createTensor({numIdx}, DataType::UInt32, indices.data());
-
-  auto bufOut = runtime_->ops().embedding(bufIdx, bufW);
-
-  std::vector<float> output(numIdx * embDim);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  // Verify: output[i] should be weight[indices[i]]
-  for (uint32_t i = 0; i < numIdx; ++i) {
-    for (uint32_t d = 0; d < embDim; ++d) {
-      float expected = weight[indices[i] * embDim + d];
-      ASSERT_NEAR(output[i * embDim + d], expected, 1e-5f)
-          << "Mismatch at [" << i << ", " << d << "]";
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "embedding/basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(EmbeddingTest, LargerTable) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t numEmb = 100, embDim = 16;
-  auto weight = generateTestData<float>(numEmb * embDim, 42);
-
-  std::vector<uint32_t> indices = {0, 50, 99, 25, 75, 1, 98, 50};
-  const uint32_t numIdx = static_cast<uint32_t>(indices.size());
-
-  auto bufW = runtime_->createTensor({numEmb, embDim}, dtype, weight.data());
-  auto bufIdx =
-      runtime_->createTensor({numIdx}, DataType::UInt32, indices.data());
-
-  auto bufOut = runtime_->ops().embedding(bufIdx, bufW);
-
-  std::vector<float> output(numIdx * embDim);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  for (uint32_t i = 0; i < numIdx; ++i) {
-    for (uint32_t d = 0; d < embDim; ++d) {
-      float expected = weight[indices[i] * embDim + d];
-      ASSERT_NEAR(output[i * embDim + d], expected, 1e-5f)
-          << "Mismatch at [" << i << ", " << d << "]";
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "embedding/larger")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(EmbeddingTest, RepeatedIndices) {
-  const DataType dtype = DataType::Float32;
-
-  const uint32_t numEmb = 4, embDim = 4;
-  std::vector<float> weight = {1.0f,  2.0f,  3.0f,  4.0f,  5.0f,  6.0f,
-                               7.0f,  8.0f,  9.0f,  10.0f, 11.0f, 12.0f,
-                               13.0f, 14.0f, 15.0f, 16.0f};
-  // All same index
-  std::vector<uint32_t> indices = {2, 2, 2, 2};
-  const uint32_t numIdx = 4;
-
-  auto bufW = runtime_->createTensor({numEmb, embDim}, dtype, weight.data());
-  auto bufIdx =
-      runtime_->createTensor({numIdx}, DataType::UInt32, indices.data());
-
-  auto bufOut = runtime_->ops().embedding(bufIdx, bufW);
-
-  std::vector<float> output(numIdx * embDim);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  for (uint32_t i = 0; i < numIdx; ++i) {
-    for (uint32_t d = 0; d < embDim; ++d) {
-      ASSERT_NEAR(output[i * embDim + d], weight[2 * embDim + d], 1e-5f)
-          << "Mismatch at [" << i << ", " << d << "]";
-    }
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "embedding/repeated")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
@@ -5419,109 +5360,57 @@ protected:
 };
 
 TEST_F(PadTest, Pad1D_Basic) {
-  const DataType dtype = DataType::Float32;
-
-  std::vector<float> input = {1.0f, 2.0f, 3.0f, 4.0f};
-
-  auto bufIn = runtime_->createTensor({4}, dtype, input.data());
-  // Pad left=1, right=2
-  auto bufOut = runtime_->ops().pad(bufIn, {1, 2}, 0.0f);
-
-  std::vector<float> output(7);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  std::vector<float> expected = {0, 1, 2, 3, 4, 0, 0};
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "pad/1d_basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PadTest, Pad2D_Basic) {
-  const DataType dtype = DataType::Float32;
-
-  // [2, 4] input
-  std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
-
-  auto bufIn = runtime_->createTensor({2, 4}, dtype, input.data());
-  // Pad innermost dim: left=1, right=1
-  auto bufOut = runtime_->ops().pad(bufIn, {1, 1}, 0.0f);
-
-  // Output shape: [2, 6]
-  std::vector<float> output(2 * 6);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  // Expected: each row padded with 0 on left and right
-  std::vector<float> expected = {0, 1, 2, 3, 4, 0, 0, 5, 6, 7, 8, 0};
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "pad/2d_basic")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PadTest, Pad2D_MultipleDims) {
-  const DataType dtype = DataType::Float32;
-
-  // [2, 4] input, pad both dims
-  std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
-
-  auto bufIn = runtime_->createTensor({2, 4}, dtype, input.data());
-  // padWidths: innermost first — [left_W=1, right_W=1, top_H=1, bottom_H=1]
-  auto bufOut = runtime_->ops().pad(bufIn, {1, 1, 1, 1}, -1.0f);
-
-  // Output shape: [4, 6]
-  std::vector<float> output(4 * 6);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  std::vector<float> expected = {-1, -1, -1, -1, -1, -1, -1, 1,
-                                 2,  3,  4,  -1, -1, 5,  6,  7,
-                                 8,  -1, -1, -1, -1, -1, -1, -1};
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "pad/2d_multidims")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PadTest, Pad4D_Image) {
-  const DataType dtype = DataType::Float32;
-
-  // [1, 1, 2, 4] image, pad spatial dims
-  const uint32_t N = 1, C = 1, H = 2, W = 4;
-  std::vector<float> input = {1, 2, 3, 4, 5, 6, 7, 8};
-
-  auto bufIn = runtime_->createTensor({N, C, H, W}, dtype, input.data());
-  // Pad W: left=1, right=1; Pad H: top=1, bottom=1
-  auto bufOut = runtime_->ops().pad(bufIn, {1, 1, 1, 1}, 0.0f);
-
-  // Output shape: [1, 1, 4, 6]
-  uint32_t outH = 4, outW = 6;
-  std::vector<float> output(N * C * outH * outW);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  std::vector<float> expected = {0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 0,
-                                 0, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0};
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "pad/4d_image")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(PadTest, PadWithFillValue) {
-  const DataType dtype = DataType::Float32;
-
-  std::vector<float> input = {1.0f, 2.0f, 3.0f, 4.0f};
-
-  auto bufIn = runtime_->createTensor({4}, dtype, input.data());
-  // Pad left=2, right=2 with fill value 99
-  auto bufOut = runtime_->ops().pad(bufIn, {2, 2}, 99.0f);
-
-  std::vector<float> output(8);
-  runtime_->copyFromTensor(bufOut, output.data(),
-                           output.size() * sizeof(float));
-
-  std::vector<float> expected = {99, 99, 1, 2, 3, 4, 99, 99};
-  for (uint32_t i = 0; i < output.size(); ++i) {
-    ASSERT_NEAR(output[i], expected[i], 1e-5f) << "Mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "pad/fillvalue")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
