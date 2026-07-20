@@ -3,6 +3,7 @@
 #include "impl/avgpool2d/AvgPool2DVariants.generated.h"
 #include "impl/conv1d/Conv1DVariants.generated.h"
 #include "impl/conv2d/Conv2DVariants.generated.h"
+#include "impl/dequant/DequantOp.h"
 #include "impl/maxpool2d/MaxPool2DVariants.generated.h"
 #include "impl/matmul/MatMulVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
@@ -1779,6 +1780,93 @@ inline Tensor sortRun(Runtime& rt) {
   return bufKeys;
 }
 
+// ===========================================================================
+// Dequant family (BF16 / Q4_K / Q6_K)
+// ===========================================================================
+inline VerifyResult dequantBF16Verify(Runtime& rt) {
+  const uint32_t rows = 2, cols = 4, n = rows * cols;
+  std::vector<float> src = {1.0f, -2.0f, 0.5f, 0.0f, 3.14f, -0.125f, 100.0f, 42.0f};
+  std::vector<uint16_t> bf16(n);
+  std::vector<float> expected(n);
+  for (uint32_t i = 0; i < n; ++i) {
+    uint32_t bits; std::memcpy(&bits, &src[i], sizeof(float));
+    bf16[i] = static_cast<uint16_t>(bits >> 16);
+    uint32_t rec = static_cast<uint32_t>(bf16[i]) << 16;
+    std::memcpy(&expected[i], &rec, sizeof(float));
+  }
+  auto raw = rt.createTensor({static_cast<uint32_t>(n * 2)}, DataType::Int8, bf16.data());
+  auto result = rt.ops().dequantize(raw, static_cast<uint32_t>(DequantFormat::BF16), rows, cols);
+  std::vector<float> out(n);
+  rt.copyFromTensor(result, out.data(), n * sizeof(float));
+  for (uint32_t i = 0; i < n; ++i)
+    if (std::abs(out[i] - expected[i]) > 1e-6f)
+      return {false, "bf16 dequant mismatch at " + std::to_string(i)};
+  return {true, ""};
+}
+
+inline VerifyResult dequantQ4KVerify(Runtime& rt) {
+  const uint32_t rows = 1, cols = 256;
+  const size_t blockBytes = 144;
+  std::vector<uint8_t> rawBlock(blockBytes, 0);
+  uint16_t d_f16 = f32_to_f16(1.0f);
+  uint16_t dmin_f16 = f32_to_f16(0.0f);
+  std::memcpy(rawBlock.data(), &d_f16, 2);
+  std::memcpy(rawBlock.data() + 2, &dmin_f16, 2);
+  for (int j = 0; j < 4; ++j) { rawBlock[4 + j] = 1; rawBlock[4 + j + 4] = 0; }
+  for (int j = 4; j < 8; ++j) { rawBlock[4 + j + 4] = 1; }
+  uint8_t* qs = rawBlock.data() + 16;
+  for (int i = 0; i < 128; ++i)
+    qs[i] = static_cast<uint8_t>(((i % 8) & 0xF) | (((i % 8 + 1) & 0xF) << 4));
+  auto raw = rt.createTensor({static_cast<uint32_t>(rawBlock.size())}, DataType::Int8, rawBlock.data());
+  auto result = rt.ops().dequantize(raw, static_cast<uint32_t>(DequantFormat::Q4_K), rows, cols);
+  std::vector<float> out(rows * cols);
+  rt.copyFromTensor(result, out.data(), rows * cols * sizeof(float));
+  float d = halfToFloat(d_f16);
+  for (uint32_t i = 0; i < cols; ++i)
+    if (std::isnan(out[i]) || std::isinf(out[i]))
+      return {false, "q4k dequant non-finite at " + std::to_string(i)};
+  for (uint32_t i = 0; i < 32; ++i) {
+    float nibble = static_cast<float>(qs[i] & 0xF);
+    float expected = d * 1.0f * nibble;
+    if (std::abs(out[i] - expected) > 0.01f)
+      return {false, "q4k dequant mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+inline VerifyResult dequantQ6KVerify(Runtime& rt) {
+  const uint32_t rows = 1, cols = 256;
+  const size_t blockBytes = 210;
+  std::vector<uint8_t> rawBlock(blockBytes, 0);
+  uint16_t d_f16 = f32_to_f16(1.0f);
+  std::memcpy(rawBlock.data() + 208, &d_f16, 2);
+  for (int i = 0; i < 16; ++i) rawBlock[192 + i] = 1;
+  for (int i = 0; i < 128; ++i) rawBlock[i] = 0x55;
+  auto raw = rt.createTensor({static_cast<uint32_t>(rawBlock.size())}, DataType::Int8, rawBlock.data());
+  auto result = rt.ops().dequantize(raw, static_cast<uint32_t>(DequantFormat::Q6_K), rows, cols);
+  std::vector<float> out(rows * cols);
+  rt.copyFromTensor(result, out.data(), rows * cols * sizeof(float));
+  for (uint32_t i = 0; i < 32; ++i) {
+    if (std::isnan(out[i]))
+      return {false, "q6k dequant NaN at " + std::to_string(i)};
+    if (std::abs(out[i] - (-27.0f)) > 0.01f)
+      return {false, "q6k dequant mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+inline Tensor dequantRun(Runtime& rt) {
+  const uint32_t rows = 2, cols = 4, n = rows * cols;
+  std::vector<float> src = {1.0f, -2.0f, 0.5f, 0.0f, 3.14f, -0.125f, 100.0f, 42.0f};
+  std::vector<uint16_t> bf16(n);
+  for (uint32_t i = 0; i < n; ++i) {
+    uint32_t bits; std::memcpy(&bits, &src[i], sizeof(float));
+    bf16[i] = static_cast<uint16_t>(bits >> 16);
+  }
+  auto raw = rt.createTensor({static_cast<uint32_t>(n * 2)}, DataType::Int8, bf16.data());
+  return rt.ops().dequantize(raw, static_cast<uint32_t>(DequantFormat::BF16), rows, cols);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -3136,6 +3224,32 @@ cases.push_back(std::move(c));
       std::vector<uint32_t> data(100, 42u);
       return radixVerify(rt, data);
     };
+    cases.push_back(std::move(c));
+  }
+
+  // Dequant family
+  {
+    OpCase c;
+    c.name = "dequant/bf16";
+    c.family = "dequant";
+    c.run = [](Runtime &rt, int) { return dequantRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return dequantBF16Verify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "dequant/q4k";
+    c.family = "dequant";
+    c.run = [](Runtime &rt, int) { return dequantRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return dequantQ4KVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "dequant/q6k";
+    c.family = "dequant";
+    c.run = [](Runtime &rt, int) { return dequantRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return dequantQ6KVerify(rt); };
     cases.push_back(std::move(c));
   }
 

@@ -3583,180 +3583,35 @@ TEST_F(MatrixOpsTest, MatMulQ4_AllVariants_VsReference) {
 // =========================================================================
 
 TEST_F(MatrixOpsTest, Dequant_BF16) {
-  // BF16 is upper 16 bits of F32. Test round-trip: F32 → BF16 bits → GPU
-  // dequant → F32.
-  const uint32_t rows = 2, cols = 4;
-  const uint32_t n_elements = rows * cols;
-
-  // Source F32 values
-  std::vector<float> srcValues = {1.0f,  -2.0f,   0.5f,   0.0f,
-                                  3.14f, -0.125f, 100.0f, 42.0f};
-
-  // Convert to BF16 (truncate lower 16 bits of F32)
-  std::vector<uint16_t> bf16Data(n_elements);
-  std::vector<float> expectedF32(n_elements);
-  for (uint32_t i = 0; i < n_elements; ++i) {
-    uint32_t f32_bits;
-    std::memcpy(&f32_bits, &srcValues[i], sizeof(float));
-    bf16Data[i] = static_cast<uint16_t>(f32_bits >> 16);
-    // Expected: BF16 truncation loses lower mantissa bits
-    uint32_t reconstructed = static_cast<uint32_t>(bf16Data[i]) << 16;
-    std::memcpy(&expectedF32[i], &reconstructed, sizeof(float));
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "dequant/bf16")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
-
-  // Upload raw BF16 bytes as Int8 tensor
-  auto rawTensor = runtime_->createTensor(
-      {static_cast<uint32_t>(n_elements * 2)}, DataType::Int8, bf16Data.data());
-
-  auto result = runtime_->ops().dequantize(
-      rawTensor, static_cast<uint32_t>(cut::DequantFormat::BF16), rows, cols);
-
-  std::vector<float> gpuOutput(n_elements);
-  runtime_->copyFromTensor(result, gpuOutput.data(),
-                           n_elements * sizeof(float));
-
-  for (uint32_t i = 0; i < n_elements; ++i) {
-    ASSERT_NEAR(gpuOutput[i], expectedF32[i], 1e-6f)
-        << "BF16 dequant mismatch at index " << i;
-  }
-}
-
-// Helper: convert F32 to F16 bits (for dequant test scale encoding)
-static float f16_bits_to_f32(uint16_t h) {
-  uint32_t sign = (h & 0x8000u) << 16;
-  uint32_t exponent = (h >> 10) & 0x1F;
-  uint32_t mantissa = h & 0x03FF;
-  if (exponent == 0) {
-    if (mantissa == 0) {
-      float result;
-      std::memcpy(&result, &sign, sizeof(float));
-      return result;
-    }
-    float result = static_cast<float>(mantissa) * 5.960464477539063e-08f;
-    return (h & 0x8000) ? -result : result;
-  }
-  if (exponent == 31) {
-    uint32_t f32_bits = sign | 0x7F800000u | (mantissa << 13);
-    float result;
-    std::memcpy(&result, &f32_bits, sizeof(float));
-    return result;
-  }
-  uint32_t f32_bits = sign | ((exponent + 112) << 23) | (mantissa << 13);
-  float result;
-  std::memcpy(&result, &f32_bits, sizeof(float));
-  return result;
 }
 
 TEST_F(MatrixOpsTest, Dequant_Q4K) {
-  // Q4_K: 256 elements per super-block, 144 bytes per block.
-  // Layout: [d:f16][dmin:f16][scales:12B][qs:128B]
-  // Test with 1 row, 256 cols (one super-block).
-  const uint32_t rows = 1, cols = 256;
-  const size_t blockBytes = 144;
-
-  std::vector<uint8_t> rawBlock(blockBytes, 0);
-
-  // Set d = 1.0 (f16), dmin = 0.0 (f16)
-  uint16_t d_f16 = f32_to_f16(1.0f);
-  uint16_t dmin_f16 = f32_to_f16(0.0f);
-  std::memcpy(rawBlock.data(), &d_f16, 2);
-  std::memcpy(rawBlock.data() + 2, &dmin_f16, 2);
-
-  // Set all sub-block scales to 1, mins to 0 (in packed 12-byte format)
-  // For j < 4: scales[j] & 63 = 1, mins[j+4] & 63 = 0
-  for (int j = 0; j < 4; ++j) {
-    rawBlock[4 + j] = 1;     // scale = 1 (lower 6 bits)
-    rawBlock[4 + j + 4] = 0; // min = 0
-  }
-  // For j >= 4: packed into bytes 8-11
-  for (int j = 4; j < 8; ++j) {
-    rawBlock[4 + j + 4] = 1; // lower nibble = scale, upper nibble = min
-  }
-
-  // Set nibbles: value i%16 for element i
-  // qs is 128 bytes starting at offset 16
-  uint8_t *qs = rawBlock.data() + 16;
-  for (int i = 0; i < 128; ++i) {
-    qs[i] = static_cast<uint8_t>(((i % 8) & 0xF) | (((i % 8 + 1) & 0xF) << 4));
-  }
-
-  auto rawTensor =
-      runtime_->createTensor({static_cast<uint32_t>(rawBlock.size())},
-                             DataType::Int8, rawBlock.data());
-
-  auto result = runtime_->ops().dequantize(
-      rawTensor, static_cast<uint32_t>(cut::DequantFormat::Q4_K), rows, cols);
-
-  std::vector<float> gpuOutput(rows * cols);
-  runtime_->copyFromTensor(result, gpuOutput.data(),
-                           rows * cols * sizeof(float));
-
-  // CPU reference dequant
-  float d = f16_bits_to_f32(d_f16);
-
-  // Verify first few elements are non-NaN and finite
-  for (uint32_t i = 0; i < cols; ++i) {
-    ASSERT_FALSE(std::isnan(gpuOutput[i]))
-        << "Q4_K dequant produced NaN at index " << i;
-    ASSERT_FALSE(std::isinf(gpuOutput[i]))
-        << "Q4_K dequant produced Inf at index " << i;
-  }
-
-  // Verify that d=1.0 with scale=1, min=0 gives value = 1.0 * 1 * nibble
-  // First 32 elements use lower nibble of qs[0..31]
-  for (uint32_t i = 0; i < 32; ++i) {
-    float nibble = static_cast<float>(qs[i] & 0xF);
-    float expected = d * 1.0f * nibble; // d * scale * nibble - dmin * min
-    ASSERT_NEAR(gpuOutput[i], expected, 0.01f)
-        << "Q4_K mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "dequant/q4k")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(MatrixOpsTest, Dequant_Q6K) {
-  // Q6_K: 256 elements per super-block, 210 bytes per block.
-  // Layout: [ql:128B][qh:64B][scales:16B][d:f16]
-  // Test with 1 row, 256 cols.
-  const uint32_t rows = 1, cols = 256;
-  const size_t blockBytes = 210;
-
-  std::vector<uint8_t> rawBlock(blockBytes, 0);
-
-  // Set d = 1.0 at offset 208
-  uint16_t d_f16 = f32_to_f16(1.0f);
-  std::memcpy(rawBlock.data() + 208, &d_f16, 2);
-
-  // Set all int8 scales to 1 (at offset 192, 16 bytes)
-  for (int i = 0; i < 16; ++i) {
-    rawBlock[192 + i] = 1;
-  }
-
-  // Set ql (lower 4 bits) at offset 0: all values = 5 (lower nibble)
-  for (int i = 0; i < 128; ++i) {
-    rawBlock[i] = 0x55; // lower=5, upper=5
-  }
-
-  // Set qh (upper 2 bits) at offset 128: all zeros (so 6-bit value = lower 4
-  // bits)
-  // Already zero from initialization
-
-  auto rawTensor =
-      runtime_->createTensor({static_cast<uint32_t>(rawBlock.size())},
-                             DataType::Int8, rawBlock.data());
-
-  auto result = runtime_->ops().dequantize(
-      rawTensor, static_cast<uint32_t>(cut::DequantFormat::Q6_K), rows, cols);
-
-  std::vector<float> gpuOutput(rows * cols);
-  runtime_->copyFromTensor(result, gpuOutput.data(),
-                           rows * cols * sizeof(float));
-
-  // With d=1.0, scale=1, all ql=5, qh=0:
-  // 6-bit value = 5 | (0 << 4) = 5
-  // dequant = d * scale * (6bit - 32) = 1.0 * 1 * (5 - 32) = -27.0
-  for (uint32_t i = 0; i < 32; ++i) {
-    ASSERT_FALSE(std::isnan(gpuOutput[i]))
-        << "Q6_K dequant produced NaN at index " << i;
-    ASSERT_NEAR(gpuOutput[i], -27.0f, 0.01f) << "Q6_K mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "dequant/q6k")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
