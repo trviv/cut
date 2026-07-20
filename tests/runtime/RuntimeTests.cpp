@@ -5944,6 +5944,106 @@ TEST_F(MatrixOpsTest, MatMulQ4_VsReference) {
   }
 }
 
+TEST_F(MatrixOpsTest, MatMulQ8_AllVariants_VsReference) {
+  const uint32_t M = 1, K = 512, N = 16;
+  const uint32_t blocksPerRow = K / 32;
+  auto dataA = generateTestData<float>(M * K, 42);
+  std::vector<int8_t> dataB(K * N);
+  for (size_t i = 0; i < dataB.size(); ++i)
+    dataB[i] = static_cast<int8_t>((i * 7 + 3) % 21 - 10);
+  std::vector<float> scaleFloats(blocksPerRow * N);
+  for (size_t i = 0; i < scaleFloats.size(); ++i)
+    scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
+  std::vector<uint16_t> scaleF16(scaleFloats.size());
+  for (size_t i = 0; i < scaleFloats.size(); ++i)
+    scaleF16[i] = f32_to_f16(scaleFloats[i]);
+  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = runtime_->createTensor({K, N}, DataType::Int8, dataB.data());
+  auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16, scaleF16.data());
+  // CPU reference
+  std::vector<float> ref(M * N, 0.0f);
+  for (uint32_t m = 0; m < M; ++m)
+    for (uint32_t n = 0; n < N; ++n)
+      for (uint32_t k = 0; k < K; ++k)
+        ref[m * N + n] += dataA[m * K + k] * static_cast<float>(dataB[k * N + n]) *
+                          scaleFloats[(k / 32) * N + n];
+  int tested = 0;
+  for (int vi = 0; vi < kMatMulQ8VariantCount; ++vi) {
+    if (!getCompiledMatMulQ8(vi, DataType::Float32, DataType::Float16,
+                             DataType::Float32)
+             .has_value())
+      continue;
+    std::string name = getMatMulQ8VariantName(vi);
+    // Skip variants that need a specialized packed-weight layout not produced
+    // by this plain [K,N] int8 + f16-scale reference: integer-dot ("Dot") and
+    // cooperative-matrix ("CoopMat") kernels expect pre-packed operands and are
+    // exercised via their own dedicated paths.
+    if (name.find("Dot") != std::string::npos ||
+        name.find("CoopMat") != std::string::npos)
+      continue;
+    SCOPED_TRACE(std::string("Q8 variant ") + std::to_string(vi) + " " + name);
+    auto bufC = runtime_->ops().matmul(bufA, bufB, bufS, vi);
+    std::vector<float> got(M * N);
+    runtime_->copyFromTensor(bufC, got.data(), M * N * sizeof(float));
+    for (uint32_t i = 0; i < M * N; ++i)
+      ASSERT_NEAR(got[i], ref[i], std::abs(ref[i]) * 0.02f + 0.1f) << "i=" << i;
+    ++tested;
+  }
+  ASSERT_GT(tested, 1) << "expected multiple compiled Q8 variants";
+}
+
+TEST_F(MatrixOpsTest, MatMulQ4_AllVariants_VsReference) {
+  const uint32_t M = 1, K = 64, N = 4;
+  const uint32_t blocksPerRow = K / 32;
+  auto dataA = generateTestData<float>(M * K, 42);
+  std::vector<uint8_t> nibbles(K * N);
+  for (size_t i = 0; i < nibbles.size(); ++i)
+    nibbles[i] = static_cast<uint8_t>((i * 7 + 3) % 16);
+  std::vector<uint8_t> packedB(K * (N / 2));
+  for (uint32_t k = 0; k < K; ++k)
+    for (uint32_t n = 0; n < N; n += 2)
+      packedB[k * (N / 2) + n / 2] = packNibbles(nibbles[k * N + n], nibbles[k * N + n + 1]);
+  std::vector<float> scaleFloats(blocksPerRow * N);
+  for (size_t i = 0; i < scaleFloats.size(); ++i)
+    scaleFloats[i] = 0.1f + 0.05f * static_cast<float>(i);
+  std::vector<uint16_t> scaleF16(scaleFloats.size());
+  for (size_t i = 0; i < scaleFloats.size(); ++i)
+    scaleF16[i] = f32_to_f16(scaleFloats[i]);
+  auto bufA = runtime_->createTensor({M, K}, DataType::Float32, dataA.data());
+  auto bufB = runtime_->createTensor({K, N / 2}, DataType::Int8, packedB.data());
+  auto bufS = runtime_->createTensor({blocksPerRow, N}, DataType::Float16, scaleF16.data());
+  std::vector<float> ref(M * N, 0.0f);
+  for (uint32_t m = 0; m < M; ++m)
+    for (uint32_t n = 0; n < N; ++n)
+      for (uint32_t k = 0; k < K; ++k)
+        ref[m * N + n] += dataA[m * K + k] *
+                          static_cast<float>(static_cast<int>(nibbles[k * N + n]) - 8) *
+                          scaleFloats[(k / 32) * N + n];
+  int tested = 0;
+  for (int vi = 0; vi < kMatMulQ4VariantCount; ++vi) {
+    if (!getCompiledMatMulQ4(vi, DataType::Float32, DataType::Float16,
+                             DataType::Float32)
+             .has_value())
+      continue;
+    std::string name = getMatMulQ4VariantName(vi);
+    // Skip variants that need a specialized packed-weight layout not produced
+    // by this plain [K,N] int8 + f16-scale reference: integer-dot ("Dot") and
+    // cooperative-matrix ("CoopMat") kernels expect pre-packed operands and are
+    // exercised via their own dedicated paths.
+    if (name.find("Dot") != std::string::npos ||
+        name.find("CoopMat") != std::string::npos)
+      continue;
+    SCOPED_TRACE(std::string("Q4 variant ") + std::to_string(vi) + " " + name);
+    auto bufC = runtime_->ops().matmul(bufA, bufB, bufS, vi);
+    std::vector<float> got(M * N);
+    runtime_->copyFromTensor(bufC, got.data(), M * N * sizeof(float));
+    for (uint32_t i = 0; i < M * N; ++i)
+      ASSERT_NEAR(got[i], ref[i], std::abs(ref[i]) * 0.02f + 0.1f) << "i=" << i;
+    ++tested;
+  }
+  ASSERT_GT(tested, 0) << "expected at least one compiled Q4 variant";
+}
+
 // =========================================================================
 // Dequantization tests
 // =========================================================================
