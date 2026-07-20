@@ -293,138 +293,48 @@ TEST_F(VulkanBackendTest, BinaryVecVecOperators) {
 
 // Test unary operators with Float32
 TEST_F(VulkanBackendTest, UnaryOperators_Float32) {
-  const DataType dtype = DataType::Float32;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataIn = generateTestData<float>(elements, 42);
-      for (auto &v : dataIn) {
-        v = std::clamp(v, 0.1f, 0.9f);
-      }
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-
-      for (OperatorEnum op : kUnaryOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferOut = runtime_->ops().unaryOp(op, bufferIn);
-
-        std::vector<float> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        // Inverse trig ops use polynomial approximations on GPU that drift
-        // slightly more than the default tolerance, especially near domain
-        // boundaries (e.g. asin(0.9)).
-        const float tol =
-            (op == UnaryAsin || op == UnaryAcos || op == UnaryAtan) ? 1e-3f
-                                                                    : 1e-4f;
-
-        for (uint32_t i = 0; i < elements; ++i) {
-          float expected = unaryRef(op, dataIn[i]);
-          if (std::isfinite(expected)) {
-            ASSERT_NEAR(output[i], expected, tol)
-                << "Mismatch at index " << i << " for " << operatorName(op);
-          }
-        }
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "unary" || c.name.find("/f32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
-// Test unary operators with Int32
+// Test unary operators with Int32 (registry-driven).
 TEST_F(VulkanBackendTest, UnaryOperators_Int32) {
-  const DataType dtype = DataType::Int32;
-
-  // Unary ops that produce valid GLSL for ivec4
-  constexpr std::array<OperatorEnum, 11> kInt32UnaryOps = {
-      UnaryNeg,        UnaryAbs,        UnarySquare, UnaryReciprocal,
-      UnarySign,       UnaryFloor,      UnaryCeil,   UnaryRound,
-      UnaryLogicalNot, UnaryBitwiseNot, UnaryRelu};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(int32_t);
-
-      auto dataIn = generateTestData<int32_t>(elements, 42);
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-
-      for (OperatorEnum op : kInt32UnaryOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferOut = runtime_->ops().unaryOp(op, bufferIn);
-
-        std::vector<int32_t> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        for (uint32_t i = 0; i < elements; ++i) {
-          int32_t expected = unaryRef(op, dataIn[i]);
-          ASSERT_EQ(output[i], expected)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "unary" || c.name.find("/i32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
-// Test binary vec-scalar operators with Float32
+// Test binary vec-scalar operators with Float32 (registry-driven).
 TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Float32) {
-  const DataType dtype = DataType::Float32;
-  const float scalar = 2.5f;
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(float);
-
-      auto dataA = generateTestData<float>(elements, 42);
-
-      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-
-      for (OperatorEnum op : kBinaryVecScalarOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalar);
-
-        bool isCmp = (op >= BinaryEqual && op <= BinaryGreaterEqual);
-        if (isCmp) {
-          std::vector<uint32_t> output(elements);
-          runtime_->copyFromTensor(bufferOut, output.data(),
-                                   elements * sizeof(uint32_t));
-          for (uint32_t i = 0; i < elements; ++i) {
-            float refVal = binaryVecScalarRef(op, dataA[i], scalar);
-            uint32_t expected = (refVal != 0.0f) ? 1u : 0u;
-            ASSERT_EQ(output[i], expected)
-                << "Mismatch at index " << i << " for " << operatorName(op);
-          }
-        } else {
-          std::vector<float> output(elements);
-          runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-          for (uint32_t i = 0; i < elements; ++i) {
-            float expected = binaryVecScalarRef(op, dataA[i], scalar);
-            if (std::isnan(expected) && std::isnan(output[i]))
-              continue;
-            if (std::isinf(expected) && std::isinf(output[i]) &&
-                std::signbit(expected) == std::signbit(output[i]))
-              continue;
-            float tol = (op == BinaryPow)
-                            ? std::max(1e-5f, std::abs(expected) * 1e-5f)
-                            : 1e-5f;
-            ASSERT_NEAR(output[i], expected, tol)
-                << "Mismatch at index " << i << " for " << operatorName(op);
-          }
-        }
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "binary_vecscalar" ||
+        c.name.find("/f32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // ============================================================================
@@ -2588,93 +2498,33 @@ TEST_F(RadixSortTest, Sort_AllSameValues_UInt32) {
 // ============================================================================
 
 TEST_F(VulkanBackendTest, BinaryVecScalarOperators_Int32) {
-  const DataType dtype = DataType::Int32;
-  const int32_t scalar = 3;
-
-  constexpr std::array<OperatorEnum, 20> kInt32BinaryVecScalarOps = {
-      // Arithmetic
-      BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
-      // Comparison
-      BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
-      BinaryGreaterEqual,
-      // Min/Max
-      BinaryMin, BinaryMax,
-      // Bitwise
-      BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor,
-      // Logical
-      BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(int32_t);
-
-      auto dataA = generateTestData<int32_t>(elements, 42);
-
-      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-
-      for (OperatorEnum op : kInt32BinaryVecScalarOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalar);
-
-        std::vector<int32_t> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        for (uint32_t i = 0; i < elements; ++i) {
-          int32_t expected = binaryVecScalarRef(op, dataA[i], scalar);
-          ASSERT_EQ(output[i], expected)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "binary_vecscalar" ||
+        c.name.find("/i32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 TEST_F(VulkanBackendTest, BinaryVecScalarOperators_UInt32) {
-  const DataType dtype = DataType::UInt32;
-  const uint32_t scalar = 3;
-
-  constexpr std::array<OperatorEnum, 20> kUInt32BinaryVecScalarOps = {
-      // Arithmetic
-      BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
-      // Comparison
-      BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
-      BinaryGreaterEqual,
-      // Min/Max
-      BinaryMin, BinaryMax,
-      // Bitwise
-      BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor,
-      // Logical
-      BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(uint32_t);
-
-      auto dataA = generateTestData<uint32_t>(elements, 42);
-
-      auto bufferA = runtime_->createTensor(shape, dtype, dataA.data());
-
-      for (OperatorEnum op : kUInt32BinaryVecScalarOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferOut = runtime_->ops().binaryOp(op, bufferA, scalar);
-
-        std::vector<uint32_t> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        for (uint32_t i = 0; i < elements; ++i) {
-          uint32_t expected = binaryVecScalarRef(op, dataA[i], scalar);
-          ASSERT_EQ(output[i], expected)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "binary_vecscalar" ||
+        c.name.find("/u32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // ============================================================================
@@ -2682,38 +2532,17 @@ TEST_F(VulkanBackendTest, BinaryVecScalarOperators_UInt32) {
 // ============================================================================
 
 TEST_F(VulkanBackendTest, UnaryOperators_UInt32) {
-  const DataType dtype = DataType::UInt32;
-
-  constexpr std::array<OperatorEnum, 8> kUInt32UnaryOps = {
-      UnarySquare, UnaryReciprocal, UnarySign,       UnaryFloor,
-      UnaryCeil,   UnaryRound,      UnaryLogicalNot, UnaryBitwiseNot};
-
-  for (size_t numDims : kDimensionCounts) {
-    for (const auto &shape : generateShapes(numDims)) {
-      const uint32_t elements = totalElements(shape);
-      const size_t bufferSize = elements * sizeof(uint32_t);
-
-      auto dataIn = generateTestData<uint32_t>(elements, 42);
-
-      auto bufferIn = runtime_->createTensor(shape, dtype, dataIn.data());
-
-      for (OperatorEnum op : kUInt32UnaryOps) {
-        SCOPED_TRACE(std::string("Op: ") + operatorName(op) +
-                     " Shape: " + shapeToString(shape));
-
-        auto bufferOut = runtime_->ops().unaryOp(op, bufferIn);
-
-        std::vector<uint32_t> output(elements);
-        runtime_->copyFromTensor(bufferOut, output.data(), bufferSize);
-
-        for (uint32_t i = 0; i < elements; ++i) {
-          uint32_t expected = unaryRef(op, dataIn[i]);
-          ASSERT_EQ(output[i], expected)
-              << "Mismatch at index " << i << " for " << operatorName(op);
-        }
-      }
-    }
+  int ran = 0;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.family != "unary" || c.name.find("/u32") == std::string::npos)
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0);
 }
 
 // ============================================================================

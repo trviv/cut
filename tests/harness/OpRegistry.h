@@ -271,83 +271,151 @@ inline Tensor bvvRunF16(Runtime &rt, OperatorEnum op) {
   return rt.ops().binaryOp(op, bufferA, bufferB);
 }
 
+// ===========================================================================
+// Binary vec-scalar family (op x {f32,i32,u32} x shape sweep)
+// ===========================================================================
+inline constexpr std::array<OperatorEnum, 20> kIntBinaryVecScalarOps = {
+    BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryMod, BinaryFloorDiv,
+    BinaryEqual, BinaryNotEqual, BinaryLess, BinaryLessEqual, BinaryGreater,
+    BinaryGreaterEqual, BinaryMin, BinaryMax, BinaryBitwiseAnd, BinaryBitwiseOr,
+    BinaryBitwiseXor, BinaryLogicalAnd, BinaryLogicalOr, BinaryLogicalXor};
+
+template <typename T>
+inline VerifyResult bvsSweep(Runtime &rt, DataType dtype, OperatorEnum op, T scalar) {
+  for (size_t numDims : kBvvDimCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      auto dataA = generateTestData<T>(elements, 42);
+      auto bufferA = rt.createTensor(shape, dtype, dataA.data());
+
+      auto bufferOut = rt.ops().binaryOp(op, bufferA, scalar);
+
+      if constexpr (std::is_floating_point_v<T>) {
+        bool isCmp = (op >= BinaryEqual && op <= BinaryGreaterEqual);
+        if (isCmp) {
+          std::vector<uint32_t> output(elements);
+          rt.copyFromTensor(bufferOut, output.data(), elements * sizeof(uint32_t));
+          for (uint32_t i = 0; i < elements; ++i) {
+            float refVal = binaryVecScalarRef(op, dataA[i], scalar);
+            uint32_t expected = (refVal != 0.0f) ? 1u : 0u;
+            if (output[i] != expected) {
+              return {false, std::string(operatorName(op)) + " mismatch at idx " + std::to_string(i)};
+            }
+          }
+        } else {
+          std::vector<T> output(elements);
+          rt.copyFromTensor(bufferOut, output.data(), elements * sizeof(T));
+          for (uint32_t i = 0; i < elements; ++i) {
+            T expected = binaryVecScalarRef(op, dataA[i], scalar);
+            if (std::isnan(expected) && std::isnan(output[i])) continue;
+            if (std::isinf(expected) && std::isinf(output[i]) &&
+                std::signbit(expected) == std::signbit(output[i])) continue;
+            T tol = (op == BinaryPow) ? std::max(T(1e-5), std::abs(expected) * T(1e-5)) : T(1e-5);
+            if (std::abs(output[i] - expected) > tol) {
+              return {false, std::string(operatorName(op)) + " mismatch at idx " + std::to_string(i)};
+            }
+          }
+        }
+      } else {
+        std::vector<T> output(elements);
+        rt.copyFromTensor(bufferOut, output.data(), elements * sizeof(T));
+        for (uint32_t i = 0; i < elements; ++i) {
+          T expected = binaryVecScalarRef(op, dataA[i], scalar);
+          if (output[i] != expected) {
+            return {false, std::string(operatorName(op)) + " mismatch at idx " + std::to_string(i)};
+          }
+        }
+      }
+    }
+  }
+  return {true, ""};
+}
+
+template <typename T>
+inline Tensor bvsRun(Runtime &rt, DataType dtype, OperatorEnum op, T scalar) {
+  std::vector<uint32_t> shape = {64, 64};
+  uint32_t elements = totalElements(shape);
+  auto dataA = generateTestData<T>(elements, 42);
+  auto bufferA = rt.createTensor(shape, dtype, dataA.data());
+  return rt.ops().binaryOp(op, bufferA, scalar);
+}
+
+// ===========================================================================
+// Unary family (op x {f32,i32,u32} x shape sweep)
+// ===========================================================================
+inline constexpr std::array<OperatorEnum, 11> kInt32UnaryOps = {
+    UnaryNeg, UnaryAbs, UnarySquare, UnaryReciprocal, UnarySign, UnaryFloor,
+    UnaryCeil, UnaryRound, UnaryLogicalNot, UnaryBitwiseNot, UnaryRelu};
+inline constexpr std::array<OperatorEnum, 8> kUInt32UnaryOps = {
+    UnarySquare, UnaryReciprocal, UnarySign, UnaryFloor, UnaryCeil, UnaryRound,
+    UnaryLogicalNot, UnaryBitwiseNot};
+
+inline VerifyResult unarySweepF32(Runtime &rt, OperatorEnum op) {
+  for (size_t numDims : kBvvDimCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      auto dataIn = generateTestData<float>(elements, 42);
+      for (auto &v : dataIn) {
+        v = std::clamp(v, 0.1f, 0.9f);
+      }
+      auto bufferIn = rt.createTensor(shape, DataType::Float32, dataIn.data());
+      auto bufferOut = rt.ops().unaryOp(op, bufferIn);
+      std::vector<float> output(elements);
+      rt.copyFromTensor(bufferOut, output.data(), elements * sizeof(float));
+      const float tol = (op == UnaryAsin || op == UnaryAcos || op == UnaryAtan) ? 1e-3f : 1e-4f;
+      for (uint32_t i = 0; i < elements; ++i) {
+        float expected = unaryRef(op, dataIn[i]);
+        if (std::isfinite(expected) && std::abs(output[i] - expected) > tol) {
+          return {false, std::string(operatorName(op)) + " mismatch at idx " + std::to_string(i)};
+        }
+      }
+    }
+  }
+  return {true, ""};
+}
+
+template <typename T>
+inline VerifyResult unarySweepInt(Runtime &rt, DataType dtype, OperatorEnum op) {
+  for (size_t numDims : kBvvDimCounts) {
+    for (const auto &shape : generateShapes(numDims)) {
+      const uint32_t elements = totalElements(shape);
+      auto dataIn = generateTestData<T>(elements, 42);
+      auto bufferIn = rt.createTensor(shape, dtype, dataIn.data());
+      auto bufferOut = rt.ops().unaryOp(op, bufferIn);
+      std::vector<T> output(elements);
+      rt.copyFromTensor(bufferOut, output.data(), elements * sizeof(T));
+      for (uint32_t i = 0; i < elements; ++i) {
+        T expected = unaryRef(op, dataIn[i]);
+        if (output[i] != expected) {
+          return {false, std::string(operatorName(op)) + " mismatch at idx " + std::to_string(i)};
+        }
+      }
+    }
+  }
+  return {true, ""};
+}
+
+inline Tensor unaryRunF32(Runtime &rt, OperatorEnum op) {
+  const std::vector<uint32_t> shape = {64, 64};
+  auto dataIn = generateTestData<float>(4096, 42);
+  for (auto &v : dataIn) {
+    v = std::clamp(v, 0.1f, 0.9f);
+  }
+  auto bufferIn = rt.createTensor(shape, DataType::Float32, dataIn.data());
+  return rt.ops().unaryOp(op, bufferIn);
+}
+
+template <typename T>
+inline Tensor unaryRunInt(Runtime &rt, DataType dtype, OperatorEnum op) {
+  const std::vector<uint32_t> shape = {64, 64};
+  auto dataIn = generateTestData<T>(4096, 42);
+  auto bufferIn = rt.createTensor(shape, dtype, dataIn.data());
+  return rt.ops().unaryOp(op, bufferIn);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
-
-  struct BinSpec { const char *name; OperatorEnum op; std::function<float(float,float)> ref; };
-  const std::vector<BinSpec> bins = {
-    {"add", BinaryAdd, [](float a, float b){ return a + b; }},
-    {"sub", BinarySub, [](float a, float b){ return a - b; }},
-    {"mul", BinaryMul, [](float a, float b){ return a * b; }},
-    {"max", BinaryMax, [](float a, float b){ return std::max(a, b); }},
-    {"min", BinaryMin, [](float a, float b){ return std::min(a, b); }},
-  };
-  // Two shapes exercised per op.
-  const std::vector<std::vector<uint32_t>> binShapes = { {1024}, {32, 64} };
-  for (const auto &b : bins) {
-    for (const auto &shape : binShapes) {
-      uint32_t n = 1; for (auto d : shape) n *= d;
-      OpCase c;
-      c.name = std::string("binary/") + b.name + "/f32/" +
-               (shape.size() == 1 ? "1d" : "2d");
-      c.family = "binary";
-      auto op = b.op; auto ref = b.ref; auto shp = shape; auto count = n;
-      c.run = [op, shp, count](Runtime &rt, int /*variant*/) {
-        auto da = seqData(count, -3.0f, 0.25f);
-        auto db = seqData(count, 1.0f, -0.1f);
-        auto a = rt.createTensor(shp, DataType::Float32, da.data());
-        auto bb = rt.createTensor(shp, DataType::Float32, db.data());
-        return rt.ops().binaryOp(op, a, bb);
-      };
-      c.verify = [ref, count](Runtime &rt, const Tensor &out) {
-        auto da = seqData(count, -3.0f, 0.25f);
-        auto db = seqData(count, 1.0f, -0.1f);
-        std::vector<float> got(count);
-        rt.copyFromTensor(out, got.data(), count * sizeof(float));
-        for (uint32_t i = 0; i < count; ++i) {
-          float e = ref(da[i], db[i]);
-          if (std::abs(got[i] - e) > 1e-4f)
-            return VerifyResult{false, "idx " + std::to_string(i) + " got " +
-                                        std::to_string(got[i]) + " exp " +
-                                        std::to_string(e)};
-        }
-        return VerifyResult{true, ""};
-      };
-      cases.push_back(std::move(c));
-    }
-  }
-
-  struct UnSpec { const char *name; OperatorEnum op; std::function<float(float)> ref; };
-  const std::vector<UnSpec> uns = {
-    {"neg",    UnaryNeg,    [](float x){ return -x; }},
-    {"abs",    UnaryAbs,    [](float x){ return std::abs(x); }},
-    {"square", UnarySquare, [](float x){ return x * x; }},
-    {"relu",   UnaryRelu,   [](float x){ return x > 0.0f ? x : 0.0f; }},
-  };
-  for (const auto &u : uns) {
-    OpCase c;
-    c.name = std::string("unary/") + u.name + "/f32/1d";
-    c.family = "unary";
-    auto op = u.op; auto ref = u.ref; const uint32_t count = 1024;
-    c.run = [op, count](Runtime &rt, int /*variant*/) {
-      auto d = seqData(count, -5.0f, 0.01f);
-      auto a = rt.createTensor({count}, DataType::Float32, d.data());
-      return rt.ops().unaryOp(op, a);
-    };
-    c.verify = [ref, count](Runtime &rt, const Tensor &out) {
-      auto d = seqData(count, -5.0f, 0.01f);
-      std::vector<float> got(count);
-      rt.copyFromTensor(out, got.data(), count * sizeof(float));
-      for (uint32_t i = 0; i < count; ++i) {
-        float e = ref(d[i]);
-        if (std::abs(got[i] - e) > 1e-4f)
-          return VerifyResult{false, "idx " + std::to_string(i)};
-      }
-      return VerifyResult{true, ""};
-    };
-    cases.push_back(std::move(c));
-  }
 
   // Binary Vec-Vec cases
   for (OperatorEnum op : kBinaryVecVecOps) {
@@ -409,6 +477,83 @@ inline std::vector<OpCase> buildOpCases() {
       };
       cases.push_back(std::move(c));
     }
+  }
+
+  // Binary vec-scalar family
+  for (OperatorEnum op : kBinaryVecScalarOps) {
+    auto op_ = op;
+    OpCase c;
+    c.name = std::string("binary_vecscalar/") + operatorName(op_) + "/f32";
+    c.family = "binary_vecscalar";
+    c.run = [op_](Runtime &rt, int) {
+      return bvsRun<float>(rt, DataType::Float32, op_, 2.5f);
+    };
+    c.verify = [op_](Runtime &rt, const Tensor &) {
+      return bvsSweep<float>(rt, DataType::Float32, op_, 2.5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  for (OperatorEnum op : kIntBinaryVecScalarOps) {
+    auto op_ = op;
+    OpCase ci;
+    ci.name = std::string("binary_vecscalar/") + operatorName(op_) + "/i32";
+    ci.family = "binary_vecscalar";
+    ci.run = [op_](Runtime &rt, int) {
+      return bvsRun<int32_t>(rt, DataType::Int32, op_, 3);
+    };
+    ci.verify = [op_](Runtime &rt, const Tensor &) {
+      return bvsSweep<int32_t>(rt, DataType::Int32, op_, 3);
+    };
+    cases.push_back(std::move(ci));
+    OpCase cu;
+    cu.name = std::string("binary_vecscalar/") + operatorName(op_) + "/u32";
+    cu.family = "binary_vecscalar";
+    cu.run = [op_](Runtime &rt, int) {
+      return bvsRun<uint32_t>(rt, DataType::UInt32, op_, 3u);
+    };
+    cu.verify = [op_](Runtime &rt, const Tensor &) {
+      return bvsSweep<uint32_t>(rt, DataType::UInt32, op_, 3u);
+    };
+    cases.push_back(std::move(cu));
+  }
+
+  // Unary family
+  for (OperatorEnum op : kUnaryOps) {
+    auto op_ = op;
+    OpCase c;
+    c.name = std::string("unary/") + operatorName(op_) + "/f32";
+    c.family = "unary";
+    c.run = [op_](Runtime &rt, int) { return unaryRunF32(rt, op_); };
+    c.verify = [op_](Runtime &rt, const Tensor &) {
+      return unarySweepF32(rt, op_);
+    };
+    cases.push_back(std::move(c));
+  }
+  for (OperatorEnum op : kInt32UnaryOps) {
+    auto op_ = op;
+    OpCase c;
+    c.name = std::string("unary/") + operatorName(op_) + "/i32";
+    c.family = "unary";
+    c.run = [op_](Runtime &rt, int) {
+      return unaryRunInt<int32_t>(rt, DataType::Int32, op_);
+    };
+    c.verify = [op_](Runtime &rt, const Tensor &) {
+      return unarySweepInt<int32_t>(rt, DataType::Int32, op_);
+    };
+    cases.push_back(std::move(c));
+  }
+  for (OperatorEnum op : kUInt32UnaryOps) {
+    auto op_ = op;
+    OpCase c;
+    c.name = std::string("unary/") + operatorName(op_) + "/u32";
+    c.family = "unary";
+    c.run = [op_](Runtime &rt, int) {
+      return unaryRunInt<uint32_t>(rt, DataType::UInt32, op_);
+    };
+    c.verify = [op_](Runtime &rt, const Tensor &) {
+      return unarySweepInt<uint32_t>(rt, DataType::UInt32, op_);
+    };
+    cases.push_back(std::move(c));
   }
 
   return cases;
