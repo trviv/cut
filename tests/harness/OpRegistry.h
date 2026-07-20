@@ -1284,6 +1284,113 @@ inline Tensor avgPoolRun(Runtime& rt) {
   return rt.ops().avgPool2d(bufIn, 2, 2, 2, 2, 0, 0);
 }
 
+// ===========================================================================
+// Global norm / RMS / LogSumExp families
+// ===========================================================================
+inline VerifyResult normGlobalVerify(Runtime& rt, const std::vector<float>& data,
+    const std::vector<uint32_t>& shape, float relTol, float absTol) {
+  auto buf = rt.createTensor(shape, DataType::Float32, data.data());
+  auto out = rt.ops().reduce(Norm, buf);
+  float output = 0.0f;
+  rt.copyFromTensor(out, &output, sizeof(float));
+  double sumSq = 0.0;
+  for (float v : data) sumSq += static_cast<double>(v) * v;
+  float expected = static_cast<float>(std::sqrt(sumSq));
+  if (std::abs(output - expected) > std::abs(expected) * relTol + absTol)
+    return {false, "norm mismatch"};
+  return {true, ""};
+}
+
+inline VerifyResult normVariousVerify(Runtime& rt) {
+  for (uint32_t elements : {4u, 8u, 16u, 100u, 256u, 1024u}) {
+    auto data = generateTestData<float>(elements, 42);
+    auto r = normGlobalVerify(rt, data, {elements}, 1e-3f, 1e-4f);
+    if (!r.ok) return r;
+  }
+  return {true, ""};
+}
+
+inline VerifyResult rmsGlobalVerify(Runtime& rt, const std::vector<float>& data,
+    const std::vector<uint32_t>& shape, float relTol, float absTol) {
+  auto buf = rt.createTensor(shape, DataType::Float32, data.data());
+  auto out = rt.ops().rms(buf);
+  float output = 0.0f;
+  rt.copyFromTensor(out, &output, sizeof(float));
+  double sumSq = 0.0;
+  for (float v : data) sumSq += static_cast<double>(v) * v;
+  float expected = static_cast<float>(std::sqrt(sumSq / data.size()));
+  if (std::abs(output - expected) > std::abs(expected) * relTol + absTol)
+    return {false, "rms mismatch"};
+  return {true, ""};
+}
+
+inline VerifyResult rmsDimVerify(Runtime& rt, uint32_t M, uint32_t N, int seed,
+    float relTol, float absTol) {
+  auto data = generateTestData<float>(M * N, seed);
+  auto buf = rt.createTensor({M, N}, DataType::Float32, data.data());
+  auto out = rt.ops().rms(buf, 1);
+  std::vector<float> output(M);
+  rt.copyFromTensor(out, output.data(), M * sizeof(float));
+  for (uint32_t i = 0; i < M; ++i) {
+    double sumSq = 0.0;
+    for (uint32_t j = 0; j < N; ++j) { double v = data[i * N + j]; sumSq += v * v; }
+    float expected = static_cast<float>(std::sqrt(sumSq / N));
+    if (std::abs(output[i] - expected) > std::abs(expected) * relTol + absTol)
+      return {false, "rms dim mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+inline VerifyResult logSumExpGlobalVerify(Runtime& rt, const std::vector<float>& data,
+    const std::vector<uint32_t>& shape, float relTol, float absTol) {
+  auto buf = rt.createTensor(shape, DataType::Float32, data.data());
+  auto out = rt.ops().logSumExp(buf);
+  float output = 0.0f;
+  rt.copyFromTensor(out, &output, sizeof(float));
+  float maxV = *std::max_element(data.begin(), data.end());
+  double sumExp = 0.0;
+  for (float v : data) sumExp += std::exp(static_cast<double>(v) - maxV);
+  float expected = maxV + static_cast<float>(std::log(sumExp));
+  if (std::abs(output - expected) > std::abs(expected) * relTol + absTol)
+    return {false, "logsumexp mismatch"};
+  return {true, ""};
+}
+
+inline VerifyResult logSumExpDimVerify(Runtime& rt, uint32_t M, uint32_t N, int seed,
+    float relTol, float absTol) {
+  auto data = generateTestData<float>(M * N, seed);
+  auto buf = rt.createTensor({M, N}, DataType::Float32, data.data());
+  auto out = rt.ops().logSumExp(buf, 1);
+  std::vector<float> output(M);
+  rt.copyFromTensor(out, output.data(), M * sizeof(float));
+  for (uint32_t i = 0; i < M; ++i) {
+    float maxV = -std::numeric_limits<float>::max();
+    for (uint32_t j = 0; j < N; ++j) maxV = std::max(maxV, data[i * N + j]);
+    double sumExp = 0.0;
+    for (uint32_t j = 0; j < N; ++j) sumExp += std::exp(static_cast<double>(data[i * N + j]) - maxV);
+    float expected = maxV + static_cast<float>(std::log(sumExp));
+    if (std::abs(output[i] - expected) > std::abs(expected) * relTol + absTol)
+      return {false, "logsumexp dim mismatch at " + std::to_string(i)};
+  }
+  return {true, ""};
+}
+
+inline Tensor normRun(Runtime& rt) {
+  auto data = generateTestData<float>(1024, 42);
+  auto buf = rt.createTensor({1024u}, DataType::Float32, data.data());
+  return rt.ops().reduce(Norm, buf);
+}
+inline Tensor rmsRun(Runtime& rt) {
+  auto data = generateTestData<float>(1024, 42);
+  auto buf = rt.createTensor({1024u}, DataType::Float32, data.data());
+  return rt.ops().rms(buf);
+}
+inline Tensor logSumExpRun(Runtime& rt) {
+  auto data = generateTestData<float>(1024, 42);
+  auto buf = rt.createTensor({1024u}, DataType::Float32, data.data());
+  return rt.ops().logSumExp(buf);
+}
+
 // Builds the built-in registry (binary + unary families, Float32, exact refs).
 inline std::vector<OpCase> buildOpCases() {
   std::vector<OpCase> cases;
@@ -1994,6 +2101,103 @@ cases.push_back(std::move(c));
     c.verify = [](Runtime &rt, const Tensor &) {
       auto input = generateTestData<float>(2 * 3 * 4 * 4, 42);
       return adaptiveAvgPoolCheck(rt, input, 2, 3, 4, 4, 1, 1, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // Global norm family
+  {
+    OpCase c;
+    c.name = "norm/known";
+    c.family = "norm";
+    c.run = [](Runtime &rt, int) { return normRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return normGlobalVerify(rt, {3.0f, 4.0f, 0.0f, 0.0f}, {4u}, 0.0f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "norm/varioussizes";
+    c.family = "norm";
+    c.run = [](Runtime &rt, int) { return normRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) { return normVariousVerify(rt); };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "norm/multidim";
+    c.family = "norm";
+    c.run = [](Runtime &rt, int) { return normRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto data = generateTestData<float>(12, 42);
+      return normGlobalVerify(rt, data, {3u, 4u}, 1e-3f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // RMS family
+  {
+    OpCase c;
+    c.name = "rms/known";
+    c.family = "rms";
+    c.run = [](Runtime &rt, int) { return rmsRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return rmsGlobalVerify(rt, {3.0f, 4.0f}, {2u}, 0.0f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "rms/larger";
+    c.family = "rms";
+    c.run = [](Runtime &rt, int) { return rmsRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto data = generateTestData<float>(1024, 42);
+      return rmsGlobalVerify(rt, data, {1024u}, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "rms/dim";
+    c.family = "rms";
+    c.run = [](Runtime &rt, int) { return rmsRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return rmsDimVerify(rt, 8, 16, 42, 1e-4f, 1e-5f);
+    };
+    cases.push_back(std::move(c));
+  }
+
+  // LogSumExp family
+  {
+    OpCase c;
+    c.name = "logsumexp/known";
+    c.family = "logsumexp";
+    c.run = [](Runtime &rt, int) { return logSumExpRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return logSumExpGlobalVerify(rt, {1.0f, 2.0f, 3.0f, 4.0f}, {4u}, 0.0f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "logsumexp/larger";
+    c.family = "logsumexp";
+    c.run = [](Runtime &rt, int) { return logSumExpRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      auto data = generateTestData<float>(512, 42);
+      return logSumExpGlobalVerify(rt, data, {512u}, 1e-4f, 1e-4f);
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "logsumexp/dim";
+    c.family = "logsumexp";
+    c.run = [](Runtime &rt, int) { return logSumExpRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      return logSumExpDimVerify(rt, 8, 16, 42, 1e-4f, 1e-4f);
     };
     cases.push_back(std::move(c));
   }

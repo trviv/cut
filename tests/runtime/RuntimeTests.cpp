@@ -4236,67 +4236,36 @@ protected:
 };
 
 TEST_F(NormTest, Norm_KnownValues) {
-  const DataType dtype = DataType::Float32;
-
-  // 3-4-5 triangle: sqrt(3^2 + 4^2) = 5
-  std::vector<float> data = {3.0f, 4.0f, 0.0f, 0.0f};
-  const uint32_t elements = 4;
-
-  auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
-
-  auto outTensor = runtime_->ops().reduce(Norm, bufferIn);
-  float output = 0.0f;
-  runtime_->copyFromTensor(outTensor, &output, sizeof(float));
-
-  ASSERT_NEAR(output, 5.0f, 1e-4f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "norm/known")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
 }
 
 TEST_F(NormTest, Norm_VariousSizes) {
-  const DataType dtype = DataType::Float32;
-
-  for (uint32_t elements : {4u, 8u, 16u, 100u, 256u, 1024u}) {
-    SCOPED_TRACE("elements=" + std::to_string(elements));
-
-    auto data = generateTestData<float>(elements, 42);
-
-    auto bufferIn = runtime_->createTensor({elements}, dtype, data.data());
-
-    auto outTensor = runtime_->ops().reduce(Norm, bufferIn);
-    float output = 0.0f;
-    runtime_->copyFromTensor(outTensor, &output, sizeof(float));
-
-    // Reference: L2 norm
-    double sumSq = 0.0;
-    for (uint32_t i = 0; i < elements; ++i) {
-      sumSq += static_cast<double>(data[i]) * static_cast<double>(data[i]);
-    }
-    float expected = static_cast<float>(std::sqrt(sumSq));
-
-    ASSERT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-4f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "norm/varioussizes")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 TEST_F(NormTest, Norm_MultiDimensional) {
-  const DataType dtype = DataType::Float32;
-
-  // 2D tensor
-  std::vector<uint32_t> shape = {3, 4};
-  const uint32_t elements = totalElements(shape);
-  auto data = generateTestData<float>(elements, 42);
-
-  auto bufferIn = runtime_->createTensor(shape, dtype, data.data());
-
-  auto outTensor = runtime_->ops().reduce(Norm, bufferIn);
-  float output = 0.0f;
-  runtime_->copyFromTensor(outTensor, &output, sizeof(float));
-
-  double sumSq = 0.0;
-  for (uint32_t i = 0; i < elements; ++i) {
-    sumSq += static_cast<double>(data[i]) * static_cast<double>(data[i]);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "norm/multidim")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
-  float expected = static_cast<float>(std::sqrt(sumSq));
-
-  ASSERT_NEAR(output, expected, std::abs(expected) * 1e-3f + 1e-4f);
 }
 
 // ============================================================================
@@ -6221,118 +6190,70 @@ TEST_F(VulkanBackendTest, VarianceFused_Global_KnownValues) {
 // --- RMS ---
 
 TEST_F(VulkanBackendTest, RMS_Global_KnownValues) {
-  // rms([3,4]) = sqrt((9+16)/2) = sqrt(12.5) ≈ 3.5355
-  std::vector<float> data = {3.0f, 4.0f};
-  auto buf = runtime_->createTensor({2}, DataType::Float32, data.data());
-  auto result = runtime_->ops().rms(buf);
-
-  float val;
-  runtime_->copyFromTensor(result, &val, sizeof(float));
-  float expected = std::sqrt(12.5f);
-  ASSERT_NEAR(val, expected, 1e-5f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "rms/known")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
 }
 
 TEST_F(VulkanBackendTest, RMS_Global_LargerArray) {
-  auto data = generateTestData<float>(1024, 42);
-  auto buf = runtime_->createTensor({1024}, DataType::Float32, data.data());
-  auto result = runtime_->ops().rms(buf);
-
-  // CPU reference
-  double sumSq = 0.0;
-  for (float v : data)
-    sumSq += static_cast<double>(v) * v;
-  float expected = static_cast<float>(std::sqrt(sumSq / data.size()));
-
-  float val;
-  runtime_->copyFromTensor(result, &val, sizeof(float));
-  ASSERT_NEAR(val, expected, std::abs(expected) * 1e-4f + 1e-5f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "rms/larger")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
 }
 
 TEST_F(VulkanBackendTest, RMS_Dim) {
-  const uint32_t M = 8, N = 16;
-  auto data = generateTestData<float>(M * N, 42);
-  auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
-  auto result = runtime_->ops().rms(buf, 1);
-
-  // CPU reference: RMS along dim 1 → shape [M]
-  std::vector<float> expected(M);
-  for (uint32_t i = 0; i < M; ++i) {
-    double sumSq = 0.0;
-    for (uint32_t j = 0; j < N; ++j) {
-      double v = data[i * N + j];
-      sumSq += v * v;
-    }
-    expected[i] = static_cast<float>(std::sqrt(sumSq / N));
-  }
-
-  std::vector<float> output(M);
-  runtime_->copyFromTensor(result, output.data(), M * sizeof(float));
-
-  for (uint32_t i = 0; i < M; ++i) {
-    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-5f)
-        << "RMS dim mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "rms/dim")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
 // --- LogSumExp ---
 
 TEST_F(VulkanBackendTest, LogSumExp_Global_KnownValues) {
-  // logsumexp([1,2,3,4]) = log(e^1 + e^2 + e^3 + e^4)
-  std::vector<float> data = {1.0f, 2.0f, 3.0f, 4.0f};
-  auto buf = runtime_->createTensor({4}, DataType::Float32, data.data());
-  auto result = runtime_->ops().logSumExp(buf);
-
-  float maxVal = 4.0f;
-  float expected =
-      maxVal + std::log(std::exp(1.0f - maxVal) + std::exp(2.0f - maxVal) +
-                        std::exp(3.0f - maxVal) + std::exp(4.0f - maxVal));
-
-  float val;
-  runtime_->copyFromTensor(result, &val, sizeof(float));
-  ASSERT_NEAR(val, expected, 1e-4f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "logsumexp/known")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
 }
 
 TEST_F(VulkanBackendTest, LogSumExp_Global_LargerArray) {
-  auto data = generateTestData<float>(512, 42);
-  auto buf = runtime_->createTensor({512}, DataType::Float32, data.data());
-  auto result = runtime_->ops().logSumExp(buf);
-
-  // CPU reference: stable logsumexp
-  float maxV = *std::max_element(data.begin(), data.end());
-  double sumExp = 0.0;
-  for (float v : data)
-    sumExp += std::exp(static_cast<double>(v) - maxV);
-  float expected = maxV + static_cast<float>(std::log(sumExp));
-
-  float val;
-  runtime_->copyFromTensor(result, &val, sizeof(float));
-  ASSERT_NEAR(val, expected, std::abs(expected) * 1e-4f + 1e-4f);
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "logsumexp/larger")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
 }
 
 TEST_F(VulkanBackendTest, LogSumExp_Dim) {
-  const uint32_t M = 8, N = 16;
-  auto data = generateTestData<float>(M * N, 42);
-  auto buf = runtime_->createTensor({M, N}, DataType::Float32, data.data());
-  auto result = runtime_->ops().logSumExp(buf, 1);
-
-  // CPU reference: logsumexp along dim 1 → shape [M]
-  std::vector<float> expected(M);
-  for (uint32_t i = 0; i < M; ++i) {
-    float maxV = -std::numeric_limits<float>::max();
-    for (uint32_t j = 0; j < N; ++j)
-      maxV = std::max(maxV, data[i * N + j]);
-    double sumExp = 0.0;
-    for (uint32_t j = 0; j < N; ++j)
-      sumExp += std::exp(static_cast<double>(data[i * N + j]) - maxV);
-    expected[i] = maxV + static_cast<float>(std::log(sumExp));
-  }
-
-  std::vector<float> output(M);
-  runtime_->copyFromTensor(result, output.data(), M * sizeof(float));
-
-  for (uint32_t i = 0; i < M; ++i) {
-    ASSERT_NEAR(output[i], expected[i], std::abs(expected[i]) * 1e-4f + 1e-4f)
-        << "LogSumExp dim mismatch at index " << i;
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "logsumexp/dim")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
   }
 }
 
