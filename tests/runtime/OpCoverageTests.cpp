@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#include <algorithm>
+#include <cmath>
 
 namespace cut {
 namespace {
@@ -139,6 +141,100 @@ TEST_F(OpCoverageTest, Flatten_Full) {
   std::vector<float> got(24);
   rt_->copyFromTensor(out, got.data(), got.size()*sizeof(float));
   for (int i=0;i<24;++i) ASSERT_FLOAT_EQ(got[i], in[i]) << "i="<<i;
+}
+
+TEST_F(OpCoverageTest, RMSNorm_1D_KnownValues) {
+  std::vector<float> x = {1.f, 2.f, 3.f, 4.f};
+  std::vector<float> w = {1.f, 1.f, 1.f, 1.f};
+  const float eps = 1e-5f;
+  const uint32_t D = 4;
+  auto a = rt_->createTensor({D}, DataType::Float32, x.data());
+  auto wt = rt_->createTensor({D}, DataType::Float32, w.data());
+  auto out = rt_->ops().rmsNorm(a, wt, eps);
+  float ss = 0; for (float v : x) ss += v*v;
+  float scale = 1.0f / std::sqrt(ss / D + eps);
+  std::vector<float> got(D);
+  rt_->copyFromTensor(out, got.data(), D*sizeof(float));
+  for (uint32_t i=0;i<D;++i) ASSERT_NEAR(got[i], x[i]*scale*w[i], 1e-4f) << "i="<<i;
+}
+
+TEST_F(OpCoverageTest, RMSNorm_2D_Batched_WeightedRows) {
+  const uint32_t N=2, D=4;
+  std::vector<float> x = {1.f,2.f,3.f,4.f,  2.f,4.f,6.f,8.f};
+  std::vector<float> w = {0.5f,1.0f,1.5f,2.0f};
+  const float eps = 1e-5f;
+  auto a = rt_->createTensor({N,D}, DataType::Float32, x.data());
+  auto wt = rt_->createTensor({D}, DataType::Float32, w.data());
+  auto out = rt_->ops().rmsNorm(a, wt, eps);
+  std::vector<float> got(N*D);
+  rt_->copyFromTensor(out, got.data(), N*D*sizeof(float));
+  for (uint32_t r=0;r<N;++r) {
+    float ss=0; for (uint32_t i=0;i<D;++i){ float v=x[r*D+i]; ss+=v*v; }
+    float scale = 1.0f/std::sqrt(ss/D + eps);
+    for (uint32_t i=0;i<D;++i)
+      ASSERT_NEAR(got[r*D+i], x[r*D+i]*scale*w[i], 1e-4f) << "r="<<r<<" i="<<i;
+  }
+}
+
+TEST_F(OpCoverageTest, ExtendedRMSNorm_1D_MatchesResidualPlusRMSNorm) {
+  const uint32_t D=4;
+  std::vector<float> base  = {1.f,1.f,1.f,1.f};
+  std::vector<float> delta = {0.5f,-0.5f,1.0f,-1.0f};
+  std::vector<float> w     = {1.f,1.f,1.f,1.f};
+  const float eps=1e-5f;
+  auto b = rt_->createTensor({D}, DataType::Float32, base.data());
+  auto d = rt_->createTensor({D}, DataType::Float32, delta.data());
+  auto wt= rt_->createTensor({D}, DataType::Float32, w.data());
+  auto out = rt_->ops().extendedRmsNorm(b, d, wt, eps);
+  std::vector<float> res(D); float ss=0;
+  for (uint32_t i=0;i<D;++i){ res[i]=base[i]+delta[i]; ss+=res[i]*res[i]; }
+  float scale = 1.0f/std::sqrt(ss/D + eps);
+  std::vector<float> got(D);
+  rt_->copyFromTensor(out, got.data(), D*sizeof(float));
+  for (uint32_t i=0;i<D;++i) ASSERT_NEAR(got[i], res[i]*scale*w[i], 1e-4f) << "i="<<i;
+}
+
+TEST_F(OpCoverageTest, Softmax_SingleRow_KnownValues) {
+  // Plain softmax normalizes along a reduction axis; use a single-row 2D tensor
+  // {1,D} so [1,2,3] is softmaxed over the innermost dim (true 1D input is an
+  // unsupported path in the reduce/expand composite).
+  std::vector<float> x = {1.f,2.f,3.f};
+  const uint32_t D=3;
+  auto a = rt_->createTensor({1, D}, DataType::Float32, x.data());
+  auto out = rt_->ops().softmax(a, 1);
+  float mx = *std::max_element(x.begin(), x.end());
+  std::vector<float> e(D); float sum=0;
+  for (uint32_t i=0;i<D;++i){ e[i]=std::exp(x[i]-mx); sum+=e[i]; }
+  std::vector<float> got(D);
+  rt_->copyFromTensor(out, got.data(), D*sizeof(float));
+  for (uint32_t i=0;i<D;++i) ASSERT_NEAR(got[i], e[i]/sum, 1e-4f) << "i="<<i;
+}
+
+TEST_F(OpCoverageTest, Softmax_2D_Dim1_Rows) {
+  const uint32_t N=2, D=3;
+  std::vector<float> x = {1.f,2.f,3.f,  0.f,0.f,0.f};
+  auto a = rt_->createTensor({N,D}, DataType::Float32, x.data());
+  auto out = rt_->ops().softmax(a, 1);
+  std::vector<float> got(N*D);
+  rt_->copyFromTensor(out, got.data(), N*D*sizeof(float));
+  for (uint32_t r=0;r<N;++r) {
+    float mx=x[r*D]; for (uint32_t i=1;i<D;++i) mx=std::max(mx, x[r*D+i]);
+    float e[3], sum=0; for (uint32_t i=0;i<D;++i){ e[i]=std::exp(x[r*D+i]-mx); sum+=e[i]; }
+    for (uint32_t i=0;i<D;++i) ASSERT_NEAR(got[r*D+i], e[i]/sum, 1e-4f) << "r="<<r<<" i="<<i;
+  }
+}
+
+TEST_F(OpCoverageTest, LogSoftmax_SingleRow_KnownValues) {
+  std::vector<float> x = {1.f,2.f,3.f};
+  const uint32_t D=3;
+  auto a = rt_->createTensor({1, D}, DataType::Float32, x.data());
+  auto out = rt_->ops().logSoftmax(a, 1);
+  float mx = *std::max_element(x.begin(), x.end());
+  float sum=0; for (uint32_t i=0;i<D;++i) sum += std::exp(x[i]-mx);
+  float logsum = std::log(sum);
+  std::vector<float> got(D);
+  rt_->copyFromTensor(out, got.data(), D*sizeof(float));
+  for (uint32_t i=0;i<D;++i) ASSERT_NEAR(got[i], (x[i]-mx)-logsum, 1e-4f) << "i="<<i;
 }
 
 } // namespace
