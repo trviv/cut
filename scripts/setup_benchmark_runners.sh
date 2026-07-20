@@ -96,6 +96,40 @@ fi
 echo ""
 
 # ----------------------------------------------------------------
+# 2c. Build llama.cpp CUDA GPU
+# ----------------------------------------------------------------
+echo "--- 2c. Building llama.cpp CUDA GPU ---"
+
+# Try to find nvcc
+NVCC=""
+if command -v nvcc &>/dev/null; then
+    NVCC=$(command -v nvcc)
+elif [ -f /usr/local/cuda/bin/nvcc ]; then
+    NVCC="/usr/local/cuda/bin/nvcc"
+elif ls /usr/local/cuda-*/bin/nvcc 1>/dev/null 2>&1; then
+    NVCC=$(ls /usr/local/cuda-*/bin/nvcc | head -n 1)
+fi
+
+if [ -n "$NVCC" ]; then
+    echo "  Using nvcc: $NVCC"
+    cd "$LLAMA_DIR"
+    if cmake -B build_cuda -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CUDA_COMPILER="$NVCC" && \
+       cmake --build build_cuda --config Release -j"$(nproc)" --target llama-bench; then
+        echo "  Built: $LLAMA_DIR/build_cuda/bin/llama-bench"
+    else
+        echo "  CUDA build failed (llama.cpp CUDA benchmarks will be skipped)"
+    fi
+    cd "$ROOT"
+else
+    echo "  SKIPPED: nvcc (CUDA toolkit) not found."
+    echo "  llama.cpp's CUDA backend requires the full CUDA toolkit (nvcc)."
+    echo "  Install it (e.g. 'sudo apt install cuda-toolkit') then re-run this script."
+    echo "  Note: CUT's own CUDA backend uses NVRTC and does NOT need nvcc."
+fi
+echo ""
+
+# ----------------------------------------------------------------
 # 3. Install Python packages
 # ----------------------------------------------------------------
 echo "--- 3. Installing Python packages ---"
@@ -144,5 +178,13 @@ if [ -f "$LLAMA_DIR/build_vk/bin/llama-bench" ]; then
     echo "    GGML_VK_DEVICE=1 $LLAMA_DIR/build_vk/bin/llama-bench -m $MODEL -p 15 -n 32 -r 1 -ngl 99"
     echo ""
 fi
-echo "  Full comparison script:"
+if [ -f "$LLAMA_DIR/build_cuda/bin/llama-bench" ]; then
+    echo "  llama.cpp CUDA GPU benchmark (device 0):"
+    echo "    CUDA_VISIBLE_DEVICES=0 $LLAMA_DIR/build_cuda/bin/llama-bench -m $MODEL -p 15 -n 32 -r 1 -ngl 99"
+    echo ""
+fi
+echo "  Full comparison script (CPU + GPU + python runners):"
 echo "    .venv/bin/python scripts/benchmark_compare.py $MODEL"
+echo ""
+echo "  Per-GPU CUT vs llama.cpp matrix (CUDA+Vulkan on NVIDIA, Vulkan on AMD):"
+echo "    python scripts/benchmark_gpus.py $MODEL"

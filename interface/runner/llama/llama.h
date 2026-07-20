@@ -170,11 +170,16 @@ public:
   /// @param max_new_tokens Maximum tokens to generate.
   /// @param repeat_penalty Repetition penalty (1.0 = disabled, >1.0 penalizes).
   /// @param repeat_last_n Lookback window for repetition penalty (0 = all).
+  /// @param forceMinNewTokens If >= 0, overrides the internal minNewTokens
+  ///        heuristic: EOS/stop tokens are suppressed and generation does not
+  ///        stop early until this many tokens have been produced (used to force
+  ///        a fixed-length decode for benchmarking). -1 = default heuristic.
   /// @return GenerationResult with tokens and timing breakdown.
   GenerationResult generate(const std::vector<int> &prompt_tokens,
                             int max_new_tokens,
                             float repeat_penalty = 1.05f,
-                            int repeat_last_n = 64);
+                            int repeat_last_n = 64,
+                            int forceMinNewTokens = -1);
 
   /// Reset KV cache for a new generation.
   void resetCache();

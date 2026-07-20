@@ -1796,7 +1796,8 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
 GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
                                       int max_new_tokens,
                                       float repeat_penalty,
-                                      int repeat_last_n) {
+                                      int repeat_last_n,
+                                      int forceMinNewTokens) {
   resetCache();
 
   GenerationResult result;
@@ -1814,7 +1815,10 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
   // Suppress EOS/stop tokens during early generation to counteract
   // accumulated GPU FP32 precision drift through residual layers, which
   // can artificially elevate the EOS logit for longer prompts.
-  int minNewTokens = std::max(1, static_cast<int>(prompt_tokens.size()) / 4);
+  int minNewTokens =
+      forceMinNewTokens >= 0
+          ? forceMinNewTokens
+          : std::max(1, static_cast<int>(prompt_tokens.size()) / 4);
   int generatedCount = 0;
 
   auto uploadPenaltyFactors = [&](bool suppressEos = false) {

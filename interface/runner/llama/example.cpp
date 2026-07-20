@@ -9,12 +9,14 @@
  *
  * Run:
  *   ./gguf_example [model.gguf] [max_tokens] [prompt] [repeat_penalty]
- *                  [--ctx-size N] [--no-chat]
+ *                  [--ctx-size N] [--no-chat] [--no-stop]
+ *                  [--bench-runs N] [--bench-warmup W]
  */
 
 #include "Runtime.h"
 #include "llama.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -26,12 +28,21 @@ int main(int argc, char *argv[]) {
   // Separate positional args from --flags
   bool noChat = false;
   uint32_t ctxSize = 0; // 0 = use default (512, matching llama.cpp)
+  int benchRuns = 0;    // 0 = single run (default, unchanged behavior)
+  int benchWarmup = 1;  // warmup generations discarded before timing
+  bool noStop = false;  // force full-length decode (suppress EOS) for fair benchmarking
   std::vector<std::string> positional;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--no-chat") == 0) {
       noChat = true;
+    } else if (std::strcmp(argv[i], "--no-stop") == 0) {
+      noStop = true;
     } else if (std::strcmp(argv[i], "--ctx-size") == 0 && i + 1 < argc) {
       ctxSize = static_cast<uint32_t>(std::atoi(argv[++i]));
+    } else if (std::strcmp(argv[i], "--bench-runs") == 0 && i + 1 < argc) {
+      benchRuns = std::atoi(argv[++i]);
+    } else if (std::strcmp(argv[i], "--bench-warmup") == 0 && i + 1 < argc) {
+      benchWarmup = std::atoi(argv[++i]);
     } else {
       positional.push_back(argv[i]);
     }
@@ -139,7 +150,39 @@ int main(int argc, char *argv[]) {
     std::cout << "Generating " << max_new_tokens
               << " tokens (repeat_penalty=" << repeat_penalty << ")...\n";
     // model.setProfilingEnabled(true);
-    auto result = model.generate(prompt, max_new_tokens, repeat_penalty);
+    const int forceMin = noStop ? max_new_tokens : -1;
+    gguf::GenerationResult result;
+    if (benchRuns <= 0) {
+      result = model.generate(prompt, max_new_tokens, repeat_penalty, 64, forceMin);
+    } else {
+      std::cout << "Benchmark mode: " << benchWarmup << " warmup + " << benchRuns
+                << " timed runs (median)\n";
+      for (int w = 0; w < benchWarmup; ++w) {
+        model.generate(prompt, max_new_tokens, repeat_penalty, 64, forceMin);
+      }
+      std::vector<double> prefillTps, decodeTps;
+      for (int r = 0; r < benchRuns; ++r) {
+        auto rr = model.generate(prompt, max_new_tokens, repeat_penalty, 64, forceMin);
+        prefillTps.push_back(rr.prefillMs > 0 ? 1000.0 * rr.promptTokens / rr.prefillMs : 0.0);
+        int dtok = rr.generatedTokens - 1;
+        decodeTps.push_back((dtok > 0 && rr.generateMs > 0) ? 1000.0 * dtok / rr.generateMs : 0.0);
+        result = rr;
+      }
+      auto median = [](std::vector<double> v) -> double {
+        if (v.empty()) return 0.0;
+        std::sort(v.begin(), v.end());
+        size_t n = v.size();
+        if (n % 2 == 1) return v[n / 2];
+        return 0.5 * (v[n / 2 - 1] + v[n / 2]);
+      };
+      double mPrefill = median(prefillTps);
+      double mDecode = median(decodeTps);
+      if (result.promptTokens > 0 && mPrefill > 0)
+        result.prefillMs = 1000.0 * result.promptTokens / mPrefill;
+      int dtok = result.generatedTokens - 1;
+      if (dtok > 0 && mDecode > 0)
+        result.generateMs = 1000.0 * dtok / mDecode;
+    }
 
     std::cout << "\nPrefill: " << result.prefillMs << " ms, "
               << result.promptTokens << " tokens, "
