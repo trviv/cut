@@ -12,5 +12,10 @@ std::optional<std::vector<uint32_t>> compiledBitonicPadInit(DataType input, Data
 std::optional<std::vector<uint32_t>> compiledBitonicCopyBack(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledRadixHistogram(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledRadixScatter(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledOneSweepGlobalHist(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledOneSweepGlobalScan(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledOneSweepScatter(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledFusedTileHist(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledFusedScatter(DataType input, DataType output);
 
 } // namespace cut

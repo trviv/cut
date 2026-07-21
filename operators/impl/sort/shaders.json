@@ -61,6 +61,51 @@
           {"input": "UInt32", "output": "UInt32"}
         ]
       }
+    },
+    {
+      "name": "OneSweepGlobalHist",
+      "description": "OneSweep (CUDA) global histogram over all digit-places",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "OneSweepGlobalScan",
+      "description": "OneSweep (CUDA) per-pass exclusive scan of global histogram",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "OneSweepScatter",
+      "description": "OneSweep (CUDA) decoupled look-back scatter",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "FusedTileHist",
+      "description": "Fused per-digit radix (Vulkan) tile histogram",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
+    },
+    {
+      "name": "FusedScatter",
+      "description": "Fused per-digit radix (Vulkan) local sort + scatter",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"}
+        ]
+      }
     }
   ]
 }
