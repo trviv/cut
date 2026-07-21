@@ -4,6 +4,8 @@
 #include <ComputeCommon.h>
 #include <CudaKernelRegistry.h>
 
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -27,6 +29,25 @@ void compileCudaKernel(CUcontext context,
   const CudaKernelEntry *entry = lookupCudaKernelByHash(hash);
   if (entry == nullptr) {
     return; // no translated kernel for this shader
+  }
+
+  // Native .cu is the default and expected path for every CUDA-dispatched
+  // operator. If a dispatch ever resolves to a transpiled kernel (native
+  // missing) without an explicit CUT_CUDA_KERNELS=transpiled override, surface
+  // it once so the drift from native-default is visible rather than silent.
+  if (!entry->native) {
+    const char *env = std::getenv("CUT_CUDA_KERNELS");
+    const bool forcedTranspiled =
+        env != nullptr && std::strcmp(env, "transpiled") == 0;
+    if (!forcedTranspiled) {
+      static bool warned = false;
+      if (!warned) {
+        warned = true;
+        logMsg("CUDA: dispatch resolved to TRANSPILED kernel %s (no native .cu);"
+               " native is the default path",
+               entry->name);
+      }
+    }
   }
 
   const std::string full =
