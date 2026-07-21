@@ -68,8 +68,12 @@ private:
 
   /// Cache of freed buffers keyed by aligned byte size.
   /// Uses multimap so multiple buffers of the same size can be pooled.
-  static constexpr size_t kMaxCachedBuffers = 256;
+  static constexpr size_t kMaxCachedBuffers = 4096;
+  // Cap total pooled (freed-but-retained) transient buffer memory. Small
+  // models pool their whole prefill working set; large models self-limit.
+  static constexpr size_t kMaxCachedBytes = 512ULL * 1024 * 1024; // 512 MB
   std::multimap<size_t, VulkanBufferStruct> bufferCache_;
+  size_t cachedBytes_ = 0; ///< Sum of byte sizes currently in bufferCache_.
 
   /// Destroys a single VulkanBufferStruct's GPU resources.
   void destroyBufferGPU(VulkanBufferStruct &buffer);

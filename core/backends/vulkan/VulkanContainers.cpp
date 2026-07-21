@@ -97,6 +97,7 @@ std::optional<VulkanBufferStruct>
 VulkanBufferContainer::tryAcquireCached(size_t alignedSize) {
   auto it = bufferCache_.find(alignedSize);
   if (it != bufferCache_.end()) {
+    cachedBytes_ -= it->first;
     VulkanBufferStruct cached = std::move(it->second);
     bufferCache_.erase(it);
     return cached;
@@ -109,6 +110,7 @@ void VulkanBufferContainer::drainCache() {
     destroyBufferGPU(buffer);
   }
   bufferCache_.clear();
+  cachedBytes_ = 0;
 }
 
 void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
@@ -121,9 +123,10 @@ void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
 
   activeMemoryBytes_ -= buffer.size();
 
+  size_t sz = buffer.size();
   if (buffer.buffer != VK_NULL_HANDLE && buffer.data == nullptr &&
-      bufferCache_.size() < kMaxCachedBuffers) {
-    size_t sz = buffer.size();
+      bufferCache_.size() < kMaxCachedBuffers &&
+      cachedBytes_ + sz <= kMaxCachedBytes) {
     // Move the struct into the cache. Clear shape/dtype so it's just raw
     // storage keyed by size.
     VulkanBufferStruct cached;
@@ -143,6 +146,7 @@ void VulkanBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
     buffer.allocation = VK_NULL_HANDLE;
 #endif
     bufferCache_.emplace(sz, std::move(cached));
+    cachedBytes_ += sz;
     return;
   }
 
