@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <iomanip>
@@ -1022,6 +1023,32 @@ static void benchmarkSort(Runtime &runtime, int warmup, int iterations) {
         },
         warmup, iterations);
     printSingleRow(descRadix.c_str(), rRadix);
+
+    std::string descRadix1P = "RadixSinglePass N=" + std::to_string(sz);
+    auto rRadix1P = time_op(
+        [&]() {
+          auto bufKeys =
+              runtime.createTensor({sz}, DataType::Float32, hostKeys.data());
+          auto bufVals =
+              runtime.createTensor({sz}, DataType::UInt32, hostVals.data());
+          runtime.ops().sortRadixSinglePass(bufKeys, bufVals);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow(descRadix1P.c_str(), rRadix1P);
+
+    std::string descRadixOS = "RadixOneSweep N=" + std::to_string(sz);
+    auto rRadixOS = time_op(
+        [&]() {
+          auto bufKeys =
+              runtime.createTensor({sz}, DataType::Float32, hostKeys.data());
+          auto bufVals =
+              runtime.createTensor({sz}, DataType::UInt32, hostVals.data());
+          runtime.ops().sortRadixOneSweep(bufKeys, bufVals);
+          runtime.flush();
+        },
+        warmup, iterations);
+    printSingleRow(descRadixOS.c_str(), rRadixOS);
   }
 }
 
@@ -1126,7 +1153,22 @@ static void benchmarkAttention(Runtime &runtime, int warmup, int iterations) {
 
 int main() {
   Runtime runtime;
-  runtime.init(BackendType::Vulkan);
+  // Default to Vulkan; set CUT_BENCH_BACKEND=cuda to benchmark the CUDA
+  // backend (requires a build with -DENABLE_CUDA_BACKEND=ON).
+  BackendType backend = BackendType::Vulkan;
+  if (const char *env = std::getenv("CUT_BENCH_BACKEND")) {
+    if (std::string(env) == "cuda") {
+#ifdef CUT_ENABLE_CUDA
+      backend = BackendType::CUDA;
+#else
+      std::cerr << "CUT_BENCH_BACKEND=cuda ignored: built without CUDA support"
+                << std::endl;
+#endif
+    }
+  }
+  runtime.init(backend);
+  std::cout << "Backend: "
+            << (backend == BackendType::CUDA ? "CUDA" : "Vulkan") << std::endl;
 
   const int warmup = 3, iterations = 10;
 
