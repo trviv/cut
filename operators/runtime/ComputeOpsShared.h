@@ -223,11 +223,13 @@
 #define OP_PREFIX_SCAN_INCLUSIVE_SUM 261
 
 // =============================================================================
-// Sort operations (270-271)
+// Sort operations (270-272)
 // =============================================================================
 
 #define OP_SORT_BITONIC 270
 #define OP_SORT_RADIX 271
+#define OP_SORT_RADIX_SINGLEPASS 272
+#define OP_SORT_RADIX_ONESWEEP 273
 
 // =============================================================================
 // Dispatcher internal shader templates (280-291)
@@ -259,6 +261,15 @@
 #define OP_INTERNAL_CUM_PER_WG 292
 #define OP_INTERNAL_CUM_PARTIAL_SUMS 293
 #define OP_INTERNAL_CUM_PROPAGATE 294
+
+// Single-pass radix sort — OneSweep (CUDA) internal passes
+#define OP_INTERNAL_ONESWEEP_GLOBAL_HIST 295
+#define OP_INTERNAL_ONESWEEP_GLOBAL_SCAN 296
+#define OP_INTERNAL_ONESWEEP_SCATTER 297
+
+// Single-pass radix sort — fused per-digit (Vulkan) internal passes
+#define OP_INTERNAL_FUSED_TILE_HIST 298
+#define OP_INTERNAL_FUSED_SCATTER 299
 
 // =============================================================================
 // Convolution operations (300-301)

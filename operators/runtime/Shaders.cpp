@@ -114,7 +114,7 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledPartialReduce(datatype, datatype);
   } else if (shader == InternalFinalReduce) {
     compiled = compiledFinalReduce(datatype, datatype);
-  } else if (shader >= InternalScanPerWg && shader <= InternalCumPropagate) {
+  } else if (shader >= InternalScanPerWg && shader <= InternalFusedScatter) {
     switch (shader) {
     case InternalScanPerWg:
       compiled = compiledScanPerWg(datatype, datatype);
@@ -139,6 +139,21 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
       break;
     case InternalRadixScatter:
       compiled = compiledRadixScatter(datatype, datatype);
+      break;
+    case InternalOneSweepGlobalHist:
+      compiled = compiledOneSweepGlobalHist(datatype, datatype);
+      break;
+    case InternalOneSweepGlobalScan:
+      compiled = compiledOneSweepGlobalScan(datatype, datatype);
+      break;
+    case InternalOneSweepScatter:
+      compiled = compiledOneSweepScatter(datatype, datatype);
+      break;
+    case InternalFusedTileHist:
+      compiled = compiledFusedTileHist(datatype, datatype);
+      break;
+    case InternalFusedScatter:
+      compiled = compiledFusedScatter(datatype, datatype);
       break;
     case InternalFillUint:
       compiled = compiledFillUint(datatype, datatype);

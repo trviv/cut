@@ -287,6 +287,10 @@ const char *operatorName(OperatorEnum op) {
     return "SortBitonic";
   case SortRadix:
     return "SortRadix";
+  case SortRadixSinglePass:
+    return "SortRadixSinglePass";
+  case SortRadixOneSweep:
+    return "SortRadixOneSweep";
 
   // Dispatcher internal shader templates
   case InternalPartialReduce:
@@ -309,6 +313,16 @@ const char *operatorName(OperatorEnum op) {
     return "InternalRadixHistogram";
   case InternalRadixScatter:
     return "InternalRadixScatter";
+  case InternalOneSweepGlobalHist:
+    return "InternalOneSweepGlobalHist";
+  case InternalOneSweepGlobalScan:
+    return "InternalOneSweepGlobalScan";
+  case InternalOneSweepScatter:
+    return "InternalOneSweepScatter";
+  case InternalFusedTileHist:
+    return "InternalFusedTileHist";
+  case InternalFusedScatter:
+    return "InternalFusedScatter";
   case InternalFillUint:
     return "InternalFillUint";
   case InternalScanUint:

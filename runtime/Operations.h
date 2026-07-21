@@ -463,6 +463,21 @@ public:
                  const Tensor &vals,
                  std::optional<uint32_t> spec = {});
 
+  /// Single-pass radix sort: OneSweep decoupled look-back on CUDA, fused
+  /// per-digit tile radix on Vulkan. Same contract as sortRadix (raw-uint32
+  /// keys, stable payload vals); kept separate for benchmarking comparison.
+  void sortRadixSinglePass(const Tensor &keys,
+                           const Tensor &vals,
+                           std::optional<uint32_t> spec = {});
+
+  /// OneSweep decoupled-look-back radix sort on both backends (native CUDA
+  /// kernels on CUDA, HLSL on Vulkan). Same contract as sortRadix; kept
+  /// alongside sortRadixSinglePass (fused per-digit on Vulkan) to benchmark the
+  /// two single-pass strategies against each other on Vulkan.
+  void sortRadixOneSweep(const Tensor &keys,
+                         const Tensor &vals,
+                         std::optional<uint32_t> spec = {});
+
   // ===== Profiling =====
 
   /// Enables or disables per-dispatch GPU profiling.

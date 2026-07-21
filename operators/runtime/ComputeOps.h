@@ -200,6 +200,8 @@ enum OperatorEnum {
 
   SortBitonic = OP_SORT_BITONIC,
   SortRadix = OP_SORT_RADIX,
+  SortRadixSinglePass = OP_SORT_RADIX_SINGLEPASS,
+  SortRadixOneSweep = OP_SORT_RADIX_ONESWEEP,
 
   // ===========================================================================
   // Matrix operations (64-66)
@@ -258,6 +260,15 @@ enum OperatorEnum {
   // Radix sort
   InternalRadixHistogram = OP_INTERNAL_RADIX_HISTOGRAM,
   InternalRadixScatter = OP_INTERNAL_RADIX_SCATTER,
+
+  // Single-pass radix sort — OneSweep (CUDA)
+  InternalOneSweepGlobalHist = OP_INTERNAL_ONESWEEP_GLOBAL_HIST,
+  InternalOneSweepGlobalScan = OP_INTERNAL_ONESWEEP_GLOBAL_SCAN,
+  InternalOneSweepScatter = OP_INTERNAL_ONESWEEP_SCATTER,
+
+  // Single-pass radix sort — fused per-digit (Vulkan)
+  InternalFusedTileHist = OP_INTERNAL_FUSED_TILE_HIST,
+  InternalFusedScatter = OP_INTERNAL_FUSED_SCATTER,
 
   // Utility
   InternalFillUint = OP_INTERNAL_FILL_UINT,
