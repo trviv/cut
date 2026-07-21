@@ -2,7 +2,7 @@
 """Compare CUT GGUF inference performance against other runners.
 
 Usage:
-    python scripts/benchmark_compare.py models/SmolLM2-135M-Instruct-f16.gguf
+    python scripts/bench/benchmark_compare.py models/SmolLM2-135M-Instruct-f16.gguf
 """
 
 import argparse
@@ -101,7 +101,7 @@ def run_llamacpp_bench(model_path: str, max_tokens: int = 32,
     if not os.path.exists(exe):
         kind = "Vulkan" if vulkan else "CPU"
         print(f"  llama-bench ({kind}) not found at {exe}")
-        print(f"  Run: ./scripts/setup_benchmark_runners.sh")
+        print(f"  Run: ./scripts/setup/setup_benchmark_runners.sh")
         return None
 
     cmd = [exe, "-m", model_path, "-p", "15", "-n", str(max_tokens), "-r", "1",
@@ -372,7 +372,7 @@ def main():
             print_result(info, has_split=True)
             results["llama.cpp Vulkan GPU"] = info
         else:
-            print("  FAILED or not built — run: ./scripts/setup_benchmark_runners.sh")
+            print("  FAILED or not built — run: ./scripts/setup/setup_benchmark_runners.sh")
         print()
         bench_idx += 1
 

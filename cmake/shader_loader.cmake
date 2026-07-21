@@ -296,7 +296,7 @@ endfunction()
 # =============================================================================
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-set(SHADER_VARIANT_GENERATOR ${CMAKE_SOURCE_DIR}/scripts/generate_shader_variants.py)
+set(SHADER_VARIANT_GENERATOR ${CMAKE_SOURCE_DIR}/scripts/codegen/generate_shader_variants.py)
 set(GENERATED_SHADER_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated_shaders)
 file(MAKE_DIRECTORY ${GENERATED_SHADER_DIR})
 
@@ -363,8 +363,8 @@ endif()
 # and embed them (keyed by normalized SPIR-V hash) into CompiledCudaKernels.cpp.
 # =============================================================================
 if(ENABLE_CUDA_BACKEND)
-    set(CUDA_TRANSPILER ${CMAKE_SOURCE_DIR}/scripts/transpile_cuda_kernels.py)
-    set(CUDA_EMBEDDER ${CMAKE_SOURCE_DIR}/scripts/embed_cuda_kernels.py)
+    set(CUDA_TRANSPILER ${CMAKE_SOURCE_DIR}/scripts/codegen/transpile_cuda_kernels.py)
+    set(CUDA_EMBEDDER ${CMAKE_SOURCE_DIR}/scripts/codegen/embed_cuda_kernels.py)
     set(CUDA_PRELUDE ${CMAKE_SOURCE_DIR}/operators/runtime/cuda/cut_cuda_prelude.cuh)
     set(CUDA_ENUMS ${SHADER_INCLUDE_DIR}/ComputeOpsShared.h)
     set(COMPILED_CUDA_FILE ${CMAKE_SOURCE_DIR}/operators/runtime/cuda/CompiledCudaKernels.cpp)

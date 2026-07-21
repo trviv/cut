@@ -10,7 +10,7 @@
 ///
 /// Output: JSON written to output_file (default: autotune_raw.json).
 /// Progress is printed to stderr.
-/// Prefer using: ./scripts/autotune.sh (builds, runs, and derives rules).
+/// Prefer using: ./scripts/bench/autotune.sh (builds, runs, and derives rules).
 
 #include "impl/matmul/MatMulVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"

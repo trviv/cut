@@ -6,7 +6,7 @@ if [[ -z "$SCRIPT_DIR" ]]; then
     SCRIPT_DIR="."
 fi
 
-ROOT_DIR="$SCRIPT_DIR/.."
+ROOT_DIR="$SCRIPT_DIR/../.."
 
 mkdir -p $ROOT_DIR/build
 cd $ROOT_DIR/build

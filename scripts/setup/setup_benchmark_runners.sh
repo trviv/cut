@@ -7,13 +7,13 @@
 #   - Python venv at .venv/
 #
 # Usage:
-#   ./scripts/setup_benchmark_runners.sh
+#   ./scripts/setup/setup_benchmark_runners.sh
 #
 # After setup, run benchmarks with:
-#   .venv/bin/python scripts/benchmark_compare.py models/SmolLM2-135M-Instruct-f16.gguf
+#   .venv/bin/python scripts/bench/benchmark_compare.py models/SmolLM2-135M-Instruct-f16.gguf
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
 
 echo "============================================================"
@@ -150,7 +150,7 @@ MODEL="models/SmolLM2-135M-Instruct-f16.gguf"
 if [ -f "$MODEL" ]; then
     echo "  Already exists: $MODEL"
 else
-    .venv/bin/python scripts/download_model.py \
+    .venv/bin/python scripts/models/download_model.py \
         bartowski/SmolLM2-135M-Instruct-GGUF \
         SmolLM2-135M-Instruct-f16.gguf \
         -o SmolLM2-135M-Instruct-f16.gguf
@@ -184,7 +184,7 @@ if [ -f "$LLAMA_DIR/build_cuda/bin/llama-bench" ]; then
     echo ""
 fi
 echo "  Full comparison script (CPU + GPU + python runners):"
-echo "    .venv/bin/python scripts/benchmark_compare.py $MODEL"
+echo "    .venv/bin/python scripts/bench/benchmark_compare.py $MODEL"
 echo ""
 echo "  Per-GPU CUT vs llama.cpp matrix (CUDA+Vulkan on NVIDIA, Vulkan on AMD):"
-echo "    python scripts/benchmark_gpus.py $MODEL"
+echo "    python scripts/bench/benchmark_gpus.py $MODEL"

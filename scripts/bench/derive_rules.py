@@ -6,9 +6,9 @@ file with threshold-based selection rules that the runtime can load.
 
 Usage:
     ./build/benchmarks/autotune > autotune_raw.json
-    python3 scripts/derive_rules.py autotune_raw.json --output tuning_data.json
+    python3 scripts/bench/derive_rules.py autotune_raw.json --output tuning_data.json
     # or pipe:
-    ./build/benchmarks/autotune | python3 scripts/derive_rules.py --output tuning_data.json
+    ./build/benchmarks/autotune | python3 scripts/bench/derive_rules.py --output tuning_data.json
 """
 
 import argparse

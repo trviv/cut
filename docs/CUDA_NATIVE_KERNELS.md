@@ -27,11 +27,11 @@ counterpart shader file**.
 
 - `operators/impl/<group>/X.shader` — templated HLSL (`%VEC_DTYPE_SLOT%`
   placeholders, `#ifdef DTYPE_SLOT_IS_*` branches, `.shaderh` includes),
-  expanded per dtype combo by `scripts/generate_shader_variants.py` from
+  expanded per dtype combo by `scripts/codegen/generate_shader_variants.py` from
   `shaders.json`, compiled to SPIR-V (DXC), embedded in `CompiledShaders.cpp`.
 - 6 GLSL `.comp` cooperative-matrix matmul kernels (Vulkan-only).
-- CUDA backend: `scripts/transpile_cuda_kernels.py` textually converts the
-  dtype-preprocessed HLSL to CUDA C++; `scripts/embed_cuda_kernels.py` embeds
+- CUDA backend: `scripts/codegen/transpile_cuda_kernels.py` textually converts the
+  dtype-preprocessed HLSL to CUDA C++; `scripts/codegen/embed_cuda_kernels.py` embeds
   the sources into `operators/runtime/cuda/CompiledCudaKernels.cpp` keyed by
   **normalized SPIR-V hash** (spec-constant literals zeroed). At runtime
   `CudaShaderContainer::createShader(spirv)` hashes the dispatched SPIR-V,
@@ -133,7 +133,7 @@ of the corresponding native kernels (via `lookupCudaKernelByName`):
   `CompiledCudaKernels.cpp`; print coverage (native / transpiled-only / none).
 - `cmake/shader_loader.cmake`: add `.cu`/`.cuh` files to the embed step's
   DEPENDS so edits retrigger embedding.
-- `scripts/check_cuda_kernels.py` (NEW): offline gate that NVRTC-compiles
+- `scripts/codegen/check_cuda_kernels.py` (NEW): offline gate that NVRTC-compiles
   every embedded entry (default spec values + its defines) using the venv's
   `cuda.bindings.nvrtc`; no GPU memory needed. Run after any kernel change —
   this kills the "NVRTC failure ⇒ silent dispatch skip ⇒ zero outputs"

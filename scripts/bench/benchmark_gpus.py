@@ -2,8 +2,8 @@
 """Benchmark CUT vs llama.cpp on every real GPU in the system.
 
 Usage:
-    python scripts/benchmark_gpus.py models/SmolLM2-135M-Instruct-f16.gguf
-    python scripts/benchmark_gpus.py --skip-igpu --max-tokens 64 models/...gguf
+    python scripts/bench/benchmark_gpus.py models/SmolLM2-135M-Instruct-f16.gguf
+    python scripts/bench/benchmark_gpus.py --skip-igpu --max-tokens 64 models/...gguf
 
 Note: On a CUDA/3090 box, free VRAM first (e.g. `ollama stop devstral-small-2:24b`).
 """
@@ -690,7 +690,7 @@ def main():
         print("=" * 60)
         print("NOTE: NVIDIA GPUs detected but llama.cpp CUDA bench not built.")
         print("  To enable CUDA benchmarks, run:")
-        print("    ./scripts/setup_benchmark_runners.sh")
+        print("    ./scripts/setup/setup_benchmark_runners.sh")
         print("  This requires the CUDA toolkit (nvcc).")
         print("  Note: CUT's CUDA backend uses NVRTC and does not need nvcc.")
         print("=" * 60)

@@ -12,7 +12,7 @@ namespace cut {
 ///
 /// The tuning_data.json file is produced by:
 ///   1. Running the autotune benchmark binary
-///   2. Processing results with scripts/derive_rules.py
+///   2. Processing results with scripts/bench/derive_rules.py
 ///
 /// Rules are total_elements threshold-based and evaluated in order (first
 /// match wins).

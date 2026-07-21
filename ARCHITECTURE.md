@@ -306,7 +306,7 @@ Each operator family lives in its own subdirectory containing:
 ```
 operators/impl/<family>/<Name>.shader  (HLSL with #include "ComputeOpsShared.h")
          │
-         ▼  scripts/generate_shader_variants.py  ── reads shaders.json
+         ▼  scripts/codegen/generate_shader_variants.py  ── reads shaders.json
          │   produces per-datatype variants:  <Name>_Float32.shader, <Name>_UInt32.shader, …
          ▼
    <build>/generated_shaders/<Name>_<Dtype>.shader
@@ -524,7 +524,7 @@ Python receives result
 
 ### 1. Build-Time Shader Compilation with Per-Op Variants
 
-Shaders live as standalone HLSL/GLSL files under `operators/impl/<family>/`. At build time, `scripts/generate_shader_variants.py` produces per-dtype variants, DXC/glslc compiles each to SPIR-V, and CMake emits `operators/runtime/CompiledShaders.cpp` with the embedded blobs. The runtime then performs a constant-time lookup by `(op, dtype, variant)` — no compilation on the hot path. A persistent `.shader_cache/` keyed by source hash skips rebuilds.
+Shaders live as standalone HLSL/GLSL files under `operators/impl/<family>/`. At build time, `scripts/codegen/generate_shader_variants.py` produces per-dtype variants, DXC/glslc compiles each to SPIR-V, and CMake emits `operators/runtime/CompiledShaders.cpp` with the embedded blobs. The runtime then performs a constant-time lookup by `(op, dtype, variant)` — no compilation on the hot path. A persistent `.shader_cache/` keyed by source hash skips rebuilds.
 
 ### 2. Handle-Based Resource Management
 
@@ -563,10 +563,10 @@ Variance and softmax use a hybrid approach: GPU computes reductions (mean, max p
 
 - **C++ build:** CMake 3.16+, C++17. Targets Linux (native Vulkan) and macOS (MoltenVK).
 - **Dependencies:** Vulkan SDK (with shaderc + SPIRV-Tools + glslang), DXC (DirectX Shader Compiler) for HLSL, optional glslc for GLSL compute, pybind11, Google Test (auto-fetched).
-- **Shader pipeline:** `cmake/shader_loader.cmake` runs `scripts/generate_shader_variants.py` to produce per-dtype variants, compiles them with DXC/glslc, and emits `operators/runtime/CompiledShaders.cpp` containing embedded SPIR-V.
+- **Shader pipeline:** `cmake/shader_loader.cmake` runs `scripts/codegen/generate_shader_variants.py` to produce per-dtype variants, compiles them with DXC/glslc, and emits `operators/runtime/CompiledShaders.cpp` containing embedded SPIR-V.
 - **Python build:** scikit-build-core + pybind11 → `_cut_compute` extension module.
 - **Sanitisers:** AddressSanitizer / LeakSanitizer suppressions in `cmake/lsan.supp`.
-- **Linux setup:** `scripts/setup_linux.sh` installs apt packages, DXC, and the LunarG Vulkan SDK.
+- **Linux setup:** `scripts/setup/setup_linux.sh` installs apt packages, DXC, and the LunarG Vulkan SDK.
 
 ### Supported Data Types
 

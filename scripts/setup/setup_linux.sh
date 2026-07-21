@@ -2,7 +2,7 @@
 # Install the Linux build dependencies for this project.
 #
 # Usage:
-#   ./scripts/setup_linux.sh
+#   ./scripts/setup/setup_linux.sh
 #
 # Steps:
 #   1. apt: g++, Vulkan loader/headers, shaderc, glslang
@@ -87,4 +87,4 @@ echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
 echo "    export LD_LIBRARY_PATH=\"\$HOME/.local/lib:\${LD_LIBRARY_PATH:-}\""
 echo ""
 echo "Then run:"
-echo "    ./scripts/run_cpp.sh"
+echo "    ./scripts/build/run_cpp.sh"

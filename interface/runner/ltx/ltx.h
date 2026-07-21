@@ -60,7 +60,7 @@ private:
 
 /// LTX-Video text-to-video DiT runner (MVP).
 /// Text embeddings are precomputed offline; the returned latents are decoded
-/// to video offline (see scripts/ltx_encode_prompt.py / ltx_decode_latents.py).
+/// to video offline (see scripts/ltx/ltx_encode_prompt.py / ltx_decode_latents.py).
 class LtxModel {
 public:
   /// Parse <modelDir>/transformer/config.json into config_ (in_channels,

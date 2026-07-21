@@ -10,9 +10,9 @@
 
 /*
 Binary file formats:
-- Embedding file (from scripts/ltx_encode_prompt.py): uint32 magic 0x4C545845 ("LTXE"),
+- Embedding file (from scripts/ltx/ltx_encode_prompt.py): uint32 magic 0x4C545845 ("LTXE"),
   uint32 nTokens, uint32 dim, then nTokens*dim float32 little-endian.
-- Latent output file (for scripts/ltx_decode_latents.py): uint32 magic 0x4C54584C ("LTXL"),
+- Latent output file (for scripts/ltx/ltx_decode_latents.py): uint32 magic 0x4C54584C ("LTXL"),
   uint32 latentFrames, uint32 latentHeight, uint32 latentWidth, uint32 channels, then
   S*channels float32 (row-major [S, channels], token order frame-major then row then column).
 */

@@ -2,15 +2,15 @@
 # Download SmolLM2 and LLaMA 3 GGUF models that fit within 16GB RAM.
 #
 # Usage:
-#   ./scripts/download_models.sh              # Download all models
-#   ./scripts/download_models.sh smol          # SmolLM2 models only
-#   ./scripts/download_models.sh llama         # LLaMA 3 models only
-#   ./scripts/download_models.sh --list        # Show available models and sizes
+#   ./scripts/models/download_models.sh              # Download all models
+#   ./scripts/models/download_models.sh smol          # SmolLM2 models only
+#   ./scripts/models/download_models.sh llama         # LLaMA 3 models only
+#   ./scripts/models/download_models.sh --list        # Show available models and sizes
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 MODELS_DIR="$PROJECT_DIR/models"
 
 mkdir -p "$MODELS_DIR"

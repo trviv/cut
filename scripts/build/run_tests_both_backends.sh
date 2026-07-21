@@ -5,13 +5,13 @@ set -uo pipefail
 # CUDA), selected via the CUT_TEST_BACKEND environment variable, and print a
 # per-backend pass/fail summary.
 #
-# Usage: scripts/run_tests_both_backends.sh [build_dir]
+# Usage: scripts/build/run_tests_both_backends.sh [build_dir]
 #   build_dir: build directory (default: build-cuda-rel). The CUDA backend
 #              requires that build be configured with -DENABLE_CUDA_BACKEND=ON;
 #              the Vulkan backend also runs from the same build.
 #   Honors the GTEST_FILTER env var (default: "*").
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 BUILD_DIR="${1:-build-cuda-rel}"
 GTEST_FILTER="${GTEST_FILTER:-*}"

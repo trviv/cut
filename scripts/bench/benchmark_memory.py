@@ -2,7 +2,7 @@
 """Compare runtime memory usage (CPU RSS + GPU VRAM) between CUT and llama.cpp.
 
 Usage:
-    python scripts/benchmark_memory.py models/SmolLM2-135M-Instruct-f16.gguf
+    python scripts/bench/benchmark_memory.py models/SmolLM2-135M-Instruct-f16.gguf
 
 Ensures both runners use identical configuration (context size, prompt length,
 generated tokens, KV cache type) for a fair comparison.
@@ -515,7 +515,7 @@ def main():
         }
         _print_runner_stats(r, self_gpu)
     else:
-        print("  SKIPPED (run: ./scripts/setup_benchmark_runners.sh)")
+        print("  SKIPPED (run: ./scripts/setup/setup_benchmark_runners.sh)")
     print()
 
     # ── 3. llama.cpp CPU ──────────────────────────────────────────────────

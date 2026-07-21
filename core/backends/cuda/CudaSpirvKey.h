@@ -19,7 +19,7 @@ struct CudaSpecValue {
 /// patched runtime SPIR-V and the unpatched build-time .spv hash identically.
 /// The pre-normalization literals are returned in @p outSpecs (ascending id).
 ///
-/// The matching build-time implementation lives in scripts/embed_cuda_kernels.py
+/// The matching build-time implementation lives in scripts/codegen/embed_cuda_kernels.py
 /// — the two MUST stay in lockstep.
 uint64_t cudaNormalizedSpirvHash(const std::vector<uint32_t> &spirv,
                                  std::vector<CudaSpecValue> &outSpecs);

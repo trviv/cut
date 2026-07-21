@@ -3,7 +3,7 @@
 // These weak hooks are consulted by the sanitizer runtime, so they are harmless
 // in non-sanitizer builds and are overridable via the ASAN_OPTIONS /
 // LSAN_OPTIONS environment variables. Baking them in means the test binary
-// behaves correctly even when launched directly (not via scripts/run_cpp.sh).
+// behaves correctly even when launched directly (not via scripts/build/run_cpp.sh).
 
 extern "C" const char *__asan_default_options() {
   // protect_shadow_gap=0: the CUDA driver reserves virtual address space that

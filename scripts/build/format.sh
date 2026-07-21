@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 DIRS=("$ROOT_DIR/core" "$ROOT_DIR/operators" "$ROOT_DIR/tests" "$ROOT_DIR/benchmarks" "$ROOT_DIR/runtime" "$ROOT_DIR/interface")
 

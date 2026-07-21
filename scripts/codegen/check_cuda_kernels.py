@@ -9,7 +9,7 @@ outputs" failure mode at build time instead of runtime.
 
 Run with the project venv python (requires cuda.bindings.nvrtc):
 
-    .venv/bin/python scripts/check_cuda_kernels.py \
+    .venv/bin/python scripts/codegen/check_cuda_kernels.py \
         --cu-dir build-cuda-rel/generated_cuda \
         --native-manifest build-cuda-rel/generated_cuda/native_manifest.json \
         --prelude operators/runtime/cuda/cut_cuda_prelude.cuh \

@@ -3,16 +3,16 @@
 
 Usage:
     # From a plan file:
-    python3 scripts/ollama_code.py plan.txt
+    python3 scripts/dev/ollama_code.py plan.txt
 
     # From stdin:
-    echo "implement a function that ..." | python3 scripts/ollama_code.py
+    echo "implement a function that ..." | python3 scripts/dev/ollama_code.py
 
     # With a specific model (default: devstral-small-2:24b):
-    python3 scripts/ollama_code.py --model devstral-small-2:24b plan.txt
+    python3 scripts/dev/ollama_code.py --model devstral-small-2:24b plan.txt
 
     # Include file context:
-    python3 scripts/ollama_code.py --context src/foo.cpp --context src/bar.h plan.txt
+    python3 scripts/dev/ollama_code.py --context src/foo.cpp --context src/bar.h plan.txt
 """
 
 import argparse

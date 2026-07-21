@@ -24,7 +24,7 @@ definition drives both the correctness gtest AND the `op_bench` perf path —
 
 ## HARD RULES (do not violate)
 1. **All code generation goes through the local Ollama model** per repo
-   `CLAUDE.md`: plan → write plan to a temp file → `python3 scripts/ollama_code.py
+   `CLAUDE.md`: plan → write plan to a temp file → `python3 scripts/dev/ollama_code.py
    --context <files> /tmp/plan.txt` → review → apply with Edit/Write, fixing what
    the model got wrong. Never hand-author operator/library code. (If the server
    is down: `nohup ollama serve >/tmp/ollama.log 2>&1 &`; model = `devstral-small-2:24b`.)
@@ -33,7 +33,7 @@ definition drives both the correctness gtest AND the `op_bench` perf path —
 2. **Commit messages via Ollama** (see CLAUDE.md snippet). **Never add a
    `Co-Authored-By: Claude` trailer** (repo directive).
 3. **Keep both backends green after every family.** Validate with:
-   `bash scripts/run_tests_both_backends.sh` → must print `RESULT: vulkan=PASS
+   `bash scripts/build/run_tests_both_backends.sh` → must print `RESULT: vulkan=PASS
    cuda=PASS`. Baseline is 462 and only grows.
 4. **Commit incrementally — one family per commit.** If context runs low, the
    committed families persist; a fresh session resumes from this doc.
@@ -100,12 +100,12 @@ long as the assertion surface is preserved). Commit the family.
 
 ## Validation loop (every family)
 ```
-./scripts/format.sh
+./scripts/build/format.sh
 cmake --build build --target tests -j$(nproc)                 # Vulkan ASan
-GTEST_FILTER='OpRegistry*:<Family>*' bash scripts/run_tests_both_backends.sh
+GTEST_FILTER='OpRegistry*:<Family>*' bash scripts/build/run_tests_both_backends.sh
 # expect: RESULT: vulkan=PASS cuda=PASS
 ```
-Then a full `bash scripts/run_tests_both_backends.sh` before committing.
+Then a full `bash scripts/build/run_tests_both_backends.sh` before committing.
 
 ## Known pitfalls
 - `generateShapes` pads innermost dim to a multiple of 4; `copyFromTensor`

@@ -3,16 +3,16 @@
 
 Usage:
     # Download a specific GGUF file from a repo:
-    python scripts/download_model.py HuggingFaceTB/SmolLM2-135M-Instruct-GGUF smollm2-135m-instruct-q8_0.gguf
+    python scripts/models/download_model.py HuggingFaceTB/SmolLM2-135M-Instruct-GGUF smollm2-135m-instruct-q8_0.gguf
 
     # Download with a custom output name:
-    python scripts/download_model.py HuggingFaceTB/SmolLM2-135M-Instruct-GGUF smollm2-135m-instruct-q8_0.gguf -o my_model.gguf
+    python scripts/models/download_model.py HuggingFaceTB/SmolLM2-135M-Instruct-GGUF smollm2-135m-instruct-q8_0.gguf -o my_model.gguf
 
     # List available GGUF files in a repo:
-    python scripts/download_model.py HuggingFaceTB/SmolLM2-135M-Instruct-GGUF --list
+    python scripts/models/download_model.py HuggingFaceTB/SmolLM2-135M-Instruct-GGUF --list
 
     # Search for SmolLM2 models:
-    python scripts/download_model.py --search "SmolLM2 GGUF"
+    python scripts/models/download_model.py --search "SmolLM2 GGUF"
 """
 
 import argparse
@@ -23,7 +23,7 @@ from pathlib import Path
 from huggingface_hub import hf_hub_download, list_repo_files, list_models
 
 
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 
 
 def list_gguf_files(repo_id: str):
