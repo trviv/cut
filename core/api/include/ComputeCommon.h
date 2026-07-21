@@ -77,10 +77,18 @@ std::vector<uint32_t> compileShaderFileToSpirv(const std::string &filepath);
  * Owned by each ComputeInterface instance and accessed via
  * ComputeInterface::caps() (or TensorStore::caps() from operator code).
  */
+/**
+ * Identifies the active compute backend. Lets backend-agnostic OpNodes select
+ * a backend-specialized dispatch graph (e.g. OneSweep radix on CUDA vs fused
+ * per-digit radix on Vulkan) from within buildSubOperations().
+ */
+enum class ComputeBackend { Vulkan, CUDA };
+
 struct DeviceCaps {
   bool cooperativeMatrix = false; ///< VK_KHR_cooperative_matrix
   bool integerDotProduct = false; ///< VK_KHR_shader_integer_dot_product
   uint32_t subgroupSize = 32;     ///< Device subgroup/warp size
+  ComputeBackend backend = ComputeBackend::Vulkan; ///< Active backend.
 };
 
 /**

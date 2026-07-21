@@ -69,6 +69,7 @@ CudaCompute::CudaCompute(CudaContextConfig config) {
   // On query failure the attributes stay 0 (CU_CHECK logged it); cc = 0 keeps
   // the capability flags below off, a safe default.
   const int cc = ccMajor * 10 + ccMinor;
+  caps_.backend = ComputeBackend::CUDA;
   caps_.subgroupSize = 32;
   // Capability flags flip only once the corresponding native CUDA kernels are
   // registered (WMMA coopmat GEMM / __dp4a Q8 dot); until then the transpiled

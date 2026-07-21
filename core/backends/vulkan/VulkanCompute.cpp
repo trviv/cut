@@ -120,6 +120,7 @@ VulkanCompute::VulkanCompute(const std::shared_ptr<VulkanInstance> &instance,
   props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
   props2.pNext = &subgroupProps;
   vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
+  caps_.backend = ComputeBackend::Vulkan;
   caps_.subgroupSize = subgroupProps.subgroupSize;
 
   logMsg("Vulkan device: %s (coopMat: %s, intDot: %s, subgroupSize: %u)",
