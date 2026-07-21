@@ -149,7 +149,9 @@ int main(int argc, char *argv[]) {
 
     std::cout << "Generating " << max_new_tokens
               << " tokens (repeat_penalty=" << repeat_penalty << ")...\n";
-    // model.setProfilingEnabled(true);
+    if (std::getenv("CUT_PROFILE")) {
+      model.setProfilingEnabled(true);
+    }
     const int forceMin = noStop ? max_new_tokens : -1;
     gguf::GenerationResult result;
     if (benchRuns <= 0) {

@@ -9,6 +9,7 @@
 #include <chrono>
 #include <climits>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -1602,6 +1603,9 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
   uint32_t kvdim = config_.kv_dim;
   uint32_t alignedKvDim = (kvdim + 3) & ~3u;
 
+  static const bool kTiming = std::getenv("CUT_PREFILL_TIMING") != nullptr;
+  auto tStart = std::chrono::high_resolution_clock::now();
+
   // 1. Upload all token IDs [N] and position array [0..N-1].
   //    Positions are needed by the batched attention ops on every device
   //    that runs layers, so replicate the buffer per device.
@@ -1620,6 +1624,8 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
                                           positions.data(), false, d);
     }
   }
+
+  auto tAfterInputs = std::chrono::high_resolution_clock::now();
 
   // 2. Embedding: [N] → [N, dim]
   auto hidden = opsAt(firstDevice_).embedding(tokenBuf, embeddingTable_);
@@ -1760,6 +1766,8 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
     hidden = ops.binaryOp(cut::BinaryAdd, down, hidden);
   }
 
+  auto tAfterLayers = std::chrono::high_resolution_clock::now();
+
   // 4. Logits on last row only
   //    Extract row N-1 from [N, dim] → [dim]
   uint32_t alignedDim = (dim + 3) & ~3u;
@@ -1780,12 +1788,31 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
       opsAt(lastDevice_).repetitionPenalty(logitsOutput_, penaltyFactorsBuffer_);
   argmaxResultBuffer_ = opsAt(lastDevice_).reduce(cut::ReduceArgmax, penalized);
 
+  auto tAfterLogits = std::chrono::high_resolution_clock::now();
+
   // Single submit + wait
   runtime_->flushPendingCommands(lastDevice_);
+
+  auto tAfterFlush = std::chrono::high_resolution_clock::now();
 
   float best = 0.0f;
   runtime_->copyFromTensor(argmaxResultBuffer_, &best, sizeof(float), 0, 0,
                            lastDevice_);
+
+  auto tAfterRead = std::chrono::high_resolution_clock::now();
+
+  if (kTiming) {
+    auto ms = [](auto a, auto b) {
+      return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    fprintf(stderr,
+            "[prefill-timing] N=%u inputs=%.3fms layers=%.3fms logits=%.3fms "
+            "flush=%.3fms readback=%.3fms total=%.3fms\n",
+            N, ms(tStart, tAfterInputs), ms(tAfterInputs, tAfterLayers),
+            ms(tAfterLayers, tAfterLogits), ms(tAfterLogits, tAfterFlush),
+            ms(tAfterFlush, tAfterRead), ms(tStart, tAfterRead));
+  }
+
   return static_cast<int>(best);
 }
 
