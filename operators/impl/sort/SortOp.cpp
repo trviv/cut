@@ -30,12 +30,20 @@ void buildOneSweepGraph(TensorStore *store,
   constexpr uint32_t RADIX = 256;
   constexpr uint32_t NUM_PASSES = 4;
   constexpr uint32_t BLOCK = 256;
-  // The OneSweep scatter kernel processes one element per thread, so a tile is
-  // exactly BLOCK elements (idx = tile * BLOCK + tid). Keep in lockstep.
-  constexpr uint32_t ELEMS_PER_TILE = BLOCK;
+
+  // Scatter tile size is backend-specific and MUST match the scatter kernel's
+  // compile-time TILE: the CUDA kernel (OneSweepScatter.cu) uses KPT=4 elements
+  // per thread (TILE = BLOCK*4 = 1024) for fewer/shorter look-back chains and
+  // coalesced writes at scale; the Vulkan kernel (OneSweepScatter.shader) uses
+  // one element per thread (TILE = BLOCK).
+  bool isCuda = (store->caps().backend == ComputeBackend::CUDA);
+  uint32_t elemsPerTile = isCuda ? (BLOCK * 4u) : BLOCK;
 
   uint32_t numTiles =
-      std::max((numElements + ELEMS_PER_TILE - 1) / ELEMS_PER_TILE, 1u);
+      std::max((numElements + elemsPerTile - 1) / elemsPerTile, 1u);
+  // The global-histogram kernel processes one element per thread, so its grid
+  // must cover all N regardless of the scatter tile size.
+  uint32_t histTiles = std::max((numElements + BLOCK - 1) / BLOCK, 1u);
 
   Tensor globalHist =
       store->acquireTempBuffer(NUM_PASSES * RADIX, DataType::UInt32);
@@ -81,7 +89,7 @@ void buildOneSweepGraph(TensorStore *store,
     subOps.push_back(std::make_unique<InternalOpNode>(
         InternalOneSweepGlobalHist, DataType::Float32,
         std::vector<Tensor>{keysHandle, globalHist}, globalHist,
-        ThreadSize{numTiles * BLOCK, 1, 1}, toBytes(pc), true));
+        ThreadSize{histTiles * BLOCK, 1, 1}, toBytes(pc), true));
   }
 
   // 4. Per-pass exclusive scan of the global histogram (4 independent 256-wide

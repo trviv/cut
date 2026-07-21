@@ -1,27 +1,33 @@
 // Native CUDA counterpart of OneSweepScatter.shader. One OneSweep digit pass
-// with decoupled look-back:
+// with decoupled look-back, using LARGE tiles (KPT elements per thread) plus a
+// light warp-cooperative rank, to cut the tile count (shorter look-back chains,
+// smaller grid) and produce coalesced global writes at scale.
 //
-//   * One block == one tile of BLOCK elements (one element per thread).
-//   * The tile id is claimed from a global atomic counter (NOT blockIdx) so the
-//     chained look-back has a forward-progress guarantee.
-//   * Thread `tid` owns digit `tid`: it publishes this tile's per-digit
-//     aggregate, walks predecessor tiles summing their aggregates until it hits
-//     an INCLUSIVE descriptor, then publishes this tile's inclusive prefix.
-//   * Each element's global position is
-//       globalHist[pass*RADIX + digit]   (global base for the digit)
-//     + exclusivePrefix[digit]           (same-digit elements in earlier tiles)
-//     + localRank                        (stable rank within this tile).
+//   * One block == one tile of TILE = BLOCK*KPT elements; tile id claimed from a
+//     global atomic counter (NOT blockIdx) for forward-progress order.
+//   * The tile is ranked in KPT "rounds" of BLOCK elements. Each round ranks its
+//     elements by digit with __match_any_sync + __popc (intra-warp) plus a
+//     per-warp histogram scan (inter-warp), and a running per-digit count keeps
+//     the rank stable across rounds — no block-wide bit-split scans.
+//   * Thread `tid` owns digit `tid`: publishes this tile's aggregate, walks
+//     predecessors to an INCLUSIVE descriptor, publishes the inclusive prefix.
+//   * The tile is locally sorted into shared memory, so equal-digit elements are
+//     drained to contiguous global slots: pos = globalHist[pass*RADIX+d]
+//     + exclusivePrefix[d] + (sortedPos - digitBase[d]).
 //
-// Descriptor packing (lookbackState[pass_region + tile*RADIX + digit]): value in
-// bits [29:0], status flag in bits [31:30] (0=NOT_READY, 1=AGGREGATE,
-// 2=INCLUSIVE). Publishes use atomicExch and look-back reads use
-// atomicAdd(...,0) so descriptor traffic is device-coherent without extra
-// fences. Value width => numElements < 2^30. Each pass has its own contiguous
-// region (stateBase); the trailing slot of each region is the tile counter.
+// Partial last tile: out-of-range slots use key 0xFFFFFFFF (digit 0xFF every
+// pass) and are excluded from the histogram / never written. Descriptor packing:
+// value bits [29:0], status bits [31:30] (0=NOT_READY,1=AGGREGATE,2=INCLUSIVE);
+// value width => numElements < 2^30. Each pass owns a contiguous look-back
+// region (stateBase); the trailing slot is that pass's tile counter. Requires
+// SM 7.0+ for __match_any_sync (Ampere target).
 #include "ComputeOpsShared.h"
 
 #define BLOCK 256
 #define RADIX 256
+#define KPT 4
+#define TILE (BLOCK * KPT)          // 1024 elements per tile
+#define NUM_WARPS (BLOCK / 32)      // 8
 #define FLAG_AGG (1u << 30)
 #define FLAG_INC (2u << 30)
 #define FLAG_MASK (3u << 30)
@@ -40,20 +46,23 @@ extern "C" __global__ void cut_main(const uint* __restrict__ keysIn,
                                     const uint* __restrict__ globalHist,
                                     uint* __restrict__ lookbackState,
                                     PushConstants pc) {
-    __shared__ uint sHist[RADIX];       // local digit counts
-    __shared__ uint sDigit[BLOCK];      // digit per element (index order)
-    __shared__ uint sValid[BLOCK];
-    __shared__ uint sExclusive[RADIX];  // look-back exclusive prefix per digit
+    __shared__ uint sKey[TILE];
+    __shared__ uint sVal[TILE];
+    __shared__ uint sRank[TILE];               // stable tile-rank per position
+    __shared__ uint sSorted[TILE];             // sorted pos -> original position
+    __shared__ uint warpHist[NUM_WARPS * RADIX];
+    __shared__ uint sHist[RADIX];              // running/final per-digit count
+    __shared__ uint sBase[RADIX];              // exclusive scan of sHist
+    __shared__ uint sExclusive[RADIX];         // look-back exclusive prefix
     __shared__ uint sTile;
 
     uint tid = threadIdx.x;
+    uint lane = tid & 31u;
+    uint warpId = tid >> 5u;
 
-    // This pass's look-back region: descriptors + a trailing counter slot.
     uint stateStride = pc.numTiles * RADIX + 1u;
     uint stateBase = pc.passIndex * stateStride;
 
-    // Claim a tile id for forward progress (earlier-scheduled blocks get lower
-    // ids and only ever spin on strictly-lower ids).
     if (tid == 0) {
         sTile = atomicAdd(&lookbackState[stateBase + pc.numTiles * RADIX], 1u);
     }
@@ -61,29 +70,91 @@ extern "C" __global__ void cut_main(const uint* __restrict__ keysIn,
     uint tile = sTile;
 
     uint bitOffset = pc.passIndex * 8u;
-    uint idx = tile * BLOCK + tid;
+    uint tileStart = tile * TILE;
 
-    sHist[tid] = 0u;
-    __syncthreads();
-
-    uint key = 0u, val = 0u, digit = 0u, valid = 0u;
-    if (idx < pc.numElements) {
-        key = keysIn[idx];
-        val = valsIn[idx];
-        digit = (key >> bitOffset) & 0xFFu;
-        valid = 1u;
-        atomicAdd(&sHist[digit], 1u);
+    if (tid < RADIX) {
+        sHist[tid] = 0u;
     }
-    sDigit[tid] = digit;
-    sValid[tid] = valid;
     __syncthreads();
 
-    // Thread `tid` handles digit d == tid: publish aggregate, look back, publish
-    // inclusive prefix.
+    // Coalesced striped load into natural tile-position order.
+#pragma unroll
+    for (uint r = 0; r < KPT; r++) {
+        uint i = r * BLOCK + tid;
+        uint g = tileStart + i;
+        sKey[i] = (g < pc.numElements) ? keysIn[g] : 0xFFFFFFFFu;
+        sVal[i] = (g < pc.numElements) ? valsIn[g] : 0u;
+    }
+    __syncthreads();
+
+    // KPT rounds: stable within-tile rank per element; accumulate the histogram.
+    for (uint r = 0; r < KPT; r++) {
+        for (uint i = tid; i < NUM_WARPS * RADIX; i += BLOCK) {
+            warpHist[i] = 0u;
+        }
+        __syncthreads();
+
+        uint i = r * BLOCK + tid;
+        uint g = tileStart + i;
+        uint valid = (g < pc.numElements) ? 1u : 0u;
+        uint digit = valid ? ((sKey[i] >> bitOffset) & 0xFFu) : 0xFFFFFFFFu;
+
+        uint match = __match_any_sync(__activemask(), digit);
+        uint intra = __popc(match & ((1u << lane) - 1u));
+        if (valid && intra == 0u) {
+            warpHist[warpId * RADIX + digit] = __popc(match);
+        }
+        __syncthreads();
+
+        if (valid) {
+            uint inter = 0u;
+            for (uint w = 0; w < warpId; w++) {
+                inter += warpHist[w * RADIX + digit];
+            }
+            sRank[i] = sHist[digit] + inter + intra;
+        }
+        __syncthreads();
+
+        // Thread `tid` owns digit tid: fold this round's count into the running
+        // total (read by the next round's rank).
+        uint roundCount = 0u;
+        for (uint w = 0; w < NUM_WARPS; w++) {
+            roundCount += warpHist[w * RADIX + tid];
+        }
+        sHist[tid] += roundCount;
+        __syncthreads();
+    }
+
+    // Exclusive scan of the histogram -> local digit base; capture total valid.
+    sBase[tid] = sHist[tid];
+    __syncthreads();
+    for (uint off = 1u; off < RADIX; off <<= 1) {
+        uint add = (tid >= off) ? sBase[tid - off] : 0u;
+        __syncthreads();
+        sBase[tid] += add;
+        __syncthreads();
+    }
+    uint totalValid = sBase[RADIX - 1];  // inclusive scan total
+    __syncthreads();
+    sBase[tid] = sBase[tid] - sHist[tid];  // exclusive
+    __syncthreads();
+
+    // Local sort: place each valid element at its sorted position in shared.
+#pragma unroll
+    for (uint r = 0; r < KPT; r++) {
+        uint i = r * BLOCK + tid;
+        uint g = tileStart + i;
+        if (g < pc.numElements) {
+            uint dd = (sKey[i] >> bitOffset) & 0xFFu;
+            sSorted[sBase[dd] + sRank[i]] = i;
+        }
+    }
+    __syncthreads();
+
+    // Decoupled look-back: thread d == tid owns digit d.
     uint d = tid;
     uint agg = sHist[d];
     if (tile == 0u) {
-        // No predecessors: exclusive prefix is 0, aggregate is inclusive.
         atomicExch(&lookbackState[stateBase + tile * RADIX + d],
                    (agg & VALUE_MASK) | FLAG_INC);
         sExclusive[d] = 0u;
@@ -109,17 +180,18 @@ extern "C" __global__ void cut_main(const uint* __restrict__ keysIn,
     }
     __syncthreads();
 
-    if (valid == 1u) {
-        // Stable within-tile rank: earlier same-digit elements in index order.
-        uint localRank = 0u;
-        for (uint j = 0; j < tid; j++) {
-            if (sValid[j] == 1u && sDigit[j] == digit) {
-                localRank++;
-            }
+    // Drain the locally-sorted tile to global (coalesced within each digit).
+    uint globalBase = pc.passIndex * RADIX;
+#pragma unroll
+    for (uint r = 0; r < KPT; r++) {
+        uint p = r * BLOCK + tid;
+        if (p < totalValid) {
+            uint elem = sSorted[p];
+            uint key = sKey[elem];
+            uint dd = (key >> bitOffset) & 0xFFu;
+            uint pos = globalHist[globalBase + dd] + sExclusive[dd] + (p - sBase[dd]);
+            keysOut[pos] = key;
+            valsOut[pos] = sVal[elem];
         }
-        uint pos = globalHist[pc.passIndex * RADIX + digit] + sExclusive[digit] +
-                   localRank;
-        keysOut[pos] = key;
-        valsOut[pos] = val;
     }
 }
