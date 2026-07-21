@@ -8,12 +8,17 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 
 namespace cut {
 
 namespace {
 inline uint32_t ceilDiv(uint32_t a, uint32_t b) { return (a + b - 1) / b; }
+bool cudaGraphsDisabled() {
+  static const bool disabled = std::getenv("CUT_CUDA_NO_GRAPH") != nullptr;
+  return disabled;
+}
 } // namespace
 
 CudaCommandBuffer::CudaCommandBuffer(CUcontext context, CUstream stream,
@@ -28,6 +33,14 @@ CudaCommandBuffer::~CudaCommandBuffer() {
   if (doneEvent_) {
     cuEventDestroy(doneEvent_);
     doneEvent_ = nullptr;
+  }
+  if (graphExec_) {
+    cuGraphExecDestroy(graphExec_);
+    graphExec_ = nullptr;
+  }
+  if (graph_) {
+    cuGraphDestroy(graph_);
+    graph_ = nullptr;
   }
   clearTimingSlots();
 }
@@ -166,10 +179,46 @@ void CudaCommandBuffer::launchDispatch(const ComputeDispatch &dispatch,
   (void)index;
 }
 
+bool CudaCommandBuffer::eligibleForGraph() {
+  if (cudaGraphsDisabled())
+    return false;
+  if (!isReusable())
+    return false; // only cached, repeatedly-replayed CBs
+  if (isProfilingEnabled())
+    return false; // keep per-kernel events on the launch path
+  for (const auto &d : dispatches()) {
+    if (d.isBufferUpdate())
+      return false; // inline updates are not graph-replay-safe here
+  }
+  return true;
+}
+
 void CudaCommandBuffer::end() {
   CudaContextGuard guard(context_);
   if (isProfilingEnabled())
     clearTimingSlots();
+
+  // Reusable CBs (cached decode/prefill segments, resubmitted every token)
+  // capture their kernel sequence once and replay it with a single
+  // cuGraphLaunch — eliminating ~hundreds of per-token driver launch calls and
+  // the GPU idle gaps between them.
+  if (eligibleForGraph()) {
+    if (!graphReady_) {
+      CU_CHECK(cuStreamBeginCapture(stream_,
+                                    CU_STREAM_CAPTURE_MODE_THREAD_LOCAL));
+      uint32_t index = 0;
+      for (const auto &dispatch : dispatches())
+        launchDispatch(dispatch, index++);
+      CU_CHECK(cuStreamEndCapture(stream_, &graph_));
+      CU_CHECK(cuGraphInstantiate(&graphExec_, graph_, 0));
+      graphReady_ = true;
+    }
+    CU_CHECK(cuGraphLaunch(graphExec_, stream_));
+    CU_CHECK(cuEventRecord(doneEvent_, stream_));
+    ended_ = true;
+    return;
+  }
+
   uint32_t index = 0;
   for (const auto &dispatch : dispatches()) {
     launchDispatch(dispatch, index++);
@@ -206,8 +255,18 @@ void CudaCommandBuffer::wait() {
 }
 
 void CudaCommandBuffer::resubmit() {
-  // Re-issue the same recorded dispatches on the stream.
+  // Re-issue the same recorded work on the stream.
   wait();
+  if (graphReady_) {
+    // Replay the captured kernel sequence in a single launch. Per-token data
+    // (position, token id, penalty factors) lives in persistent mapped buffers
+    // updated by the caller before this call, so the replayed kernels read the
+    // current values.
+    CudaContextGuard guard(context_);
+    CU_CHECK(cuGraphLaunch(graphExec_, stream_));
+    CU_CHECK(cuEventRecord(doneEvent_, stream_));
+    return;
+  }
   end();
 }
 

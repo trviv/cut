@@ -56,11 +56,17 @@ private:
   /// Destroys any pending timing events (context must be current).
   void clearTimingSlots();
 
+  /// Whether this CB may use the CUDA-graph capture/replay fast path.
+  bool eligibleForGraph();
+
   CUcontext context_;
   CUstream stream_ = nullptr;
   CUevent doneEvent_ = nullptr;
   bool ended_ = false;
   CudaContainers &containers_;
+  CUgraph graph_ = nullptr;
+  CUgraphExec graphExec_ = nullptr;
+  bool graphReady_ = false; ///< True once the kernel sequence is captured.
 };
 
 } // namespace cut
