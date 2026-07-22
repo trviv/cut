@@ -1977,12 +1977,16 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
       vBuf = layer.wv.isQuantized()
                  ? ops.matmul(normed, layer.wv.qValues, layer.wv.qScales)
                  : ops.matmul(normed, layer.wv.handle);
+      // Row-broadcast: prefill produces [N, qdim]/[N, kvdim] activations while
+      // the bias is a single [qdim]/[kvdim] row, so it must be added to every
+      // one of the N rows. Plain binaryOp requires equal element counts and
+      // throws for N > 1 (decode is fine only because there N == 1).
       if (layer.bq)
-        qBuf = ops.binaryOp(cut::BinaryAdd, qBuf, layer.bq);
+        qBuf = ops.binaryOpRowBcast(cut::BinaryAdd, qBuf, layer.bq);
       if (layer.bk)
-        kBuf = ops.binaryOp(cut::BinaryAdd, kBuf, layer.bk);
+        kBuf = ops.binaryOpRowBcast(cut::BinaryAdd, kBuf, layer.bk);
       if (layer.bv)
-        vBuf = ops.binaryOp(cut::BinaryAdd, vBuf, layer.bv);
+        vBuf = ops.binaryOpRowBcast(cut::BinaryAdd, vBuf, layer.bv);
       qRowStride = alignedQdim;
       kRowStride = vRowStride = alignedKvDim;
       qColOff = kColOff = vColOff = 0;
