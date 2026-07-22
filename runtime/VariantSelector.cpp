@@ -5,6 +5,11 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
+
+#if defined(__linux__)
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -207,6 +212,24 @@ private:
   size_t pos_;
 };
 
+// Directory containing the running executable, or "" if it cannot be
+// determined. Used so a tuning file next to the binary is found regardless of
+// the process working directory.
+std::string executableDir() {
+#if defined(__linux__)
+  char buf[4096];
+  ssize_t len = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+  if (len <= 0)
+    return {};
+  buf[len] = '\0';
+  std::string path(buf);
+  size_t slash = path.find_last_of('/');
+  return slash == std::string::npos ? std::string{} : path.substr(0, slash);
+#else
+  return {};
+#endif
+}
+
 } // anonymous namespace
 
 namespace cut {
@@ -217,23 +240,43 @@ VariantSelector &VariantSelector::instance() {
 }
 
 bool VariantSelector::loadTuningData() {
-  const char *envPath = std::getenv("CUT_TUNING_DATA");
-  if (envPath) {
-    if (loadFromFile(envPath))
+  std::vector<std::string> tried;
+
+  auto tryLoad = [&](const std::string &path) {
+    tried.push_back(path);
+    if (!loadFromFile(path))
+      return false;
+    std::cerr << "VariantSelector: loaded tuning data from " << path
+              << std::endl;
+    return true;
+  };
+
+  if (const char *envPath = std::getenv("CUT_TUNING_DATA")) {
+    if (tryLoad(envPath))
       return true;
     std::cerr << "VariantSelector: CUT_TUNING_DATA set to " << envPath
               << " but failed to load" << std::endl;
   }
-  if (loadFromFile("tuning_data.json"))
+
+  // Relative to the process working directory — kept first for compatibility,
+  // but it is exactly why a generated file can appear to "sometimes" load.
+  if (tryLoad("tuning_data.json"))
     return true;
-  const char *home = std::getenv("HOME");
-  if (home) {
-    std::string homePath = std::string(home) + "/.cut/tuning_data.json";
-    if (loadFromFile(homePath))
+
+  const std::string exeDir = executableDir();
+  if (!exeDir.empty() && exeDir != "." && tryLoad(exeDir + "/tuning_data.json"))
+    return true;
+
+  if (const char *home = std::getenv("HOME")) {
+    if (tryLoad(std::string(home) + "/.cut/tuning_data.json"))
       return true;
   }
-  std::cerr << "VariantSelector: no tuning data found, using default variants"
-            << std::endl;
+
+  std::cerr << "VariantSelector: no tuning data found, using default variants "
+            << "(searched:";
+  for (const auto &p : tried)
+    std::cerr << " " << p;
+  std::cerr << "). Generate with scripts/bench/autotune.sh." << std::endl;
   return false;
 }
 
