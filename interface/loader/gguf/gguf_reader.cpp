@@ -795,7 +795,11 @@ void GGUFReader::dequantize_q6_k(const uint8_t *data,
     // Process 2 groups of 128 elements each
     for (int n = 0; n < 256 && out_idx < n_elements; n += 128) {
       for (int l = 0; l < 32 && out_idx + 96 + l <= n_elements; ++l) {
-        int is = n / 16 + l / 16;
+        // sc is already advanced by 8 per 128-element half below, so the
+        // index must not include n/16 (that double advance previously read
+        // past the 16-byte scales array and corrupted the second half of
+        // every super-block).
+        int is = l / 16;
         int8_t q1 =
             static_cast<int8_t>((ql[l] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
         int8_t q2 = static_cast<int8_t>((ql[l + 32] & 0xF) |
