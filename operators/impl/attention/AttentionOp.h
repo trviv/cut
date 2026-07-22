@@ -149,6 +149,40 @@ private:
   uint32_t kOffset_, vOffset_;
 };
 
+/// Decode-time fused RoPE(q) + RoPE(k) + K/V cache row write (one dispatch,
+/// single token). Attention stays a separate dispatch, so cache writes are
+/// visible via the inter-dispatch barrier (unlike the retired FusedAttention,
+/// which relied on cross-workgroup visibility within one dispatch).
+class FusedRoPEKVWriteOpNode : public OpNode {
+public:
+  FusedRoPEKVWriteOpNode(TensorStore &store,
+                         const Tensor &q,
+                         const Tensor &k,
+                         const Tensor &v,
+                         const Tensor &runtimeParams,
+                         const Tensor &cosTable,
+                         const Tensor &sinTable,
+                         const Tensor &kCache,
+                         const Tensor &vCache,
+                         uint32_t headDim,
+                         std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  size_t shaderKey() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+
+private:
+  DataType cacheDtype_;
+  uint32_t qDim_;
+  uint32_t kvDim_;
+  uint32_t headDim_;
+  uint32_t halfDim_;
+  uint32_t alignedKvDim_;
+};
+
 /// Batched attention for prefill, reading from a pre-populated K/V cache.
 /// Pair with BatchedKVCacheWriteOpNode. Applies RoPE to Q inline.
 class BatchedAttentionReadCacheOpNode : public OpNode {

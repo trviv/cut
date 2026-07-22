@@ -1625,15 +1625,27 @@ cut::ComputeHandle LlamaModel::runLayer(uint32_t layerIdx,
   splitQKV(qkv, q, k, v, dev);
 
   auto &cache = kv_caches_[layerIdx];
-  // Split into separate dispatches to avoid inter-workgroup race condition
-  // (FusedAttention relied on cross-workgroup visibility of cache writes
-  // which is undefined behavior in Vulkan)
-  auto q_roped = ops.applyRoPE(q, ropeCosGpu_[dev], ropeSinGpu_[dev],
-                               runtimeParamsBuffers_[dev], config_.head_dim);
-  auto k_roped = ops.applyRoPE(k, ropeCosGpu_[dev], ropeSinGpu_[dev],
-                               runtimeParamsBuffers_[dev], config_.head_dim);
-  ops.cacheWrite(cache.k_cache, k_roped, runtimeParamsBuffers_[dev]);
-  ops.cacheWrite(cache.v_cache, v, runtimeParamsBuffers_[dev]);
+  // RoPE(q/k) + K/V cache writes fused into one dispatch; attention stays a
+  // separate dispatch so the cache writes are ordered by the inter-dispatch
+  // barrier (the retired FusedAttention relied on cross-workgroup visibility
+  // of cache writes, which is undefined behavior in Vulkan).
+  // CUT_NO_FUSED_ROPE=1 restores the split 4-dispatch path for A/B tests.
+  static const bool kNoFusedRope = std::getenv("CUT_NO_FUSED_ROPE") != nullptr;
+  cut::Tensor q_roped;
+  if (!kNoFusedRope) {
+    q_roped = ops.fusedRoPEKVWrite(q, k, v, runtimeParamsBuffers_[dev],
+                                   ropeCosGpu_[dev], ropeSinGpu_[dev],
+                                   cache.k_cache, cache.v_cache,
+                                   config_.head_dim);
+    ops.barrier();
+  } else {
+    q_roped = ops.applyRoPE(q, ropeCosGpu_[dev], ropeSinGpu_[dev],
+                            runtimeParamsBuffers_[dev], config_.head_dim);
+    auto k_roped = ops.applyRoPE(k, ropeCosGpu_[dev], ropeSinGpu_[dev],
+                                 runtimeParamsBuffers_[dev], config_.head_dim);
+    ops.cacheWrite(cache.k_cache, k_roped, runtimeParamsBuffers_[dev]);
+    ops.cacheWrite(cache.v_cache, v, runtimeParamsBuffers_[dev]);
+  }
   ops.attention(q_roped, cache.k_cache, cache.v_cache,
                 runtimeParamsBuffers_[dev], config_.n_heads,
                 config_.n_kv_heads, config_.head_dim, attnOutBuffers_[dev]);

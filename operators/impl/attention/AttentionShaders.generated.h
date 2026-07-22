@@ -12,6 +12,7 @@ std::optional<std::vector<uint32_t>> compiledAttention(DataType input, DataType 
 std::optional<std::vector<uint32_t>> compiledFusedAttention(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledBatchedFusedAttention(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledBatchedKVCacheWrite(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledFusedRoPEKVWrite(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledBatchedAttentionReadCache(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledDiTAttention(DataType input, DataType output);
 

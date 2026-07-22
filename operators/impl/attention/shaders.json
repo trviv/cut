@@ -91,6 +91,22 @@
       }
     },
     {
+      "name": "FusedRoPEKVWrite",
+      "description": "Decode-time RoPE(q)+RoPE(k)+K/V cache write in one dispatch",
+      "dtype_slots": {
+        "combos": [
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          }
+        ]
+      }
+    },
+    {
       "name": "BatchedAttentionReadCache",
       "description": "Batched attention reading pre-populated KV cache (Q gets RoPE inline). Pair with BatchedKVCacheWrite.",
       "dtype_slots": {

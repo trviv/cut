@@ -310,6 +310,20 @@ public:
                   const Tensor &newData,
                   const Tensor &runtimeParams);
 
+  /// Decode-time fused RoPE(q) + RoPE(k) + K/V cache row write in one
+  /// dispatch (single token). Returns the roped Q vector; K is roped and
+  /// written to kCache, V copied to vCache at runtimeParams[0].
+  Tensor fusedRoPEKVWrite(const Tensor &q,
+                          const Tensor &k,
+                          const Tensor &v,
+                          const Tensor &runtimeParams,
+                          const Tensor &cosTable,
+                          const Tensor &sinTable,
+                          const Tensor &kCache,
+                          const Tensor &vCache,
+                          uint32_t headDim,
+                          std::optional<uint32_t> spec = {});
+
   /// Scaled dot-product attention with GQA support.
   Tensor attention(const Tensor &q,
                    const Tensor &kCache,

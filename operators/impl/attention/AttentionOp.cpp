@@ -548,4 +548,67 @@ std::vector<uint8_t> DiTAttentionOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+// --- FusedRoPEKVWriteOpNode ---
+
+FusedRoPEKVWriteOpNode::FusedRoPEKVWriteOpNode(TensorStore &store,
+                                               const Tensor &q,
+                                               const Tensor &k,
+                                               const Tensor &v,
+                                               const Tensor &runtimeParams,
+                                               const Tensor &cosTable,
+                                               const Tensor &sinTable,
+                                               const Tensor &kCache,
+                                               const Tensor &vCache,
+                                               uint32_t headDim,
+                                               std::optional<uint32_t> spec)
+    : OpNode(CacheWrite, store, spec) {
+  cacheDtype_ = store.getTensor(kCache).getDtype();
+  qDim_ = store.getTensor(q).getShape()[0];
+  kvDim_ = store.getTensor(k).getShape()[0];
+  headDim_ = headDim;
+  halfDim_ = headDim / 2;
+  alignedKvDim_ = (kvDim_ + 3) & ~static_cast<uint32_t>(3);
+
+  inputs_ = {q, k, v, runtimeParams, cosTable, sinTable, kCache, vCache};
+  // Real output: the roped Q vector. The cache writes are ordered by the
+  // inter-dispatch barrier the tracker emits for this output before the
+  // subsequent attention dispatch (which also reads both caches).
+  output_ = store.createTensorEmpty({qDim_}, DataType::Float32);
+}
+
+DataType FusedRoPEKVWriteOpNode::outputDtype() const {
+  return DataType::Float32;
+}
+
+std::optional<std::vector<uint32_t>> FusedRoPEKVWriteOpNode::shader() const {
+  return compiledFusedRoPEKVWrite(cacheDtype_, cacheDtype_);
+}
+
+size_t FusedRoPEKVWriteOpNode::shaderKey() const {
+  // Avoid collision with CacheWriteOpNode / BatchedKVCacheWriteOpNode
+  // (same OperatorEnum::CacheWrite; BatchedKVCacheWrite salts bit 33).
+  return OpNode::shaderKey() | (size_t{1} << 34);
+}
+
+std::vector<uint32_t> FusedRoPEKVWriteOpNode::outputShape() const {
+  return {qDim_};
+}
+
+ThreadSize FusedRoPEKVWriteOpNode::dispatchSize() const {
+  uint32_t totalWork = qDim_ + 2 * kvDim_;
+  uint32_t gridX = ((totalWork + 255) / 256) * 256;
+  return {gridX, 1, 1};
+}
+
+std::vector<uint8_t> FusedRoPEKVWriteOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t qDim;
+    uint32_t kvDim;
+    uint32_t headDim;
+    uint32_t halfDim;
+    uint32_t alignedKvDim;
+  } pc{qDim_, kvDim_, headDim_, halfDim_, alignedKvDim_};
+  return toBytes(pc);
+}
+
 } // namespace cut

@@ -1097,6 +1097,22 @@ void Operations::cacheWrite(const Tensor &cache,
   dispatch(std::move(node));
 }
 
+Tensor Operations::fusedRoPEKVWrite(const Tensor &q,
+                                    const Tensor &k,
+                                    const Tensor &v,
+                                    const Tensor &runtimeParams,
+                                    const Tensor &cosTable,
+                                    const Tensor &sinTable,
+                                    const Tensor &kCache,
+                                    const Tensor &vCache,
+                                    uint32_t headDim,
+                                    std::optional<uint32_t> spec) {
+  auto node = std::make_unique<FusedRoPEKVWriteOpNode>(
+      *store_, q, k, v, runtimeParams, cosTable, sinTable, kCache, vCache,
+      headDim, spec);
+  return recordOrEncode(std::move(node));
+}
+
 Tensor Operations::attention(const Tensor &q,
                              const Tensor &kCache,
                              const Tensor &vCache,
