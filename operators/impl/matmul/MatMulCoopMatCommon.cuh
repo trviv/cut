@@ -11,6 +11,7 @@
 //   gid = lane >> 2 (0..7);  t = (lane & 3) * 2 (0,2,4,6).
 
 #include "cut_cuda_prelude.cuh"
+#include "ComputeOpsShared.h"
 
 // One 16x16 A tile (row-major), held as 4 x b32 (2 fp16 each) per lane.
 struct FragA16 { unsigned int r[4]; };
@@ -92,3 +93,65 @@ __device__ __forceinline__ void cutStoreC16(float *out, int ldm, const Acc16 &c,
 struct CoopMatPush { uint M; uint K; uint N; uint strideA; uint strideB; uint strideC; };
 // Push constants for the Q8 coopmat kernel (adds byte-stride for int8 B and a scale stride).
 struct Q8CoopMatPush { uint M; uint K; uint N; uint strideA; uint strideBN; uint strideC; uint scaleStride; };
+
+// Fusion spec constants (runtime supplies CUT_SPEC_1 / CUT_SPEC_2, mirroring
+// the FUSION_TYPE / FUSION_OP specialization constants in the .comp).
+#ifndef CUT_SPEC_1
+#define CUT_SPEC_1 (0)
+#endif
+static const uint COOPMAT_FUSION_TYPE = CUT_SPEC_1;
+#ifndef CUT_SPEC_2
+#define CUT_SPEC_2 (0)
+#endif
+static const uint COOPMAT_FUSION_OP = CUT_SPEC_2;
+
+// Applies the fused epilogue to one output element. `d` is the corresponding
+// dataD element (only read when a binary fusion is active).
+__device__ __forceinline__ float cutApplyFusion(float value, float d) {
+    if (COOPMAT_FUSION_TYPE == 1u) {
+        float x = value;
+        switch (COOPMAT_FUSION_OP) {
+            case OP_UNARY_NEG:        x = -x; break;
+            case OP_UNARY_ABS:        x = abs(x); break;
+            case OP_UNARY_SQRT:       x = sqrt(x); break;
+            case OP_UNARY_SQUARE:     x = x * x; break;
+            case OP_UNARY_RECIPROCAL: x = 1.0f / x; break;
+            case OP_UNARY_EXP:        x = exp(x); break;
+            case OP_UNARY_LOG:        x = log(x); break;
+            case OP_UNARY_TANH:       x = tanh(x); break;
+            case OP_UNARY_FLOOR:      x = floor(x); break;
+            case OP_UNARY_CEIL:       x = ceil(x); break;
+            case OP_UNARY_ROUND:      x = round(x); break;
+            case OP_UNARY_RELU:       x = max(0.0f, x); break;
+            case OP_UNARY_SIGMOID:    x = 1.0f / (1.0f + exp(-x)); break;
+            case OP_UNARY_GELU:       x = x * 0.5f * (1.0f + tanh(sqrt(2.0f / 3.14159265f) * (x + 0.044715f * x * x * x))); break;
+            case OP_UNARY_SILU:       x = x / (1.0f + exp(-x)); break;
+            case OP_UNARY_SOFTPLUS:   x = log(1.0f + exp(x)); break;
+            case OP_UNARY_RELU6:      x = fminf(fmaxf(x, 0.0f), 6.0f); break;
+            case OP_UNARY_MISH:       x = x * tanh(log(1.0f + exp(x))); break;
+            case OP_UNARY_HARDSWISH:  x = x * fminf(fmaxf(x / 6.0f + 0.5f, 0.0f), 1.0f); break;
+            case OP_UNARY_HARDSIGMOID: x = fminf(fmaxf(x / 6.0f + 0.5f, 0.0f), 1.0f); break;
+            case OP_UNARY_RSQRT:      x = rsqrt(x); break;
+            default: break;
+        }
+        return x;
+    } else if (COOPMAT_FUSION_TYPE == 2u) {
+        float a = value;
+        float b = d;
+        float r = a;
+        switch (COOPMAT_FUSION_OP) {
+            case OP_BINARY_ADD:       r = a + b; break;
+            case OP_BINARY_SUB:       r = a - b; break;
+            case OP_BINARY_MUL:       r = a * b; break;
+            case OP_BINARY_DIV:       r = a / b; break;
+            case OP_BINARY_MOD:       r = a - b * floor(a / b); break;
+            case OP_BINARY_POW:       r = pow(a, b); break;
+            case OP_BINARY_FLOOR_DIV: r = floor(a / b); break;
+            case OP_BINARY_MIN:       r = min(a, b); break;
+            case OP_BINARY_MAX:       r = max(a, b); break;
+            default:                  r = a + b; break;
+        }
+        return r;
+    }
+    return value;
+}

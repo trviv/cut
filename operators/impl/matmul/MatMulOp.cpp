@@ -376,16 +376,14 @@ void MatMulOpNode::setFusion(MatMulFusion fusion,
   if (fusion == MatMulFusion::None) {
     return;
   }
-  // The GLSL cooperative-matrix shaders have no fusion epilogue (the
-  // FUSION_TYPE/FUSION_OP specialization constants exist only in the HLSL
-  // variants), so a fused matmul would silently drop the fused op there.
+  // The float cooperative-matrix shaders still have no fusion epilogue, so a
+  // fused matmul would silently drop the fused op there and must fall back to
+  // a scalar variant. MatMulQ8CoopMatTiled does have one, so it is exempt.
   bool coopMatSelected = false;
   if (format_ == QuantFormat::None) {
     coopMatSelected = (*spec_ == kCoopMatVariant ||
                        *spec_ == kCoopMatTiledVariant ||
                        *spec_ == kCoopMatGemvVariant);
-  } else if (format_ == QuantFormat::Q8) {
-    coopMatSelected = (*spec_ == kMatMulQ8VariantCount - 1);
   }
   if (!coopMatSelected) {
     return;

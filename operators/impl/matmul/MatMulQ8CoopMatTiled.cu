@@ -95,13 +95,18 @@ extern "C" __global__ void cut_main(const float* __restrict__ dataA,
 
     __syncthreads();
 
-    // Copy valid results from shared memory to global output (handles non-aligned M/N).
+    // Copy valid results from shared memory to global output (handles non-aligned M/N),
+    // applying the fused unary/binary epilogue so fusion does not force a
+    // fallback off this tensor-core variant.
     for (uint i = tid; i < 32u * 32u; i += 128u) {
         uint row = i / 32u;
         uint col = i % 32u;
         uint gRow = tileRowStart + row;
         uint gCol = tileColStart + col;
-        if (gRow < pc.M && gCol < pc.N)
-            dataC[gRow * pc.strideC + gCol] = tileC_sh[i];
+        if (gRow < pc.M && gCol < pc.N) {
+            uint idx = gRow * pc.strideC + gCol;
+            float d = (COOPMAT_FUSION_TYPE == 2u) ? dataD[idx] : 0.0f;
+            dataC[idx] = cutApplyFusion(tileC_sh[i], d);
+        }
     }
 }

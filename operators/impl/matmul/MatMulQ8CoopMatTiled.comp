@@ -31,6 +31,12 @@ layout(push_constant) uniform PushConstants {
     uint scaleStride; // padded N for scales (in float16 elements, multiple of 4)
 };
 
+// Fusion epilogue selectors (patched by MatMulOpNode::shader()). These must
+// stay declared and used: the CUDA backend derives its -DCUT_SPEC_1 /
+// -DCUT_SPEC_2 defines from the spec constants present in this shader's SPIR-V.
+layout(constant_id = 1) const uint FUSION_TYPE = 0;
+layout(constant_id = 2) const uint FUSION_OP = 0;
+
 // A: float32 activations [M, K]
 layout(set = 0, binding = 0) readonly buffer BufferA { float dataA[]; };
 
@@ -150,14 +156,57 @@ void main() {
 
     barrier();
 
-    // Selectively copy valid results from shared memory to global output
+    // Selectively copy valid results from shared memory to global output,
+    // applying the fused unary/binary epilogue.
     for (uint i = tid; i < 32 * 32; i += 128) {
         uint row = i / 32;
         uint col = i % 32;
         uint gRow = tileRowStart + row;
         uint gCol = tileColStart + col;
         if (gRow < M && gCol < N) {
-            dataC[gRow * strideC + gCol] = tileC_sh[i];
+            uint outIdx = gRow * strideC + gCol;
+            float value = tileC_sh[i];
+            if (FUSION_TYPE == 1u) {
+                switch (FUSION_OP) {
+                    case 100u:          value = -value; break; // OP_UNARY_NEG
+                    case 101u:          value = abs(value); break; // OP_UNARY_ABS
+                    case 102u:          value = sqrt(value); break; // OP_UNARY_SQRT
+                    case 103u:          value = value * value; break; // OP_UNARY_SQUARE
+                    case 104u:          value = 1.0 / value; break; // OP_UNARY_RECIPROCAL
+                    case 106u:          value = exp(value); break; // OP_UNARY_EXP
+                    case 109u:          value = log(value); break; // OP_UNARY_LOG
+                    case 121u:          value = tanh(value); break; // OP_UNARY_TANH
+                    case 122u:          value = floor(value); break; // OP_UNARY_FLOOR
+                    case 123u:          value = ceil(value); break; // OP_UNARY_CEIL
+                    case 124u:          value = round(value); break; // OP_UNARY_ROUND
+                    case 130u:          value = max(0.0, value); break; // OP_UNARY_RELU
+                    case 131u:          value = 1.0 / (1.0 + exp(-value)); break; // OP_UNARY_SIGMOID
+                    case 132u:          value = value * 0.5 * (1.0 + tanh(sqrt(2.0 / 3.14159265) * (value + 0.044715 * value * value * value))); break; // OP_UNARY_GELU
+                    case 133u:          value = value / (1.0 + exp(-value)); break; // OP_UNARY_SILU
+                    case 134u:          value = log(1.0 + exp(value)); break; // OP_UNARY_SOFTPLUS
+                    case 137u:          value = clamp(value, 0.0, 6.0); break; // OP_UNARY_RELU6
+                    case 141u:          value = value * tanh(log(1.0 + exp(value))); break; // OP_UNARY_MISH
+                    case 142u:          value = value * clamp(value / 6.0 + 0.5, 0.0, 1.0); break; // OP_UNARY_HARDSWISH
+                    case 143u:          value = clamp(value / 6.0 + 0.5, 0.0, 1.0); break; // OP_UNARY_HARDSIGMOID
+                    case 148u:          value = inversesqrt(value); break; // OP_UNARY_RSQRT
+                    default: break;
+                }
+            } else if (FUSION_TYPE == 2u) {
+                float d = dataD[outIdx];
+                switch (FUSION_OP) {
+                    case 0u:            value = value + d; break; // OP_BINARY_ADD
+                    case 1u:            value = value - d; break; // OP_BINARY_SUB
+                    case 2u:            value = value * d; break; // OP_BINARY_MUL
+                    case 3u:            value = value / d; break; // OP_BINARY_DIV
+                    case 4u:            value = value - d * floor(value / d); break; // OP_BINARY_MOD
+                    case 5u:            value = pow(value, d); break; // OP_BINARY_POW
+                    case 6u:            value = floor(value / d); break; // OP_BINARY_FLOOR_DIV
+                    case 13u:           value = min(value, d); break; // OP_BINARY_MIN
+                    case 14u:           value = max(value, d); break; // OP_BINARY_MAX
+                    default:            value = value + d; break;
+                }
+            }
+            dataC[outIdx] = value;
         }
     }
 }
