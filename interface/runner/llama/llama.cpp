@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <map>
@@ -367,11 +368,99 @@ cut::ComputeHandle LlamaModel::uploadMatrix(const float *data,
                                 deviceId);
 }
 
+// Host float -> half narrowing (round-to-nearest, denormals flushed).
+static uint16_t f32ToF16(float v) {
+  uint32_t u;
+  std::memcpy(&u, &v, sizeof(u));
+  uint32_t sign = (u >> 16) & 0x8000u;
+  int32_t exp = static_cast<int32_t>((u >> 23) & 0xffu) - 127 + 15;
+  uint32_t mantissa = u & 0x7fffffu;
+  if (exp <= 0) {
+    return static_cast<uint16_t>(sign); // flush denormals to signed zero
+  }
+  if (exp >= 31) {
+    return static_cast<uint16_t>(sign | 0x7c00u); // clamp to infinity
+  }
+  uint32_t m = mantissa >> 13;
+  if (mantissa & 0x1000u) { // round-to-nearest on the 13 dropped bits
+    ++m;
+    if (m == 0x400u) {
+      m = 0;
+      ++exp;
+      if (exp >= 31) {
+        return static_cast<uint16_t>(sign | 0x7c00u);
+      }
+    }
+  }
+  return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exp) << 10) | m);
+}
+
+// Weight types that end up as Float16 GPU weights (natively F16, or via the
+// GPU-dequant path), and can therefore be concatenated into a fused weight.
+// Q8_0/Q4_0 stay quantized (separate values+scales) and are excluded.
+static bool isFusableWeightType(GGMLType t) {
+  switch (t) {
+  case GGMLType::F16:
+  case GGMLType::BF16:
+  // GPU-dequantized K-quants.
+  case GGMLType::Q4_K:
+  case GGMLType::Q5_K:
+  case GGMLType::Q6_K:
+  // CPU-dequantized block types (these also become Float16 weights).
+  case GGMLType::Q4_1:
+  case GGMLType::Q5_0:
+  case GGMLType::Q5_1:
+    return true;
+  default:
+    // Q8_0 / Q4_0 intentionally stay quantized (separate values + scales) and
+    // use the quantized matmul path, so they are not fused on their own.
+    return false;
+  }
+}
+
+// Types GGUFReader::read_tensor_f32 can decode, so they can be narrowed to
+// Float16 on the host and concatenated into a fused weight. Superset of
+// isFusableWeightType: also covers the block types we normally keep quantized.
+static bool isDequantizableToF16(GGMLType t) {
+  switch (t) {
+  case GGMLType::Q8_0:
+  case GGMLType::Q4_0:
+    return true;
+  default:
+    return isFusableWeightType(t);
+  }
+}
+
+// A weight group is fusable when every constituent can be narrowed to fp16 AND
+// at least one is already on the fp16 path. That fuses mixed groups (e.g. Q5_0
+// q/k with a Q8_0 v, common in "Q4_K_M" GGUFs) while leaving an all-Q8_0/Q4_0
+// group on the quantized path so its memory does not double.
+// Debug knob: CUT_DISABLE_WEIGHT_FUSION=1 forces the separate (unfused) QKV and
+// gate+up weight paths, so the fused weights can be A/B validated.
+static bool weightFusionDisabled() {
+  static const bool disabled =
+      std::getenv("CUT_DISABLE_WEIGHT_FUSION") != nullptr;
+  return disabled;
+}
+
+static bool groupFusable(std::initializer_list<GGMLType> types) {
+  bool anyF16Path = false;
+  for (GGMLType t : types) {
+    if (!isDequantizableToF16(t))
+      return false;
+    if (isFusableWeightType(t))
+      anyF16Path = true;
+  }
+  return anyF16Path;
+}
+
 cut::ComputeHandle
 LlamaModel::uploadFusedF16(const GGUFReader &reader,
                            const std::vector<std::string> &names,
                            size_t deviceId) {
-  // Read multiple F16 tensors, concatenate rows, upload once, transpose once.
+  // Read multiple F16 (or GPU-dequantizable) tensors, concatenate rows, upload
+  // once, transpose once. Constituent types may differ (a K-quant model mixes
+  // e.g. Q4_K and Q6_K) — each is narrowed to fp16 on the host.
   // All tensors must share the same innermost dimension K (= cols in GGUF).
   uint32_t K =
       static_cast<uint32_t>(reader.get_tensor_info(names[0]).dimensions[0]);
@@ -384,14 +473,61 @@ LlamaModel::uploadFusedF16(const GGUFReader &reader,
   std::vector<uint8_t> combined(totalRows * K * 2);
   size_t off = 0;
   for (const auto &name : names) {
-    auto raw = reader.read_tensor_raw(name);
-    memcpy(combined.data() + off, raw.data(), raw.size());
-    off += raw.size();
+    const auto &info = reader.get_tensor_info(name);
+    if (info.type == GGMLType::F16) {
+      auto raw = reader.read_tensor_raw(name);
+      memcpy(combined.data() + off, raw.data(), raw.size());
+      off += raw.size();
+    } else {
+      // CPU-dequantize to f32, then narrow to fp16 on the host.
+      auto f32 = reader.read_tensor_f32(name);
+      auto *dst = reinterpret_cast<uint16_t *>(combined.data() + off);
+      for (size_t i = 0; i < f32.size(); ++i)
+        dst[i] = f32ToF16(f32[i]);
+      off += f32.size() * 2;
+    }
   }
 
   auto gpu = runtime_->createTensor({totalRows, K}, cut::DataType::Float16,
                                     combined.data(), false, deviceId);
   return opsAt(deviceId).transpose(gpu);
+}
+
+WeightHandle LlamaModel::uploadFusedQ8(const GGUFReader &reader,
+                                       const std::vector<std::string> &names,
+                                       size_t deviceId) {
+  WeightHandle wh;
+  // GGUF dims are [cols=K, rows=N]; all inputs share K. Concatenating along
+  // rows (N) is contiguous for both the int8 values and the f16 scales, so
+  // QKV / gate+up can be fused without dequantizing (no memory increase).
+  uint32_t K =
+      static_cast<uint32_t>(reader.get_tensor_info(names[0]).dimensions[0]);
+  uint32_t blocksK = K / 32;
+  uint32_t totalRows = 0;
+  for (const auto &name : names)
+    totalRows +=
+        static_cast<uint32_t>(reader.get_tensor_info(name).dimensions[1]);
+
+  std::vector<int8_t> values;
+  std::vector<uint16_t> scales;
+  values.reserve(static_cast<size_t>(totalRows) * K);
+  scales.reserve(static_cast<size_t>(totalRows) * blocksK);
+  for (const auto &name : names) {
+    auto q8 = reader.read_tensor_q8_separated(name);
+    values.insert(values.end(), q8.values.begin(), q8.values.end());
+    scales.insert(scales.end(), q8.scales.begin(), q8.scales.end());
+  }
+
+  auto gpuValues = runtime_->createTensor(
+      {totalRows, K}, cut::DataType::Int8, values.data(), false, deviceId);
+  auto gpuScales =
+      runtime_->createTensor({totalRows, blocksK}, cut::DataType::Float16,
+                             scales.data(), false, deviceId);
+  wh.qValues = opsAt(deviceId).transpose(gpuValues);
+  wh.qScales = opsAt(deviceId).transpose(gpuScales);
+  wh.qCols = K;
+  wh.quantType = WeightHandle::QuantType::Q8_0;
+  return wh;
 }
 
 cut::ComputeHandle
@@ -444,8 +580,18 @@ LlamaModel::uploadWeight(const GGUFReader &reader,
     }
   }
 
-  // Fallback: CPU dequantize to Float32 (F32 pass-through, small tensors).
+  // Fallback: CPU dequantize. 2D weight matrices are narrowed to Float16 (like
+  // the GPU-dequant path above) to halve decode-time weight bandwidth; 1D
+  // tensors (norms/biases) stay Float32. Many "Q4_K_M" GGUFs store most 2D
+  // weights as Q5_0, which lands here rather than in the GPU-dequant switch.
   auto data = reader.read_tensor_f32(name);
+  if (shape.size() == 2) {
+    std::vector<uint16_t> half(data.size());
+    for (size_t i = 0; i < data.size(); ++i)
+      half[i] = f32ToF16(data[i]);
+    return runtime_->createTensor(shape, cut::DataType::Float16, half.data(),
+                                  false, deviceId);
+  }
   return runtime_->createTensor(shape, cut::DataType::Float32, data.data(),
                                 false, deviceId);
 }
@@ -688,7 +834,14 @@ void LlamaModel::load(const std::string &gguf_path,
     // attention weight GPU memory vs the old approach.
     {
       const auto &qi = reader.get_tensor_info(blk + "attn_q.weight");
-      bool canFuse = !hasBias && qi.type == GGMLType::F16;
+      const auto &ki = reader.get_tensor_info(blk + "attn_k.weight");
+      const auto &vi = reader.get_tensor_info(blk + "attn_v.weight");
+      bool canFuse = !weightFusionDisabled() && !hasBias &&
+                     groupFusable({qi.type, ki.type, vi.type});
+      // All-Q8_0: fuse while staying quantized (concatenate values + scales).
+      bool canFuseQ8 = !weightFusionDisabled() && !hasBias && !canFuse &&
+                       qi.type == GGMLType::Q8_0 &&
+                       ki.type == GGMLType::Q8_0 && vi.type == GGMLType::Q8_0;
 
       if (canFuse) {
         layer.wqkv.handle = uploadFusedF16(reader,
@@ -698,6 +851,14 @@ void LlamaModel::load(const std::string &gguf_path,
                                                blk + "attn_v.weight",
                                            },
                                            dev);
+      } else if (canFuseQ8) {
+        layer.wqkv = uploadFusedQ8(reader,
+                                   {
+                                       blk + "attn_q.weight",
+                                       blk + "attn_k.weight",
+                                       blk + "attn_v.weight",
+                                   },
+                                   dev);
       } else {
         // Separate Q/K/V (quantized or biased models)
         uint32_t qCols = static_cast<uint32_t>(qi.dimensions[0]);
@@ -738,7 +899,12 @@ void LlamaModel::load(const std::string &gguf_path,
     // FFN weights — for F16, build fused gate+up directly (single upload).
     {
       const auto &gi = reader.get_tensor_info(blk + "ffn_gate.weight");
-      bool canFuseFFN = gi.type == GGMLType::F16;
+      const auto &ui = reader.get_tensor_info(blk + "ffn_up.weight");
+      bool canFuseFFN = !weightFusionDisabled() && groupFusable({gi.type, ui.type});
+      // All-Q8_0: fuse while staying quantized.
+      bool canFuseFFNQ8 = !weightFusionDisabled() && !canFuseFFN &&
+                          gi.type == GGMLType::Q8_0 &&
+                          ui.type == GGMLType::Q8_0;
 
       if (canFuseFFN) {
         layer.w_gate_up.handle = uploadFusedF16(reader,
@@ -747,6 +913,13 @@ void LlamaModel::load(const std::string &gguf_path,
                                                     blk + "ffn_up.weight",
                                                 },
                                                 dev);
+      } else if (canFuseFFNQ8) {
+        layer.w_gate_up = uploadFusedQ8(reader,
+                                        {
+                                            blk + "ffn_gate.weight",
+                                            blk + "ffn_up.weight",
+                                        },
+                                        dev);
       }
 
       // Always load separate w_gate / w_up. Used by:
@@ -1020,15 +1193,16 @@ GraphTemplate LlamaModel::buildQKVProjectionGraph(const LlamaLayer &layer,
 
   cut::Tensor q_flat, k_flat, v_flat;
 
-  if (layer.wqkv.handle && !layer.bq) {
+  if (layer.wqkv.isPresent() && !layer.bq) {
     // Fused QKV: single matmul → outputs [qdim + 2*kvdim] combined buffer.
     // The caller splits Q/K/V using createTensorView after graph execution.
     int32_t qdim = static_cast<int32_t>(config_.n_heads * config_.head_dim);
     int32_t kvdim = static_cast<int32_t>(config_.kv_dim);
     int32_t total = qdim + 2 * kvdim;
 
-    auto vQKV = builder.input(layer.wqkv.handle, /*isConstant=*/true);
-    auto qkv_out = builder.ops().matmul(normed_2d, vQKV);
+    // graphWeight dispatches to the quantized 3-input matmul when the
+    // fused QKV weight is Q8_0.
+    auto qkv_out = graphWeight(builder, layer.wqkv, normed_2d);
     auto qkv_flat = builder.ops().reshape(qkv_out, {total});
 
     builder.markOutput(qkv_flat);
@@ -1142,10 +1316,9 @@ GraphTemplate LlamaModel::buildFFNResidualGraph(const LlamaLayer &layer,
   int32_t ffn = static_cast<int32_t>(config_.ffn_dim);
 
   cut::Tensor gate_up;
-  if (layer.w_gate_up.handle) {
+  if (layer.w_gate_up.isPresent()) {
     // Fused gate+up: single matmul → [1, 2*ffn_dim], then slice into gate/up.
-    auto vGateUp = builder.input(layer.w_gate_up.handle, /*isConstant=*/true);
-    auto gate_up_out = builder.ops().matmul(x_2d, vGateUp);
+    auto gate_up_out = graphWeight(builder, layer.w_gate_up, x_2d);
     auto gate_up_flat = builder.ops().reshape(gate_up_out, {2 * ffn});
 
     // Zero-copy slice into gate [ffn_dim] and up [ffn_dim]
@@ -1661,14 +1834,17 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
     uint32_t total = qdim + 2 * kvdim;
     uint32_t alignedTotal = (total + 3) & ~3u;
     uint32_t alignedQdim = (qdim + 3) & ~3u;
-    bool fusedQKV = layer.wqkv.handle && !layer.bq;
+    bool fusedQKV = layer.wqkv.isPresent() && !layer.bq;
 
     cut::ComputeHandle qBuf, kBuf, vBuf;
     uint32_t qRowStride, kRowStride, vRowStride;
     uint32_t qColOff, kColOff, vColOff;
 
     if (fusedQKV) {
-      auto qkvOut = ops.matmul(normed, layer.wqkv.handle);
+      auto qkvOut = layer.wqkv.isQuantized()
+                        ? ops.matmul(normed, layer.wqkv.qValues,
+                                     layer.wqkv.qScales)
+                        : ops.matmul(normed, layer.wqkv.handle);
       qBuf = qkvOut;
       kBuf = qkvOut;
       vBuf = qkvOut;

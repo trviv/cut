@@ -57,6 +57,10 @@ struct WeightHandle {
   bool isQuantized() const { return quantType != QuantType::None; }
   bool isQ8() const { return quantType == QuantType::Q8_0; }
   bool isQ4() const { return quantType == QuantType::Q4_0; }
+  /// True when this handle holds a usable weight (plain or quantized).
+  bool isPresent() const {
+    return static_cast<bool>(handle) || static_cast<bool>(qValues);
+  }
 };
 
 /// Per-layer weight handles stored on GPU.
@@ -306,6 +310,12 @@ private:
   cut::ComputeHandle uploadFusedF16(const GGUFReader &reader,
                                     const std::vector<std::string> &names,
                                     size_t deviceId);
+
+  // Same, for Q8_0 weights: concatenates the int8 values and f16 scales
+  // row-wise so QKV / gate+up can be fused WITHOUT dequantizing.
+  WeightHandle uploadFusedQ8(const GGUFReader &reader,
+                             const std::vector<std::string> &names,
+                             size_t deviceId);
 
   // Helper: upload weight, using Q8 separated path if Q8_0
   WeightHandle uploadWeightMaybeQuantized(const GGUFReader &reader,
