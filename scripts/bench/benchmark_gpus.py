@@ -10,6 +10,7 @@ Note: On a CUDA/3090 box, free VRAM first (e.g. `ollama stop devstral-small-2:24
 
 import argparse
 import subprocess
+import threading
 import time
 import os
 import json
@@ -262,7 +263,126 @@ def enumerate_gpus(cut_binary: str, llama_vk_bench: str) -> List[Dict[str, Any]]
 
     return sorted(gpus, key=sort_key)
 
-def run_cut(cut_binary: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5, warmup: int = 1, synthetic: bool = True) -> Optional[Dict[str, Any]]:
+# ---------------------------------------------------------------------------
+# GPU memory sampling
+#
+# Neither gguf_example nor llama-bench reports VRAM usage, so it is measured
+# externally: poll nvidia-smi while the child runs and keep the peak. Driver
+# per-process accounting is preferred; when the child is not listed (common for
+# Vulkan, which can register as a graphics rather than a compute app) we fall
+# back to the peak rise in whole-GPU used memory over the run, which is only
+# meaningful if nothing else is allocating concurrently. NVIDIA only — other
+# vendors report None and the table shows "-".
+# ---------------------------------------------------------------------------
+
+def _nvidia_gpu_used_mib(idx: int) -> Optional[int]:
+    """Total used VRAM on NVIDIA GPU `idx`, in MiB."""
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.used",
+             "--format=csv,noheader,nounits", "-i", str(idx)],
+            capture_output=True, text=True, timeout=5)
+        return int(r.stdout.strip().split("\n")[0])
+    except (subprocess.TimeoutExpired, ValueError, IndexError, OSError):
+        return None
+
+
+def _nvidia_proc_used_mib(pid: int) -> Optional[int]:
+    """VRAM the driver attributes to `pid`, in MiB (None if not listed)."""
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,used_gpu_memory",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5)
+        for line in r.stdout.strip().split("\n"):
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 2 and parts[0].isdigit() and int(parts[0]) == pid:
+                return int(parts[1])
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        pass
+    return None
+
+
+def _nvidia_proc_used_mib_any(pid: int, idx: int) -> Optional[int]:
+    """Per-process VRAM from the full nvidia-smi process table.
+
+    --query-compute-apps only lists compute (type C) clients, so Vulkan
+    processes -- which the driver reports as graphics -- are invisible to it.
+    The plain `nvidia-smi` table includes G and C+G rows, so parse the row whose
+    PID matches and take its trailing <N>MiB field.
+    """
+    try:
+        r = subprocess.run(["nvidia-smi", "-i", str(idx)],
+                           capture_output=True, text=True, timeout=5)
+        for line in r.stdout.split("\n"):
+            toks = line.replace("|", " ").split()
+            if str(pid) not in toks:
+                continue
+            for t in reversed(toks):
+                if t.endswith("MiB"):
+                    return int(t[:-3])
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        pass
+    return None
+
+
+def run_capturing_mem(cmd: List[str], env: Dict[str, str], timeout: int,
+                      nvidia_idx: Optional[int]):
+    """Run `cmd`, sampling GPU memory while it executes.
+
+    Returns (stdout, stderr, peak_mib); peak_mib is None when no NVIDIA index
+    was given or nvidia-smi is unavailable.
+    """
+    if nvidia_idx is None:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=timeout, env=env)
+        return r.stdout, r.stderr, None
+
+    baseline = _nvidia_gpu_used_mib(nvidia_idx) or 0
+    peaks = {"proc": 0, "total": 0}
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, env=env)
+
+    def sample():
+        # Each nvidia-smi call costs ~100ms, so keep the hot path to a single
+        # query: usage ramps up until the model is resident and short runs will
+        # otherwise be sampled before their peak. The whole-GPU query is only
+        # paid for while per-process accounting is unavailable.
+        i = 0
+        while proc.poll() is None:
+            p = _nvidia_proc_used_mib(proc.pid)
+            if p is None:
+                p = _nvidia_proc_used_mib_any(proc.pid, nvidia_idx)
+            if p is not None:
+                peaks["proc"] = max(peaks["proc"], p)
+            elif i % 5 == 0:
+                t = _nvidia_gpu_used_mib(nvidia_idx)
+                if t is not None:
+                    peaks["total"] = max(peaks["total"], t)
+            i += 1
+            time.sleep(0.05)
+
+    sampler = threading.Thread(target=sample, daemon=True)
+    sampler.start()
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise
+    sampler.join(timeout=2)
+
+    if peaks["proc"] > 0:
+        peak = peaks["proc"]
+    elif peaks["total"] > baseline:
+        peak = peaks["total"] - baseline
+    else:
+        peak = None
+    return out, err, peak
+
+
+def run_cut(cut_binary: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5, warmup: int = 1, synthetic: bool = True, nvidia_idx: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """Run CUT with specified backend and device index."""
     if not os.path.exists(cut_binary):
         return None
@@ -279,15 +399,11 @@ def run_cut(cut_binary: str, model: str, backend: str, dev_idx: int, max_tokens:
         cmd += ["--bench-runs", str(runs), "--bench-warmup", str(warmup), "--no-stop"]
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,
-            env=env
-        )
-        output = result.stdout + result.stderr
+        stdout, stderr, mem_mib = run_capturing_mem(cmd, env, 600, nvidia_idx)
+        output = stdout + stderr
         info = {}
+        if mem_mib is not None:
+            info["mem_mib"] = mem_mib
 
         for line in output.split("\n"):
             if "Prefill:" in line:
@@ -396,7 +512,7 @@ def _parse_llama_bench_json(stdout: str) -> Optional[Dict[str, Any]]:
     except (json.JSONDecodeError, KeyError, ValueError, IndexError):
         return None
 
-def run_llama(llama_bench_exe: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5) -> Optional[Dict[str, Any]]:
+def run_llama(llama_bench_exe: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5, nvidia_idx: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """Run llama.cpp bench with specified backend and device index."""
     if not os.path.exists(llama_bench_exe):
         return None
@@ -412,16 +528,12 @@ def run_llama(llama_bench_exe: str, model: str, backend: str, dev_idx: int, max_
         cmd.extend(["-ngl", "99"])
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,
-            env=env
-        )
-        info = _parse_llama_bench_json(result.stdout)
+        stdout, stderr, mem_mib = run_capturing_mem(cmd, env, 600, nvidia_idx)
+        info = _parse_llama_bench_json(stdout)
         if info is None:
-            info = _parse_llama_bench(result.stdout + result.stderr)
+            info = _parse_llama_bench(stdout + stderr)
+        if info is not None and mem_mib is not None:
+            info["mem_mib"] = mem_mib
         return info
     except (subprocess.TimeoutExpired, Exception):
         return None
@@ -443,6 +555,8 @@ def print_result(info: Dict[str, Any], has_split: bool = False):
         print(f"  Total:    {info['total_ms']:.1f} ms "
               f"({info.get('total_tokens', '?')} tokens, "
               f"{info.get('overall_tps', 0):.1f} tok/s)")
+    if "mem_mib" in info:
+        print(f"  VRAM:     {info['mem_mib']} MiB (peak)")
     if "load_ms" in info:
         print(f"  Load:     {info['load_ms']:.0f} ms")
     if "text" in info:
@@ -520,6 +634,8 @@ def print_overall_table(results: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]]
                 cut_tg = cut["decode_tps"] if cut and "decode_tps" in cut else None
                 llama_tg = llama["decode_tps"] if llama and "decode_tps" in llama else None
                 tg_speedup = cut_tg / llama_tg if cut_tg is not None and llama_tg is not None and llama_tg > 0 else None
+                cut_mem = cut.get("mem_mib") if cut else None
+                llama_mem = llama.get("mem_mib") if llama else None
                 rows.append((
                     model_name.replace(".gguf", ""),
                     short_gpu_name(gpu_name),
@@ -530,29 +646,41 @@ def print_overall_table(results: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]]
                     cut_tg,
                     llama_tg,
                     tg_speedup,
+                    cut_mem,
+                    llama_mem,
                     cut_ppn,
                     llama_ppn,
                 ))
     if not rows:
         print("  (no paired results to tabulate)")
         return
-    print("=" * 112)
+    print("=" * 136)
     print("OVERALL: CUT vs llama.cpp  (tok/s, higher is better; tg = decode is the primary metric)")
-    print("=" * 112)
+    print("=" * 136)
     model_width = max(len(r[0]) for r in rows) if rows else 0
     gpu_width = max(len(r[1]) for r in rows) if rows else 0
     model_width = max(model_width, len("Model"))
     gpu_width = max(gpu_width, len("GPU"))
-    print(f"  {'Model':<{model_width}} | {'GPU':<{gpu_width}} | {'Backend':<8} | {'CUT pp':>10} | {'llama pp':>10} | {'pp x':>8} | {'CUT tg':>10} | {'llama tg':>10} | {'tg x':>8}")
-    print(f"  {('-'*model_width):<{model_width}} | {('-'*gpu_width):<{gpu_width}} | {'-'*8:<8} | {'-'*10:>10} | {'-'*10:>10} | {'-'*8:>8} | {'-'*10:>10} | {'-'*10:>10} | {'-'*8:>8}")
-    for model, gpu, backend, cut_pp, llama_pp, pp_speedup, cut_tg, llama_tg, tg_speedup, cut_ppn, llama_ppn in rows:
+    print(f"  {'Model':<{model_width}} | {'GPU':<{gpu_width}} | {'Backend':<8} | {'CUT pp':>10} | {'llama pp':>10} | {'pp x':>8} | {'CUT tg':>10} | {'llama tg':>10} | {'tg x':>8} | {'CUT MiB':>9} | {'llama MiB':>9}")
+    print(f"  {('-'*model_width):<{model_width}} | {('-'*gpu_width):<{gpu_width}} | {'-'*8:<8} | {'-'*10:>10} | {'-'*10:>10} | {'-'*8:>8} | {'-'*10:>10} | {'-'*10:>10} | {'-'*8:>8} | {'-'*9:>9} | {'-'*9:>9}")
+    for model, gpu, backend, cut_pp, llama_pp, pp_speedup, cut_tg, llama_tg, tg_speedup, cut_mem, llama_mem, cut_ppn, llama_ppn in rows:
         cut_pp_str = f"{cut_pp:.1f}" if cut_pp is not None else "-"
         llama_pp_str = f"{llama_pp:.1f}" if llama_pp is not None else "-"
         pp_speedup_str = f"{pp_speedup:.2f}x" if pp_speedup is not None else "-"
         cut_tg_str = f"{cut_tg:.1f}" if cut_tg is not None else "-"
         llama_tg_str = f"{llama_tg:.1f}" if llama_tg is not None else "-"
         tg_speedup_str = f"{tg_speedup:.2f}x" if tg_speedup is not None else "-"
-        print(f"  {model:<{model_width}} | {gpu:<{gpu_width}} | {backend:<8} | {cut_pp_str:>10} | {llama_pp_str:>10} | {pp_speedup_str:>8} | {cut_tg_str:>10} | {llama_tg_str:>10} | {tg_speedup_str:>8}")
+        cut_mem_str = f"{cut_mem}" if cut_mem is not None else "-"
+        llama_mem_str = f"{llama_mem}" if llama_mem is not None else "-"
+        print(f"  {model:<{model_width}} | {gpu:<{gpu_width}} | {backend:<8} | {cut_pp_str:>10} | {llama_pp_str:>10} | {pp_speedup_str:>8} | {cut_tg_str:>10} | {llama_tg_str:>10} | {tg_speedup_str:>8} | {cut_mem_str:>9} | {llama_mem_str:>9}")
+
+    if any(r[9] is not None or r[10] is not None for r in rows):
+        print()
+        print("  NOTE: MiB is peak VRAM sampled externally via nvidia-smi during the run,")
+        print("        per-process (compute apps, else the graphics process table). If the")
+        print("        driver lists neither, it falls back to the rise in whole-GPU used")
+        print("        memory, which is only meaningful when nothing else is allocating.")
+        print("        NVIDIA only; other vendors show '-'.")
 
     if any(r[-2] is not None and r[-1] is not None and r[-2] != r[-1] for r in rows):
         print()
@@ -687,7 +815,7 @@ def main():
                 if cut_dev_idx is not None:
                     label = f"CUT {backend.upper()}"
                     print(f"{label}:")
-                    info = run_cut(cut_binary, model_path, backend, cut_dev_idx, args.max_tokens, args.runs, args.warmup, synthetic=not args.cut_real_gen)
+                    info = run_cut(cut_binary, model_path, backend, cut_dev_idx, args.max_tokens, args.runs, args.warmup, synthetic=not args.cut_real_gen, nvidia_idx=gpu["cuda"])
                     if info:
                         print_result(info, has_split=True)
                         gpu_results[label] = info
@@ -716,7 +844,7 @@ def main():
                         continue
 
                 if dev_idx is not None:
-                    info = run_llama(exe, model_path, backend, dev_idx, args.max_tokens, args.runs)
+                    info = run_llama(exe, model_path, backend, dev_idx, args.max_tokens, args.runs, nvidia_idx=gpu["cuda"])
                     if info:
                         print_result(info, has_split=True)
                         gpu_results[label] = info
