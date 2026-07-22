@@ -514,6 +514,9 @@ def print_overall_table(results: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]]
                     continue
                 cut_pp = cut["prefill_tps"] if cut and "prefill_tps" in cut else None
                 llama_pp = llama["prefill_tps"] if llama and "prefill_tps" in llama else None
+                pp_speedup = cut_pp / llama_pp if cut_pp is not None and llama_pp is not None and llama_pp > 0 else None
+                cut_ppn = cut["prefill_tokens"] if cut and "prefill_tokens" in cut else None
+                llama_ppn = llama["prefill_tokens"] if llama and "prefill_tokens" in llama else None
                 cut_tg = cut["decode_tps"] if cut and "decode_tps" in cut else None
                 llama_tg = llama["decode_tps"] if llama and "decode_tps" in llama else None
                 tg_speedup = cut_tg / llama_tg if cut_tg is not None and llama_tg is not None and llama_tg > 0 else None
@@ -523,29 +526,39 @@ def print_overall_table(results: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]]
                     backend,
                     cut_pp,
                     llama_pp,
+                    pp_speedup,
                     cut_tg,
                     llama_tg,
                     tg_speedup,
+                    cut_ppn,
+                    llama_ppn,
                 ))
     if not rows:
         print("  (no paired results to tabulate)")
         return
-    print("=" * 100)
+    print("=" * 112)
     print("OVERALL: CUT vs llama.cpp  (tok/s, higher is better; tg = decode is the primary metric)")
-    print("=" * 100)
+    print("=" * 112)
     model_width = max(len(r[0]) for r in rows) if rows else 0
     gpu_width = max(len(r[1]) for r in rows) if rows else 0
     model_width = max(model_width, len("Model"))
     gpu_width = max(gpu_width, len("GPU"))
-    print(f"  {'Model':<{model_width}} | {'GPU':<{gpu_width}} | {'Backend':<8} | {'CUT pp':>10} | {'llama pp':>10} | {'CUT tg':>10} | {'llama tg':>10} | {'tg x':>8}")
-    print(f"  {('-'*model_width):<{model_width}} | {('-'*gpu_width):<{gpu_width}} | {'-'*8:<8} | {'-'*10:>10} | {'-'*10:>10} | {'-'*10:>10} | {'-'*10:>10} | {'-'*8:>8}")
-    for model, gpu, backend, cut_pp, llama_pp, cut_tg, llama_tg, tg_speedup in rows:
+    print(f"  {'Model':<{model_width}} | {'GPU':<{gpu_width}} | {'Backend':<8} | {'CUT pp':>10} | {'llama pp':>10} | {'pp x':>8} | {'CUT tg':>10} | {'llama tg':>10} | {'tg x':>8}")
+    print(f"  {('-'*model_width):<{model_width}} | {('-'*gpu_width):<{gpu_width}} | {'-'*8:<8} | {'-'*10:>10} | {'-'*10:>10} | {'-'*8:>8} | {'-'*10:>10} | {'-'*10:>10} | {'-'*8:>8}")
+    for model, gpu, backend, cut_pp, llama_pp, pp_speedup, cut_tg, llama_tg, tg_speedup, cut_ppn, llama_ppn in rows:
         cut_pp_str = f"{cut_pp:.1f}" if cut_pp is not None else "-"
         llama_pp_str = f"{llama_pp:.1f}" if llama_pp is not None else "-"
+        pp_speedup_str = f"{pp_speedup:.2f}x" if pp_speedup is not None else "-"
         cut_tg_str = f"{cut_tg:.1f}" if cut_tg is not None else "-"
         llama_tg_str = f"{llama_tg:.1f}" if llama_tg is not None else "-"
         tg_speedup_str = f"{tg_speedup:.2f}x" if tg_speedup is not None else "-"
-        print(f"  {model:<{model_width}} | {gpu:<{gpu_width}} | {backend:<8} | {cut_pp_str:>10} | {llama_pp_str:>10} | {cut_tg_str:>10} | {llama_tg_str:>10} | {tg_speedup_str:>8}")
+        print(f"  {model:<{model_width}} | {gpu:<{gpu_width}} | {backend:<8} | {cut_pp_str:>10} | {llama_pp_str:>10} | {pp_speedup_str:>8} | {cut_tg_str:>10} | {llama_tg_str:>10} | {tg_speedup_str:>8}")
+
+    if any(r[-2] is not None and r[-1] is not None and r[-2] != r[-1] for r in rows):
+        print()
+        print("  NOTE: pp x compares different prompt lengths - CUT prefills the tokenized")
+        print("        chat prompt while llama-bench uses a fixed -p 15, so treat pp x as")
+        print("        indicative only. tg x is the apples-to-apples comparison.")
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark CUT vs llama.cpp on GPUs")
