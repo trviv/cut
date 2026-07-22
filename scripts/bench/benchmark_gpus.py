@@ -45,6 +45,33 @@ def is_software(name: str) -> bool:
     name = name.lower()
     return any(kw in name for kw in ["llvmpipe", "lavapipe", "swiftshader"])
 
+def detect_cpu_vulkan_device_names() -> set:
+    """Names of Vulkan devices whose VkPhysicalDeviceType is CPU (software
+    implementations like llvmpipe), from `vulkaninfo --summary`. Returns
+    normalized names; empty set if vulkaninfo is unavailable."""
+    try:
+        result = subprocess.run(["vulkaninfo", "--summary"],
+                                capture_output=True, text=True, timeout=15)
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        return set()
+    cpu_names = set()
+    last_type = None
+    # In `vulkaninfo --summary` each device's deviceType line precedes its
+    # deviceName line, so remember the last seen type.
+    for line in (result.stdout + result.stderr).split("\n"):
+        line = line.strip()
+        if line.startswith("deviceType"):
+            last_type = line.split("=", 1)[1].strip() if "=" in line else None
+        elif line.startswith("deviceName") and "=" in line:
+            name = line.split("=", 1)[1].strip()
+            if last_type == "PHYSICAL_DEVICE_TYPE_CPU":
+                # Store both the full and the clean (pre-parenthesis) form so
+                # the filter matches however the name was captured.
+                cpu_names.add(normalize_name(name))
+                cpu_names.add(normalize_name(name.split("(")[0].strip()))
+            last_type = None
+    return cpu_names
+
 def detect_cut_vulkan_devices(cut_binary: str) -> List[Dict[str, Any]]:
     """Detect Vulkan devices available to CUT by probing indices 0..7."""
     if not os.path.exists(cut_binary):
@@ -219,8 +246,13 @@ def enumerate_gpus(cut_binary: str, llama_vk_bench: str) -> List[Dict[str, Any]]
             if any(kw in name for kw in ["ryzen", "raphael", "rembrandt", "phoenix", "processor"]):
                 gpu["igpu"] = True
 
-    # Filter out software rasterizers
-    gpus = [gpu for gpu in gpus if not is_software(gpu["name"])]
+    # Keep only real GPUs (discrete or integrated): drop software
+    # rasterizers by name AND any device whose Vulkan deviceType is CPU
+    # (catches CPU-emulated implementations regardless of their name).
+    cpu_vk_names = detect_cpu_vulkan_device_names()
+    gpus = [gpu for gpu in gpus
+            if not is_software(gpu["name"])
+            and normalize_name(gpu["name"]) not in cpu_vk_names]
 
     # Sort: discrete first, then nvidia -> amd -> other, then by name
     def sort_key(gpu):
