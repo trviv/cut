@@ -3,7 +3,7 @@
 
 Usage:
     python scripts/bench/benchmark_gpus.py models/SmolLM2-135M-Instruct-f16.gguf
-    python scripts/bench/benchmark_gpus.py --skip-igpu --max-tokens 64 models/...gguf
+    python scripts/bench/benchmark_gpus.py --include-igpu --max-tokens 64 models/...gguf
 
 Note: On a CUDA/3090 box, free VRAM first (e.g. `ollama stop devstral-small-2:24b`).
 """
@@ -562,8 +562,9 @@ def main():
                         help="Path to CUT gguf_example binary")
     parser.add_argument("--llama-dir", default="build/external_runners/llama.cpp",
                         help="Path to llama.cpp build directory")
-    parser.add_argument("--skip-igpu", action="store_true",
-                        help="Skip integrated GPUs")
+    parser.add_argument("--include-igpu", action="store_true",
+                        help="Also benchmark integrated GPUs (excluded by default; "
+                             "only discrete GPUs are benchmarked unless this is set)")
     parser.add_argument("--cut-real-gen", action="store_true",
                         help="Measure CUT with real generation (sampling + argmax readback) "
                              "instead of the synthetic bench mode that matches llama-bench. "
@@ -635,11 +636,16 @@ def main():
 
     # Enumerate GPUs
     gpus = enumerate_gpus(cut_binary, llama_vk_bench)
-    if args.skip_igpu:
+    if not args.include_igpu:
+        skipped = [gpu["name"] for gpu in gpus if gpu["igpu"]]
         gpus = [gpu for gpu in gpus if not gpu["igpu"]]
+        if skipped:
+            print(f"Skipping integrated GPUs (pass --include-igpu to benchmark them): "
+                  f"{', '.join(skipped)}")
 
     if not gpus:
-        print("No real GPUs found (software rasterizers excluded).")
+        print("No GPUs to benchmark (software rasterizers and, by default, "
+              "integrated GPUs are excluded; see --include-igpu).")
         exit(0)
 
     results = {}  # results[model_name][gpu_name][label] = info
