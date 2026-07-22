@@ -1,5 +1,6 @@
 #include "MatMulOp.h"
 #include "Shaders.h"
+#include <cstdlib>
 #include "TensorStore.h"
 #include "VariantSelector.h"
 
@@ -73,11 +74,14 @@ static bool shouldUseCoopMatGemv(const DeviceCaps &caps,
 //   15 = MatMulVecBRegT16R4x4 (Vec4+BReg, good for medium-large)
 //   19 = MatMulVecBRegAlignedT16R4x4 (Aligned vec4+BReg, K%16==0 N%64==0)
 //   20 = MatMulGemv       (GEMV for M=1)
+//   21 = MatMulGemv8      (split-K GEMV for M=1)
+//   24 = MatMulGemv8M     (wave-per-row GEMV for M=2..16, N%8==0)
 // ============================================================================
 
 static int selectStandardVariant(uint32_t M, uint32_t K, uint32_t N) {
   constexpr int kGemv = 20;
   constexpr int kGemv8 = 21;           // MatMulGemv8 (8 cols/WG, K-unroll x4)
+  constexpr int kGemv8M = 24;          // MatMulGemv8M (8 cols/WG, wave-per-row)
   constexpr int kSharedMem = 1;        // MatMul (SharedMem 16x16)
   constexpr int kT8R2x2 = 4;          // MatMulT8R2x2
   constexpr int kT8R4x4 = 5;          // MatMulT8R4x4 (current default)
@@ -108,6 +112,13 @@ static int selectStandardVariant(uint32_t M, uint32_t K, uint32_t N) {
   // Small M (2-16): shared-memory 16x16 wins for moderate K*N;
   // T8R2x2 wins when K*N is very large (bandwidth-bound).
   if (M <= 16) {
+    // Experimental wave-per-row GEMV (opt-in): measured 2026-07-22 it does
+    // NOT beat the shared-mem tile kernel at prefill shapes on the 3090
+    // (Vulkan ~equal, CUDA 2-4x slower — the 8 waves' redundant B reads
+    // thrash L1). Kept selectable for kernel experiments via env knob.
+    static const bool kUseSmallMGemv = std::getenv("CUT_SMALLM_GEMV") != nullptr;
+    if (kUseSmallMGemv && N % 8 == 0)
+      return kGemv8M;
     if (work > 32 * 1024 * 1024)
       return kT8R2x2;
     return kSharedMem;
