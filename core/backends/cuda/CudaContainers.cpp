@@ -169,6 +169,7 @@ std::optional<CudaBufferStruct>
 CudaBufferContainer::tryAcquireCached(size_t alignedSize) {
   auto it = bufferCache_.find(alignedSize);
   if (it != bufferCache_.end()) {
+    cachedBytes_ -= it->first;
     CudaBufferStruct cached = std::move(it->second);
     bufferCache_.erase(it);
     return cached;
@@ -185,6 +186,7 @@ void CudaBufferContainer::drainCache() {
     destroyBufferGPU(buffer);
   }
   bufferCache_.clear();
+  cachedBytes_ = 0;
 }
 
 void CudaBufferContainer::destroyBufferGPU(CudaBufferStruct &buffer) {
@@ -211,9 +213,10 @@ void CudaBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
 
   // Cache only device-only allocations (pinned host buffers are rare and
   // cheap to keep distinct). Keyed by aligned byte size for reuse.
+  const size_t sz = buffer.size();
   if (buffer.devPtr != 0 && !buffer.isPinned &&
-      bufferCache_.size() < kMaxCachedBuffers) {
-    const size_t sz = buffer.size();
+      bufferCache_.size() < kMaxCachedBuffers &&
+      cachedBytes_ + sz <= kMaxCachedBytes) {
     CudaBufferStruct cached;
     cached.devPtr = buffer.devPtr;
     cached.isPinned = false;
@@ -225,6 +228,7 @@ void CudaBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
     buffer.data = nullptr;
 
     bufferCache_.emplace(sz, std::move(cached));
+    cachedBytes_ += sz;
     return;
   }
 

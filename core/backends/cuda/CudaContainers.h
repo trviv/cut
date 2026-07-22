@@ -57,8 +57,12 @@ public:
 private:
   size_t activeMemoryBytes_ = 0;
 
-  static constexpr size_t kMaxCachedBuffers = 256;
+  static constexpr size_t kMaxCachedBuffers = 4096;
+  // Cap total pooled (freed-but-retained) transient buffer memory. Small
+  // models pool their whole prefill working set; large models self-limit.
+  static constexpr size_t kMaxCachedBytes = 512ULL * 1024 * 1024; // 512 MB
   std::multimap<size_t, CudaBufferStruct> bufferCache_;
+  size_t cachedBytes_ = 0; ///< Sum of byte sizes currently in bufferCache_.
 
   /// Frees a single allocation's device/pinned memory.
   void destroyBufferGPU(CudaBufferStruct &buffer);
