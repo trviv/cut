@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "GraphOptimizer.h"
 #include "ComputeOps.h"
 #include "OpNode.h"
@@ -58,7 +59,10 @@ GraphOptimizer GraphOptimizer::createDefault() {
   opt.addPass(std::make_unique<ExtendedRMSNormFusionPass>());
   opt.addPass(std::make_unique<RMSNormFusionPass>());
   opt.addPass(std::make_unique<MatMulUnaryFusionPass>());
-  opt.addPass(std::make_unique<MatMulBinaryFusionPass>());
+  // Debug knob: CUT_DISABLE_MATMUL_BINARY_FUSION=1 skips folding the residual
+  // add into the matmul epilogue, for A/B validation.
+  if (!std::getenv("CUT_DISABLE_MATMUL_BINARY_FUSION"))
+    opt.addPass(std::make_unique<MatMulBinaryFusionPass>());
   opt.addPass(std::make_unique<FusedBinaryPass>());
   // Final dead code removal for nodes orphaned by fusion
   opt.addPass(std::make_unique<DeadCodePass>());
@@ -550,18 +554,10 @@ bool MatMulBinaryFusionPass::run(Graph &graph, TensorStore &store) {
     }
 
     auto shapeA = nodes[matmulNode.inputIds[0]].outputShape;
-    // Standard matmul requires 2D inputs; quantized accepts 1D A (treated as
-    // [1,K])
-    if (isStandard) {
-      if (shapeA.size() != 2) {
-        skipReason[4]++;
-        continue;
-      }
-    } else {
-      if (shapeA.size() < 1 || shapeA.size() > 2) {
-        skipReason[4]++;
-        continue;
-      }
+    // Both standard and quantized matmul accept a 1D A (treated as [1,K]).
+    if (shapeA.size() < 1 || shapeA.size() > 2) {
+      skipReason[4]++;
+      continue;
     }
 
     // Only fuse when matmul output shape matches binary output shape.

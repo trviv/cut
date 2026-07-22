@@ -198,17 +198,27 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   const auto shapeB = bufB.getShape();
   dtypeA_ = bufA.getDtype();
   dtypeB_ = bufB.getDtype();
-  if (shapeA.size() != 2 || shapeB.size() != 2) {
-    throw std::runtime_error("matmul requires 2D matrices");
+  if (shapeB.size() != 2) {
+    throw std::runtime_error("matmul requires a 2D B matrix");
   }
-  if (shapeA[1] != shapeB[0]) {
+  // A may be 1D [K] (treated as [1,K]), matching the quantized constructor.
+  // The graph's reshape passes strip the no-op [K]->[1,K] reshape, so fused
+  // nodes (e.g. matmul+residual-add) must be constructible from a 1D A.
+  if (shapeA.size() == 1) {
+    M_ = 1;
+    K_ = shapeA[0];
+  } else if (shapeA.size() == 2) {
+    M_ = shapeA[0];
+    K_ = shapeA[1];
+  } else {
+    throw std::runtime_error("matmul: A must be 1D or 2D");
+  }
+  if (K_ != shapeB[0]) {
     throw std::runtime_error(
-        "Matrix dimension mismatch: A is " + std::to_string(shapeA[0]) + "x" +
-        std::to_string(shapeA[1]) + ", B is " + std::to_string(shapeB[0]) +
-        "x" + std::to_string(shapeB[1]));
+        "Matrix dimension mismatch: A is " + std::to_string(M_) + "x" +
+        std::to_string(K_) + ", B is " + std::to_string(shapeB[0]) + "x" +
+        std::to_string(shapeB[1]));
   }
-  M_ = shapeA[0];
-  K_ = shapeA[1];
   N_ = shapeB[1];
   autoSpec_ = !spec.has_value();
   fusionFallbackSpec_ = selectStandardVariant(M_, K_, N_);
