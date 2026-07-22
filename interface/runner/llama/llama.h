@@ -244,6 +244,9 @@ private:
   std::vector<cut::ComputeHandle> runtimeParamsBuffers_; // {pos, seqLen} each
   std::vector<cut::ComputeHandle> hiddenBuffers_; // [dim] segment entry buffer
   std::vector<cut::ComputeHandle> attnOutBuffers_;
+  // [dim] Float16 destination for the embedding lookup; cast to Float32 into
+  // the forward pass. The embedding table is Float16 to halve its VRAM.
+  std::vector<cut::ComputeHandle> embedOutBuffers_;
 
   // ---- Per-segment cached command buffers ----
   std::vector<cut::ComputeHandle> cachedDecodeCBs_;

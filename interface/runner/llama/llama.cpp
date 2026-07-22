@@ -63,6 +63,30 @@ static void dumpDispatchProfile(cut::Runtime &rt, const char *tag) {
   }
 }
 
+// Debug knob: CUT_MEM_REPORT=1 prints a category breakdown of the model's GPU
+// buffers after load, so the total reported by activeBufferMemoryBytes() can be
+// attributed to weights / embeddings / KV cache / everything else.
+static bool memReportEnabled() {
+  static const bool on = std::getenv("CUT_MEM_REPORT") != nullptr;
+  return on;
+}
+
+// Allocated bytes behind one handle, or 0 if the handle is unset.
+static size_t handleBytes(cut::Runtime &rt, const cut::ComputeHandle &h,
+                          size_t deviceId) {
+  if (!h)
+    return 0;
+  return rt.store(deviceId).getTensor(h).size();
+}
+
+// Allocated bytes behind a WeightHandle (plain + quantized values + scales).
+static size_t weightBytes(cut::Runtime &rt, const WeightHandle &w,
+                          size_t deviceId) {
+  return handleBytes(rt, w.handle, deviceId) +
+         handleBytes(rt, w.qValues, deviceId) +
+         handleBytes(rt, w.qScales, deviceId);
+}
+
 // ============================================================================
 // Automatic model placement
 // ============================================================================
@@ -880,9 +904,15 @@ void LlamaModel::load(const std::string &gguf_path,
     auto embd = reader.read_tensor_f32("token_embd.weight");
     const auto &info = reader.get_tensor_info("token_embd.weight");
     config_.vocab_size = static_cast<uint32_t>(info.dimensions[1]);
-    embeddingTable_ =
-        uploadMatrix(embd.data(), config_.vocab_size, config_.dim,
-                     firstDevice_);
+    // Float16 halves the table, which is the largest single allocation in
+    // most models. The values come from a tied fp16/quantized tensor, so
+    // narrowing loses nothing the LM head has not already lost.
+    std::vector<uint16_t> half(embd.size());
+    for (size_t i = 0; i < embd.size(); ++i)
+      half[i] = f32ToF16(embd[i]);
+    embeddingTable_ = runtime_->createTensor(
+        {config_.vocab_size, config_.dim}, cut::DataType::Float16, half.data(),
+        false, firstDevice_);
   }
   std::cout << config_.vocab_size << "\n";
 
@@ -1168,6 +1198,7 @@ void LlamaModel::load(const std::string &gguf_path,
   runtimeParamsBuffers_.assign(runtime_->deviceCount(), {});
   hiddenBuffers_.assign(runtime_->deviceCount(), {});
   attnOutBuffers_.assign(runtime_->deviceCount(), {});
+  embedOutBuffers_.assign(runtime_->deviceCount(), {});
   for (uint32_t s : segmentStart_) {
     const size_t dev = layerDevice_[s];
     if (runtimeParamsBuffers_[dev]) {
@@ -1180,6 +1211,8 @@ void LlamaModel::load(const std::string &gguf_path,
     attnOutBuffers_[dev] = runtime_->createTensorEmpty(
         {config_.n_heads * config_.head_dim}, cut::DataType::Float32, false,
         dev);
+    embedOutBuffers_[dev] = runtime_->createTensorEmpty(
+        {config_.dim}, cut::DataType::Float16, false, dev);
   }
   tokenIdBuffer_ = runtime_->createTensorMapped({1}, cut::DataType::UInt32,
                                                 nullptr, firstDevice_);
@@ -1222,12 +1255,75 @@ void LlamaModel::load(const std::string &gguf_path,
   }
   size_t totalBuffers = 0;
   double totalMB = 0.0;
+  size_t totalBytes = 0;
   for (size_t d = 0; d < runtime_->deviceCount(); ++d) {
     totalBuffers += runtime_->bufferCount(d);
+    totalBytes += runtime_->activeBufferMemoryBytes(d);
     totalMB += runtime_->activeBufferMemoryBytes(d) / (1024.0 * 1024.0);
   }
   std::cout << "Model loaded successfully. Buffers: " << totalBuffers
             << "  GPU memory: " << totalMB << " MB\n";
+
+  if (memReportEnabled()) {
+    size_t attnW = 0, ffnW = 0, norms = 0, embed = 0, lmHead = 0, kv = 0,
+           rope = 0, misc = 0;
+    for (size_t l = 0; l < layers_.size(); ++l) {
+      const size_t d = layerDevice_[l];
+      attnW += weightBytes(*runtime_, layers_[l].wq, d);
+      attnW += weightBytes(*runtime_, layers_[l].wk, d);
+      attnW += weightBytes(*runtime_, layers_[l].wv, d);
+      attnW += weightBytes(*runtime_, layers_[l].wo, d);
+      attnW += weightBytes(*runtime_, layers_[l].wqkv, d);
+      ffnW += weightBytes(*runtime_, layers_[l].w_gate, d);
+      ffnW += weightBytes(*runtime_, layers_[l].w_up, d);
+      ffnW += weightBytes(*runtime_, layers_[l].w_down, d);
+      ffnW += weightBytes(*runtime_, layers_[l].w_gate_up, d);
+      norms += handleBytes(*runtime_, layers_[l].attn_norm, d);
+      norms += handleBytes(*runtime_, layers_[l].ffn_norm, d);
+      norms += handleBytes(*runtime_, layers_[l].bq, d);
+      norms += handleBytes(*runtime_, layers_[l].bk, d);
+      norms += handleBytes(*runtime_, layers_[l].bv, d);
+      kv += handleBytes(*runtime_, kv_caches_[l].k_cache, d);
+      kv += handleBytes(*runtime_, kv_caches_[l].v_cache, d);
+    }
+    norms += handleBytes(*runtime_, output_norm_, lastDevice_);
+    embed = handleBytes(*runtime_, embeddingTable_, firstDevice_);
+    lmHead = weightBytes(*runtime_, output_weight_, lastDevice_);
+    misc += handleBytes(*runtime_, penaltyFactorsBuffer_, lastDevice_);
+    misc += handleBytes(*runtime_, argmaxResultBuffer_, lastDevice_);
+    misc += handleBytes(*runtime_, tokenIdBuffer_, firstDevice_);
+    for (size_t d = 0; d < runtime_->deviceCount(); ++d) {
+      if (d < ropeCosGpu_.size())
+        rope += handleBytes(*runtime_, ropeCosGpu_[d], d);
+      if (d < ropeSinGpu_.size())
+        rope += handleBytes(*runtime_, ropeSinGpu_[d], d);
+      if (d < runtimeParamsBuffers_.size())
+        misc += handleBytes(*runtime_, runtimeParamsBuffers_[d], d);
+      if (d < hiddenBuffers_.size())
+        misc += handleBytes(*runtime_, hiddenBuffers_[d], d);
+      if (d < attnOutBuffers_.size())
+        misc += handleBytes(*runtime_, attnOutBuffers_[d], d);
+      if (d < embedOutBuffers_.size())
+        misc += handleBytes(*runtime_, embedOutBuffers_[d], d);
+    }
+
+    auto mb = [](size_t b) { return b / (1024.0 * 1024.0); };
+    const size_t accounted =
+        attnW + ffnW + norms + embed + lmHead + kv + rope + misc;
+    std::cout << "  [mem] attn weights : " << mb(attnW) << " MB\n";
+    std::cout << "  [mem] ffn weights  : " << mb(ffnW) << " MB\n";
+    std::cout << "  [mem] norms+bias   : " << mb(norms) << " MB\n";
+    std::cout << "  [mem] embedding    : " << mb(embed) << " MB\n";
+    std::cout << "  [mem] lm head      : " << mb(lmHead) << " MB\n";
+    std::cout << "  [mem] kv cache     : " << mb(kv) << " MB\n";
+    std::cout << "  [mem] rope tables  : " << mb(rope) << " MB\n";
+    std::cout << "  [mem] misc buffers : " << mb(misc) << " MB\n";
+    std::cout << "  [mem] ---------------\n";
+    std::cout << "  [mem] accounted    : " << mb(accounted) << " MB\n";
+    std::cout << "  [mem] unaccounted  : " << mb(totalBytes - accounted)
+              << " MB\n";
+    std::cout << "  [mem] total        : " << mb(totalBytes) << " MB\n";
+  }
 
   // Generate HTML architecture report next to the model file.
   {
@@ -1763,9 +1859,12 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   segmentDecodeOut_.clear();
 
   opsAt(firstDevice_)
-      .embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffers_[firstDevice_]);
+      .embedding(tokenIdBuffer_, embeddingTable_,
+                 embedOutBuffers_[firstDevice_]);
 
-  cut::ComputeHandle hidden = hiddenBuffers_[firstDevice_];
+  cut::ComputeHandle hidden = opsAt(firstDevice_)
+                                  .cast(embedOutBuffers_[firstDevice_],
+                                        cut::DataType::Float32);
   bool allCached = true;
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
     hidden = runLayer(i, hidden);
@@ -1856,9 +1955,12 @@ void LlamaModel::forwardPrefill(int token_id, int pos) {
   segmentPrefillOut_.clear();
 
   opsAt(firstDevice_)
-      .embedding(tokenIdBuffer_, embeddingTable_, hiddenBuffers_[firstDevice_]);
+      .embedding(tokenIdBuffer_, embeddingTable_,
+                 embedOutBuffers_[firstDevice_]);
 
-  cut::ComputeHandle hidden = hiddenBuffers_[firstDevice_];
+  cut::ComputeHandle hidden = opsAt(firstDevice_)
+                                  .cast(embedOutBuffers_[firstDevice_],
+                                        cut::DataType::Float32);
   bool allCached = true;
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
     hidden = runLayer(i, hidden);
@@ -1910,9 +2012,11 @@ int LlamaModel::prefill(const std::vector<int> &tokens) {
 
     opsAt(firstDevice_)
         .embedding(tokenIdBuffer_, embeddingTable_,
-                   hiddenBuffers_[firstDevice_]);
+                   embedOutBuffers_[firstDevice_]);
 
-    auto hidden = hiddenBuffers_[firstDevice_];
+    auto hidden = opsAt(firstDevice_)
+                      .cast(embedOutBuffers_[firstDevice_],
+                            cut::DataType::Float32);
     for (uint32_t l = 0; l < config_.n_layers; ++l)
       hidden = runLayer(l, hidden);
 
@@ -1972,8 +2076,10 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
 
   auto tAfterInputs = std::chrono::high_resolution_clock::now();
 
-  // 2. Embedding: [N] → [N, dim]
-  auto hidden = opsAt(firstDevice_).embedding(tokenBuf, embeddingTable_);
+  // 2. Embedding: [N] → [N, dim]. The table is Float16, so cast the lookup
+  //    result up to the Float32 the rest of the pass expects.
+  auto embedded = opsAt(firstDevice_).embedding(tokenBuf, embeddingTable_);
+  auto hidden = opsAt(firstDevice_).cast(embedded, cut::DataType::Float32);
 
   // 3. Process all layers
   for (uint32_t l = 0; l < config_.n_layers; ++l) {
