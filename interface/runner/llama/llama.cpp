@@ -554,18 +554,27 @@ static bool weightFusionDisabled() {
 
 // Requantization of non-native quant types to Q8_0 at load. Debug knob:
 // CUT_NO_REQUANT=1 restores the old dequantize-to-fp16 behavior.
-// Debug knob: CUT_FFN_WEIGHT_FUSION=1 enables the fused gate+up weight.
+// Memory budget for the fused gate+up weight, in bytes.
+//
 // Unlike the fused QKV weight, a fused gate+up does NOT replace the separate
 // gate and up weights: prefillBatched cannot split a [N, 2*ffn] matmul result
 // into its halves (slice() is 1D and view-only), so it keeps using the separate
-// pair and both copies stay resident for the whole run.
-// Measured on an RTX 3090, dropping it cut peak VRAM 24-30% and left decode
-// unchanged or faster (up to +10.6% on Llama-3.2-1B-f16), so it is off by
-// default. It becomes worth enabling again once prefill can consume a fused
-// gate+up weight directly.
-static bool ffnWeightFusionEnabled() {
-  static const bool enabled = std::getenv("CUT_FFN_WEIGHT_FUSION") != nullptr;
-  return enabled;
+// pair and both copies stay resident. The fusion buys one saved decode dispatch
+// per layer, which is worth it only while that duplicate is small — measured on
+// an RTX 3090, +4.5% decode for 54 MB on SmolLM2-135M, but -10.6% decode and
+// +1025 MB on Llama-3.2-1B-f16, where the extra resident bytes cost more than
+// the dispatch saves.
+//
+// CUT_FFN_FUSION_BUDGET_MB overrides the default: 0 disables the fusion
+// outright, a large value forces it on.
+static uint64_t ffnFusionBudgetBytes() {
+  static const uint64_t budget = [] {
+    if (const char *env = std::getenv("CUT_FFN_FUSION_BUDGET_MB"))
+      return static_cast<uint64_t>(std::strtoull(env, nullptr, 10)) * 1024ull *
+             1024ull;
+    return 256ull * 1024ull * 1024ull;
+  }();
+  return budget;
 }
 
 static bool requantDisabled() {
@@ -1075,12 +1084,24 @@ void LlamaModel::load(const std::string &gguf_path,
       const auto &gi = reader.get_tensor_info(blk + "ffn_gate.weight");
       const auto &ui = reader.get_tensor_info(blk + "ffn_up.weight");
       // Prefer Q8 fusion when the whole group is Q8-able (see QKV above).
-      const bool ffnFusionAllowed =
-          !weightFusionDisabled() && ffnWeightFusionEnabled();
-      bool canFuseFFNQ8 =
-          ffnFusionAllowed && isQ8able(gi.type) && isQ8able(ui.type);
-      bool canFuseFFN = ffnFusionAllowed && !canFuseFFNQ8 &&
+      bool canFuseFFNQ8 = !weightFusionDisabled() && isQ8able(gi.type) &&
+                          isQ8able(ui.type);
+      bool canFuseFFN = !weightFusionDisabled() && !canFuseFFNQ8 &&
                         groupFusable({gi.type, ui.type});
+
+      // The fused weight duplicates gate+up rather than replacing them, so
+      // only build it while that duplicate fits the budget. Q8 stores one byte
+      // per weight plus an fp16 scale per 32; the f16 path stores two bytes.
+      if (canFuseFFNQ8 || canFuseFFN) {
+        const uint64_t elems = static_cast<uint64_t>(config_.n_layers) * 2ull *
+                               config_.dim * config_.ffn_dim;
+        const uint64_t dupBytes =
+            canFuseFFNQ8 ? (elems + elems / 32ull * 2ull) : (elems * 2ull);
+        if (dupBytes > ffnFusionBudgetBytes()) {
+          canFuseFFNQ8 = false;
+          canFuseFFN = false;
+        }
+      }
 
       if (canFuseFFN) {
         layer.w_gate_up.handle = uploadFusedF16(reader,
