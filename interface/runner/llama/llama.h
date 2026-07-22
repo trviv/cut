@@ -317,6 +317,11 @@ private:
                              const std::vector<std::string> &names,
                              size_t deviceId);
 
+  // Read a tensor as Q8_0 blocks: raw for native Q8_0, otherwise
+  // CPU-dequantized and requantized (Q5_0/K-quants -> Q8_0).
+  GGUFReader::Q8SeparatedData readAsQ8(const GGUFReader &reader,
+                                       const std::string &name);
+
   // Helper: upload weight, using Q8 separated path if Q8_0
   WeightHandle uploadWeightMaybeQuantized(const GGUFReader &reader,
                                           const std::string &name,

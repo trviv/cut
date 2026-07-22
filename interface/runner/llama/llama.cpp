@@ -395,6 +395,29 @@ static uint16_t f32ToF16(float v) {
   return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exp) << 10) | m);
 }
 
+// Quantize a row-major f32 array to GGML Q8_0 blocks (32 values per block),
+// matching llama.cpp's quantize_row_q8_0_ref: d = amax/127 (stored as f16),
+// q = round(x/d). Exact for Q5_0 sources (5-bit q*4 fits int8, d/4 is a
+// fp16 exponent shift); K-quant sources round within ~1e-3 relative.
+static void quantizeRowsQ8_0(const std::vector<float> &f32,
+                             std::vector<int8_t> &values,
+                             std::vector<uint16_t> &scales) {
+  size_t nBlocks = f32.size() / 32;
+  values.resize(f32.size());
+  scales.resize(nBlocks);
+  for (size_t b = 0; b < nBlocks; ++b) {
+    const float *x = f32.data() + b * 32;
+    float amax = 0.0f;
+    for (int i = 0; i < 32; ++i)
+      amax = std::max(amax, std::fabs(x[i]));
+    float d = amax / 127.0f;
+    float id = d != 0.0f ? 1.0f / d : 0.0f;
+    scales[b] = f32ToF16(d);
+    for (int i = 0; i < 32; ++i)
+      values[b * 32 + i] = static_cast<int8_t>(std::lroundf(x[i] * id));
+  }
+}
+
 // Weight types that end up as Float16 GPU weights (natively F16, or via the
 // GPU-dequant path), and can therefore be concatenated into a fused weight.
 // Q8_0/Q4_0 stay quantized (separate values+scales) and are excluded.
@@ -441,6 +464,34 @@ static bool weightFusionDisabled() {
   static const bool disabled =
       std::getenv("CUT_DISABLE_WEIGHT_FUSION") != nullptr;
   return disabled;
+}
+
+// Requantization of non-native quant types to Q8_0 at load. Debug knob:
+// CUT_NO_REQUANT=1 restores the old dequantize-to-fp16 behavior.
+static bool requantDisabled() {
+  static const bool disabled = std::getenv("CUT_NO_REQUANT") != nullptr;
+  return disabled;
+}
+
+// Types we requantize to Q8_0 at load (native float types stay fp16 —
+// requantizing them would lose precision; Q8_0/Q4_0 are native already).
+static bool isRequantizableToQ8(GGMLType t) {
+  switch (t) {
+  case GGMLType::Q4_1:
+  case GGMLType::Q5_0:
+  case GGMLType::Q5_1:
+  case GGMLType::Q4_K:
+  case GGMLType::Q5_K:
+  case GGMLType::Q6_K:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool isQ8able(GGMLType t) {
+  return t == GGMLType::Q8_0 ||
+         (!requantDisabled() && isRequantizableToQ8(t));
 }
 
 static bool groupFusable(std::initializer_list<GGMLType> types) {
@@ -493,6 +544,18 @@ LlamaModel::uploadFusedF16(const GGUFReader &reader,
   return opsAt(deviceId).transpose(gpu);
 }
 
+GGUFReader::Q8SeparatedData LlamaModel::readAsQ8(const GGUFReader &reader,
+                                                 const std::string &name) {
+  const auto &info = reader.get_tensor_info(name);
+  if (info.type == GGMLType::Q8_0)
+    return reader.read_tensor_q8_separated(name);
+  // Requantize: CPU-dequantize to f32, then quantize to Q8_0 blocks.
+  GGUFReader::Q8SeparatedData out;
+  auto f32 = reader.read_tensor_f32(name);
+  quantizeRowsQ8_0(f32, out.values, out.scales);
+  return out;
+}
+
 WeightHandle LlamaModel::uploadFusedQ8(const GGUFReader &reader,
                                        const std::vector<std::string> &names,
                                        size_t deviceId) {
@@ -513,7 +576,7 @@ WeightHandle LlamaModel::uploadFusedQ8(const GGUFReader &reader,
   values.reserve(static_cast<size_t>(totalRows) * K);
   scales.reserve(static_cast<size_t>(totalRows) * blocksK);
   for (const auto &name : names) {
-    auto q8 = reader.read_tensor_q8_separated(name);
+    auto q8 = readAsQ8(reader, name);
     values.insert(values.end(), q8.values.begin(), q8.values.end());
     scales.insert(scales.end(), q8.scales.begin(), q8.scales.end());
   }
@@ -633,10 +696,13 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
     return wh;
   }
 
-  if (info.type == GGMLType::Q8_0) {
+  if (isQ8able(info.type)) {
     // Upload Q8_0 weights in GGUF-native [N, K] layout, then GPU-transpose
-    // to [K, N] to match the matmul layout convention.
-    auto q8 = reader.read_tensor_q8_separated(name);
+    // to [K, N] to match the matmul layout convention. Non-native quant
+    // types (Q5_0, K-quants, ...) are requantized to Q8_0 on the host so
+    // they stay on the quantized path instead of doubling to fp16
+    // (CUT_NO_REQUANT=1 restores the fp16 path).
+    auto q8 = readAsQ8(reader, name);
     uint32_t N = rows, K = cols;
     uint32_t blocksK = K / 32;
 
@@ -836,12 +902,14 @@ void LlamaModel::load(const std::string &gguf_path,
       const auto &qi = reader.get_tensor_info(blk + "attn_q.weight");
       const auto &ki = reader.get_tensor_info(blk + "attn_k.weight");
       const auto &vi = reader.get_tensor_info(blk + "attn_v.weight");
-      bool canFuse = !weightFusionDisabled() && !hasBias &&
+      // Prefer Q8 fusion whenever every constituent is Q8-able (native Q8_0
+      // or requantized): quantized weights read ~2x fewer bytes per token
+      // than the fp16-fused path.
+      bool canFuseQ8 = !weightFusionDisabled() && !hasBias &&
+                       isQ8able(qi.type) && isQ8able(ki.type) &&
+                       isQ8able(vi.type);
+      bool canFuse = !weightFusionDisabled() && !hasBias && !canFuseQ8 &&
                      groupFusable({qi.type, ki.type, vi.type});
-      // All-Q8_0: fuse while staying quantized (concatenate values + scales).
-      bool canFuseQ8 = !weightFusionDisabled() && !hasBias && !canFuse &&
-                       qi.type == GGMLType::Q8_0 &&
-                       ki.type == GGMLType::Q8_0 && vi.type == GGMLType::Q8_0;
 
       if (canFuse) {
         layer.wqkv.handle = uploadFusedF16(reader,
@@ -900,11 +968,11 @@ void LlamaModel::load(const std::string &gguf_path,
     {
       const auto &gi = reader.get_tensor_info(blk + "ffn_gate.weight");
       const auto &ui = reader.get_tensor_info(blk + "ffn_up.weight");
-      bool canFuseFFN = !weightFusionDisabled() && groupFusable({gi.type, ui.type});
-      // All-Q8_0: fuse while staying quantized.
-      bool canFuseFFNQ8 = !weightFusionDisabled() && !canFuseFFN &&
-                          gi.type == GGMLType::Q8_0 &&
-                          ui.type == GGMLType::Q8_0;
+      // Prefer Q8 fusion when the whole group is Q8-able (see QKV above).
+      bool canFuseFFNQ8 = !weightFusionDisabled() &&
+                          isQ8able(gi.type) && isQ8able(ui.type);
+      bool canFuseFFN = !weightFusionDisabled() && !canFuseFFNQ8 &&
+                        groupFusable({gi.type, ui.type});
 
       if (canFuseFFN) {
         layer.w_gate_up.handle = uploadFusedF16(reader,
