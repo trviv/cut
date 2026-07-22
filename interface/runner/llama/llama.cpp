@@ -368,7 +368,12 @@ cut::ComputeHandle LlamaModel::uploadMatrix(const float *data,
                                 deviceId);
 }
 
-// Host float -> half narrowing (round-to-nearest, denormals flushed).
+// Host float -> half narrowing (round-to-nearest, subnormals encoded).
+// Subnormals must be encoded rather than flushed: quantizeRowsQ8_0 stores the
+// Q8_0 block scale d = amax/127 through here, so a block whose amax is below
+// 127 * 2^-14 = 0.00775 would get a zero scale and silently zero all 32 of its
+// weights. Models with small weight magnitudes (Mistral-7B-v0.3, rms ~0.0014)
+// lose enough blocks that way to produce garbage output.
 static uint16_t f32ToF16(float v) {
   uint32_t u;
   std::memcpy(&u, &v, sizeof(u));
@@ -376,7 +381,20 @@ static uint16_t f32ToF16(float v) {
   int32_t exp = static_cast<int32_t>((u >> 23) & 0xffu) - 127 + 15;
   uint32_t mantissa = u & 0x7fffffu;
   if (exp <= 0) {
-    return static_cast<uint16_t>(sign); // flush denormals to signed zero
+    // Subnormal range: fp16 subnormals encode mantissa16 * 2^-24, and their bit
+    // pattern is just sign | mantissa16 (biased exponent field 0). exp <= 0 here
+    // so shift is always >= 14. A round that carries into 0x400 lands exactly on
+    // the smallest normal (exponent field 1, mantissa 0), which is correct.
+    uint32_t shift = static_cast<uint32_t>(14 - exp);
+    if (shift > 24) {
+      return static_cast<uint16_t>(sign); // too small even for a subnormal
+    }
+    uint32_t significand = 0x800000u | mantissa; // restore implicit leading 1
+    uint32_t half = significand >> shift;
+    if ((significand >> (shift - 1)) & 1u) { // round half up on dropped bits
+      ++half;
+    }
+    return static_cast<uint16_t>(sign | half);
   }
   if (exp >= 31) {
     return static_cast<uint16_t>(sign | 0x7c00u); // clamp to infinity
