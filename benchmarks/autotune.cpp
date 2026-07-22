@@ -211,6 +211,9 @@ autotuneMatMul(Runtime &runtime, int warmup, int iters, std::ostream &out) {
       {1, 2048, 8192},
       {1, 4096, 4096},
       {1, 4096, 11008},
+      // Vocab / lm_head projection (large N) — dominates decode work
+      {1, 576, 49152},
+      {1, 576, 32000},
       // Small batch prefill
       {4, 576, 576},
       {4, 576, 1536},
@@ -367,7 +370,23 @@ int main(int argc, char *argv[]) {
     outputPath = argv[3];
 
   Runtime runtime;
-  runtime.init(BackendType::Vulkan);
+  // Default to Vulkan; set CUT_BENCH_BACKEND=cuda to autotune the CUDA
+  // backend (requires a build with -DENABLE_CUDA_BACKEND=ON).
+  BackendType backend = BackendType::Vulkan;
+  if (const char *env = std::getenv("CUT_BENCH_BACKEND")) {
+    if (std::string(env) == "cuda") {
+#ifdef CUT_ENABLE_CUDA
+      backend = BackendType::CUDA;
+#else
+      std::cerr << "CUT_BENCH_BACKEND=cuda ignored: built without CUDA support"
+                << std::endl;
+#endif
+    }
+  }
+  runtime.init(backend);
+  const std::string backendStr =
+      (backend == BackendType::CUDA) ? "cuda" : "vulkan";
+  std::cerr << "Autotune backend: " << backendStr << std::endl;
 
   // Write JSON to a file (not stdout) to avoid logMsg contamination
   std::ofstream outFile(outputPath);
@@ -379,6 +398,7 @@ int main(int argc, char *argv[]) {
 
   outFile << "{\n";
   outFile << "  \"gpu\": \"Unknown\",\n";
+  outFile << "  \"backend\": \"" << backendStr << "\",\n";
   outFile << "  \"timestamp\": \"" << getCurrentTimestamp() << "\",\n";
   outFile << "  \"operators\": {\n";
 

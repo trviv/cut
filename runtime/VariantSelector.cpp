@@ -253,19 +253,16 @@ bool VariantSelector::loadFromFile(const std::string &path) {
     if (!operatorsObj || operatorsObj->type != JsonValue::Object)
       return false;
 
-    operators_.clear();
-    for (const auto &opPair : operatorsObj->object) {
-      const std::string &opName = opPair.first;
-      const JsonValue &opVal = opPair.second;
-
+    // Parse one { default_variant, rules } object into an OperatorRules.
+    auto parseRules = [](const JsonValue &obj) -> OperatorRules {
       OperatorRules opRules;
       opRules.defaultVariant = 0;
 
-      const JsonValue *dv = opVal.get("default_variant");
+      const JsonValue *dv = obj.get("default_variant");
       if (dv && dv->type == JsonValue::Number)
         opRules.defaultVariant = static_cast<int>(dv->asInt());
 
-      const JsonValue *rulesArr = opVal.get("rules");
+      const JsonValue *rulesArr = obj.get("rules");
       if (rulesArr && rulesArr->type == JsonValue::Array) {
         for (const JsonValue &rv : rulesArr->array) {
           Rule rule;
@@ -285,13 +282,40 @@ bool VariantSelector::loadFromFile(const std::string &path) {
             const JsonValue *mx = conds->get("total_elements_max");
             if (mx && mx->type == JsonValue::Number)
               rule.totalElementsMax = mx->asInt();
+            const JsonValue *shp = conds->get("shape");
+            if (shp && shp->type == JsonValue::Array) {
+              rule.shape.reserve(shp->array.size());
+              for (const JsonValue &v : shp->array) {
+                if (v.type == JsonValue::Number)
+                  rule.shape.push_back(v.asInt());
+              }
+            }
           }
 
           opRules.rules.push_back(rule);
         }
       }
+      return opRules;
+    };
 
-      operators_[opName] = std::move(opRules);
+    operators_.clear();
+    for (const auto &opPair : operatorsObj->object) {
+      const std::string &opName = opPair.first;
+      const JsonValue &opVal = opPair.second;
+
+      // Backend-specific rule sets: "backends": { "cuda": {...}, "vulkan": {...} }
+      const JsonValue *backendsObj = opVal.get("backends");
+      if (backendsObj && backendsObj->type == JsonValue::Object) {
+        for (const auto &backendPair : backendsObj->object) {
+          operators_[keyFor(opName, backendPair.first)] =
+              parseRules(backendPair.second);
+        }
+      }
+
+      // Legacy / backend-agnostic top-level default_variant + rules.
+      if (opVal.get("default_variant") || opVal.get("rules")) {
+        operators_[opName] = parseRules(opVal);
+      }
     }
 
     loaded_ = true;
@@ -305,32 +329,59 @@ bool VariantSelector::loadFromFile(const std::string &path) {
   }
 }
 
+std::string VariantSelector::keyFor(const std::string &op,
+                                    const std::string &backend) {
+  return backend.empty() ? op : op + "@" + backend;
+}
+
 int VariantSelector::select(const std::string &operatorName,
                             const std::vector<uint32_t> &shape,
-                            int defaultVariant) const {
+                            int defaultVariant,
+                            const std::string &backend) const {
   if (!loaded_)
     return defaultVariant;
 
-  auto it = operators_.find(operatorName);
-  if (it == operators_.end())
-    return defaultVariant;
+  // Evaluate one operator's rules against the shape (first match wins),
+  // falling back to that entry's default variant.
+  auto evalRules = [&shape](const OperatorRules &opRules) -> int {
+    int64_t totalElements = 1;
+    for (uint32_t d : shape)
+      totalElements *= d;
 
-  const OperatorRules &opRules = it->second;
+    for (const Rule &rule : opRules.rules) {
+      // Exact-shape constraint (if present) must match dimension-for-dimension.
+      bool shapeOk = rule.shape.empty();
+      if (!shapeOk && shape.size() == rule.shape.size()) {
+        shapeOk = true;
+        for (size_t i = 0; i < shape.size(); ++i) {
+          if (static_cast<int64_t>(shape[i]) != rule.shape[i]) {
+            shapeOk = false;
+            break;
+          }
+        }
+      }
+      bool minOk = (rule.totalElementsMin < 0) ||
+                   (totalElements >= rule.totalElementsMin);
+      bool maxOk = (rule.totalElementsMax < 0) ||
+                   (totalElements < rule.totalElementsMax);
+      if (shapeOk && minOk && maxOk)
+        return rule.variant;
+    }
+    return opRules.defaultVariant;
+  };
 
-  int64_t totalElements = 1;
-  for (uint32_t d : shape)
-    totalElements *= d;
-
-  for (const Rule &rule : opRules.rules) {
-    bool minOk =
-        (rule.totalElementsMin < 0) || (totalElements >= rule.totalElementsMin);
-    bool maxOk =
-        (rule.totalElementsMax < 0) || (totalElements < rule.totalElementsMax);
-    if (minOk && maxOk)
-      return rule.variant;
+  // Prefer a backend-specific entry, then a backend-agnostic one.
+  if (!backend.empty()) {
+    auto it = operators_.find(keyFor(operatorName, backend));
+    if (it != operators_.end())
+      return evalRules(it->second);
   }
 
-  return opRules.defaultVariant;
+  auto it = operators_.find(operatorName);
+  if (it != operators_.end())
+    return evalRules(it->second);
+
+  return defaultVariant;
 }
 
 } // namespace cut

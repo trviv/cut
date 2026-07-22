@@ -17,7 +17,12 @@ TransposeOpNode::TransposeOpNode(TensorStore &store,
   M_ = shape[0];
   N_ = shape[1];
   spec_ = spec.value_or(VariantSelector::instance().select(
-      "Transpose", {M_, N_}, kTransposeDefaultVariant));
+      "Transpose", {M_, N_}, kTransposeDefaultVariant,
+      backendName(store.caps().backend)));
+  // Guard: fall back to the default variant if the selected one has no shader
+  // for this dtype (tuning data is dtype-agnostic).
+  if (!getCompiledTranspose(*spec_, dtype_, dtype_).has_value())
+    spec_ = kTransposeDefaultVariant;
   inputs_ = {a};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }

@@ -84,6 +84,11 @@ std::vector<uint32_t> compileShaderFileToSpirv(const std::string &filepath);
  */
 enum class ComputeBackend { Vulkan, CUDA };
 
+/// Lowercase backend key used in tuning_data.json / VariantSelector lookups.
+inline const char *backendName(ComputeBackend b) {
+  return b == ComputeBackend::CUDA ? "cuda" : "vulkan";
+}
+
 struct DeviceCaps {
   bool cooperativeMatrix = false; ///< VK_KHR_cooperative_matrix
   bool integerDotProduct = false; ///< VK_KHR_shader_integer_dot_product

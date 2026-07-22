@@ -1,6 +1,7 @@
 #include "MatMulOp.h"
 #include "Shaders.h"
 #include "TensorStore.h"
+#include "VariantSelector.h"
 
 namespace cut {
 
@@ -217,8 +218,18 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
     // Cooperative matrix variant — use tiled (2×2) for larger matrices
     spec_ = (M_ >= 32 && N_ >= 32) ? kCoopMatTiledVariant : kCoopMatVariant;
   } else {
-    // Shape-based variant selection from autotune data
-    spec_ = fusionFallbackSpec_;
+    // Data-driven per-backend selection (exact-shape tuning data); falls back
+    // to the built-in shape heuristic (fusionFallbackSpec_) when no rule matches.
+    int sel = VariantSelector::instance().select(
+        "MatMul", {M_, K_, N_}, fusionFallbackSpec_,
+        backendName(store.caps().backend));
+    // The tuning data is measured in fp32; a selected variant may not have a
+    // compiled shader for these operand dtypes (e.g. fp16 B). Fall back to the
+    // built-in heuristic variant, which is always available, if so. This
+    // mirrors the non-coopmat lookup in shader().
+    if (!getCompiledMatMul(sel, dtypeA_, dtypeB_, dtypeA_).has_value())
+      sel = fusionFallbackSpec_;
+    spec_ = sel;
   }
   inputs_ = {a, b};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
