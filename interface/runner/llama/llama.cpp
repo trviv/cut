@@ -435,8 +435,12 @@ LlamaModel::uploadWeight(const GGUFReader &reader,
       auto rawTensor = runtime_->createTensor(
           {static_cast<uint32_t>(raw.size())}, cut::DataType::Int8, raw.data(),
           false, deviceId);
-      return opsAt(deviceId).dequantize(rawTensor, static_cast<uint32_t>(fmt),
-                                        shape[0], shape[1]);
+      auto deq = opsAt(deviceId).dequantize(
+          rawTensor, static_cast<uint32_t>(fmt), shape[0], shape[1]);
+      // Store dequantized 2D weights as Float16 (like the native f16 weight
+      // path above) to halve decode-time weight bandwidth. K-quant/BF16 values
+      // fit fp16 losslessly; transpose + matmul consume fp16 B directly.
+      return opsAt(deviceId).cast(deq, cut::DataType::Float16);
     }
   }
 
@@ -816,7 +820,12 @@ void LlamaModel::load(const std::string &gguf_path,
       embForHead =
           runtime_->transferTensor(embeddingTable_, firstDevice_, lastDevice_);
     }
-    output_weight_.handle = opsAt(lastDevice_).transpose(embForHead);
+    // fp16 LM-head weight: the tied embedding is loaded as Float32, but the
+    // vocab-projection matmul dominates decode; storing it fp16 halves that
+    // weight-read bandwidth (matmul consumes fp16 B directly).
+    output_weight_.handle = opsAt(lastDevice_)
+                                .transpose(opsAt(lastDevice_).cast(
+                                    embForHead, cut::DataType::Float16));
   }
 
   // Initialize KV caches with pre-allocated GPU buffers.
