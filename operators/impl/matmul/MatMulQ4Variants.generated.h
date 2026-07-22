@@ -24,7 +24,7 @@ inline constexpr MatMulQ4VariantInfo kMatMulQ4Variants[kMatMulQ4VariantCount] = 
     {"MatMulQ4T16R4x4", 16, 16, 64, 64, "Q4 T16 R4x4"},
     {"MatMulQ4Gemv", 256, 1, 1, 256, "Q4 GEMV (M=1 vector)"},
     {"MatMulQ4GemvKPar", 32, 1, 1, 4, "Q4 GEMV K-parallel (nibble unpack, subgroup reduction)"},
-    {"MatMulQ4GemvKPar8", 32, 1, 1, 8, "Q4 GEMV K-parallel 8col (nibble unpack, K-unroll x4)"},
+    {"MatMulQ4GemvKPar8", 32, 8, 1, 8, "Q4 GEMV (M=1, 8 cols/WG, split-K over 8 waves)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)

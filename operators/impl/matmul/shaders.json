@@ -954,13 +954,13 @@
           "defines": {},
           "wg": [
             32,
-            1
+            8
           ],
           "eff_tile": [
             1,
             8
           ],
-          "description": "GEMV8 (M=1, 8 cols/WG, K-unroll x4)",
+          "description": "GEMV8 (M=1, 8 cols/WG, split-K over 8 waves)",
           "dtype_slots": {
             "combos": [
               {
@@ -1213,13 +1213,13 @@
           "defines": {},
           "wg": [
             32,
-            1
+            8
           ],
           "eff_tile": [
             1,
             8
           ],
-          "description": "Q4 GEMV K-parallel 8col (nibble unpack, K-unroll x4)",
+          "description": "Q4 GEMV (M=1, 8 cols/WG, split-K over 8 waves)",
           "dtype_slots": {
             "combos": [
               {
@@ -1363,13 +1363,13 @@
           "defines": {},
           "wg": [
             32,
-            1
+            8
           ],
           "eff_tile": [
             1,
             8
           ],
-          "description": "Q8 GEMV K-parallel 8col (packed dequant, K-unroll x4)",
+          "description": "Q8 GEMV (M=1, 8 cols/WG, split-K over 8 waves)",
           "dtype_slots": {
             "combos": [
               {

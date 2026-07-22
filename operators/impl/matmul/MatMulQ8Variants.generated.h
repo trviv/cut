@@ -25,7 +25,7 @@ inline constexpr MatMulQ8VariantInfo kMatMulQ8Variants[kMatMulQ8VariantCount] = 
     {"MatMulQ8Gemv", 256, 1, 1, 256, "Q8 GEMV (M=1 vector)"},
     {"MatMulQ8VecT16R4x4", 16, 16, 64, 64, "Q8 Vec4 T16 R4x4 (cooperative packed loading)"},
     {"MatMulQ8GemvKPar", 32, 1, 1, 4, "Q8 GEMV K-parallel (packed dequant, subgroup reduction)"},
-    {"MatMulQ8GemvKPar8", 32, 1, 1, 8, "Q8 GEMV K-parallel 8col (packed dequant, K-unroll x4)"},
+    {"MatMulQ8GemvKPar8", 32, 8, 1, 8, "Q8 GEMV (M=1, 8 cols/WG, split-K over 8 waves)"},
     {"MatMulQ8GemvDot", 32, 1, 1, 4, "Q8 GEMV dotPacked4x8EXT (on-the-fly A quantization)"},
     {"MatMulQ8TiledDot", 256, 1, 32, 64, "Q8 TiledDot dotPacked4x8EXT (on-the-fly A quant, int8 shmem B)"},
     {"MatMulQ8CoopMatTiled", 128, 1, 32, 32, "Q8 CoopMat 2x2 Tiled (dequant B→fp16, tensor core)"},

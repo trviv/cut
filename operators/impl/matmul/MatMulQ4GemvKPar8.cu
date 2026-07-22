@@ -3,6 +3,7 @@
 
 #define WG_SIZE 32
 #define COLS_PER_WG 8
+#define WARPS_PER_WG 8
 
 extern "C" __global__ void cut_main(
     const CUT_VEC_DTYPE_INPUT1* __restrict__ dataA,
@@ -12,7 +13,8 @@ extern "C" __global__ void cut_main(
     CUT_SCALAR_DTYPE_OUTPUT* __restrict__ dataC,
     PushConstants pc) {
 
-    uint tid = threadIdx.x;
+    uint lane = threadIdx.x;   // 0..31 within the warp
+    uint wy = threadIdx.y;     // 0..7, which K stripe this warp owns
     uint baseN = blockIdx.x * COLS_PER_WG;
     uint m = blockIdx.y;
 
@@ -27,144 +29,9 @@ extern "C" __global__ void cut_main(
     float acc6 = 0.0f;
     float acc7 = 0.0f;
 
-    uint K4 = pc.K & ~(4u * WG_SIZE - 1u);
-    uint k = tid;
-
-    for (; k < K4; k += 4 * WG_SIZE) {
-        // Iteration 0
-        {
-            float a = float(cut_loadA(dataA, pc, m, k));
-
-            uint byteIdx = k * pc.strideBNpacked + (baseN >> 1);
-            uint packed = packedB[byteIdx >> 2];
-            float b0 = float(int((packed >>  0) & 0xFu) - 8);
-            float b1 = float(int((packed >>  4) & 0xFu) - 8);
-            float b2 = float(int((packed >>  8) & 0xFu) - 8);
-            float b3 = float(int((packed >> 12) & 0xFu) - 8);
-            float b4 = float(int((packed >> 16) & 0xFu) - 8);
-            float b5 = float(int((packed >> 20) & 0xFu) - 8);
-            float b6 = float(int((packed >> 24) & 0xFu) - 8);
-            float b7 = float(int((packed >> 28) & 0xFu) - 8);
-
-            uint scaleBase0 = (k >> 5) * pc.scaleStride + baseN;
-            float s0_0, s1_0, s2_0, s3_0;
-            cut_loadScale4(scalesB, scaleBase0, s0_0, s1_0, s2_0, s3_0);
-
-            uint scaleBase1 = (k >> 5) * pc.scaleStride + baseN + 4;
-            float s0_1, s1_1, s2_1, s3_1;
-            cut_loadScale4(scalesB, scaleBase1, s0_1, s1_1, s2_1, s3_1);
-
-            acc0 = mad(a, b0 * s0_0, acc0);
-            acc1 = mad(a, b1 * s1_0, acc1);
-            acc2 = mad(a, b2 * s2_0, acc2);
-            acc3 = mad(a, b3 * s3_0, acc3);
-            acc4 = mad(a, b4 * s0_1, acc4);
-            acc5 = mad(a, b5 * s1_1, acc5);
-            acc6 = mad(a, b6 * s2_1, acc6);
-            acc7 = mad(a, b7 * s3_1, acc7);
-        }
-        // Iteration 1
-        {
-            uint k1 = k + WG_SIZE;
-            float a = float(cut_loadA(dataA, pc, m, k1));
-
-            uint byteIdx = k1 * pc.strideBNpacked + (baseN >> 1);
-            uint packed = packedB[byteIdx >> 2];
-            float b0 = float(int((packed >>  0) & 0xFu) - 8);
-            float b1 = float(int((packed >>  4) & 0xFu) - 8);
-            float b2 = float(int((packed >>  8) & 0xFu) - 8);
-            float b3 = float(int((packed >> 12) & 0xFu) - 8);
-            float b4 = float(int((packed >> 16) & 0xFu) - 8);
-            float b5 = float(int((packed >> 20) & 0xFu) - 8);
-            float b6 = float(int((packed >> 24) & 0xFu) - 8);
-            float b7 = float(int((packed >> 28) & 0xFu) - 8);
-
-            uint scaleBase0 = (k1 >> 5) * pc.scaleStride + baseN;
-            float s0_0, s1_0, s2_0, s3_0;
-            cut_loadScale4(scalesB, scaleBase0, s0_0, s1_0, s2_0, s3_0);
-
-            uint scaleBase1 = (k1 >> 5) * pc.scaleStride + baseN + 4;
-            float s0_1, s1_1, s2_1, s3_1;
-            cut_loadScale4(scalesB, scaleBase1, s0_1, s1_1, s2_1, s3_1);
-
-            acc0 = mad(a, b0 * s0_0, acc0);
-            acc1 = mad(a, b1 * s1_0, acc1);
-            acc2 = mad(a, b2 * s2_0, acc2);
-            acc3 = mad(a, b3 * s3_0, acc3);
-            acc4 = mad(a, b4 * s0_1, acc4);
-            acc5 = mad(a, b5 * s1_1, acc5);
-            acc6 = mad(a, b6 * s2_1, acc6);
-            acc7 = mad(a, b7 * s3_1, acc7);
-        }
-        // Iteration 2
-        {
-            uint k2 = k + 2 * WG_SIZE;
-            float a = float(cut_loadA(dataA, pc, m, k2));
-
-            uint byteIdx = k2 * pc.strideBNpacked + (baseN >> 1);
-            uint packed = packedB[byteIdx >> 2];
-            float b0 = float(int((packed >>  0) & 0xFu) - 8);
-            float b1 = float(int((packed >>  4) & 0xFu) - 8);
-            float b2 = float(int((packed >>  8) & 0xFu) - 8);
-            float b3 = float(int((packed >> 12) & 0xFu) - 8);
-            float b4 = float(int((packed >> 16) & 0xFu) - 8);
-            float b5 = float(int((packed >> 20) & 0xFu) - 8);
-            float b6 = float(int((packed >> 24) & 0xFu) - 8);
-            float b7 = float(int((packed >> 28) & 0xFu) - 8);
-
-            uint scaleBase0 = (k2 >> 5) * pc.scaleStride + baseN;
-            float s0_0, s1_0, s2_0, s3_0;
-            cut_loadScale4(scalesB, scaleBase0, s0_0, s1_0, s2_0, s3_0);
-
-            uint scaleBase1 = (k2 >> 5) * pc.scaleStride + baseN + 4;
-            float s0_1, s1_1, s2_1, s3_1;
-            cut_loadScale4(scalesB, scaleBase1, s0_1, s1_1, s2_1, s3_1);
-
-            acc0 = mad(a, b0 * s0_0, acc0);
-            acc1 = mad(a, b1 * s1_0, acc1);
-            acc2 = mad(a, b2 * s2_0, acc2);
-            acc3 = mad(a, b3 * s3_0, acc3);
-            acc4 = mad(a, b4 * s0_1, acc4);
-            acc5 = mad(a, b5 * s1_1, acc5);
-            acc6 = mad(a, b6 * s2_1, acc6);
-            acc7 = mad(a, b7 * s3_1, acc7);
-        }
-        // Iteration 3
-        {
-            uint k3 = k + 3 * WG_SIZE;
-            float a = float(cut_loadA(dataA, pc, m, k3));
-
-            uint byteIdx = k3 * pc.strideBNpacked + (baseN >> 1);
-            uint packed = packedB[byteIdx >> 2];
-            float b0 = float(int((packed >>  0) & 0xFu) - 8);
-            float b1 = float(int((packed >>  4) & 0xFu) - 8);
-            float b2 = float(int((packed >>  8) & 0xFu) - 8);
-            float b3 = float(int((packed >> 12) & 0xFu) - 8);
-            float b4 = float(int((packed >> 16) & 0xFu) - 8);
-            float b5 = float(int((packed >> 20) & 0xFu) - 8);
-            float b6 = float(int((packed >> 24) & 0xFu) - 8);
-            float b7 = float(int((packed >> 28) & 0xFu) - 8);
-
-            uint scaleBase0 = (k3 >> 5) * pc.scaleStride + baseN;
-            float s0_0, s1_0, s2_0, s3_0;
-            cut_loadScale4(scalesB, scaleBase0, s0_0, s1_0, s2_0, s3_0);
-
-            uint scaleBase1 = (k3 >> 5) * pc.scaleStride + baseN + 4;
-            float s0_1, s1_1, s2_1, s3_1;
-            cut_loadScale4(scalesB, scaleBase1, s0_1, s1_1, s2_1, s3_1);
-
-            acc0 = mad(a, b0 * s0_0, acc0);
-            acc1 = mad(a, b1 * s1_0, acc1);
-            acc2 = mad(a, b2 * s2_0, acc2);
-            acc3 = mad(a, b3 * s3_0, acc3);
-            acc4 = mad(a, b4 * s0_1, acc4);
-            acc5 = mad(a, b5 * s1_1, acc5);
-            acc6 = mad(a, b6 * s2_1, acc6);
-            acc7 = mad(a, b7 * s3_1, acc7);
-        }
-    }
-
-    for (; k < pc.K; k += WG_SIZE) {
+    // Split-K: wave wy walks the stripe k = wy*32 + lane, stride 32*8.
+    // The 8 independent accumulators supply the ILP the manual unroll gave.
+    for (uint k = wy * WG_SIZE + lane; k < pc.K; k += WG_SIZE * WARPS_PER_WG) {
         float a = float(cut_loadA(dataA, pc, m, k));
 
         uint byteIdx = k * pc.strideBNpacked + (baseN >> 1);
@@ -208,15 +75,20 @@ extern "C" __global__ void cut_main(
         acc7 += __shfl_xor_sync(0xffffffffu, acc7, offset);
     }
 
-    if (tid == 0) {
-        uint colCount = min(COLS_PER_WG, pc.N - baseN);
-        cut_writeOutput(dataC, dataD, pc, m, baseN, acc0);
-        if (colCount > 1) cut_writeOutput(dataC, dataD, pc, m, baseN + 1, acc1);
-        if (colCount > 2) cut_writeOutput(dataC, dataD, pc, m, baseN + 2, acc2);
-        if (colCount > 3) cut_writeOutput(dataC, dataD, pc, m, baseN + 3, acc3);
-        if (colCount > 4) cut_writeOutput(dataC, dataD, pc, m, baseN + 4, acc4);
-        if (colCount > 5) cut_writeOutput(dataC, dataD, pc, m, baseN + 5, acc5);
-        if (colCount > 6) cut_writeOutput(dataC, dataD, pc, m, baseN + 6, acc6);
-        if (colCount > 7) cut_writeOutput(dataC, dataD, pc, m, baseN + 7, acc7);
+    __shared__ float partial[WARPS_PER_WG][COLS_PER_WG];
+    if (lane == 0) {
+        partial[wy][0] = acc0; partial[wy][1] = acc1;
+        partial[wy][2] = acc2; partial[wy][3] = acc3;
+        partial[wy][4] = acc4; partial[wy][5] = acc5;
+        partial[wy][6] = acc6; partial[wy][7] = acc7;
+    }
+    __syncthreads();
+
+    if (wy == 0 && lane < COLS_PER_WG) {
+        float sum = 0.0f;
+        #pragma unroll
+        for (uint w = 0; w < WARPS_PER_WG; ++w) sum += partial[w][lane];
+        uint col = baseN + lane;
+        if (col < pc.N) cut_writeOutput(dataC, dataD, pc, m, col, sum);
     }
 }
