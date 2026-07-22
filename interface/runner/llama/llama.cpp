@@ -985,20 +985,37 @@ void LlamaModel::load(const std::string &gguf_path,
     output_weight_ = uploadWeightMaybeQuantized(reader, "output.weight", rows,
                                                 cols, lastDevice_);
   } else {
-    // Tied embeddings: the LM head lives on the last device; copy the
-    // embedding table there first if the pipeline spans devices.
-    cut::ComputeHandle embForHead = embeddingTable_;
-    if (lastDevice_ != firstDevice_) {
-      runtime_->flush(firstDevice_);
-      embForHead =
-          runtime_->transferTensor(embeddingTable_, firstDevice_, lastDevice_);
+    const auto &embInfo = reader.get_tensor_info("token_embd.weight");
+    static const bool kForceFp16Head =
+        std::getenv("CUT_FP16_LM_HEAD") != nullptr;
+    if (!kForceFp16Head && (embInfo.type == GGMLType::Q8_0 ||
+                            embInfo.type == GGMLType::Q4_0)) {
+      // Keep the tied head quantized: halves the per-token vocab-projection
+      // read (28+2 MB Q8 vs 57 MB fp16 at 49152x576) and matches the GGUF
+      // source values exactly; graphWeight() already dispatches quantized
+      // weights to the 3-input matmul. Uploads straight to lastDevice_, so
+      // no transferTensor is needed. CUT_FP16_LM_HEAD=1 forces the fp16
+      // path for A/B tests.
+      uint32_t cols = static_cast<uint32_t>(embInfo.dimensions[0]);
+      uint32_t rows = static_cast<uint32_t>(embInfo.dimensions[1]);
+      output_weight_ = uploadWeightMaybeQuantized(reader, "token_embd.weight",
+                                                  rows, cols, lastDevice_);
+    } else {
+      // Tied embeddings: the LM head lives on the last device; copy the
+      // embedding table there first if the pipeline spans devices.
+      cut::ComputeHandle embForHead = embeddingTable_;
+      if (lastDevice_ != firstDevice_) {
+        runtime_->flush(firstDevice_);
+        embForHead =
+            runtime_->transferTensor(embeddingTable_, firstDevice_, lastDevice_);
+      }
+      // fp16 LM-head weight: the tied embedding is loaded as Float32, but the
+      // vocab-projection matmul dominates decode; storing it fp16 halves that
+      // weight-read bandwidth (matmul consumes fp16 B directly).
+      output_weight_.handle = opsAt(lastDevice_)
+                                  .transpose(opsAt(lastDevice_).cast(
+                                      embForHead, cut::DataType::Float16));
     }
-    // fp16 LM-head weight: the tied embedding is loaded as Float32, but the
-    // vocab-projection matmul dominates decode; storing it fp16 halves that
-    // weight-read bandwidth (matmul consumes fp16 B directly).
-    output_weight_.handle = opsAt(lastDevice_)
-                                .transpose(opsAt(lastDevice_).cast(
-                                    embForHead, cut::DataType::Float16));
   }
 
   // Initialize KV caches with pre-allocated GPU buffers.
