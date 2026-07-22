@@ -19,6 +19,50 @@
 
 namespace gguf {
 
+// Debug knob: CUT_DISPATCH_PROFILE=1 aggregates the per-dispatch GPU timings
+// collected by Runtime::lastDispatchTimings() and prints them grouped by
+// dispatch label. Profiling also disables CUDA graph replay, so absolute
+// wall-clock shifts — read the table for relative op cost, not throughput.
+static bool dispatchProfileEnabled() {
+  static const bool on = std::getenv("CUT_DISPATCH_PROFILE") != nullptr;
+  return on;
+}
+
+// Prints "total  count  avg  share  label" rows sorted by total GPU time
+// descending, for every device that recorded timings since the last flush.
+static void dumpDispatchProfile(cut::Runtime &rt, const char *tag) {
+  for (size_t d = 0; d < rt.deviceCount(); ++d) {
+    auto timings = rt.lastDispatchTimings(d);
+    if (timings.empty())
+      continue;
+
+    std::map<std::string, std::pair<uint32_t, double>> agg;
+    double grand = 0.0;
+    for (const auto &t : timings) {
+      agg[t.label].first++;
+      agg[t.label].second += t.gpuMicros;
+      grand += t.gpuMicros;
+    }
+
+    std::vector<std::pair<std::string, std::pair<uint32_t, double>>> rows;
+    for (const auto &p : agg)
+      rows.push_back(p);
+    std::sort(rows.begin(), rows.end(), [](const auto &a, const auto &b) {
+      return a.second.second > b.second.second;
+    });
+
+    fprintf(stderr,
+            "[dispatch-profile %s] dev=%zu dispatches=%zu totalGpu=%.3fms\n",
+            tag, d, timings.size(), grand / 1000.0);
+    for (const auto &row : rows) {
+      double total = row.second.second;
+      uint32_t count = row.second.first;
+      fprintf(stderr, "  %9.3fms  %5ux  %9.2fus  %5.1f%%  %s\n", total / 1000.0,
+              count, total / count, 100.0 * total / grand, row.first.c_str());
+    }
+  }
+}
+
 // ============================================================================
 // Automatic model placement
 // ============================================================================
@@ -1709,6 +1753,8 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
                                  hiddenBuffers_[nextDev], nextDev);
       }
     }
+    if (dispatchProfileEnabled())
+      dumpDispatchProfile(*runtime_, "decode");
     return argmaxResultBuffer_;
   }
 
@@ -1885,6 +1931,8 @@ int LlamaModel::prefill(const std::vector<int> &tokens) {
 
   // Single submit + wait for the entire prefill
   runtime_->flushPendingCommands(firstDevice_);
+  if (dispatchProfileEnabled())
+    dumpDispatchProfile(*runtime_, "prefill-per-token");
 
   // Read back the argmax result (4 bytes)
   float best = 0.0f;
@@ -2098,6 +2146,9 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
   runtime_->flushPendingCommands(lastDevice_);
 
   auto tAfterFlush = std::chrono::high_resolution_clock::now();
+
+  if (dispatchProfileEnabled())
+    dumpDispatchProfile(*runtime_, "prefill");
 
   float best = 0.0f;
   runtime_->copyFromTensor(argmaxResultBuffer_, &best, sizeof(float), 0, 0,

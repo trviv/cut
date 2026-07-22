@@ -97,6 +97,13 @@ int main(int argc, char *argv[]) {
     // still win.
     gguf::autoPlaceModel(runtime, filePath);
 
+    // Enable GPU profiling before load(): load() warms and CUDA-graph-captures
+    // the reusable decode/prefill command buffers, and a captured graph records
+    // no per-kernel events.
+    if (std::getenv("CUT_PROFILE") || std::getenv("CUT_DISPATCH_PROFILE")) {
+      runtime.setProfilingEnabled(true);
+    }
+
     // Load model
     gguf::LlamaModel model;
     model.load(filePath, runtime, ctxSize);
@@ -149,9 +156,6 @@ int main(int argc, char *argv[]) {
 
     std::cout << "Generating " << max_new_tokens
               << " tokens (repeat_penalty=" << repeat_penalty << ")...\n";
-    if (std::getenv("CUT_PROFILE")) {
-      model.setProfilingEnabled(true);
-    }
     const int forceMin = noStop ? max_new_tokens : -1;
     gguf::GenerationResult result;
     if (benchRuns <= 0) {

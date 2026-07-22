@@ -515,7 +515,14 @@ static void benchQuantMatMul(Runtime &rt, int warmup, int iters, std::ostream &j
     uint32_t M, K, N;
   };
   std::vector<Shape> shapes = {
-      {1, 2048, 2048}, {1, 4096, 4096}, {1, 4096, 11008}
+      // Decode (M=1) — unchanged, keeps existing tuning rules comparable.
+      {1, 2048, 2048},   {1, 4096, 4096},   {1, 4096, 11008},
+      // Prefill (M > 1): attention projections and FFN gate/up at the
+      // prompt lengths the llama runner actually sees.
+      {8, 2048, 2048},   {8, 2048, 5632},
+      {32, 2048, 2048},  {32, 2048, 5632},
+      {128, 2048, 2048}, {128, 2048, 5632},
+      {512, 2048, 2048}, {512, 2048, 5632},
   };
 
   json << "    \"QuantMatMul\": {\n";
@@ -548,22 +555,26 @@ static void benchQuantMatMul(Runtime &rt, int warmup, int iters, std::ostream &j
     std::vector<std::tuple<int, Stat, double>> q8Results;
     for (int vi = 0; vi < kMatMulQ8VariantCount; ++vi) {
       const char *name = getMatMulQ8VariantName(vi);
-      if (std::string(name).find("CoopMat") != std::string::npos)
-        continue;
       if (!getCompiledMatMulQ8(vi, DataType::Float32, DataType::Float16,
                                DataType::Float32)
                .has_value())
         continue;
 
-      Stat st = timeOpGpu(
-          rt,
-          [&]() {
-            auto bufA = rt.createTensor({s.M, s.K}, DataType::Float32, hostA.data());
-            auto bufB = rt.createTensor({s.K, s.N}, DataType::Int8, q8B.data());
-            auto bufS = rt.createTensor({s.K / 32, s.N}, DataType::Float16, scales.data());
-            rt.ops().matmul(bufA, bufB, bufS, vi);
-          },
-          warmup, iters);
+      Stat st;
+      try {
+        st = timeOpGpu(
+            rt,
+            [&]() {
+              auto bufA = rt.createTensor({s.M, s.K}, DataType::Float32, hostA.data());
+              auto bufB = rt.createTensor({s.K, s.N}, DataType::Int8, q8B.data());
+              auto bufS = rt.createTensor({s.K / 32, s.N}, DataType::Float16, scales.data());
+              rt.ops().matmul(bufA, bufB, bufS, vi);
+            },
+            warmup, iters);
+      } catch (const std::exception &e) {
+        std::cerr << " [skip " << name << ": " << e.what() << "]" << std::flush;
+        continue;
+      }
 
       double gflops = (st.medianUs > 0) ? (2.0 * s.M * s.K * s.N) / (st.medianUs * 1e3) : 0.0;
       q8Results.push_back({vi, st, gflops});
@@ -581,27 +592,73 @@ static void benchQuantMatMul(Runtime &rt, int warmup, int iters, std::ostream &j
     }
     json << "          ],\n";
 
+    // Q8 with a fused SiLU epilogue — the FFN gate projection's call shape.
+    // A fused epilogue makes the runtime fall back off the cooperative-matrix
+    // variant, so these numbers are what prefill actually pays.
+    json << "          \"q8_silu\": [\n";
+    std::vector<std::tuple<int, Stat, double>> q8SiluResults;
+    for (int vi = 0; vi < kMatMulQ8VariantCount; ++vi) {
+      const char *name = getMatMulQ8VariantName(vi);
+      if (!getCompiledMatMulQ8(vi, DataType::Float32, DataType::Float16,
+                               DataType::Float32)
+               .has_value())
+        continue;
+      Stat st;
+      try {
+        st = timeOpGpu(
+            rt,
+            [&]() {
+              auto bufA = rt.createTensor({s.M, s.K}, DataType::Float32, hostA.data());
+              auto bufB = rt.createTensor({s.K, s.N}, DataType::Int8, q8B.data());
+              auto bufS = rt.createTensor({s.K / 32, s.N}, DataType::Float16, scales.data());
+              rt.ops().matmulUnary(UnarySilu, bufA, bufB, bufS, vi);
+            },
+            warmup, iters);
+      } catch (const std::exception &e) {
+        std::cerr << " [skip silu " << name << ": " << e.what() << "]" << std::flush;
+        continue;
+      }
+      double gflops = (st.medianUs > 0) ? (2.0 * s.M * s.K * s.N) / (st.medianUs * 1e3) : 0.0;
+      q8SiluResults.push_back({vi, st, gflops});
+    }
+    for (size_t ri = 0; ri < q8SiluResults.size(); ++ri) {
+      const auto &r = q8SiluResults[ri];
+      json << "            {\"variant\": " << std::get<0>(r) << ", \"name\": \""
+           << escapeJson(getMatMulQ8VariantName(std::get<0>(r))) << "\""
+           << ", \"median_us\": " << std::fixed << std::setprecision(4)
+           << std::get<1>(r).medianUs
+           << ", \"gflops\": " << std::setprecision(2) << std::get<2>(r) << "}";
+      if (ri < q8SiluResults.size() - 1)
+        json << ",";
+      json << "\n";
+    }
+    json << "          ],\n";
+
     // Q4
     json << "          \"q4\": [\n";
     std::vector<std::tuple<int, Stat, double>> q4Results;
     for (int vi = 0; vi < kMatMulQ4VariantCount; ++vi) {
       const char *name = getMatMulQ4VariantName(vi);
-      if (std::string(name).find("CoopMat") != std::string::npos)
-        continue;
       if (!getCompiledMatMulQ4(vi, DataType::Float32, DataType::Float16,
                                DataType::Float32)
                .has_value())
         continue;
 
-      Stat st = timeOpGpu(
-          rt,
-          [&]() {
-            auto bufA = rt.createTensor({s.M, s.K}, DataType::Float32, hostA.data());
-            auto bufB = rt.createTensor({s.K, s.N / 2}, DataType::Int8, q4B.data());
-            auto bufS = rt.createTensor({s.K / 32, s.N}, DataType::Float16, scales.data());
-            rt.ops().matmul(bufA, bufB, bufS, vi);
-          },
-          warmup, iters);
+      Stat st;
+      try {
+        st = timeOpGpu(
+            rt,
+            [&]() {
+              auto bufA = rt.createTensor({s.M, s.K}, DataType::Float32, hostA.data());
+              auto bufB = rt.createTensor({s.K, s.N / 2}, DataType::Int8, q4B.data());
+              auto bufS = rt.createTensor({s.K / 32, s.N}, DataType::Float16, scales.data());
+              rt.ops().matmul(bufA, bufB, bufS, vi);
+            },
+            warmup, iters);
+      } catch (const std::exception &e) {
+        std::cerr << " [skip " << name << ": " << e.what() << "]" << std::flush;
+        continue;
+      }
 
       double gflops = (st.medianUs > 0) ? (2.0 * s.M * s.K * s.N) / (st.medianUs * 1e3) : 0.0;
       q4Results.push_back({vi, st, gflops});
