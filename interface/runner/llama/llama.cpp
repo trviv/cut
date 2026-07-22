@@ -554,6 +554,20 @@ static bool weightFusionDisabled() {
 
 // Requantization of non-native quant types to Q8_0 at load. Debug knob:
 // CUT_NO_REQUANT=1 restores the old dequantize-to-fp16 behavior.
+// Debug knob: CUT_FFN_WEIGHT_FUSION=1 enables the fused gate+up weight.
+// Unlike the fused QKV weight, a fused gate+up does NOT replace the separate
+// gate and up weights: prefillBatched cannot split a [N, 2*ffn] matmul result
+// into its halves (slice() is 1D and view-only), so it keeps using the separate
+// pair and both copies stay resident for the whole run.
+// Measured on an RTX 3090, dropping it cut peak VRAM 24-30% and left decode
+// unchanged or faster (up to +10.6% on Llama-3.2-1B-f16), so it is off by
+// default. It becomes worth enabling again once prefill can consume a fused
+// gate+up weight directly.
+static bool ffnWeightFusionEnabled() {
+  static const bool enabled = std::getenv("CUT_FFN_WEIGHT_FUSION") != nullptr;
+  return enabled;
+}
+
 static bool requantDisabled() {
   static const bool disabled = std::getenv("CUT_NO_REQUANT") != nullptr;
   return disabled;
@@ -1061,9 +1075,11 @@ void LlamaModel::load(const std::string &gguf_path,
       const auto &gi = reader.get_tensor_info(blk + "ffn_gate.weight");
       const auto &ui = reader.get_tensor_info(blk + "ffn_up.weight");
       // Prefer Q8 fusion when the whole group is Q8-able (see QKV above).
-      bool canFuseFFNQ8 = !weightFusionDisabled() &&
-                          isQ8able(gi.type) && isQ8able(ui.type);
-      bool canFuseFFN = !weightFusionDisabled() && !canFuseFFNQ8 &&
+      const bool ffnFusionAllowed =
+          !weightFusionDisabled() && ffnWeightFusionEnabled();
+      bool canFuseFFNQ8 =
+          ffnFusionAllowed && isQ8able(gi.type) && isQ8able(ui.type);
+      bool canFuseFFN = ffnFusionAllowed && !canFuseFFNQ8 &&
                         groupFusable({gi.type, ui.type});
 
       if (canFuseFFN) {
