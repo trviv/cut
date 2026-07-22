@@ -1929,24 +1929,37 @@ GenerationResult LlamaModel::generate(const std::vector<int> &prompt_tokens,
     return result;
   }
 
-  // Autoregressive generation
+  // Autoregressive generation.
+  // CUT_BENCH_SYNTHETIC makes decode measure pure forward-pass throughput to
+  // match llama.cpp's llama-bench tg test: skip the per-token penalty upload,
+  // the argmax readback, per-token printing, and the early-stop check — feed a
+  // fixed token and run the full length. forward() (the real per-token model
+  // work) is unchanged.
+  static const bool kBenchSynthetic = std::getenv("CUT_BENCH_SYNTHETIC") != nullptr;
   auto genStart = std::chrono::high_resolution_clock::now();
   for (int step = 0; step < max_new_tokens - 1; ++step) {
     int pos = static_cast<int>(prompt_tokens.size()) + step;
 
-    // Upload penalty factors before forward (staged, flushed by resubmit)
-    uploadPenaltyFactors(generatedCount < minNewTokens);
+    if (!kBenchSynthetic) {
+      // Upload penalty factors before forward (staged, flushed by resubmit)
+      uploadPenaltyFactors(generatedCount < minNewTokens);
+    }
 
     auto argmaxBuf = forward(next_token, pos);
 
-    next_token = readArgmax(argmaxBuf);
+    if (!kBenchSynthetic) {
+      next_token = readArgmax(argmaxBuf);
+    }
+    (void)argmaxBuf;
+
     generatedCount++;
     tokens.push_back(next_token);
 
-    std::cout << "Generated token: " << next_token << "\n";
-
-    if (isStopToken(next_token) && generatedCount >= minNewTokens) {
-      break;
+    if (!kBenchSynthetic) {
+      std::cout << "Generated token: " << next_token << "\n";
+      if (isStopToken(next_token) && generatedCount >= minNewTokens) {
+        break;
+      }
     }
   }
   auto genEnd = std::chrono::high_resolution_clock::now();

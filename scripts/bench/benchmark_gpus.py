@@ -230,13 +230,17 @@ def enumerate_gpus(cut_binary: str, llama_vk_bench: str) -> List[Dict[str, Any]]
 
     return sorted(gpus, key=sort_key)
 
-def run_cut(cut_binary: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5, warmup: int = 1) -> Optional[Dict[str, Any]]:
+def run_cut(cut_binary: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5, warmup: int = 1, synthetic: bool = True) -> Optional[Dict[str, Any]]:
     """Run CUT with specified backend and device index."""
     if not os.path.exists(cut_binary):
         return None
 
     env = os.environ.copy()
     env["CUT_DEVICES"] = f"{backend}:{dev_idx}"
+    if synthetic:
+        # Match llama-bench's tg test: decode measures pure forward-pass
+        # throughput (skip per-token penalty upload, argmax readback, printing).
+        env["CUT_BENCH_SYNTHETIC"] = "1"
 
     cmd = [cut_binary, model, str(max_tokens)]
     if runs > 0:
@@ -528,6 +532,11 @@ def main():
                         help="Path to llama.cpp build directory")
     parser.add_argument("--skip-igpu", action="store_true",
                         help="Skip integrated GPUs")
+    parser.add_argument("--cut-real-gen", action="store_true",
+                        help="Measure CUT with real generation (sampling + argmax readback) "
+                             "instead of the synthetic bench mode that matches llama-bench. "
+                             "Note: on Vulkan this lowers CUT decode ~30%% due to per-token "
+                             "sampling overhead llama-bench does not incur.")
     parser.add_argument("--cpu", action="store_true",
                         help="Also run llama.cpp CPU baseline")
     parser.add_argument("--json", type=str,
@@ -586,7 +595,10 @@ def main():
     print(f"CUT binary: {cut_binary}")
     print(f"Methodology: {args.warmup} warmup + {args.runs} timed runs per measurement, median reported. "
           f"CUT uses in-process reps (gguf_example --bench-runs); llama-bench uses -r {args.runs} with "
-          f"its own warmup and we take the median of per-rep samples. both decode the full {args.max_tokens} tokens (CUT runs with --no-stop; llama-bench -n), so tg is a fair comparison. Decode/tg tok/s is the primary metric.")
+          f"its own warmup and we take the median of per-rep samples. both decode the full {args.max_tokens} tokens (CUT runs with --no-stop; llama-bench -n), so tg is a fair comparison. Decode/tg tok/s is the primary metric. "
+          f"By default CUT runs in synthetic bench mode (CUT_BENCH_SYNTHETIC) so its decode measures "
+          f"pure forward-pass throughput like llama-bench (no sampling/readback); pass --cut-real-gen to "
+          f"measure real end-to-end generation instead.")
     print()
 
     # Enumerate GPUs
@@ -624,7 +636,7 @@ def main():
                 if cut_dev_idx is not None:
                     label = f"CUT {backend.upper()}"
                     print(f"{label}:")
-                    info = run_cut(cut_binary, model_path, backend, cut_dev_idx, args.max_tokens, args.runs, args.warmup)
+                    info = run_cut(cut_binary, model_path, backend, cut_dev_idx, args.max_tokens, args.runs, args.warmup, synthetic=not args.cut_real_gen)
                     if info:
                         print_result(info, has_split=True)
                         gpu_results[label] = info
