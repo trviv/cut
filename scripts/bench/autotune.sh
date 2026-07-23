@@ -28,7 +28,7 @@ cmake --build "$BUILD_DIR" --target autotune 2>&1 | tail -3
 
 echo "==> Running autotune (warmup=${WARMUP}, iterations=${ITERATIONS})..."
 echo "    This may take several minutes depending on GPU."
-"${BUILD_DIR}/benchmarks/autotune" "$WARMUP" "$ITERATIONS" "$RAW_OUTPUT"
+"${BUILD_DIR}/benchmarks/autotune/autotune" "$WARMUP" "$ITERATIONS" "$RAW_OUTPUT"
 
 echo "==> Deriving selection rules..."
 python3 "${SCRIPT_DIR}/derive_rules.py" "$RAW_OUTPUT" --output "$OUTPUT"

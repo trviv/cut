@@ -6,8 +6,8 @@ file with threshold-based selection rules that the runtime can load.
 
 Usage:
     # produce one raw file per backend:
-    CUT_BENCH_BACKEND=cuda ./build-cuda-rel/benchmarks/autotune 3 8 cuda_raw.json
-    ./build/benchmarks/autotune 3 8 vulkan_raw.json
+    CUT_BENCH_BACKEND=cuda ./build-cuda-rel/benchmarks/autotune/autotune 3 8 cuda_raw.json
+    ./build/benchmarks/autotune/autotune 3 8 vulkan_raw.json
     # merge into one backend-aware tuning_data.json:
     python3 scripts/bench/derive_rules.py cuda_raw.json vulkan_raw.json --output tuning_data.json
 """

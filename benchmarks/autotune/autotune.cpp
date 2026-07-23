@@ -6,7 +6,7 @@
 ///
 /// Usage:
 ///   cmake --build build --target autotune
-///   ./build/benchmarks/autotune [warmup] [iterations] [output_file]
+///   ./build/benchmarks/autotune/autotune [warmup] [iterations] [output_file]
 ///
 /// Output: JSON written to output_file (default: autotune_raw.json).
 /// Progress is printed to stderr.

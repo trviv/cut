@@ -7,7 +7,7 @@
 ///
 /// Usage:
 ///   cmake --build build --target matmul_autotune
-///   ./build/benchmarks/matmul_autotune [warmup] [iterations]
+///   ./build/benchmarks/autotune/matmul_autotune [warmup] [iterations]
 ///
 /// Output: CSV to stdout with columns:
 ///   M, K, N, best_variant, best_variant_name, best_ms, default_ms, speedup

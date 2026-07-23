@@ -110,7 +110,8 @@ cut/
 ├── examples/                 # Standalone inference scripts (gguf, safetensor, llm)
 ├── tests/                    # C++ Google Test suite
 │   ├── api/, runtime/, vulkan/, combined/, graph/
-├── benchmarks/               # C++ benchmarks (matmul autotune, end-to-end)
+├── benchmarks/               # C++ benchmarks (end-to-end, per-operator)
+│   └── autotune/             # Variant sweeps that build the dispatch table
 ├── docs/                     # Reference docs (operators.md, pytorch_comparison.md)
 └── scripts/                  # Build, format, benchmark helpers
 ```
