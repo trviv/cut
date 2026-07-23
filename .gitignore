@@ -25,3 +25,4 @@ operators/runtime/cuda/CompiledCudaKernels.cpp
 # ~/.cut/ and next to the executable.
 tuning_data.json
 autotune_raw.json
+vendor_bench_results/
