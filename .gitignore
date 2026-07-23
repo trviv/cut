@@ -19,3 +19,9 @@ CLAUDE.md
 operators/runtime/cuda/CompiledCudaKernels.cpp
 /build-release/
 /build-cuda-rel/
+
+# Autotune output: machine-specific variant selection rules.
+# Generate with scripts/bench/autotune.sh; the runtime also looks for it in
+# ~/.cut/ and next to the executable.
+tuning_data.json
+autotune_raw.json
