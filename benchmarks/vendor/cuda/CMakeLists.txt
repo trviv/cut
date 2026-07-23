@@ -150,8 +150,31 @@ if(CUDNN_INCLUDE_DIR AND CUDNN_LIBRARY)
     # directory at runtime, so that directory has to be on the rpath too.
     set_target_properties(cudnn_softmax_bench PROPERTIES
         BUILD_RPATH "${CUBLAS_LIB_DIR};${CUDNN_LIB_DIR}")
+
+    add_executable(cudnn_conv_bench
+        cudnn_conv_bench.cpp
+    )
+    target_include_directories(cudnn_conv_bench PRIVATE
+        ${BENCH_INCLUDE_DIRS}
+        ${VENDOR_BENCH_COMMON}
+        ${CUBLAS_INCLUDE_DIR}
+        ${CUDNN_INCLUDE_DIR}
+    )
+    target_link_libraries(cudnn_conv_bench PRIVATE
+        benchmark::benchmark
+        CUTLib
+        ${CUDNN_LIBRARY}
+        ${CUDART_LIBRARY}
+    )
+    # cuDNN 9 marks the whole legacy convolution API deprecated in favour of the
+    # graph API, which has no equivalent one-call forward convolution. Until
+    # that is ported, the deprecation warnings are noise on every line.
+    target_compile_options(cudnn_conv_bench PRIVATE -O2
+        -Wno-deprecated-declarations)
+    set_target_properties(cudnn_conv_bench PROPERTIES
+        BUILD_RPATH "${CUBLAS_LIB_DIR};${CUDNN_LIB_DIR}")
 else()
-    message(STATUS "vendor/cuda: cudnn_softmax_bench skipped (cuDNN not found)")
+    message(STATUS "vendor/cuda: cudnn benches skipped (cuDNN not found)")
 endif()
 
 # --- CUB scan/sort ---------------------------------------------------------
