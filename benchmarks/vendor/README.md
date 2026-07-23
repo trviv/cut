@@ -16,9 +16,11 @@ choice.
 vendor/
 ├── common/VendorBench.h          Backend-neutral harness over Google Benchmark
 ├── cuda/
+│   ├── CudaBenchCommon.h         CUDA-only helpers: event timing, VRAM budget, sampling
 │   ├── cublas_matmul_bench.cpp   f32 GEMM/GEMV vs cuBLAS
 │   ├── cublas_extras_bench.cpp   f16 GEMM vs cublasGemmEx, transpose vs cublasSgeam
 │   ├── cudnn_softmax_bench.cpp   softmax vs cudnnSoftmaxForward
+│   ├── cudnn_conv_bench.cpp      conv2d vs cudnnConvolutionForward
 │   ├── cub_scan_sort_bench.cpp   scan + radix sort vs CUB
 │   └── cub_wrappers.cu           CUB behind a C ABI (needs nvcc)
 └── amd/
@@ -32,9 +34,10 @@ vendor/
 include it. It wraps Google Benchmark: `registerPair` registers the two halves of
 one comparison, and the vendor half is handed in as a `TimedFn` — a
 `std::function<double()>` that runs one launch and returns its GPU milliseconds.
-That indirection is what keeps the header vendor-neutral; the CUDA-event
-`cudaTimed` and the HIP-event `hipTimed` factories live in the executables that
-use them.
+That indirection is what keeps the header vendor-neutral; the HIP-event
+`hipTimed` factory lives in the executables that use it, and the CUDA-event
+`cudaTimed` in `cuda/CudaBenchCommon.h` alongside the other CUDA-only helpers
+the model-scale cases need.
 
 Google Benchmark supplies `benchmark::benchmark`, found with `find_package` and
 fetched from GitHub (v1.9.1) if absent — the same pattern `tests/` uses for Google
@@ -71,9 +74,53 @@ benches simply report `skipped (not built)`. A benchmark that fails is reported 
 the rest still run; the script exits nonzero if any did.
 
 Useful flags: `--quick` (skip the two largest `sort_radix` sizes — see below),
-`--repetitions N` (default 3), `--filter REGEX`, `--min-time T`, `--no-build`,
-`--build-dir DIR`, `--out-dir DIR`. Per-benchmark JSON lands in `--out-dir`
-(default `vendor_bench_results/`).
+`--no-large` (skip the model-scale cases — see below), `--repetitions N`
+(default 3), `--filter REGEX`, `--min-time T`, `--no-build`, `--build-dir DIR`,
+`--out-dir DIR`. Per-benchmark JSON lands in `--out-dir` (default
+`vendor_bench_results/`).
+
+### The model-scale cases
+
+Alongside the round-number shapes, each bench carries a tier of cases lifted
+from real networks at real batch sizes: `hgemm_large`, `transpose_large`,
+`softmax_large`, and every case in `cudnn_conv_bench`. They are named after
+where they come from — `llama3-8b-ffn-up`, `flux-dit-mlp`,
+`sd-vae-decoder-128ch-2048px` — because "M=32768 K=4096 N=28672" is a fact
+about a matrix and "the Llama-3-8B fused gate/up projection over a 32k-token
+batch" is a fact about a workload.
+
+The models they come from are the 10-20 GB class: Llama-3-8B and Llama-2-13B,
+Qwen2.5-14B, FLUX.1, SD3.5-Large, ViT-g/14, the Stable Diffusion VAE. The cases
+themselves hold **2-20 GB of VRAM**, which is the point — an operator that
+looks fine on a 4096² buffer is being asked here whether it still holds up when
+nothing fits in any cache.
+
+Three consequences worth knowing before running them:
+
+- **They are slow.** A single `hgemm_large` iteration runs for 0.6 s at the
+  largest shape and a `conv2d` iteration for 2.5 s, so the full model-scale
+  tier is minutes rather than seconds. `--no-large` drops it.
+- **Only one is resident at a time.** Operands are built on first use and freed
+  when the next case needs the memory (`registerPairLazy`), so a binary that
+  registers a dozen 10-GB cases still only ever holds one. Google Benchmark runs
+  benchmarks in registration order and both halves of a pair are adjacent, so
+  the CUT half builds the case, the vendor half reuses it, and repetitions reuse
+  it too — a multi-GB upload happens once per case, not once per repetition.
+- **Cases that do not fit are skipped, loudly.** Each one declares its footprint
+  and is checked against what is actually free at startup, less headroom. On a
+  smaller card the table is shorter and stderr says exactly which cases went and
+  why. `CUT_VENDOR_BENCH_VRAM_GB=8` forces a budget, which is how to reproduce
+  another card's selection — or to check that the skip path still works without
+  finding a smaller GPU.
+
+```bash
+# Just the model-scale GEMMs, with aggregates
+./build-cuda-rel/benchmarks/vendor/cuda/cublas_extras_bench \
+    --benchmark_filter='hgemm_large' --benchmark_repetitions=3
+
+# Everything except the model-scale tier
+./scripts/bench/vendor_bench.sh --no-large
+```
 
 **A full run is slow, and it is CUT's fault.** The multi-pass `sortRadix` takes
 783 ms per call at N=1M and ~13 s at N=16M, against CUB's 0.14 ms and 1.48 ms, so
@@ -156,7 +203,10 @@ Getting this comparison honest matters more than getting it favourable.
   `--benchmark_repetitions`. Each benchmark body also does three untimed calls
   first, which absorb CUT's one-time kernel compilation — Google Benchmark's
   iteration-count estimation has no way to know that first call should be
-  discarded.
+  discarded. The model-scale cases turn that down to one warmup and pin their
+  iteration count: at 0.6 s a call, three warmups cost more than the
+  measurement, and each issue allocates a multi-GB output tensor whose host-side
+  cost the manual-time loop cannot see.
 - **Setup is hoisted out of the timed region.** Operands are uploaded once at
   registration and the timed callable is the dispatch alone. This matters twice
   over: the vendor side uploads its operands once, so leaving CUT to re-upload
@@ -177,6 +227,22 @@ Getting this comparison honest matters more than getting it favourable.
   magnitude of the reference output: without it, two silently-empty buffers would
   agree perfectly, and a benchmark that can report a false pass is worse than
   useless. A zero `ref_mag` makes the case fail loudly via `SkipWithError`.
+- **Above ~12M elements the check is sampled, not exhaustive.** The largest
+  output in the suite is nearly two billion elements; holding both sides of it
+  on the host as f32 would cost more memory than the GPU side of the whole
+  benchmark. `planSample` reads a bounded prefix, middle and suffix from both
+  sides at identical offsets instead. This is a real weakening — a kernel that
+  is wrong only in the unsampled region would pass — but a GEMM that is wrong is
+  essentially never wrong only there, and the alternative was not checking the
+  large cases at all. Small cases are still compared element for element.
+- **A case declares what it holds.** `CaseSpec::footprintBytes` is reported as
+  the `vram_gb` counter and is what the budget check gates on. It is not always
+  a sum of the obvious buffers: CUT's `softmax` is a composition that
+  materialises the broadcast max, the shifted input and the exponentials at full
+  size, so the softmax cases charge eight times their element count and not
+  four. That multiplier is measured against `nvidia-smi`, not counted off the
+  source — a case sized as though CUT needed only an input and an output aborted
+  the run at 21 GB resident.
 - **The rate column adapts to the operator.** Set `CaseSpec::flops` for
   compute-bound ops and `CaseSpec::bytes` for memory-bound ones; the counter then
   reads `FLOPS` or `bytes_per_second`. Scan and sort are bandwidth-bound, so
@@ -216,11 +282,11 @@ for a layout conversion CUT never performs.
 | f16 GEMM / GEMV | cuBLAS `cublasGemmEx` | rocBLAS `rocblas_hgemm` | NVIDIA done; AMD not yet |
 | Transpose | cuBLAS `cublasSgeam` | rocBLAS `rocblas_sgeam` | NVIDIA done; AMD not yet |
 | Softmax | cuDNN `cudnnSoftmaxForward` | MIOpen `miopenSoftmaxForward` | NVIDIA done; AMD not yet |
+| Conv2D | cuDNN `cudnnConvolutionForward` | MIOpen `miopenConvolutionForward` | NVIDIA done; AMD not yet |
 | Prefix scan (incl/excl) | CUB `DeviceScan` | rocPRIM `inclusive_scan` / `exclusive_scan` | both written |
 | Radix sort (key+value) | CUB `DeviceRadixSort::SortPairs` | rocPRIM `radix_sort_pairs` | both written |
 | RMSNorm / LayerNorm | — | — | no legacy-API vendor equivalent; cuDNN v9 exposes normalization only through the graph API, so this needs a hand-written bandwidth-peak reference rather than a library call |
 | Quantized matmul (Q4/Q8) | — | — | no direct vendor equivalent; compare against dequant + SGEMM |
-| Conv2D | cuDNN | MIOpen | not yet |
 | KNN / brute-force search | cuVS (RAFT) or FAISS | — | not yet — CUT has no KNN operator; it would be composed from matmul + topk over `impl/sort` |
 
 **The AMD sources have never been compiled or run** — this machine has no ROCm
@@ -311,11 +377,59 @@ GPU-timestamp column these numbers come from.
   tensors once and refills them via `copyToTensor`, leaving the sort kernels
   alone in the measurement.
 
+### Model-scale findings
+
+Same machine and method, median across `--benchmark_repetitions=3`. `cv` is
+under 1% on every case in this tier — well under the differences below — so
+these ratios are solid despite each case running only three iterations.
+
+- **f16 GEMM lands at 0.32-0.35x cuBLAS on every model shape**, without
+  exception across eleven of them: 25-27.6 TFLOPS against cuBLAS's 76-79.4.
+  This is the same gap the round-number shapes show at 4096³ (0.38x) and the
+  same cause — cuBLAS is on tensor cores, CUT is not — but the model shapes make
+  it much better behaved. Where the small table swings from 0.17x to 0.41x
+  depending on shape, every real projection here sits in a three-point band,
+  from a 32k x 4096 x 6144 fused QKV to a 65536 x 4096 x 28672 FFN forty times
+  its size. Nothing about being large, skinny, or vocabulary-wide moves it.
+  Aspect ratio does not matter, and neither does the 16.6 GB working set of the
+  largest case: **CUT's f16 GEMM is at a flat third of cuBLAS and the missing
+  factor of three is tensor cores.**
+- **Transpose stays at parity right up to a 17 GB working set**: 0.98x at 8k²
+  through 32k x 16k, and 1.00x at 32768², where both sides reach 821 GB/s — 88%
+  of the 3090's 936 GB/s peak. Bit-exact throughout. This is the one operator
+  that gains nothing from being given a bigger problem, because it was already
+  saturated.
+- **Softmax is 0.07-0.11x cuDNN at model scale**, against 0.01-0.04x on the
+  small shapes — and CUT did not improve. CUT holds 23-33 GB/s here, the same
+  21-33 GB/s it manages on the small shapes; what changed is cuDNN, which falls
+  from 712-819 GB/s to 293-333 GB/s once the buffers stop fitting in cache. Read
+  the absolute rate, not the ratio: CUT is ~4% of achievable bandwidth on an
+  operator that is pure bandwidth, at every size tried.
+- **Conv2D is 0.03-0.04x cuDNN across every vision shape** — patch embedding,
+  U-Net 3x3, VAE decoder, ResNet block, 1x1 projection. CUT holds 0.63-1.31
+  TFLOPS against cuDNN's 19.6-41.3, a 25-33x gap that is remarkably insensitive
+  to shape. The 1x1 projection is the worst case at 629 GFLOPS, which is telling:
+  a 1x1 convolution *is* a GEMM, and CUT's own f32 matmul does 15.4 TFLOPS at
+  4096³ — 24 times faster on the same arithmetic at the same precision. The gap
+  is the convolution path, not the hardware. Numerically CUT is fine
+  (`max_diff` 0 to 9.3e-04 against `ref_mag` 4-28).
+- **CUT's conv2d cannot dispatch past 1,048,560 output rows** (N x C_out x
+  H_out). The default variant linearises those three onto the grid's y axis in
+  blocks of 16, and CUDA caps `gridDim.y` at 65535, so crossing it is a
+  `CUDA_ERROR_INVALID_VALUE` from `cuLaunchKernel` — not a fallback, not a
+  slower path. This binds long before memory does on the shapes vision models
+  actually use: a ViT-L/14 patch embedding at batch 512 wants 8.4M rows, eight
+  times the limit, and even batch 64 is sixteen rows over. Every conv case here
+  is sized under the ceiling and `cudnn_conv_bench` skips anything above it with
+  a message rather than crashing, but the fix belongs in `Conv2DOpNode` —
+  folding the batch into a second grid axis, or tiling the y axis.
+
 ## Adding an operator
 
 1. Add a source next to its vendor's siblings (`cuda/`, `amd/`).
-2. Include `VendorBench.h`. Copy `cudaTimed` (or `hipTimed`) from a sibling —
-   it wraps one vendor launch in an event pair and returns its GPU milliseconds.
+2. On CUDA, include `CudaBenchCommon.h` for `cudaTimed` and the model-scale
+   helpers; on HIP, copy `hipTimed` from a sibling. Either wraps one vendor
+   launch in an event pair and returns its GPU milliseconds.
 3. Write one `register<Op>Case` per shape. Upload both sides' operands **once**,
    before any timing, and make the CUT issue lambda the dispatch alone. Capture
    `Runtime` by reference and everything else by value: registration happens in
@@ -335,3 +449,23 @@ GPU-timestamp column these numbers come from.
 8. Register the target in that directory's `CMakeLists.txt`, linking
    `benchmark::benchmark`, guarded by a `find_*` so a missing SDK skips rather
    than breaks the build.
+
+### Adding a model-scale case
+
+Same shape of code, four differences:
+
+1. Call `registerPairLazy` with a factory instead of `registerPair` with
+   operands. The factory allocates, uploads, runs the correctness check, and
+   returns a `LazyCase`; it is called on first use and its `release` runs when
+   the next lazy case needs the memory. Install `release` as soon as the device
+   pointers exist, so an early return still frees them.
+2. Allocate with `tryDeviceAlloc`, which returns null instead of aborting, and
+   return an empty `shared_ptr` if it does — the case is then skipped rather
+   than taking the run down with it.
+3. Set `footprintBytes` to everything the case holds **on both sides**, and gate
+   registration on `fitsVramBudget`. Measure the number rather than deriving it
+   from the obvious buffers if the CUT op is a composition: check the case
+   against `nvidia-smi` once and use what you see.
+4. Set `warmupIterations = 1` and pin `iterations`, and use `planSample` /
+   `sampleTensor` / `sampleDeviceFloats` for the correctness check rather than
+   reading whole buffers back.
