@@ -238,19 +238,25 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   } else if (shouldUseCoopMat(store.caps(), dtypeA_, dtypeB_, M_, K_, N_)) {
     // Cooperative matrix variant — use tiled (2×2) for larger matrices
     spec_ = (M_ >= 32 && N_ >= 32) ? kCoopMatTiledVariant : kCoopMatVariant;
-  } else {
+  } else if (dtypeA_ == DataType::Float32 && dtypeB_ == DataType::Float32) {
     // Data-driven per-backend selection (exact-shape tuning data); falls back
     // to the built-in shape heuristic (fusionFallbackSpec_) when no rule matches.
     int sel = VariantSelector::instance().select(
         "MatMul", {M_, K_, N_}, fusionFallbackSpec_,
         backendName(store.caps().backend));
-    // The tuning data is measured in fp32; a selected variant may not have a
-    // compiled shader for these operand dtypes (e.g. fp16 B). Fall back to the
-    // built-in heuristic variant, which is always available, if so. This
-    // mirrors the non-coopmat lookup in shader().
+    // A selected variant may still have no compiled shader for these operand
+    // dtypes. Fall back to the built-in heuristic variant, which is always
+    // available, if so. This mirrors the non-coopmat lookup in shader().
     if (!getCompiledMatMul(sel, dtypeA_, dtypeB_, dtypeA_).has_value())
       sel = fusionFallbackSpec_;
     spec_ = sel;
+  } else {
+    // Autotune measures MatMul with Float32 A and B and derives rules keyed on
+    // {M, K, N} with no dtype condition, so applying them to another dtype pair
+    // picks a variant that was never measured for it. The unquantized llama
+    // path is Float32 activation x Float16 weight, where that cost up to 35% of
+    // decode. Use the built-in heuristic, which accounts for the dtypes.
+    spec_ = fusionFallbackSpec_;
   }
   inputs_ = {a, b};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
