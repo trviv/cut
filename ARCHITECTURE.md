@@ -111,7 +111,8 @@ cut/
 ├── tests/                    # C++ Google Test suite
 │   ├── api/, runtime/, vulkan/, combined/, graph/
 ├── benchmarks/               # C++ benchmarks (end-to-end, per-operator)
-│   └── autotune/             # Variant sweeps that build the dispatch table
+│   ├── autotune/             # Variant sweeps that build the dispatch table
+│   └── vendor/               # CUT vs cuBLAS/rocBLAS on crucial operations
 ├── docs/                     # Reference docs (operators.md, pytorch_comparison.md)
 └── scripts/                  # Build, format, benchmark helpers
 ```

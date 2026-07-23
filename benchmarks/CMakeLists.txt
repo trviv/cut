@@ -29,3 +29,6 @@ target_compile_options(op_bench PRIVATE -O2)
 
 # Variant-sweep autotuning benchmarks (feed scripts/bench/derive_rules.py).
 add_subdirectory(autotune)
+
+# CUT vs vendor-library comparisons (cuBLAS, rocBLAS, ...).
+add_subdirectory(vendor)
