@@ -266,6 +266,16 @@ public:
                    const Tensor &preallocOutput = {},
                    std::optional<uint32_t> spec = {});
 
+  /// Embedding lookup gathering column `indices[i]` of a [dim, vocab] matrix.
+  /// See EmbeddingColOpNode: lets a tied model read its LM head directly
+  /// instead of keeping a second copy as an embedding table. `scales` is only
+  /// read for an Int8 matrix; pass the matrix itself as a dummy otherwise.
+  Tensor embeddingCol(const Tensor &indices,
+                      const Tensor &matrix,
+                      const Tensor &scales,
+                      const Tensor &preallocOutput = {},
+                      std::optional<uint32_t> spec = {});
+
   // ===== RoPE =====
 
   /// Batched RoPE for prefill: applies rotary embedding to N tokens with

@@ -124,6 +124,83 @@ std::vector<uint8_t> EmbeddingOpNode::pushConstants() const {
   return toBytes(pc);
 }
 
+EmbeddingColOpNode::EmbeddingColOpNode(TensorStore &store,
+                                       const Tensor &indices,
+                                       const Tensor &matrix,
+                                       const Tensor &scales,
+                                       const Tensor &preallocOutput,
+                                       std::optional<uint32_t> spec)
+    : OpNode(EmbeddingCol, store, spec) {
+  const auto &idxBuf = store.getTensor(indices);
+  const auto &mBuf = store.getTensor(matrix);
+  const auto &sBuf = store.getTensor(scales);
+  const auto idxShape = idxBuf.getShape();
+  const auto mShape = mBuf.getShape();
+  const auto sShape = sBuf.getShape();
+
+  if (mShape.size() != 2) {
+    throw std::runtime_error(
+        "embeddingCol: matrix must be 2D [dim, vocab]");
+  }
+
+  embDim_ = mShape[0];
+  vocabStride_ = (mShape[1] + 3) & ~3u;
+  scaleStride_ = sShape.size() == 2 ? ((sShape[1] + 3) & ~3u) : vocabStride_;
+  outStride_ = (embDim_ + 3) & ~3u;
+
+  numIndices_ = 1;
+  for (auto d : idxShape)
+    numIndices_ *= d;
+
+  format_ = mBuf.getDtype() == DataType::Int8 ? 1 : 0;
+  if (mBuf.getDtype() != DataType::Float16 && mBuf.getDtype() != DataType::Int8) {
+    throw std::runtime_error(
+        "embeddingCol: matrix must be Float16 or Int8");
+  }
+
+  outShape_ = idxShape;
+  outShape_.push_back(embDim_);
+
+  inputs_ = {indices, matrix, scales};
+  output_ = preallocOutput ? preallocOutput
+                           : store.createTensorEmpty(outputShape(), DataType::Float32);
+}
+
+DataType EmbeddingColOpNode::outputDtype() const {
+  return DataType::Float32;
+}
+
+std::optional<std::vector<uint32_t>> EmbeddingColOpNode::shader() const {
+  auto compiled = compiledEmbeddingCol(DataType::UInt32, DataType::Float32);
+  if (compiled.has_value()) {
+    auto spirv = std::move(compiled.value());
+    patchSpecConstant(spirv, 1, format_);
+    return spirv;
+  }
+  return std::nullopt;
+}
+
+std::vector<uint32_t> EmbeddingColOpNode::outputShape() const {
+  return outShape_;
+}
+
+ThreadSize EmbeddingColOpNode::dispatchSize() const {
+  uint32_t total = numIndices_ * embDim_;
+  uint32_t gridX = ((total + 255) / 256) * 256;
+  return {gridX, 1, 1};
+}
+
+std::vector<uint8_t> EmbeddingColOpNode::pushConstants() const {
+  struct PushConstants {
+    uint32_t numIndices;
+    uint32_t embDim;
+    uint32_t vocabStride;
+    uint32_t scaleStride;
+    uint32_t outStride;
+  } pc{numIndices_, embDim_, vocabStride_, scaleStride_, outStride_};
+  return toBytes(pc);
+}
+
 // --- PadOpNode ---
 
 PadOpNode::PadOpNode(TensorStore &store,

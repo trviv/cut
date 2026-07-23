@@ -48,6 +48,40 @@ private:
   std::vector<uint32_t> outShape_;
 };
 
+/// Embedding lookup that gathers COLUMN t of a [dim, vocab] matrix, rather
+/// than row t of a [vocab, dim] table. Lets a tied model reuse its LM head as
+/// the embedding source: the head is already [dim, vocab] and quantized, so
+/// the separate fp16 embedding table disappears entirely.
+///
+/// `matrix` is Float16 [dim, vocab] or Int8 [dim, vocab]; for Int8 `scales`
+/// carries one fp16 scale per 32 rows at [dim/32, vocab]. For the Float16 form
+/// `scales` is unused and the caller may pass the matrix again as a dummy.
+class EmbeddingColOpNode : public OpNode {
+public:
+  EmbeddingColOpNode(TensorStore &store,
+                     const Tensor &indices,
+                     const Tensor &matrix,
+                     const Tensor &scales,
+                     const Tensor &preallocOutput = {},
+                     std::optional<uint32_t> spec = {});
+
+  DataType outputDtype() const override;
+  std::optional<std::vector<uint32_t>> shader() const override;
+  std::vector<uint32_t> outputShape() const override;
+  ThreadSize dispatchSize() const override;
+  std::vector<uint8_t> pushConstants() const override;
+  std::string displayName() const override { return "EmbeddingCol"; }
+
+private:
+  uint32_t embDim_ = 0;
+  uint32_t numIndices_ = 0;
+  uint32_t vocabStride_ = 0;
+  uint32_t scaleStride_ = 0;
+  uint32_t outStride_ = 0;
+  uint32_t format_ = 0; // 0 = fp16 matrix, 1 = int8 + fp16 scales
+  std::vector<uint32_t> outShape_;
+};
+
 class PadOpNode : public OpNode {
 public:
   PadOpNode(TensorStore &store,

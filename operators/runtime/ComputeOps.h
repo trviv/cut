@@ -309,6 +309,10 @@ enum OperatorEnum {
   // ===========================================================================
 
   Embedding = OP_EMBEDDING,
+  /// Embedding lookup that gathers a COLUMN of a [dim, vocab] matrix, so a
+  /// tied model can read its LM head instead of storing a second copy of the
+  /// same weights as an embedding table.
+  EmbeddingCol = OP_EMBEDDING_COL,
 
   // ===========================================================================
   // Padding operations (330)

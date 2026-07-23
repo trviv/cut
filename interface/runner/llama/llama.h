@@ -218,6 +218,10 @@ private:
 
   // Weights
   cut::ComputeHandle embeddingTable_; // [vocab_size, dim] on GPU
+  // When true the token embedding is gathered as a column of the (tied) LM
+  // head via embeddingCol, and embeddingTable_ is left unset. Saves a full
+  // [vocab, dim] copy of weights the head already holds.
+  bool embedFromHead_ = false;
   cut::ComputeHandle
       tokenIdBuffer_; // 1-element UInt32 for GPU embedding lookup
   std::vector<LlamaLayer> layers_;
@@ -316,6 +320,10 @@ private:
 
   // Same, for Q8_0 weights: concatenates the int8 values and f16 scales
   // row-wise so QKV / gate+up can be fused WITHOUT dequantizing.
+  /// Emits the token-embedding lookup and returns the Float32 hidden state.
+  cut::Tensor embedTokens(const cut::Tensor &indices,
+                          const cut::Tensor &preallocOutput = {});
+
   WeightHandle uploadFusedQ8(const GGUFReader &reader,
                              const std::vector<std::string> &names,
                              size_t deviceId);

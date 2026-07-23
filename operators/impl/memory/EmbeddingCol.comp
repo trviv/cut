@@ -1,0 +1,53 @@
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+
+// Embedding lookup that gathers COLUMN t of a [dim, vocab] matrix instead of
+// row t of a [vocab, dim] table. A model that ties its embeddings already
+// stores that matrix as its LM head, so reading it here removes the second
+// copy the separate embedding table would otherwise hold.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint numIndices;   // number of tokens to look up
+    uint embDim;       // dim = rows of the matrix
+    uint vocabStride;  // padded vocab: matrix row stride, in elements
+    uint scaleStride;  // padded vocab: scales row stride, in elements
+    uint outStride;    // padded embDim: output row stride, in floats
+};
+
+// 0 = fp16 matrix, 1 = int8 matrix with an fp16 scale per 32 rows
+layout(constant_id = 1) const uint FORMAT = 0;
+
+layout(set = 0, binding = 0) readonly buffer BufferIdx { uint indices[]; };
+layout(set = 0, binding = 1) readonly buffer BufferM   { uint matrix[]; };
+layout(set = 0, binding = 2) readonly buffer BufferS   { float16_t scalesM[]; };
+layout(set = 0, binding = 3) buffer BufferOut          { float dataOut[]; };
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    uint total = numIndices * embDim;
+    if (gid >= total) return;
+
+    uint i = gid / embDim;   // which token
+    uint d = gid % embDim;   // which row of the matrix == which output element
+    uint t = indices[i];     // token id == which column
+    uint idx = d * vocabStride + t;
+
+    float v;
+    if (FORMAT == 0u) {
+        // fp16 matrix: two halves per uint
+        uint w = matrix[idx >> 1];
+        v = float(unpackFloat2x16(w)[idx & 1u]);
+    } else {
+        // int8 matrix: four bytes per uint, sign-extended, times the fp16
+        // scale for this 32-row block
+        uint w = matrix[idx >> 2];
+        int b = int((w >> ((idx & 3u) * 8u)) & 0xFFu);
+        b = (b ^ 0x80) - 0x80;
+        float s = float(scalesM[(d >> 5) * scaleStride + t]);
+        v = float(b) * s;
+    }
+
+    dataOut[i * outStride + d] = v;
+}

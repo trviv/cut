@@ -1028,6 +1028,16 @@ Tensor Operations::embedding(const Tensor &indices,
   return recordOrEncode(std::move(node));
 }
 
+Tensor Operations::embeddingCol(const Tensor &indices,
+                                const Tensor &matrix,
+                                const Tensor &scales,
+                                const Tensor &preallocOutput,
+                                std::optional<uint32_t> spec) {
+  auto node = std::make_unique<EmbeddingColOpNode>(*store_, indices, matrix,
+                                                   scales, preallocOutput, spec);
+  return recordOrEncode(std::move(node));
+}
+
 // =========================================================================
 // Padding ops
 // =========================================================================

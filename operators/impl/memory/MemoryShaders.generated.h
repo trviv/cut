@@ -10,6 +10,7 @@ namespace cut {
 std::optional<std::vector<uint32_t>> compiledCopy(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledPad(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledEmbedding(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledEmbeddingCol(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledExpand(DataType input, DataType output);
 
 } // namespace cut

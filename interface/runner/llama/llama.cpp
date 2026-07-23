@@ -1026,6 +1026,27 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
   return wh;
 }
 
+cut::Tensor LlamaModel::embedTokens(const cut::Tensor &indices,
+                                    const cut::Tensor &preallocOutput) {
+  auto &ops = opsAt(firstDevice_);
+  if (embedFromHead_) {
+    const auto &mat = output_weight_.isQuantized() ? output_weight_.qValues
+                                                   : output_weight_.handle;
+    const auto &sc = output_weight_.isQuantized() ? output_weight_.qScales
+                                                  : output_weight_.handle;
+    return ops.embeddingCol(indices, mat, sc, preallocOutput);
+  }
+  // preallocOutput selects the shape of the lookup: the single-token paths
+  // pass one and reuse the [dim] Float16 staging buffer, batched prefill
+  // passes none and needs the op to allocate an [N, dim] result.
+  if (preallocOutput) {
+    ops.embedding(indices, embeddingTable_, embedOutBuffers_[firstDevice_]);
+    return ops.cast(embedOutBuffers_[firstDevice_], cut::DataType::Float32);
+  }
+  auto half = ops.embedding(indices, embeddingTable_);
+  return ops.cast(half, cut::DataType::Float32);
+}
+
 cut::Tensor LlamaModel::graphWeight(cut::graph::GraphBuilder &builder,
                                     const WeightHandle &wh,
                                     const cut::Tensor &activation) {
@@ -1115,19 +1136,12 @@ void LlamaModel::load(const std::string &gguf_path,
 
   // Load token embeddings to GPU for GPU-side embedding lookup.
   // GGML dimensions: [cols=dim, rows=vocab_size]
+  // Token embedding source. The table itself is uploaded later, after the LM
+  // head is built: for a tied model the head holds the same weights and
+  // embeddingCol can gather from it, so the table is never allocated at all.
   {
-    auto embd = reader.read_tensor_f32("token_embd.weight");
     const auto &info = reader.get_tensor_info("token_embd.weight");
     config_.vocab_size = static_cast<uint32_t>(info.dimensions[1]);
-    // Float16 halves the table, which is the largest single allocation in
-    // most models. The values come from a tied fp16/quantized tensor, so
-    // narrowing loses nothing the LM head has not already lost.
-    std::vector<uint16_t> half(embd.size());
-    for (size_t i = 0; i < embd.size(); ++i)
-      half[i] = f32ToF16(embd[i]);
-    embeddingTable_ = runtime_->createTensor(
-        {config_.vocab_size, config_.dim}, cut::DataType::Float16, half.data(),
-        false, firstDevice_);
   }
   std::cout << config_.vocab_size << "\n";
 
@@ -1395,21 +1409,44 @@ void LlamaModel::load(const std::string &gguf_path,
       output_weight_ = uploadWeightMaybeQuantized(reader, "token_embd.weight",
                                                   rows, cols, lastDevice_);
     } else {
-      // Tied embeddings: the LM head lives on the last device; copy the
-      // embedding table there first if the pipeline spans devices.
-      cut::ComputeHandle embForHead = embeddingTable_;
-      if (lastDevice_ != firstDevice_) {
-        runtime_->flush(firstDevice_);
-        embForHead =
-            runtime_->transferTensor(embeddingTable_, firstDevice_, lastDevice_);
-      }
-      // fp16 LM-head weight: the tied embedding is loaded as Float32, but the
-      // vocab-projection matmul dominates decode; storing it fp16 halves that
-      // weight-read bandwidth (matmul consumes fp16 B directly).
-      output_weight_.handle = opsAt(lastDevice_)
-                                  .transpose(opsAt(lastDevice_).cast(
-                                      embForHead, cut::DataType::Float16));
+      // Tied embeddings with a head type we cannot keep quantized. Upload a
+      // temporary fp16 [vocab, dim] copy on lastDevice_ and transpose it; the
+      // temporary is released when it goes out of scope, leaving only the
+      // [dim, vocab] head. The vocab-projection matmul dominates decode and
+      // consumes fp16 B directly.
+      auto embd = reader.read_tensor_f32("token_embd.weight");
+      std::vector<uint16_t> half(embd.size());
+      for (size_t i = 0; i < embd.size(); ++i)
+        half[i] = f32ToF16(embd[i]);
+      auto embForHead = runtime_->createTensor(
+          {config_.vocab_size, config_.dim}, cut::DataType::Float16,
+          half.data(), false, lastDevice_);
+      output_weight_.handle = opsAt(lastDevice_).transpose(embForHead);
     }
+  }
+
+  // The tied LM head holds the same weights as the embedding table, one
+  // transpose apart, so gather the embedding straight out of it. embeddingCol
+  // handles an fp16 or Q8 head; an affine-Q4 head is not supported, and a
+  // pipeline split would put the head on the wrong device.
+  const bool tiedHead = !reader.has_tensor("output.weight");
+  const bool headUsableForEmbedding =
+      output_weight_.isQ8() ||
+      (!output_weight_.isQuantized() &&
+       static_cast<bool>(output_weight_.handle));
+  embedFromHead_ =
+      tiedHead && headUsableForEmbedding && firstDevice_ == lastDevice_;
+
+  if (!embedFromHead_) {
+    // Separate table: fp16 [vocab, dim]. Float16 halves what is otherwise the
+    // largest single allocation in most models.
+    auto embd = reader.read_tensor_f32("token_embd.weight");
+    std::vector<uint16_t> half(embd.size());
+    for (size_t i = 0; i < embd.size(); ++i)
+      half[i] = f32ToF16(embd[i]);
+    embeddingTable_ = runtime_->createTensor(
+        {config_.vocab_size, config_.dim}, cut::DataType::Float16, half.data(),
+        false, firstDevice_);
   }
 
   // Initialize KV caches with pre-allocated GPU buffers.
@@ -2092,13 +2129,8 @@ cut::ComputeHandle LlamaModel::forward(int token_id, int pos) {
   cachedDecodeCBs_.clear();
   segmentDecodeOut_.clear();
 
-  opsAt(firstDevice_)
-      .embedding(tokenIdBuffer_, embeddingTable_,
-                 embedOutBuffers_[firstDevice_]);
-
-  cut::ComputeHandle hidden = opsAt(firstDevice_)
-                                  .cast(embedOutBuffers_[firstDevice_],
-                                        cut::DataType::Float32);
+  cut::ComputeHandle hidden =
+      embedTokens(tokenIdBuffer_, hiddenBuffers_[firstDevice_]);
   bool allCached = true;
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
     hidden = runLayer(i, hidden);
@@ -2188,13 +2220,8 @@ void LlamaModel::forwardPrefill(int token_id, int pos) {
   cachedPrefillCBs_.clear();
   segmentPrefillOut_.clear();
 
-  opsAt(firstDevice_)
-      .embedding(tokenIdBuffer_, embeddingTable_,
-                 embedOutBuffers_[firstDevice_]);
-
-  cut::ComputeHandle hidden = opsAt(firstDevice_)
-                                  .cast(embedOutBuffers_[firstDevice_],
-                                        cut::DataType::Float32);
+  cut::ComputeHandle hidden =
+      embedTokens(tokenIdBuffer_, hiddenBuffers_[firstDevice_]);
   bool allCached = true;
   for (uint32_t i = 0; i < config_.n_layers; ++i) {
     hidden = runLayer(i, hidden);
@@ -2244,13 +2271,7 @@ int LlamaModel::prefill(const std::vector<int> &tokens) {
     runtime_->updateBufferInline(tokenIdBuffer_, &tid, sizeof(uint32_t),
                                  firstDevice_);
 
-    opsAt(firstDevice_)
-        .embedding(tokenIdBuffer_, embeddingTable_,
-                   embedOutBuffers_[firstDevice_]);
-
-    auto hidden = opsAt(firstDevice_)
-                      .cast(embedOutBuffers_[firstDevice_],
-                            cut::DataType::Float32);
+    auto hidden = embedTokens(tokenIdBuffer_, hiddenBuffers_[firstDevice_]);
     for (uint32_t l = 0; l < config_.n_layers; ++l)
       hidden = runLayer(l, hidden);
 
@@ -2312,8 +2333,7 @@ int LlamaModel::prefillBatched(const std::vector<int> &tokens) {
 
   // 2. Embedding: [N] → [N, dim]. The table is Float16, so cast the lookup
   //    result up to the Float32 the rest of the pass expects.
-  auto embedded = opsAt(firstDevice_).embedding(tokenBuf, embeddingTable_);
-  auto hidden = opsAt(firstDevice_).cast(embedded, cut::DataType::Float32);
+  auto hidden = embedTokens(tokenBuf);
 
   // 3. Process all layers
   for (uint32_t l = 0; l < config_.n_layers; ++l) {
