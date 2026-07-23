@@ -4646,6 +4646,19 @@ TEST_F(MatrixOpsTest, TransposeVariants_Rectangular) {
   }
 }
 
+// Registry-driven: verifies the "transpose/dtypes_int8" case. The quantized
+// weight upload transposes Int8, which the float32 variant sweep never covered.
+TEST_F(MatrixOpsTest, Transpose_Int8_AutoVariant) {
+  for (const auto &c : opregistry::allOpCases()) {
+    if (c.name != "transpose/dtypes_int8")
+      continue;
+    SCOPED_TRACE(c.name);
+    Tensor out = c.run(*runtime_, -1);
+    opregistry::VerifyResult vr = c.verify(*runtime_, out);
+    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+  }
+}
+
 // ============================================================================
 // Conv1D Variant Tests
 // ============================================================================

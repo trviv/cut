@@ -953,6 +953,44 @@ inline VerifyResult transposeVariantsSweep(Runtime& rt, const std::vector<MN>& c
   return {true, ""};
 }
 
+// Same sweep as transposeVariantsSweep but for a non-float32 element type.
+// Values are small integers, exactly representable in Int8, so the comparison
+// can be exact. The quantized weight-upload path transposes Int8 quant values,
+// so this combination matters as much as the float32 one — and it is the one
+// large transposes hit once autotune-derived tuning rules are loaded.
+template <typename T>
+inline VerifyResult transposeVariantsSweepTyped(Runtime& rt, DataType dtype,
+                                                const char* dtypeName,
+                                                const std::vector<MN>& cases) {
+  for (const auto& tc : cases) {
+    std::vector<T> data(tc.M * tc.N);
+    for (uint32_t i = 0; i < tc.M * tc.N; ++i)
+      data[i] = static_cast<T>((int)((i * 7 + 3) % 15) - 7);
+
+    std::vector<T> expected(tc.M * tc.N);
+    for (uint32_t i = 0; i < tc.M; ++i)
+      for (uint32_t j = 0; j < tc.N; ++j)
+        expected[j * tc.M + i] = data[i * tc.N + j];
+
+    // Auto-selected variant only: the tiled variants are float32-only by
+    // construction, so what must hold is that selection never picks one of
+    // them for a narrower type. Forcing every index would assert something the
+    // runtime does not promise.
+    auto buf = rt.createTensor({tc.M, tc.N}, dtype, data.data());
+    auto bufOut = rt.ops().transpose(buf);
+    std::vector<T> output(tc.M * tc.N);
+    rt.copyFromTensor(bufOut, output.data(), tc.M * tc.N * sizeof(T));
+
+    for (uint32_t idx = 0; idx < tc.M * tc.N; ++idx)
+      if (output[idx] != expected[idx])
+        return {false, std::string(dtypeName) + " transpose mismatch at " +
+                           std::to_string(idx) + " for " +
+                           std::to_string(tc.M) + "x" + std::to_string(tc.N) +
+                           " shape"};
+  }
+  return {true, ""};
+}
+
 inline Tensor transposeRun(Runtime& rt) {
   auto data = generateTestData<float>(64 * 64, 42);
   auto buf = rt.createTensor({64, 64}, DataType::Float32, data.data());
@@ -2577,6 +2615,21 @@ cases.push_back(std::move(c));
     c.run = [](Runtime &rt, int) { return transposeRun(rt); };
     c.verify = [](Runtime &rt, const Tensor &) {
       return transposeVariantsSweep(rt, {{16, 32}, {64, 8}, {48, 24}, {7, 13}});
+    };
+    cases.push_back(std::move(c));
+  }
+  {
+    OpCase c;
+    c.name = "transpose/dtypes_int8";
+    c.family = "transpose";
+    c.run = [](Runtime &rt, int) { return transposeRun(rt); };
+    c.verify = [](Runtime &rt, const Tensor &) {
+      // Shapes past the 64x64 the float32 sweep stops at: tuning rules route
+      // large transposes differently than small ones, and Int8 is what the
+      // quantized weight upload transposes.
+      return transposeVariantsSweepTyped<int8_t>(
+          rt, DataType::Int8, "Int8",
+          {{16, 32}, {64, 8}, {48, 24}, {7, 13}, {1536, 256}, {512, 1536}});
     };
     cases.push_back(std::move(c));
   }

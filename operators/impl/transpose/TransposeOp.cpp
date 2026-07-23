@@ -16,11 +16,24 @@ TransposeOpNode::TransposeOpNode(TensorStore &store,
   }
   M_ = shape[0];
   N_ = shape[1];
-  spec_ = spec.value_or(VariantSelector::instance().select(
-      "Transpose", {M_, N_}, kTransposeDefaultVariant,
-      backendName(store.caps().backend)));
+  if (spec.has_value()) {
+    spec_ = spec;
+  } else if (dtype_ == DataType::Float32) {
+    spec_ = VariantSelector::instance().select(
+        "Transpose", {M_, N_}, kTransposeDefaultVariant,
+        backendName(store.caps().backend));
+  } else {
+    // Autotune measures Transpose in Float32 and derives shape-keyed rules with
+    // no dtype condition, but the tiled variants are only correct for 4-byte
+    // elements — TransposeTiled16 mismatches on Int8 at 16x32. The quantized
+    // weight upload transposes Int8 quant values and Float16 block scales, so
+    // trusting those rules here silently corrupts every quantized weight.
+    // Narrower types stay on the default (naive) variant until the tiled
+    // shaders are fixed for them.
+    spec_ = kTransposeDefaultVariant;
+  }
   // Guard: fall back to the default variant if the selected one has no shader
-  // for this dtype (tuning data is dtype-agnostic).
+  // for this dtype.
   if (!getCompiledTranspose(*spec_, dtype_, dtype_).has_value())
     spec_ = kTransposeDefaultVariant;
   inputs_ = {a};
