@@ -15,10 +15,17 @@
 /// --benchmark_filter='^cut/' runs only the CUT side. Pass
 /// --benchmark_repetitions=5 to get median/stddev/cv rows.
 ///
-/// Correctness is checked ONCE per shape at registration time, outside any timed
-/// region, and reported as the max_diff and ref_mag counters on both sides of the
-/// pair.
+/// Correctness is checked ONCE per shape, outside any timed region, and reported
+/// as the max_diff and ref_mag counters on both sides of the pair.
+///
+/// Two tiers of shapes. `softmax` is the round-number set: many-short-rows and
+/// few-very-long-rows, which stress opposite reduction strategies. `softmax_large`
+/// is the model-scale set — full attention score matrices and prefill-batch
+/// vocabulary logits, 10-20 GB live — whose operands are built on first use and
+/// freed when the next case needs the memory, and whose correctness check
+/// therefore runs then rather than at registration.
 
+#include "CudaBenchCommon.h"
 #include "VendorBench.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
@@ -32,16 +39,6 @@
 #include <string>
 #include <vector>
 
-#define CUDA_CHECK(x)                                                          \
-  do {                                                                         \
-    cudaError_t err_ = (x);                                                    \
-    if (err_ != cudaSuccess) {                                                 \
-      std::cerr << "CUDA error: " << cudaGetErrorString(err_) << " at "        \
-                << __FILE__ << ":" << __LINE__ << "\n";                        \
-      std::exit(1);                                                            \
-    }                                                                          \
-  } while (0)
-
 #define CUDNN_CHECK(x)                                                         \
   do {                                                                         \
     cudnnStatus_t st_ = (x);                                                   \
@@ -52,33 +49,45 @@
     }                                                                          \
   } while (0)
 
-/// Wraps a CUDA launch in a start/stop event pair, returning the GPU-measured
-/// milliseconds for that one launch. This is the cutbench::TimedFn the vendor
-/// side of every pair is registered with; Google Benchmark calls it once per
-/// iteration under UseManualTime().
-///
-/// The events are created once and owned by the returned closure, so the
-/// per-iteration cost is a record/sync pair rather than an allocation.
-static cutbench::TimedFn cudaTimed(std::function<void()> launch) {
-  auto start = std::make_shared<cudaEvent_t>();
-  auto stop = std::make_shared<cudaEvent_t>();
-  CUDA_CHECK(cudaEventCreate(start.get()));
-  CUDA_CHECK(cudaEventCreate(stop.get()));
-  return [start, stop, launch]() {
-    CUDA_CHECK(cudaEventRecord(*start));
-    launch();
-    CUDA_CHECK(cudaEventRecord(*stop));
-    CUDA_CHECK(cudaEventSynchronize(*stop));
-    float ms = 0.0f;
-    CUDA_CHECK(cudaEventElapsedTime(&ms, *start, *stop));
-    return static_cast<double>(ms);
-  };
-}
-
 struct Shape {
   uint32_t rows, cols;
   const char *tag;
 };
+
+/// One softmax as it appears in a real network, named after where it comes
+/// from. `rows` is heads x queries for an attention-score softmax and a token
+/// count for a vocabulary softmax; `cols` is the key count or the vocabulary.
+struct ModelShape {
+  const char *model;
+  uint32_t rows, cols;
+};
+
+/// n=rows, c=cols, h=w=1, so MODE_CHANNEL reduces over `cols` for each row —
+/// element-for-element the same axis softmax(dim=-1) reduces on a row-major
+/// [rows, cols] buffer. MODE_INSTANCE (reduce C*H*W per sample) would be
+/// equivalent for this degenerate H=W=1 layout, but MODE_CHANNEL states the
+/// intent — reduce the channel axis — rather than relying on that accident.
+static cudnnTensorDescriptor_t makeRowDescriptor(uint32_t rows, uint32_t cols) {
+  cudnnTensorDescriptor_t desc;
+  CUDNN_CHECK(cudnnCreateTensorDescriptor(&desc));
+  CUDNN_CHECK(cudnnSetTensor4dDescriptor(desc, CUDNN_TENSOR_NCHW,
+                                         CUDNN_DATA_FLOAT,
+                                         static_cast<int>(rows),
+                                         static_cast<int>(cols), 1, 1));
+  return desc;
+}
+
+/// ACCURATE is the max-subtracting numerically stable form, which is what CUT
+/// computes. CUDNN_SOFTMAX_FAST skips that pass, so timing against it would be
+/// comparing against a different algorithm rather than a faster implementation
+/// of the same one.
+static void launchSoftmax(cudnnHandle_t handle, cudnnTensorDescriptor_t desc,
+                          const float *dIn, float *dOut) {
+  const float alpha = 1.0f, beta = 0.0f;
+  CUDNN_CHECK(cudnnSoftmaxForward(handle, CUDNN_SOFTMAX_ACCURATE,
+                                  CUDNN_SOFTMAX_MODE_CHANNEL, &alpha, desc,
+                                  dIn, &beta, desc, dOut));
+}
 
 static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
                                const Shape &s) {
@@ -110,28 +119,11 @@ static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
   // is what a caller actually gets.
   auto cutIssue = [&runtime, x]() { runtime.ops().softmax(x, -1); };
 
-  // n=rows, c=cols, h=w=1, so MODE_CHANNEL reduces over `cols` for each row —
-  // element-for-element the same axis softmax(dim=-1) reduces on a row-major
-  // [rows, cols] buffer. MODE_INSTANCE (reduce C*H*W per sample) would be
-  // equivalent for this degenerate H=W=1 layout, but MODE_CHANNEL states the
-  // intent — reduce the channel axis — rather than relying on that accident.
-  cudnnTensorDescriptor_t desc;
-  CUDNN_CHECK(cudnnCreateTensorDescriptor(&desc));
-  CUDNN_CHECK(cudnnSetTensor4dDescriptor(
-      desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT, static_cast<int>(s.rows),
-      static_cast<int>(s.cols), 1, 1));
-
-  // ACCURATE is the max-subtracting numerically stable form, which is
-  // what CUT computes. CUDNN_SOFTMAX_FAST skips that pass, so timing
-  // against it would be comparing against a different algorithm rather
-  // than a faster implementation of the same one.
+  cudnnTensorDescriptor_t desc = makeRowDescriptor(s.rows, s.cols);
   auto refLaunch = [handle, desc, dIn, dOut]() {
-    const float alpha = 1.0f, beta = 0.0f;
-    CUDNN_CHECK(cudnnSoftmaxForward(
-        handle, CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_CHANNEL,
-        &alpha, desc, dIn, &beta, desc, dOut));
+    launchSoftmax(handle, desc, dIn, dOut);
   };
-  cutbench::TimedFn refTimed = cudaTimed(refLaunch);
+  cutbench::TimedFn refTimed = cutbench::cudaTimed(refLaunch);
 
   // Correctness check runs once at registration time, outside any timing.
   cutbench::CheckResult check;
@@ -163,6 +155,95 @@ static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
   spec.check = check;
 
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);
+}
+
+/// A model-scale softmax, allocated lazily so only one is resident at a time.
+/// See "Lazily-allocated cases" in VendorBench.h.
+///
+/// Attention scores are where softmax gets genuinely large: the score matrix is
+/// heads x queries x keys and never gets written to memory in a fused
+/// implementation, but an unfused one — which is what both sides are here — has
+/// to materialise all of it. That is the case worth measuring, because it is
+/// pure bandwidth over a buffer far bigger than any cache.
+static void registerLargeSoftmaxCase(cut::Runtime &runtime,
+                                     cudnnHandle_t handle,
+                                     const ModelShape &s) {
+  const size_t rows = s.rows, cols = s.cols;
+  const size_t elems = rows * cols;
+
+  cutbench::CaseSpec spec;
+  spec.op = "softmax_large";
+  spec.vendor = "cuDNN";
+  spec.shape = std::string(s.model) + " rows=" + std::to_string(rows) +
+               " cols=" + std::to_string(cols);
+  // Counts the ideal single-pass traffic, as the small cases do: a stable
+  // softmax really reads the input twice. Conservative in the same way for both
+  // sides, so the ratio still means what it says.
+  spec.bytes = 2.0 * elems * sizeof(float);
+  // Two full-size buffers on the cuDNN side (in, out) and six on CUT's.
+  // Operations::softmax is a composition — subtract the row max, exp, reduce,
+  // divide — so besides its input and output it materialises the broadcast max,
+  // the shifted input and the exponentials, all at full size. The multiplier is
+  // measured against nvidia-smi rather than counted off the source: a case
+  // sized as though CUT needed only an input and an output aborted the run at
+  // 21 GB resident, and the shapes that do fit peak at ~8x their element count.
+  spec.footprintBytes = 8.0 * elems * sizeof(float);
+  spec.warmupIterations = 1;
+  spec.iterations = 3;
+
+  if (!cutbench::fitsVramBudget(spec.footprintBytes, spec.op, spec.shape))
+    return;
+
+  cutbench::registerPairLazy(runtime, spec, [&runtime, handle, rows, cols,
+                                             elems]() {
+    auto live = std::make_shared<cutbench::LazyCase>();
+
+    float *dIn = cutbench::tryDeviceAlloc<float>(elems * sizeof(float));
+    float *dOut = cutbench::tryDeviceAlloc<float>(elems * sizeof(float));
+    if (!dIn || !dOut) {
+      cudaFree(dIn);
+      cudaFree(dOut);
+      return std::shared_ptr<cutbench::LazyCase>();
+    }
+    cudnnTensorDescriptor_t desc = makeRowDescriptor(
+        static_cast<uint32_t>(rows), static_cast<uint32_t>(cols));
+    live->release = [dIn, dOut, desc]() {
+      cudaFree(dIn);
+      cudaFree(dOut);
+      cudnnDestroyTensorDescriptor(desc);
+    };
+
+    cut::Tensor x;
+    {
+      const std::vector<float> hostX = cutbench::randomFloatsTiled(elems, 42);
+      CUDA_CHECK(cudaMemcpy(dIn, hostX.data(), elems * sizeof(float),
+                            cudaMemcpyHostToDevice));
+      x = runtime.createTensor({static_cast<uint32_t>(rows),
+                                static_cast<uint32_t>(cols)},
+                               cut::DataType::Float32, hostX.data());
+    }
+
+    live->cutIssue = [&runtime, x]() { runtime.ops().softmax(x, -1); };
+    auto refLaunch = [handle, desc, dIn, dOut]() {
+      launchSoftmax(handle, desc, dIn, dOut);
+    };
+    live->refTimed = cutbench::cudaTimed(refLaunch);
+
+    {
+      cut::Tensor out = runtime.ops().softmax(x, -1);
+      const cutbench::SamplePlan plan = cutbench::planSample(elems);
+      const std::vector<float> cutOut =
+          cutbench::sampleTensor(runtime, out, plan);
+
+      refLaunch();
+      CUDA_CHECK(cudaDeviceSynchronize());
+      const std::vector<float> refOut =
+          cutbench::sampleDeviceFloats(dOut, plan);
+
+      live->check = cutbench::compareBuffers(cutOut, refOut);
+    }
+    return live;
+  });
 }
 
 int main(int argc, char **argv) {
@@ -198,8 +279,33 @@ int main(int argc, char **argv) {
       {1, 152064, "softmax"},  {32, 4096, "softmax"},
   };
 
+  // Model-scale softmaxes. The attention cases materialise a full
+  // heads x queries x keys score matrix, which is what an unfused attention
+  // does and what makes softmax a multi-gigabyte operator; the logits cases are
+  // an lm_head output over a whole prefill batch. Both are the shapes that
+  // decide whether the operator still holds its bandwidth when the buffer is
+  // far larger than any cache.
+  std::vector<ModelShape> largeShapes = {
+      // Llama-3-8B, 32 query heads, 4k context, batch 1: rows = 32 x 4096.
+      {"llama3-8b-attn-4k", 131072, 4096},
+      // Same model at 8k context with 8 heads resident. The score matrix grows
+      // with the square of the context, so all 32 heads at 8k would be 100 GB —
+      // this is the shape a head-blocked attention actually materialises.
+      {"llama3-8b-attn-8k-8h", 65536, 8192},
+      // FLUX.1: 24 heads over 4096 image + 512 text tokens.
+      {"flux-dit-attn", 110592, 4608},
+      // SD3.5-Large: 38 heads of 64 over 4096 latent tokens.
+      {"sd35-large-attn", 155648, 4096},
+      // Llama-3-8B lm_head output for a 4k-token prefill: 128256 vocabulary.
+      {"llama3-8b-logits-4k", 4096, 128256},
+      // Qwen2.5-14B, the widest vocabulary in common use, over 2k tokens.
+      {"qwen2.5-14b-logits-2k", 2048, 152064},
+  };
+
   for (const auto &s : shapes)
     registerSoftmaxCase(runtime, handle, s);
+  for (const auto &s : largeShapes)
+    registerLargeSoftmaxCase(runtime, handle, s);
 
   const int rc = cutbench::runAll(argc, argv);
 
