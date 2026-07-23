@@ -1377,14 +1377,19 @@ void LlamaModel::load(const std::string &gguf_path,
     const auto &embInfo = reader.get_tensor_info("token_embd.weight");
     static const bool kForceFp16Head =
         std::getenv("CUT_FP16_LM_HEAD") != nullptr;
-    if (!kForceFp16Head && (embInfo.type == GGMLType::Q8_0 ||
-                            embInfo.type == GGMLType::Q4_0)) {
-      // Keep the tied head quantized: halves the per-token vocab-projection
-      // read (28+2 MB Q8 vs 57 MB fp16 at 49152x576) and matches the GGUF
-      // source values exactly; graphWeight() already dispatches quantized
-      // weights to the 3-input matmul. Uploads straight to lastDevice_, so
-      // no transferTensor is needed. CUT_FP16_LM_HEAD=1 forces the fp16
-      // path for A/B tests.
+    // Any type uploadWeightMaybeQuantized can keep quantized: Q4_0 natively,
+    // Q4_K as affine Q4, and the rest via Q8_0. Models that tie their
+    // embeddings overwhelmingly store token_embd as Q6_K, so restricting this
+    // to Q8_0/Q4_0 sent all of them down the fp16 path.
+    const bool headQuantizable =
+        embInfo.type == GGMLType::Q4_0 || isQ8able(embInfo.type);
+    if (!kForceFp16Head && headQuantizable) {
+      // Keep the tied head quantized: it is read in full on every decoded
+      // token, so this is decode bandwidth as much as resident bytes (419 MB
+      // Q8 vs 751 MB fp16 at 128256x3072). graphWeight() already dispatches
+      // quantized weights to the 3-input matmul. Uploads straight to
+      // lastDevice_, so no transferTensor is needed. CUT_FP16_LM_HEAD=1
+      // forces the fp16 path for A/B tests.
       uint32_t cols = static_cast<uint32_t>(embInfo.dimensions[0]);
       uint32_t rows = static_cast<uint32_t>(embInfo.dimensions[1]);
       output_weight_ = uploadWeightMaybeQuantized(reader, "token_embd.weight",
