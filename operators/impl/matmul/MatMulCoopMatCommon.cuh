@@ -93,6 +93,9 @@ __device__ __forceinline__ void cutStoreC16(float *out, int ldm, const Acc16 &c,
 struct CoopMatPush { uint M; uint K; uint N; uint strideA; uint strideB; uint strideC; };
 // Push constants for the Q8 coopmat kernel (adds byte-stride for int8 B and a scale stride).
 struct Q8CoopMatPush { uint M; uint K; uint N; uint strideA; uint strideBN; uint strideC; uint scaleStride; };
+// Push constants for the Q4 coopmat kernel: B is packed two nibbles per byte,
+// so its row stride is in packed bytes.
+struct Q4CoopMatPush { uint M; uint K; uint N; uint strideA; uint strideBNpacked; uint strideC; uint scaleStride; };
 
 // Fusion spec constants (runtime supplies CUT_SPEC_1 / CUT_SPEC_2, mirroring
 // the FUSION_TYPE / FUSION_OP specialization constants in the .comp).
@@ -104,6 +107,13 @@ static const uint COOPMAT_FUSION_TYPE = CUT_SPEC_1;
 #define CUT_SPEC_2 (0)
 #endif
 static const uint COOPMAT_FUSION_OP = CUT_SPEC_2;
+
+// Affine (zero-point) Q4: when 1, each 32-weight block carries a min in the
+// upper half of the scales buffer. Mirrors AFFINE in MatMulQ4Common.
+#ifndef CUT_SPEC_3
+#define CUT_SPEC_3 (0)
+#endif
+static const uint COOPMAT_AFFINE = CUT_SPEC_3;
 
 // Applies the fused epilogue to one output element. `d` is the corresponding
 // dataD element (only read when a binary fusion is active).

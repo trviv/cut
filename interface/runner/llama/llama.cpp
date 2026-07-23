@@ -504,6 +504,120 @@ static void quantizeRowsQ8_0(const std::vector<float> &f32,
   }
 }
 
+
+// fp16 bit pattern -> float. Inverse of f32ToF16; decodes subnormals rather
+// than flushing them (see f32ToF16 above for why that matters for block
+// scales) and maps inf/NaN through. Used for the fp16 super-block scales read
+// straight out of GGUF K-quant blocks.
+static float f16ToF32(uint16_t h) {
+  uint32_t sign = static_cast<uint32_t>(h & 0x8000u) << 16;
+  uint32_t exp = (h >> 10) & 0x1Fu;
+  uint32_t man = h & 0x03FFu;
+  uint32_t bits;
+
+  if (exp == 0) {
+    if (man == 0) {
+      bits = sign;
+    } else {
+      // 113, not 112: the loop below decrements once for the shift that moves
+      // the implicit leading bit into place, so seeding at 112 yields 2^-25
+      // for the smallest subnormal instead of 2^-24.
+      uint32_t e = 113;
+      while ((man & 0x0400u) == 0) {
+        man <<= 1;
+        --e;
+      }
+      man &= 0x03FFu;
+      bits = sign | (e << 23) | (man << 13);
+    }
+  } else if (exp == 31) {
+    bits = sign | 0x7F800000u | (man << 13);
+  } else {
+    bits = sign | ((exp + 112u) << 23) | (man << 13);
+  }
+
+  float out;
+  std::memcpy(&out, &bits, sizeof(out));
+  return out;
+}
+
+// Unpacks the 6-bit scale/min pair for sub-block j (0..7) of a Q4_K/Q5_K
+// super-block. Mirrors get_scale_min_k4 in gguf_reader.cpp, which is file-local
+// there.
+static void getScaleMinK4(int j, const uint8_t *q, uint8_t &d, uint8_t &m) {
+  if (j < 4) {
+    d = q[j] & 63;
+    m = q[j + 4] & 63;
+  } else {
+    d = (q[j + 4] & 0xF) | ((q[j - 4] >> 6) << 4);
+    m = (q[j + 4] >> 4) | ((q[j - 0] >> 6) << 4);
+  }
+}
+
+// Re-encodes a GGUF Q4_K tensor into CUT's affine Q4 layout, already
+// transposed into the matmul's [K, N] orientation so no GPU transpose is
+// needed. Exact: see the identity above.
+//
+// GGUF Q4_K super-block = 256 weights in 144 bytes:
+//   [d: f16][dmin: f16][scales: 12 bytes of packed 6-bit sc/m pairs][qs: 128]
+// Within a super-block, qs is read in 4 groups of 32 bytes; group g supplies
+// elements g*64 + l from the low nibble and g*64 + 32 + l from the high
+// nibble, using sub-block scales 2*g and 2*g+1 respectively.
+//
+// Outputs (tightly packed; the runtime pads the innermost dim on upload):
+//   packedT [K, N/2]      byte (k, n>>1), low nibble for even n
+//   scalesT [2*blocksK, N] rows [0, blocksK) scales, [blocksK, 2*blocksK) mins
+//
+// Returns false (leaving the outputs untouched) when the shape is not
+// re-encodable, so the caller can fall back to the Q8_0 path.
+static bool requantizeQ4KToAffine(const std::vector<uint8_t> &raw,
+                                  uint32_t N, uint32_t K,
+                                  std::vector<uint8_t> &packedT,
+                                  std::vector<uint16_t> &scalesT) {
+  if (K % 256 != 0 || N % 2 != 0) return false;
+  const uint32_t blocksK = K / 32;
+  const size_t superPerRow = K / 256;
+  const size_t needed = N * superPerRow * 144;
+  if (raw.size() < needed) return false;
+
+  packedT.assign(static_cast<size_t>(K) * (N / 2), 0);
+  scalesT.assign(static_cast<size_t>(2) * blocksK * N, 0);
+
+  for (uint32_t n = 0; n < N; ++n) {
+    for (uint32_t s = 0; s < superPerRow; ++s) {
+      const uint8_t *block = raw.data() + ((size_t)n * superPerRow + s) * 144;
+      uint16_t d, dmin;
+      std::memcpy(&d, block, 2);
+      std::memcpy(&dmin, block + 2, 2);
+      const float fd = f16ToF32(d);
+      const float fdmin = f16ToF32(dmin);
+      const uint8_t *scales = block + 4;
+      const uint8_t *qs = block + 16;
+
+      for (int g = 0; g < 4; ++g) {
+        for (int h = 0; h < 2; ++h) {
+          const int js = 2 * g + h;
+          uint8_t sc, mm;
+          getScaleMinK4(js, scales, sc, mm);
+          const float scale = fd * sc;
+          const float minv = 8.0f * scale - fdmin * mm;
+          const uint32_t e0 = s * 256 + g * 64 + h * 32;
+          const uint32_t b = e0 / 32;
+          scalesT[(size_t)b * N + n] = f32ToF16(scale);
+          scalesT[((size_t)blocksK + b) * N + n] = f32ToF16(minv);
+          for (uint32_t l = 0; l < 32; ++l) {
+            const uint8_t byte = qs[g * 32 + l];
+            const uint8_t q = (h == 0) ? (byte & 0xF) : (byte >> 4);
+            const uint32_t k = e0 + l;
+            packedT[(size_t)k * (N / 2) + (n >> 1)] |= static_cast<uint8_t>(q << ((n & 1) * 4));
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
 // Weight types that end up as Float16 GPU weights (natively F16, or via the
 // GPU-dequant path), and can therefore be concatenated into a fused weight.
 // Q8_0/Q4_0 stay quantized (separate values+scales) and are excluded.
@@ -579,6 +693,55 @@ static uint64_t ffnFusionBudgetBytes() {
 
 static bool requantDisabled() {
   static const bool disabled = std::getenv("CUT_NO_REQUANT") != nullptr;
+  return disabled;
+}
+
+
+// Debug knob: CUT_VERIFY_AFFINE_Q4=1 decodes the re-encoded buffers back with
+// the same arithmetic the GPU kernel uses and compares against the reader's
+// dequantizer, logging the worst absolute and relative error per tensor. The
+// re-encode is supposed to be exact up to fp16 storage of scale/min.
+static void verifyQ4KAffine(const std::string &name,
+                            const std::vector<float> &ref, uint32_t N,
+                            uint32_t K, const std::vector<uint8_t> &packedT,
+                            const std::vector<uint16_t> &scalesT) {
+  const uint32_t blocksK = K / 32;
+  double worstAbs = 0.0, worstRel = 0.0;
+  uint32_t worstK = 0, worstN = 0;
+
+  for (uint32_t n = 0; n < N; ++n) {
+    for (uint32_t k = 0; k < K; ++k) {
+      const uint8_t byte = packedT[(size_t)k * (N / 2) + (n >> 1)];
+      const int nib = (n & 1) ? (byte >> 4) : (byte & 0xF);
+      const uint32_t b = k / 32;
+      const float scale = f16ToF32(scalesT[(size_t)b * N + n]);
+      const float minv = f16ToF32(scalesT[((size_t)blocksK + b) * N + n]);
+      const float got = (float(nib) - 8.0f) * scale + minv;
+      const float want = ref[(size_t)n * K + k];
+
+      double absErr = std::fabs(got - want);
+      double relErr = absErr / std::max(std::fabs(want), 1e-6f);
+      if (absErr > worstAbs) {
+        worstAbs = absErr;
+        worstK = k;
+        worstN = n;
+      }
+      if (relErr > worstRel)
+        worstRel = relErr;
+    }
+  }
+
+  fprintf(stderr,
+          "[affine-q4 verify] %s N=%u K=%u worstAbs=%.3e worstRel=%.3e "
+          "at k=%u n=%u\n",
+          name.c_str(), N, K, worstAbs, worstRel, worstK, worstN);
+}
+
+// Debug knob: CUT_NO_AFFINE_Q4=1 sends Q4_K weights back through the Q8_0
+// requantization path instead of the exact affine Q4 re-encode. For A/B
+// measurement of the 5-bit vs 8.5-bit weight layout.
+static bool affineQ4Disabled() {
+  static const bool disabled = std::getenv("CUT_NO_AFFINE_Q4") != nullptr;
   return disabled;
 }
 
@@ -803,6 +966,35 @@ WeightHandle LlamaModel::uploadWeightMaybeQuantized(const GGUFReader &reader,
     wh.qCols = cols;
     wh.quantType = WeightHandle::QuantType::Q4_0;
     return wh;
+  }
+
+  if (info.type == GGMLType::Q4_K && !requantDisabled() && !affineQ4Disabled()) {
+    // Exact re-encode into affine Q4 (5 bits/weight) rather than requantizing
+    // to Q8_0 (8.5). The re-encoder emits the [K, N] orientation directly, so
+    // unlike the Q4_0/Q8_0 branches there is no GPU transpose here.
+    const uint32_t N = rows, K = cols;
+    std::vector<uint8_t> packedT;
+    std::vector<uint16_t> scalesT;
+    if (requantizeQ4KToAffine(reader.read_tensor_raw(name), N, K, packedT,
+                              scalesT)) {
+      static const bool verify =
+          std::getenv("CUT_VERIFY_AFFINE_Q4") != nullptr;
+      if (verify)
+        verifyQ4KAffine(name, reader.read_tensor_f32(name), N, K, packedT,
+                        scalesT);
+      const uint32_t blocksK = K / 32;
+      wh.qValues = runtime_->createTensor({K, N / 2}, cut::DataType::Int8,
+                                          packedT.data(), false, deviceId);
+      wh.qScales =
+          runtime_->createTensor({2 * blocksK, N}, cut::DataType::Float16,
+                                 scalesT.data(), false, deviceId);
+      wh.qCols = cols;
+      // Affine Q4 rides the same kernels as Q4_0; the doubled scales tensor is
+      // what switches them into affine mode.
+      wh.quantType = WeightHandle::QuantType::Q4_0;
+      return wh;
+    }
+    // Fall through to the Q8_0 path when the shape is not re-encodable.
   }
 
   if (isQ8able(info.type)) {

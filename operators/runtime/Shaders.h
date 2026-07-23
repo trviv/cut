@@ -56,12 +56,15 @@ getDimReduceShader(const OperatorEnum reduceOp,
 
 /**
  * Patch multiple specialization constants in a single SPIR-V scan.
- * Each pair is {specId, newValue}. More efficient than calling
- * patchSpecConstant repeatedly for fusion shaders with 2+ constants.
+ * @param patches Vector of {specId, newValue}. A brace-enclosed literal
+ *        converts implicitly, so literal call sites need no change; a vector
+ *        also lets callers assemble the set conditionally.
+ * More efficient than calling patchSpecConstant repeatedly for shaders with
+ * 2+ constants.
  */
 void patchSpecConstants(
     std::vector<uint32_t> &spirv,
-    const std::initializer_list<std::pair<uint32_t, uint32_t>> &patches);
+    const std::vector<std::pair<uint32_t, uint32_t>> &patches);
 
 /**
  * Patch a single specialization constant. Convenience wrapper around

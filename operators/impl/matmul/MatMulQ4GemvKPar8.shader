@@ -79,14 +79,19 @@ void main(uint3 GTid : SV_GroupThreadID,
         float s2_1 = float(sv1[2]);
         float s3_1 = float(sv1[3]);
 
-        acc0 = mad(a, b0 * s0_0, acc0);
-        acc1 = mad(a, b1 * s1_0, acc1);
-        acc2 = mad(a, b2 * s2_0, acc2);
-        acc3 = mad(a, b3 * s3_0, acc3);
-        acc4 = mad(a, b4 * s0_1, acc4);
-        acc5 = mad(a, b5 * s1_1, acc5);
-        acc6 = mad(a, b6 * s2_1, acc6);
-        acc7 = mad(a, b7 * s3_1, acc7);
+        float m0_0, m1_0, m2_0, m3_0;
+        loadMin4(scaleBase0, m0_0, m1_0, m2_0, m3_0);
+        float m0_1, m1_1, m2_1, m3_1;
+        loadMin4(scaleBase1, m0_1, m1_1, m2_1, m3_1);
+
+        acc0 = mad(a, b0 * s0_0 + m0_0, acc0);
+        acc1 = mad(a, b1 * s1_0 + m1_0, acc1);
+        acc2 = mad(a, b2 * s2_0 + m2_0, acc2);
+        acc3 = mad(a, b3 * s3_0 + m3_0, acc3);
+        acc4 = mad(a, b4 * s0_1 + m0_1, acc4);
+        acc5 = mad(a, b5 * s1_1 + m1_1, acc5);
+        acc6 = mad(a, b6 * s2_1 + m2_1, acc6);
+        acc7 = mad(a, b7 * s3_1 + m3_1, acc7);
     }
 
     // Butterfly reduction across 32 lanes (no barriers needed)

@@ -48,19 +48,23 @@ extern "C" __global__ void cut_main(
         uint scaleBase0 = (k >> 5) * pc.scaleStride + baseN;
         float s0_0, s1_0, s2_0, s3_0;
         cut_loadScale4(scalesB, scaleBase0, s0_0, s1_0, s2_0, s3_0);
+        float m0_0, m1_0, m2_0, m3_0;
+        cut_loadMin4(scalesB, pc, scaleBase0, m0_0, m1_0, m2_0, m3_0);
 
         uint scaleBase1 = (k >> 5) * pc.scaleStride + baseN + 4;
         float s0_1, s1_1, s2_1, s3_1;
         cut_loadScale4(scalesB, scaleBase1, s0_1, s1_1, s2_1, s3_1);
+        float m0_1, m1_1, m2_1, m3_1;
+        cut_loadMin4(scalesB, pc, scaleBase1, m0_1, m1_1, m2_1, m3_1);
 
-        acc0 = mad(a, b0 * s0_0, acc0);
-        acc1 = mad(a, b1 * s1_0, acc1);
-        acc2 = mad(a, b2 * s2_0, acc2);
-        acc3 = mad(a, b3 * s3_0, acc3);
-        acc4 = mad(a, b4 * s0_1, acc4);
-        acc5 = mad(a, b5 * s1_1, acc5);
-        acc6 = mad(a, b6 * s2_1, acc6);
-        acc7 = mad(a, b7 * s3_1, acc7);
+        acc0 = mad(a, b0 * s0_0 + m0_0, acc0);
+        acc1 = mad(a, b1 * s1_0 + m1_0, acc1);
+        acc2 = mad(a, b2 * s2_0 + m2_0, acc2);
+        acc3 = mad(a, b3 * s3_0 + m3_0, acc3);
+        acc4 = mad(a, b4 * s0_1 + m0_1, acc4);
+        acc5 = mad(a, b5 * s1_1 + m1_1, acc5);
+        acc6 = mad(a, b6 * s2_1 + m2_1, acc6);
+        acc7 = mad(a, b7 * s3_1 + m3_1, acc7);
     }
 
     #pragma unroll

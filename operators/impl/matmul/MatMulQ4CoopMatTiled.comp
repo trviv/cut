@@ -1,0 +1,227 @@
+#version 450
+#extension GL_KHR_cooperative_matrix : enable
+#extension GL_KHR_memory_scope_semantics : enable
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+
+// Q4 Cooperative Matrix Tiled Matmul: C[M,N] = A[M,K] * dequant(B[K,N/2])
+//
+// Strategy: Dequantize 4-bit B → fp16 and convert fp32 A → fp16 in shared memory,
+// then use 16×16×16 fp16 tensor core multiply-add with fp32 accumulation.
+//
+// Each workgroup = 4 subgroups (128 threads) processing a 2×2 grid of 16×16
+// tiles = 32×32 effective output tile.
+//
+// Cooperative loading:
+//   tileA (32×16): 128 threads each load 4 fp32→fp16 values
+//   tileB (16×32): 128 threads each load 2 bytes (4 nibbles) + 4 scales → 4 fp16
+//
+// Requirements: K % 16 == 0, N % 32 == 0. M can be any value.
+// Output uses shared memory staging to handle non-aligned M.
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;           // rows of A (can be any value)
+    uint K;           // cols of A / rows of B (must be multiple of 16)
+    uint N;           // cols of B (must be multiple of 32)
+    uint strideA;     // padded K for A (in float elements, multiple of 4)
+    uint strideBNpacked; // padded N/2 for B (in uint32 elements, multiple of 4)
+    uint strideC;     // padded N for C (in float elements, multiple of 4)
+    uint scaleStride; // padded N for scales (in float16 elements, multiple of 4)
+};
+
+// Fusion epilogue selectors (patched by MatMulOpNode::shader()). These must
+// stay declared and used: the CUDA backend derives its -DCUT_SPEC_1 /
+// -DCUT_SPEC_2 defines from the spec constants present in this shader's SPIR-V.
+layout(constant_id = 1) const uint FUSION_TYPE = 0;
+layout(constant_id = 2) const uint FUSION_OP = 0;
+layout(constant_id = 3) const uint AFFINE = 0;
+
+// A: float32 activations [M, K]
+layout(set = 0, binding = 0) readonly buffer BufferA { float dataA[]; };
+
+// B: packed 4-bit weights [K, N/2] (2 nibbles per byte)
+layout(set = 0, binding = 1) readonly buffer BufferB { uint packedB[]; };
+
+// Scales: float16 [blocksK, N] or [2*blocksK, N] when affine, blocksK = (K+31)/32
+layout(set = 0, binding = 2) readonly buffer BufferS { float16_t scalesB[]; };
+
+// D: fusion input (dummy buffer when no fusion active)
+layout(set = 0, binding = 3) readonly buffer BufferD { float dataD[]; };
+
+// C: float32 output [M, N]
+layout(set = 0, binding = 4) buffer BufferC { float dataC[]; };
+
+// Shared memory tiles
+shared float16_t tileA_sh[32 * 16];   // 32 rows × 16 K = 1024 bytes
+shared float16_t tileB_sh[16 * 32];   // 16 K × 32 cols = 1024 bytes
+shared float     tileC_sh[32 * 32];   // 32 × 32 output  = 4096 bytes
+
+void main() {
+    uint sgId = gl_SubgroupID;
+    uint tid = gl_LocalInvocationID.x;  // 0..127
+
+    uint subTileRow = sgId / 2;  // 0 or 1
+    uint subTileCol = sgId % 2;  // 0 or 1
+
+    uint tileRowStart = gl_WorkGroupID.y * 32;
+    uint tileColStart = gl_WorkGroupID.x * 32;
+
+    uint tileRow = tileRowStart + subTileRow * 16;
+    uint tileCol = tileColStart + subTileCol * 16;
+
+    // Per-subgroup validity: this subgroup's tile might be entirely outside M or N
+    bool validTile = (tileRow < M && tileCol < N);
+
+    // Initialize fp32 accumulator
+    coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> acc =
+        coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0.0);
+
+    // K-loop: process K in chunks of 16
+    for (uint k = 0; k < K; k += 16) {
+
+        // === Load A tile (32×16): float32 → fp16 into shared memory ===
+        // 512 elements, 128 threads → 4 per thread
+        for (uint i = tid; i < 512; i += 128) {
+            uint row = i >> 4;     // i / 16, range 0..31
+            uint col = i & 15;    // i % 16, range 0..15
+            uint gRow = tileRowStart + row;
+            // Zero-pad rows beyond M (handles non-aligned M)
+            float val = (gRow < M) ? dataA[gRow * strideA + k + col] : 0.0;
+            tileA_sh[i] = float16_t(val);
+        }
+
+        // === Load B tile (16×32): packed 4-bit → dequant → fp16 ===
+        // 512 fp16 values from 128 packed uint32 loads (1 per thread)
+        {
+            uint kRow = tid >> 3;      // tid / 8, range 0..15
+            uint nGroup = tid & 7;     // tid % 8, range 0..7
+            uint nCol = nGroup << 2;   // nGroup * 4, range 0,4,8,...,28
+
+            uint gK = k + kRow;
+            uint gN = tileColStart + nCol;
+
+            // Load packed uint32: 2 bytes (4 nibbles) at B[gK, gN..gN+3]
+            uint byteIdx = gK * strideBNpacked + (gN >> 1u);
+            uint packed = packedB[byteIdx >> 2u];
+            uint shift = (byteIdx & 3u) * 8u;
+            uint twoBytes = (packed >> shift) & 0xFFFFu;
+
+            // Unpack 4 nibbles with zero-point subtraction
+            int b0 = int((twoBytes >>  0) & 0xFu) - 8;
+            int b1 = int((twoBytes >>  4) & 0xFu) - 8;
+            int b2 = int((twoBytes >>  8) & 0xFu) - 8;
+            int b3 = int((twoBytes >> 12) & 0xFu) - 8;
+
+            // Load 4 scales for this K-block and 4 adjacent columns
+            uint scaleBase = (gK >> 5u) * scaleStride + gN;
+            float16_t s0 = scalesB[scaleBase];
+            float16_t s1 = scalesB[scaleBase + 1u];
+            float16_t s2 = scalesB[scaleBase + 2u];
+            float16_t s3 = scalesB[scaleBase + 3u];
+
+            // Load 4 mins when affine
+            float16_t m0 = float16_t(0.0);
+            float16_t m1 = float16_t(0.0);
+            float16_t m2 = float16_t(0.0);
+            float16_t m3 = float16_t(0.0);
+            if (AFFINE == 1u) {
+                uint blocksK = (K + 31u) >> 5u;
+                m0 = scalesB[blocksK * scaleStride + scaleBase];
+                m1 = scalesB[blocksK * scaleStride + scaleBase + 1u];
+                m2 = scalesB[blocksK * scaleStride + scaleBase + 2u];
+                m3 = scalesB[blocksK * scaleStride + scaleBase + 3u];
+            }
+
+            // Dequantize: (nibble - 8) * scale + min → fp16, store to shared memory
+            uint bBase = kRow * 32 + nCol;
+            tileB_sh[bBase + 0] = float16_t(float(b0) * float(s0) + float(m0));
+            tileB_sh[bBase + 1] = float16_t(float(b1) * float(s1) + float(m1));
+            tileB_sh[bBase + 2] = float16_t(float(b2) * float(s2) + float(m2));
+            tileB_sh[bBase + 3] = float16_t(float(b3) * float(s3) + float(m3));
+        }
+
+        barrier();
+
+        // === Cooperative matrix multiply from shared memory ===
+        // Each subgroup loads its 16×16 sub-tile and does tensor core MMA
+        if (validTile) {
+            coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA> matA;
+            coopMatLoad(matA, tileA_sh, subTileRow * 16 * 16, 16,
+                        gl_CooperativeMatrixLayoutRowMajor);
+
+            coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> matB;
+            coopMatLoad(matB, tileB_sh, subTileCol * 16, 32,
+                        gl_CooperativeMatrixLayoutRowMajor);
+
+            acc = coopMatMulAdd(matA, matB, acc);
+        }
+
+        barrier();
+    }
+
+    // === Store result via shared memory (handles non-aligned M) ===
+    // Each subgroup stores its 16×16 accumulator into the 32×32 shared tile
+    if (validTile) {
+        uint cOffset = subTileRow * 16 * 32 + subTileCol * 16;
+        coopMatStore(acc, tileC_sh, cOffset, 32,
+                     gl_CooperativeMatrixLayoutRowMajor);
+    }
+
+    barrier();
+
+    // Selectively copy valid results from shared memory to global output,
+    // applying the fused unary/binary epilogue.
+    for (uint i = tid; i < 32 * 32; i += 128) {
+        uint row = i / 32;
+        uint col = i % 32;
+        uint gRow = tileRowStart + row;
+        uint gCol = tileColStart + col;
+        if (gRow < M && gCol < N) {
+            uint outIdx = gRow * strideC + gCol;
+            float value = tileC_sh[i];
+            if (FUSION_TYPE == 1u) {
+                switch (FUSION_OP) {
+                    case 100u:          value = -value; break; // OP_UNARY_NEG
+                    case 101u:          value = abs(value); break; // OP_UNARY_ABS
+                    case 102u:          value = sqrt(value); break; // OP_UNARY_SQRT
+                    case 103u:          value = value * value; break; // OP_UNARY_SQUARE
+                    case 104u:          value = 1.0 / value; break; // OP_UNARY_RECIPROCAL
+                    case 106u:          value = exp(value); break; // OP_UNARY_EXP
+                    case 109u:          value = log(value); break; // OP_UNARY_LOG
+                    case 121u:          value = tanh(value); break; // OP_UNARY_TANH
+                    case 122u:          value = floor(value); break; // OP_UNARY_FLOOR
+                    case 123u:          value = ceil(value); break; // OP_UNARY_CEIL
+                    case 124u:          value = round(value); break; // OP_UNARY_ROUND
+                    case 130u:          value = max(0.0, value); break; // OP_UNARY_RELU
+                    case 131u:          value = 1.0 / (1.0 + exp(-value)); break; // OP_UNARY_SIGMOID
+                    case 132u:          value = value * 0.5 * (1.0 + tanh(sqrt(2.0 / 3.14159265) * (value + 0.044715 * value * value * value))); break; // OP_UNARY_GELU
+                    case 133u:          value = value / (1.0 + exp(-value)); break; // OP_UNARY_SILU
+                    case 134u:          value = log(1.0 + exp(value)); break; // OP_UNARY_SOFTPLUS
+                    case 137u:          value = clamp(value, 0.0, 6.0); break; // OP_UNARY_RELU6
+                    case 141u:          value = value * tanh(log(1.0 + exp(value))); break; // OP_UNARY_MISH
+                    case 142u:          value = value * clamp(value / 6.0 + 0.5, 0.0, 1.0); break; // OP_UNARY_HARDSWISH
+                    case 143u:          value = clamp(value / 6.0 + 0.5, 0.0, 1.0); break; // OP_UNARY_HARDSIGMOID
+                    case 148u:          value = inversesqrt(value); break; // OP_UNARY_RSQRT
+                    default: break;
+                }
+            } else if (FUSION_TYPE == 2u) {
+                float d = dataD[outIdx];
+                switch (FUSION_OP) {
+                    case 0u:            value = value + d; break; // OP_BINARY_ADD
+                    case 1u:            value = value - d; break; // OP_BINARY_SUB
+                    case 2u:            value = value * d; break; // OP_BINARY_MUL
+                    case 3u:            value = value / d; break; // OP_BINARY_DIV
+                    case 4u:            value = value - d * floor(value / d); break; // OP_BINARY_MOD
+                    case 5u:            value = pow(value, d); break; // OP_BINARY_POW
+                    case 6u:            value = floor(value / d); break; // OP_BINARY_FLOOR_DIV
+                    case 13u:           value = min(value, d); break; // OP_BINARY_MIN
+                    case 14u:           value = max(value, d); break; // OP_BINARY_MAX
+                    default:            value = value + d; break;
+                }
+            }
+            dataC[outIdx] = value;
+        }
+    }
+}

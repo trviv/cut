@@ -40,6 +40,10 @@ uint2 swizzleTileId(uint3 Gid) {
 [[vk::constant_id(1)]] const uint FUSION_TYPE = 0;
 // Fusion op selector: unary op code when FUSION_TYPE == 1, binary op code when FUSION_TYPE == 2
 [[vk::constant_id(2)]] const uint FUSION_OP = 0;
+// Affine (zero-point) mode: when 1, each 32-weight block carries a min in the
+// upper half of the scales buffer, and dequant is (q-8)*scale + min. When 0
+// the kernels are bit-identical to the old symmetric Q4_0 path.
+[[vk::constant_id(3)]] const uint AFFINE = 0;
 
 // Write a single output element, applying fusion post-processing if enabled.
 // Fusion logic is inlined via specialization constants — the GPU driver
@@ -123,5 +127,23 @@ float loadB(uint k, uint n) {
     uint scaleIdx = (k >> 5) * pc.scaleStride + n;
     float scale = float(scalesB[scaleIdx >> 2][scaleIdx & 3]);
 
-    return float(val) * scale;
+    float result = float(val) * scale;
+    if (AFFINE == 1u) {
+        uint blocksK = (pc.K + 31u) >> 5;
+        uint minIdx = scaleIdx + blocksK * pc.scaleStride;
+        result += float(scalesB[minIdx >> 2][minIdx & 3]);
+    }
+    return result;
 }
+
+// Shared helper: load 4 consecutive column mins starting at scaleBase (the same
+// index used for scales; the mins live blocksK rows further down). Returns
+// zeros when AFFINE is off so callers can fold it in unconditionally.
+void loadMin4(uint scaleBase, out float m0, out float m1, out float m2, out float m3) {
+    if (AFFINE != 1u) { m0 = 0.0f; m1 = 0.0f; m2 = 0.0f; m3 = 0.0f; return; }
+    uint blocksK = (pc.K + 31u) >> 5;
+    uint minBase = scaleBase + blocksK * pc.scaleStride;
+    %VEC_DTYPE_SCALES% mv = scalesB[minBase >> 2];
+    m0 = float(mv[0]); m1 = float(mv[1]); m2 = float(mv[2]); m3 = float(mv[3]);
+}
+

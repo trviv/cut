@@ -5,7 +5,7 @@ namespace cut {
 
 void patchSpecConstants(
     std::vector<uint32_t> &spirv,
-    const std::initializer_list<std::pair<uint32_t, uint32_t>> &patches) {
+    const std::vector<std::pair<uint32_t, uint32_t>> &patches) {
   constexpr uint32_t kOpDecorate = 71;
   constexpr uint32_t kOpSpecConstant = 50;
   constexpr uint32_t kDecorationSpecId = 1;

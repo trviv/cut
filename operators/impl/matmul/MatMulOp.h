@@ -60,6 +60,9 @@ private:
   uint32_t M_, K_, N_;
   // True when the variant was auto-selected (no explicit spec from the caller).
   bool autoSpec_ = false;
+  /// True when the Q4 scales tensor also carries per-block mins in its lower
+  /// half (affine / zero-point 4-bit). Drives specialization constant 3.
+  bool q4Affine_ = false;
   // Fusion-capable variant to fall back to if fusion is enabled while a
   // cooperative-matrix variant is selected (CoopMat shaders have no fusion
   // epilogue). Computed at construction alongside the primary selection.

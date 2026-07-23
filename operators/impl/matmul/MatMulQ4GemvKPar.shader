@@ -62,12 +62,14 @@ void main(uint3 GTid : SV_GroupThreadID,
         float s1 = float(sv[1]);
         float s2 = float(sv[2]);
         float s3 = float(sv[3]);
+        float m0, m1, m2, m3;
+        loadMin4(scaleBase, m0, m1, m2, m3);
 
         // Dequantize and accumulate
-        acc0 = mad(a, b0 * s0, acc0);
-        acc1 = mad(a, b1 * s1, acc1);
-        acc2 = mad(a, b2 * s2, acc2);
-        acc3 = mad(a, b3 * s3, acc3);
+        acc0 = mad(a, b0 * s0 + m0, acc0);
+        acc1 = mad(a, b1 * s1 + m1, acc1);
+        acc2 = mad(a, b2 * s2 + m2, acc2);
+        acc3 = mad(a, b3 * s3 + m3, acc3);
     }
 
     // Butterfly reduction across 32 lanes (no barriers needed)

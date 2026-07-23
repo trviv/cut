@@ -299,8 +299,10 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   }
 
   // Auto-detect Q4 vs Q8 from shapes:
-  //   Q8: B [K, N], scales [K/32, N] -> B.cols == scales.cols
-  //   Q4: B [K, N/2], scales [K/32, N] -> B.cols * 2 == scales.cols
+  //   Q8:        B [K, N],   scales [K/32, N]   -> B.cols == scales.cols
+  //   Q4:        B [K, N/2], scales [K/32, N]   -> B.cols * 2 == scales.cols
+  //   Q4 affine: B [K, N/2], scales [2*K/32, N] -> as Q4, twice the rows; the
+  //              lower half holds the per-block mins.
   uint32_t bCols = shapePB[1];
   uint32_t sCols = shapeSB[1];
   if (bCols == sCols) {
@@ -309,6 +311,8 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
   } else if (bCols * 2 == sCols) {
     format_ = QuantFormat::Q4;
     N_ = sCols;
+    const uint32_t blocksK = (K_ + 31u) / 32u;
+    q4Affine_ = (shapeSB[0] == 2u * blocksK);
   } else {
     throw std::runtime_error(
         "matmul: cannot determine quant format from B cols (" +
@@ -338,8 +342,10 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
     if (M_ == 1) {
       // GEMV: 8-col K-parallel variant with K-unroll x4
       // Falls back to 4-col variant for very small N
-      fusionFallbackSpec_ = (N_ >= 8) ? kMatMulQ4VariantCount - 1  // GemvKPar8
-                                       : kMatMulQ4VariantCount - 2; // GemvKPar
+      // Absolute indices — these must not drift when a variant is appended
+      // to the table.
+      fusionFallbackSpec_ = (N_ >= 8) ? 3  // MatMulQ4GemvKPar8
+                                      : 2; // MatMulQ4GemvKPar
     } else {
       fusionFallbackSpec_ = kMatMulQ4DefaultVariant;
     }
@@ -351,6 +357,13 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
              K_ % 16 == 0 && N_ % 32 == 0) {
     // CoopMat: dequant B→fp16 in shared memory, tensor core compute (best)
     spec_ = kMatMulQ8VariantCount - 1; // CoopMatTiled (last Q8 variant)
+  } else if (format_ == QuantFormat::Q4 && M_ > 1 &&
+             store.caps().cooperativeMatrix && dtypeB_ == DataType::Float16 &&
+             K_ % 16 == 0 && N_ % 32 == 0) {
+    // Same deal for Q4: unpack nibbles -> fp16 in shared memory, tensor cores.
+    // Without this a Q4 weight falls to the scalar tiled variant and prefill
+    // costs ~2x what the Q8 path does.
+    spec_ = 4; // MatMulQ4CoopMatTiled
   } else {
     // NOTE: TiledDot (spec 6) is deliberately NOT auto-selected — it produces
     // wrong results even unfused (see MatMulQ8_TiledDotVariant_Unfused_M33,
@@ -378,7 +391,8 @@ void MatMulOpNode::setFusion(MatMulFusion fusion,
   }
   // The float cooperative-matrix shaders still have no fusion epilogue, so a
   // fused matmul would silently drop the fused op there and must fall back to
-  // a scalar variant. MatMulQ8CoopMatTiled does have one, so it is exempt.
+  // a scalar variant. The Q8 and Q4 cooperative-matrix tiled variants both
+  // have one, so they are exempt.
   bool coopMatSelected = false;
   if (format_ == QuantFormat::None) {
     coopMatSelected = (*spec_ == kCoopMatVariant ||
@@ -407,6 +421,9 @@ size_t MatMulOpNode::shaderKey() const {
   size_t key = static_cast<size_t>(op_);
   key |= (static_cast<size_t>(dtypeA_) & 0xF) << 16;
   key |= (static_cast<size_t>(dtypeB_) & 0xF) << 20;
+  // Affine Q4 changes the compiled shader but is not part of spec_, so it
+  // needs its own bit or the two variants collide in the shader cache.
+  key |= (static_cast<size_t>(q4Affine_ ? 1 : 0)) << 35;
   // Encode fusion type (bits 36-39) and binary op (bits 40-47)
   key |= (static_cast<size_t>(fusion_) & 0xF) << 36;
   if (fusion_ != MatMulFusion::None) {
@@ -437,18 +454,28 @@ std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
     break;
   }
 
-  if (!compiled.has_value() || fusion_ == MatMulFusion::None) {
+  const bool needsPatch = fusion_ != MatMulFusion::None || q4Affine_;
+  if (!compiled.has_value() || !needsPatch) {
     return compiled;
   }
 
   auto spirv = std::move(compiled.value());
 
-  // Patch specialization constants for fusion (single SPIR-V scan)
+  // Patch specialization constants (single SPIR-V scan): 1/2 select the fusion
+  // epilogue, 3 turns on the affine (zero-point) Q4 dequant. They are
+  // independent, so the set is assembled rather than written literally.
+  std::vector<std::pair<uint32_t, uint32_t>> specs;
   if (fusion_ == MatMulFusion::Unary) {
-    patchSpecConstants(spirv, {{1, 1}, {2, static_cast<uint32_t>(fusionOp_)}});
+    specs.push_back({1, 1});
+    specs.push_back({2, static_cast<uint32_t>(fusionOp_)});
   } else if (fusion_ == MatMulFusion::Binary) {
-    patchSpecConstants(spirv, {{1, 2}, {2, static_cast<uint32_t>(fusionOp_)}});
+    specs.push_back({1, 2});
+    specs.push_back({2, static_cast<uint32_t>(fusionOp_)});
   }
+  if (q4Affine_) {
+    specs.push_back({3, 1});
+  }
+  patchSpecConstants(spirv, specs);
 
   return spirv;
 }

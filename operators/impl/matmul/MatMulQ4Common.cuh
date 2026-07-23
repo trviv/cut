@@ -39,6 +39,14 @@ static const uint FUSION_TYPE = CUT_SPEC_1;
 #endif
 static const uint FUSION_OP = CUT_SPEC_2;
 
+// Affine (zero-point) mode: when 1, each 32-weight block carries a min in the
+// upper half of the scales buffer, and dequant is (q-8)*scale + min. When 0
+// the kernels are bit-identical to the old symmetric Q4_0 path.
+#ifndef CUT_SPEC_3
+#define CUT_SPEC_3 (0)
+#endif
+static const uint AFFINE = CUT_SPEC_3;
+
 // swizzleTileId only when tiling defines present
 #if defined(TILE_SIZE) && defined(TM) && defined(TN)
 __device__ __forceinline__ uint2 cut_swizzleTileId(const PushConstants& pc, uint3 Gid) {
@@ -135,7 +143,13 @@ __device__ __forceinline__ float cut_loadB(const uint* __restrict__ packedB,
     uint scaleIdx = (k >> 5) * pc.scaleStride + n;
     float scale = float(scalesB[scaleIdx >> 2][scaleIdx & 3]);
 
-    return float(val) * scale;
+    float result = float(val) * scale;
+    if (AFFINE == 1u) {
+        uint blocksK = (pc.K + 31u) >> 5;
+        uint minIdx = scaleIdx + blocksK * pc.scaleStride;
+        result += float(scalesB[minIdx >> 2][minIdx & 3]);
+    }
+    return result;
 }
 
 // Shared helper: load 4 consecutive column scales starting at scaleBase (half path only for Q4).
@@ -144,4 +158,17 @@ __device__ __forceinline__ void cut_loadScale4(const CUT_VEC_DTYPE_SCALES* __res
                                                 float& s0, float& s1, float& s2, float& s3) {
     CUT_VEC_DTYPE_SCALES sv = scalesB[scaleBase >> 2];
     s0 = float(sv[0]); s1 = float(sv[1]); s2 = float(sv[2]); s3 = float(sv[3]);
+}
+
+// Shared helper: load 4 consecutive column mins starting at scaleBase (the
+// same index used for scales; the mins live blocksK rows further down).
+__device__ __forceinline__ void cut_loadMin4(const CUT_VEC_DTYPE_SCALES* __restrict__ scalesB,
+                                              const PushConstants& pc,
+                                              uint scaleBase,
+                                              float& m0, float& m1, float& m2, float& m3) {
+    if (AFFINE != 1u) { m0 = 0.0f; m1 = 0.0f; m2 = 0.0f; m3 = 0.0f; return; }
+    uint blocksK = (pc.K + 31u) >> 5;
+    uint minBase = scaleBase + blocksK * pc.scaleStride;
+    CUT_VEC_DTYPE_SCALES mv = scalesB[minBase >> 2];
+    m0 = float(mv[0]); m1 = float(mv[1]); m2 = float(mv[2]); m3 = float(mv[3]);
 }
