@@ -148,7 +148,12 @@ public:
   template <bool P = IsPointer, EnableIfNotPointer<P> = 0>
   const DataType &get(const ComputeHandle &handle) const {
     if (!handle) {
-      logErr("Trying to get data for an empty handle, in %s", name());
+      // %.*s with an explicit length is required because name() is a
+      // std::string_view and is therefore not guaranteed null-terminated; a
+      // plain %s would pass a {pointer, length} aggregate through varargs and
+      // is undefined behaviour.
+      logErr("Trying to get data for an empty handle, in %.*s",
+             static_cast<int>(name().size()), name().data());
     }
     verify(handle);
     return objects_[handle.id_];
@@ -160,8 +165,8 @@ protected:
   virtual ~ComputeDataContainer() {
     if (objects_.size() != freeSlotCount()) {
       logErr("Trying to destroy container before all objects in it have "
-             "been deallocated, in:  %s",
-             name());
+             "been deallocated, in:  %.*s",
+             static_cast<int>(name().size()), name().data());
     }
     objects_.clear();
   }
