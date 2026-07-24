@@ -2664,6 +2664,95 @@ TEST_F(MatrixOpsTest, MatMul_LlamaPrefillShapes_F32xF16) {
   }
 }
 
+// Regression: with Float16 A and B, the compiled kernel must write the dtype
+// the node advertises (Float32) rather than the operand dtype.
+//
+// Kernel selection used to request an output dtype matching the input, which
+// found the Float16-output kernel and wrote 2 bytes per element into the
+// 4-byte Float32 tensor. Readers then saw pairs of halves reinterpreted as
+// floats — values like 2.1e-18 and 1.2e13 where the answer was ~0.005.
+//
+// The M values are the whole point of this test. shouldUseCoopMat requires
+// M % 16 == 0 && M >= 16, so every aligned M took the cooperative-matrix path,
+// which always asked for Float32 and was correct. Only M below or unaligned to
+// 16 reached the scalar path, so a test that checked M=16 alone would have
+// passed against the bug for as long as it existed. 1, 3 and 15 are scalar; 16
+// is coopmat and guards the path that was already right.
+TEST_F(MatrixOpsTest, MatMul_F16xF16_WritesFloat32Output) {
+  auto toHalf = [](float f) {
+    uint32_t bits;
+    std::memcpy(&bits, &f, sizeof(bits));
+    uint32_t sign = (bits >> 31) & 1;
+    int32_t exp = static_cast<int32_t>((bits >> 23) & 0xff) - 127 + 15;
+    uint32_t mant = (bits >> 13) & 0x3ff;
+    if (exp <= 0)
+      return static_cast<uint16_t>(sign << 15);
+    if (exp > 30)
+      return static_cast<uint16_t>((sign << 15) | (0x1fu << 10));
+    return static_cast<uint16_t>((sign << 15) | (exp << 10) | mant);
+  };
+  auto toFloat = [](uint16_t h) {
+    uint32_t sign = (h >> 15) & 1, exp = (h >> 10) & 0x1f, mant = h & 0x3ff;
+    if (exp == 0)
+      return 0.0f;
+    uint32_t bits = (sign << 31) | ((exp + 127 - 15) << 23) | (mant << 13);
+    float f;
+    std::memcpy(&f, &bits, sizeof(f));
+    return f;
+  };
+
+  // K and N are multiples of 16 so that M alone decides scalar vs coopmat.
+  const uint32_t K = 64, N = 64;
+  std::mt19937 gen(1234);
+  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+
+  for (uint32_t M : {1u, 3u, 15u, 16u}) {
+    SCOPED_TRACE("M=" + std::to_string(M));
+
+    std::vector<uint16_t> a16(static_cast<size_t>(M) * K);
+    std::vector<uint16_t> b16(static_cast<size_t>(K) * N);
+    // Reference is built from the round-tripped values, so it compares against
+    // what the GPU actually multiplies rather than the pre-rounding floats.
+    std::vector<float> a32(a16.size()), b32(b16.size());
+    for (size_t i = 0; i < a16.size(); ++i) {
+      a16[i] = toHalf(dist(gen));
+      a32[i] = toFloat(a16[i]);
+    }
+    for (size_t i = 0; i < b16.size(); ++i) {
+      b16[i] = toHalf(dist(gen));
+      b32[i] = toFloat(b16[i]);
+    }
+
+    auto bufA = runtime_->createTensor({M, K}, DataType::Float16, a16.data());
+    auto bufB = runtime_->createTensor({K, N}, DataType::Float16, b16.data());
+    auto bufC = runtime_->ops().matmul(bufA, bufB);
+
+    // The invariant itself, checked directly: a Float16 output here would mean
+    // the buffer holds half the bytes every reader expects.
+    EXPECT_EQ(runtime_->getTensor(bufC).getDtype(), DataType::Float32);
+
+    std::vector<float> out(static_cast<size_t>(M) * N);
+    runtime_->copyFromTensor(bufC, out.data(), out.size() * sizeof(float));
+
+    int mismatches = 0;
+    for (uint32_t i = 0; i < M; ++i)
+      for (uint32_t j = 0; j < N; ++j) {
+        float expected = 0.0f;
+        for (uint32_t k = 0; k < K; ++k)
+          expected += a32[i * K + k] * b32[k * N + j];
+        const float got = out[i * N + j];
+        const float tol = std::fabs(expected) * 1e-2f + 1e-3f;
+        if (std::fabs(got - expected) > tol) {
+          if (mismatches < 3)
+            std::cerr << "M=" << M << " mismatch at [" << i << "," << j
+                      << "]: got=" << got << " expected=" << expected << "\n";
+          mismatches++;
+        }
+      }
+    EXPECT_EQ(mismatches, 0) << "M=" << M << " mismatches: " << mismatches;
+  }
+}
+
 TEST_F(MatrixOpsTest, MatMul_LlamaPrefillQKV_F32xF16) {
   const uint32_t M = 15, K = 576, N = 960;
 

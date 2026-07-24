@@ -246,8 +246,10 @@ MatMulOpNode::MatMulOpNode(TensorStore &store,
         backendName(store.caps().backend));
     // A selected variant may still have no compiled shader for these operand
     // dtypes. Fall back to the built-in heuristic variant, which is always
-    // available, if so. This mirrors the non-coopmat lookup in shader().
-    if (!getCompiledMatMul(sel, dtypeA_, dtypeB_, dtypeA_).has_value())
+    // available, if so. This mirrors the lookup in shader(), output dtype
+    // included — probing with a different one would answer a question about a
+    // kernel that is not the one going to be dispatched.
+    if (!getCompiledMatMul(sel, dtypeA_, dtypeB_, outputDtype()).has_value())
       sel = fusionFallbackSpec_;
     spec_ = sel;
   } else {
@@ -419,6 +421,18 @@ void MatMulOpNode::setFusion(MatMulFusion fusion,
 // Shared methods
 // ============================================================================
 
+/// The dtype of the buffer this node allocates, and therefore the ONLY output
+/// dtype a compiled matmul kernel may be selected with.
+///
+/// Matmul always accumulates to and writes Float32, whatever the operand
+/// dtypes are. Every kernel lookup — shader(), resolveInputDtypes(), the
+/// availability probe in the constructor — must pass this, not an operand
+/// dtype. Passing an operand dtype used to select the Float16-output kernel
+/// for Float16 A and B, which writes 2 bytes per element into the 4-byte
+/// buffer allocated here; readers then saw pairs of halves reinterpreted as
+/// floats. It went unnoticed because every f16 shape with M a multiple of 16
+/// takes the cooperative-matrix path, which always asked for Float32 — only
+/// M=1 (and any device without coopmat) hit the scalar path and got garbage.
 DataType MatMulOpNode::outputDtype() const {
   return DataType::Float32;
 }
@@ -450,13 +464,13 @@ std::optional<std::vector<uint32_t>> MatMulOpNode::shader() const {
     compiled = getCompiledMatMulQ4(*spec_, dtypeA_, dtypeB_, DataType::Float32);
     break;
   default:
-    // CoopMat variants produce Float32 output from Float16 inputs
-    if (*spec_ == kCoopMatVariant || *spec_ == kCoopMatTiledVariant ||
-        *spec_ == kCoopMatGemvVariant) {
-      compiled = getCompiledMatMul(*spec_, dtypeA_, dtypeB_, DataType::Float32);
-    } else {
-      compiled = getCompiledMatMul(*spec_, dtypeA_, dtypeB_, dtypeA_);
-    }
+    // Every variant writes outputDtype(), coopmat and scalar alike. Asking for
+    // a kernel that writes anything else hands the dispatch a kernel whose
+    // element size disagrees with the buffer this node allocated: the Float16
+    // kernels write 2 bytes where the Float32 output tensor has 4, so the
+    // result is reinterpreted half-pairs rather than floats. That was a live
+    // bug — see the note on outputDtype().
+    compiled = getCompiledMatMul(*spec_, dtypeA_, dtypeB_, outputDtype());
     break;
   }
 
@@ -615,17 +629,28 @@ std::vector<DataType> MatMulOpNode::resolveInputDtypes(
     return result;
   }
 
+  // Every probe asks for a kernel writing outputDtype(), because that is the
+  // dtype of the buffer this node allocates — a kernel that writes anything
+  // else corrupts it. Previously these asked for an output matching the input
+  // dtype, which for Float16 A and B found the Float16-output kernel and wrote
+  // half into a Float32 tensor.
+  //
+  // The order matters for more than correctness. Widening A before B is what
+  // keeps the Float32-A/Float16-B kernels reachable, so an f16 weight matrix
+  // stays f16 and only the activation is cast — at M=1 that is a single row
+  // against a B of hundreds of megabytes.
+  const DataType outDtype = outputDtype();
   std::vector<DataType> result;
-  if (getCompiledMatMul(*spec_, dtA, dtB, dtA).has_value())
+  if (getCompiledMatMul(*spec_, dtA, dtB, outDtype).has_value())
     result = {dtA, dtB};
   else {
     DataType wA = widenPrecision(dtA);
     DataType wB = widenPrecision(dtB);
-    if (getCompiledMatMul(*spec_, dtA, wB, wB).has_value())
-      result = {dtA, wB};
-    else if (getCompiledMatMul(*spec_, wA, dtB, wA).has_value())
+    if (getCompiledMatMul(*spec_, wA, dtB, outDtype).has_value())
       result = {wA, dtB};
-    else if (getCompiledMatMul(*spec_, wA, wB, wA).has_value())
+    else if (getCompiledMatMul(*spec_, dtA, wB, outDtype).has_value())
+      result = {dtA, wB};
+    else if (getCompiledMatMul(*spec_, wA, wB, outDtype).has_value())
       result = {wA, wB};
     else
       result = {DataType::Float32, DataType::Float32};

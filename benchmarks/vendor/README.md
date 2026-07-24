@@ -387,25 +387,40 @@ GPU-timestamp column these numbers come from.
   time. With the upload hoisted to registration, two of the three GEMV shapes
   roughly double. The gap at K=N=8192 is real and still the worst GEMV case.
 - **f16 GEMM is uniformly worse than f32 relative to cuBLAS: 0.31–0.41x** on
-  every shape, dropping to 0.17x at the 8192 GEMV. Both sides accumulate in f32
+  every shape, dropping to 0.13x at the 8192 GEMV (0.17x before the GEMV
+  correctness fix below, which cost some speed to buy a right answer). Both
+  sides accumulate in f32
   (`CUBLAS_COMPUTE_32F`), so this is not a precision trade — cuBLAS reaches
   71.8 TFLOPS at 4096³ against CUT's 27.3, i.e. cuBLAS is using tensor cores
   and CUT is not.
-- **f16 GEMV (M=1) is numerically WRONG on the CUDA backend.** `max_diff` is
-  1.2e13 at M=1 K=4096 N=4096 and 8.4e13 at M=1 K=8192 N=8192, against a
-  `ref_mag` of ~17 and ~24 — 4021 of 4096 output elements disagree, and the CUT
-  values (2.9e3, -2.0e9, 3.3e10, …) are not near-misses but garbage. This is
-  CUT, not the harness: M=16 with the identical code path agrees to 3.1e-02,
-  and the output buffer's metadata is correct (`Float32`, shape `[1 4096]`,
-  16384 bytes) — only the contents are wrong. The f32 GEMV at the same shapes
-  is fine, so the fault is specific to the half-input M=1 path. This is exactly
-  the LLM decode shape, so it is worth fixing before any f16 decode numbers are
-  quoted.
+- **f16 GEMV (M=1) was numerically WRONG on the CUDA backend — FIXED.**
+  `max_diff` was 1.2e13 at M=1 K=4096 N=4096 and 8.4e13 at M=1 K=8192 N=8192
+  against a `ref_mag` of ~17 and ~24: not near-misses but garbage (2.9e3,
+  -2.0e9, 3.3e10, …).
 
-  **These two cases now fail the correctness gate**, so `cublas_extras_bench`
-  exits 2 and `vendor_bench.sh` exits 2 until the bug is fixed. That is the
-  suite working, not the suite broken — a known-wrong kernel should not be able
-  to report a clean run. Everything else in the suite passes its gate.
+  The cause was a dtype mismatch in kernel selection, not arithmetic.
+  `MatMulOpNode::outputDtype()` is always `Float32`, but the kernel lookup asked
+  for an output dtype matching the *operand* dtype — so Float16 A and B selected
+  the Float16-output kernel, which writes 2 bytes per element into the 4-byte
+  Float32 tensor. Readers saw pairs of halves reinterpreted as floats, which is
+  exactly the kind of garbage observed.
+
+  It hid because `shouldUseCoopMat` requires `M % 16 == 0 && M >= 16`: every
+  aligned M took the cooperative-matrix path, which always asked for Float32.
+  Only M=1 reached the scalar path — and so did *any* f16 matmul on a device
+  without coopmat, which is the broader half of the bug. Every kernel lookup now
+  passes `outputDtype()`, and the f16/f16 case resolves to the
+  Float32-A/Float16-B kernel: the activation is cast (one row at M=1, ~9 us) and
+  the weight matrix stays f16. Covered by
+  `MatrixOpsTest.MatMul_F16xF16_WritesFloat32Output`, which tests M=1, 3 and 15
+  against the coopmat M=16 — a test at aligned M alone would have passed against
+  the bug.
+
+  Accuracy is now better than the f32 GEMM's at the same shapes (the accumulator
+  went from half to f32): `max_diff` 0.031 against a tolerance of 0.173. The
+  measured time went from 955 us to 1256 us at K=N=8192, but the old figure
+  timed a kernel that produced garbage — 1256 us is the first valid measurement,
+  and only 9 us of it is the added cast.
 - **Transpose is at parity with cuBLAS: 0.98–1.07x**, and bit-exact (`max_diff`
   is 0.00e+00 on every shape). Both sides run at 740–830 GB/s, which is ~85–95%
   of the 3090's 936 GB/s peak, so the operator is saturated and there is nothing
