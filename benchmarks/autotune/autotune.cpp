@@ -6,7 +6,9 @@
 ///
 /// Usage:
 ///   cmake --build build --target autotune
-///   ./build/benchmarks/autotune/autotune [warmup] [iterations] [output_file]
+///   ./build/benchmarks/autotune/autotune [warmup] [iterations] [output_file] [op]
+/// where [op] is one of: all (default) | transpose | matmul — autotune just that
+/// operator (e.g. skip the long MatMul sweep when only Transpose changed).
 ///
 /// Output: JSON written to output_file (default: autotune_raw.json).
 /// Progress is printed to stderr.
@@ -375,12 +377,23 @@ int main(int argc, char *argv[]) {
   int warmup = 3;
   int iterations = 8;
   std::string outputPath = "autotune_raw.json";
+  std::string opFilter = "all"; // "all" | "transpose" | "matmul"
   if (argc > 1)
     warmup = std::atoi(argv[1]);
   if (argc > 2)
     iterations = std::atoi(argv[2]);
   if (argc > 3)
     outputPath = argv[3];
+  if (argc > 4)
+    opFilter = argv[4];
+
+  const bool doTranspose = (opFilter == "all" || opFilter == "transpose");
+  const bool doMatMul = (opFilter == "all" || opFilter == "matmul");
+  if (!doTranspose && !doMatMul) {
+    std::cerr << "Unknown op filter '" << opFilter
+              << "' (expected: all | transpose | matmul)" << std::endl;
+    return 1;
+  }
 
   Runtime runtime;
   // Default to Vulkan; set CUT_BENCH_BACKEND=cuda to autotune the CUDA
@@ -416,9 +429,17 @@ int main(int argc, char *argv[]) {
   outFile << "  \"timestamp\": \"" << getCurrentTimestamp() << "\",\n";
   outFile << "  \"operators\": {\n";
 
-  autotuneTranspose(runtime, warmup, iterations, outFile);
-  outFile << ",\n";
-  autotuneMatMul(runtime, warmup, iterations, outFile);
+  bool wroteOp = false;
+  if (doTranspose) {
+    autotuneTranspose(runtime, warmup, iterations, outFile);
+    wroteOp = true;
+  }
+  if (doMatMul) {
+    if (wroteOp)
+      outFile << ",\n";
+    autotuneMatMul(runtime, warmup, iterations, outFile);
+    wroteOp = true;
+  }
 
   outFile << "\n  }\n";
   outFile << "}\n";
