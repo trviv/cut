@@ -136,6 +136,26 @@
           {"input": "UInt32", "output": "UInt32"}
         ]
       }
+    },
+    {
+      "name": "WarpShuffle",
+      "template": "TransposeWarpShuffle",
+      "wg": [
+        32,
+        1
+      ],
+      "eff_tile": [
+        32,
+        32
+      ],
+      "description": "Warp-shuffle 32x32 register transpose (CUDA), shared-mem HLSL",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     }
   ]
 }
