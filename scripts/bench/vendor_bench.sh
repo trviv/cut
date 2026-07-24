@@ -72,20 +72,81 @@ if [[ ${#EXCLUDES[@]} -gt 0 ]]; then
   FILTER="-($(IFS='|'; echo "${EXCLUDES[*]}"))"
 fi
 
+TARGETS=(cublas_matmul_bench cublas_extras_bench cudnn_softmax_bench
+         cudnn_conv_bench cub_scan_sort_bench rocblas_matmul_bench
+         rocprim_scan_sort_bench)
+
 # Build step
 if [[ $DO_BUILD -eq 1 ]]; then
-  if [[ ! -d "$BUILD_DIR" ]]; then
-    echo "Error: BUILD_DIR does not exist: $BUILD_DIR" >&2
-    echo "Please configure first with:" >&2
-    echo "  cmake -B build-cuda-rel -DENABLE_CUDA_BACKEND=ON -DCMAKE_BUILD_TYPE=Release" >&2
+  # Configure the build directory ourselves rather than telling the user to.
+  #
+  # Vulkan is not an option in this project — CMakeLists.txt does
+  # find_package(Vulkan REQUIRED) — so every build already has the Vulkan
+  # backend. CUDA is the opt-in one, and it is the one that matters here:
+  # without ENABLE_CUDA_BACKEND every target under vendor/cuda is skipped at
+  # configure time, and the run then reports "skipped (not built)" for all of
+  # them. That is indistinguishable from a missing cuBLAS/cuDNN SDK, so a
+  # wrongly-configured directory produces an empty table and no explanation.
+  need_configure=0
+  if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+    echo "==> ${BUILD_DIR} not configured yet"
+    need_configure=1
+  elif ! grep -q "^ENABLE_CUDA_BACKEND:BOOL=ON" "${BUILD_DIR}/CMakeCache.txt"; then
+    echo "==> ${BUILD_DIR} was configured without the CUDA backend"
+    need_configure=1
+  fi
+  if [[ $need_configure -eq 1 ]]; then
+    echo "    configuring with CUDA backend ON (Vulkan is always on)"
+    # Both streams go to a log: the configure emits pages of third-party
+    # FetchContent policy warnings that would bury the benchmark output. The
+    # log is replayed only if configure actually fails, where it is the thing
+    # you need to read.
+    configure_log="$(mktemp)"
+    if ! cmake -B "$BUILD_DIR" -DENABLE_CUDA_BACKEND=ON \
+         -DCMAKE_BUILD_TYPE=Release >"$configure_log" 2>&1; then
+      echo "Error: cmake configure failed:" >&2
+      cat "$configure_log" >&2
+      rm -f "$configure_log"
+      exit 1
+    fi
+    # Which vendor SDKs were found is the one genuinely useful line, and it
+    # explains any target missing from the table below.
+    grep -E "^-- vendor/(cuda|amd):" "$configure_log" | sed 's/^/    /' || true
+    rm -f "$configure_log"
+  fi
+
+  # Only build targets this configuration actually defines. `cmake --build`
+  # fails the WHOLE invocation on one unknown target, so the AMD benches on an
+  # NVIDIA box (or the cuDNN ones without cuDNN) would take everything down
+  # with them if passed blindly.
+  available=()
+  target_list="$(cmake --build "$BUILD_DIR" --target help 2>/dev/null || true)"
+  for target in "${TARGETS[@]}"; do
+    if [[ -z "$target_list" ]] || grep -qE "^\.\.\. ${target}$" <<<"$target_list"; then
+      available+=("$target")
+    fi
+  done
+
+  if [[ ${#available[@]} -eq 0 ]]; then
+    echo "Error: none of the vendor benchmark targets exist in ${BUILD_DIR}." >&2
+    echo "       Check the configure output for which vendor SDKs were found." >&2
     exit 1
   fi
 
-  echo "==> Building vendor benchmarks..."
-  for target in cublas_matmul_bench cublas_extras_bench cudnn_softmax_bench cudnn_conv_bench cub_scan_sort_bench rocblas_matmul_bench rocprim_scan_sort_bench; do
-    cmake --build "$BUILD_DIR" --target "$target" >/dev/null 2>&1 || true
-  done
-  echo "    (Targets built one at a time; missing targets are skipped if their vendor SDK was not found)"
+  echo "==> Building ${#available[@]} vendor benchmark(s): ${available[*]}"
+  # One parallel invocation. Building one target at a time re-ran the
+  # up-to-date and shader-compile checks per target, and left the bulk of the
+  # work — CUTLib's own translation units — compiling serially.
+  build_log="$(mktemp)"
+  if ! cmake --build "$BUILD_DIR" --target "${available[@]}" \
+       -j"$(nproc 2>/dev/null || echo 4)" >"$build_log" 2>&1; then
+    echo "Error: build failed:" >&2
+    cat "$build_log" >&2
+    rm -f "$build_log"
+    exit 1
+  fi
+  rm -f "$build_log"
+  echo "    (Targets whose vendor SDK was not found are not defined and were skipped)"
 fi
 
 # Run step

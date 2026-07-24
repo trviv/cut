@@ -63,12 +63,20 @@ target is skipped and the default build is unaffected. Configure prints which:
 ### Everything at once
 
 ```bash
-cmake -B build-cuda-rel -DENABLE_CUDA_BACKEND=ON -DCMAKE_BUILD_TYPE=Release
 ./scripts/bench/vendor_bench.sh
 ```
 
-That builds every vendor target, runs each binary that exists, and prints one
-combined comparison table across all of them. Targets whose SDK was not found are
+That is the whole command — it configures the build directory if it is missing,
+builds every vendor target that this configuration defines, runs each binary,
+and prints one combined comparison table across all of them.
+
+The configure it runs is `-DENABLE_CUDA_BACKEND=ON -DCMAKE_BUILD_TYPE=Release`.
+Vulkan needs no flag: `find_package(Vulkan REQUIRED)` makes it mandatory, so
+every build has the Vulkan backend and CUDA is the only opt-in one. It also
+re-configures a directory that was built *without* `ENABLE_CUDA_BACKEND`, since
+that state builds none of the `vendor/cuda` targets and is otherwise
+indistinguishable from a missing cuBLAS/cuDNN SDK — an empty table with no
+explanation. Targets whose SDK was not found are
 skipped rather than treated as failures, so on an NVIDIA machine the two AMD
 benches simply report `skipped (not built)`. A benchmark that fails is reported and
 the rest still run; the script exits nonzero if any did.
@@ -131,8 +139,10 @@ unaffected.
 ### One benchmark at a time
 
 ```bash
+cmake -B build-cuda-rel -DENABLE_CUDA_BACKEND=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build-cuda-rel --target \
-    cublas_matmul_bench cublas_extras_bench cudnn_softmax_bench cub_scan_sort_bench
+    cublas_matmul_bench cublas_extras_bench cudnn_softmax_bench \
+    cudnn_conv_bench cub_scan_sort_bench
 ./build-cuda-rel/benchmarks/vendor/cuda/cublas_matmul_bench \
     [--benchmark_repetitions=N] [--benchmark_filter=REGEX] \
     [--benchmark_out=PATH --benchmark_out_format=json]
