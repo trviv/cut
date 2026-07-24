@@ -174,6 +174,12 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n) {
   spec.vendor = "CUB";
   spec.shape = "N=" + std::to_string(n);
   spec.bytes = 2.0 * n * sizeof(float); // one read + one write per element
+  // A parallel scan sums in a different order than a sequential one, so f32
+  // drift accumulates with N and is expected rather than suspicious — 3.97e-03
+  // at N=16M against a ref_mag of 462, i.e. ~9e-6 relative. Gated loosely at
+  // 1e-3 (100x the measured worst case): tight enough that a scan producing
+  // garbage still fails, loose enough that reordering drift never does.
+  spec.tolerance = cutbench::Tolerance::rel(1e-3);
   spec.check = check;
 
   cutbench::registerPair(rt, spec, cutIssue, refTimed);
@@ -232,6 +238,10 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
   spec.shape = "N=" + std::to_string(n);
   // keys + values, each read once and written once.
   spec.bytes = 2.0 * n * 2 * sizeof(uint32_t);
+  // max_diff is a mismatch COUNT here, so the gate is absolute and the limit is
+  // zero: sorted uint32 keys either agree with CUB exactly or the sort is
+  // wrong. A relative bound would be nonsense against a synthetic ref_mag of 1.
+  spec.tolerance = cutbench::Tolerance::exact();
   spec.check = check;
 
   cutbench::registerPair(rt, spec, cutIssue, refTimed);

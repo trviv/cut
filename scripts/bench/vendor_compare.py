@@ -149,6 +149,41 @@ def calculate_speedup(cut_ms, ref_ms):
     speedup = ref_ms / cut_ms
     return f"{speedup:.2f}x"
 
+def correctness_status(row):
+    """
+    Return "FAIL" if this benchmark row failed its correctness gate, else "ok".
+
+    The benchmark binary marks a failing case via SkipWithError, which lands in
+    the JSON as error_occurred/error_message. Both halves of a pair are marked,
+    so either row is enough to condemn the comparison.
+    """
+    if row is None:
+        return "ok"
+    if row.get("error_occurred"):
+        return "FAIL"
+    # Belt and braces: recompute the verdict from the counters the binary
+    # emitted. If a JSON was produced by an older binary that reported max_diff
+    # without gating it, this still catches the bad case rather than trusting an
+    # absent error flag to mean "correct".
+    max_diff = row.get("max_diff")
+    allowed = row.get("max_diff_allowed")
+    if max_diff is not None and allowed is not None and max_diff > allowed:
+        return "FAIL"
+    return "ok"
+
+def failure_detail(*rows):
+    """
+    The binary's own explanation of a failure.
+
+    Google Benchmark drops every user counter from an errored row, keeping only
+    error_message — so max_diff and ref_mag read as 0 in the table for exactly
+    the rows where they matter most. The message carries the real numbers.
+    """
+    for row in rows:
+        if row and row.get("error_message"):
+            return row["error_message"]
+    return None
+
 def get_cv(row):
     """
     Return the coefficient of variation as a percentage string, or "-" when the
@@ -189,10 +224,23 @@ def print_table(pairs, sort_by=None, as_csv=False):
         # Get cv
         cv = get_cv(correctness_row) if correctness_row else "-"
 
-        # Calculate speedup
-        speedup = calculate_speedup(cut_ms, ref_ms) if cut_ms is not None and ref_ms is not None else "-"
+        # Correctness verdict. Either half failing condemns the comparison.
+        status = "ok"
+        for side_row in (cut_row, vendor_row):
+            if correctness_status(side_row) == "FAIL":
+                status = "FAIL"
+
+        # A speedup computed against a wrong result is not a speedup, so it is
+        # withheld rather than printed next to a FAIL where it could be read
+        # off the table and quoted.
+        if status == "FAIL":
+            speedup = "VOID"
+        else:
+            speedup = calculate_speedup(cut_ms, ref_ms) if cut_ms is not None and ref_ms is not None else "-"
 
         rows.append({
+            "status": status,
+            "detail": failure_detail(cut_row, vendor_row),
             "op": op,
             "shape": shape,
             "vendor": vendor_row.get("run_name", "").split("/")[0] if vendor_row else "-",
@@ -209,7 +257,15 @@ def print_table(pairs, sort_by=None, as_csv=False):
 
     # Sort if requested
     if sort_by == "speedup":
-        rows.sort(key=lambda x: float(x["speedup"][0:-1]) if x["speedup"] != "-" else 0)
+        def speedup_key(x):
+            # "-" (a missing half) and "VOID" (a failed correctness gate) have
+            # no numeric speedup; sort them to the bottom rather than crashing
+            # on float("VOI").
+            try:
+                return float(x["speedup"][0:-1])
+            except ValueError:
+                return 0.0
+        rows.sort(key=speedup_key)
     elif sort_by == "op":
         rows.sort(key=lambda x: x["op"])
     elif sort_by == "shape":
@@ -217,12 +273,13 @@ def print_table(pairs, sort_by=None, as_csv=False):
 
     # Print table
     if as_csv:
-        print("op,shape,vendor,cut_ms,ref_ms,cut_rate,ref_rate,unit,speedup,cv,ref_mag,max_diff")
+        print("status,op,shape,vendor,cut_ms,ref_ms,cut_rate,ref_rate,unit,speedup,cv,ref_mag,max_diff")
         for row in rows:
-            print(f"{row['op']},{row['shape']},{row['vendor']},{row['cut_ms']},{row['ref_ms']},{row['cut_rate']},{row['ref_rate']},{row['unit']},{row['speedup']},{row['cv']},{row['ref_mag']},{row['max_diff']}")
+            print(f"{row['status']},{row['op']},{row['shape']},{row['vendor']},{row['cut_ms']},{row['ref_ms']},{row['cut_rate']},{row['ref_rate']},{row['unit']},{row['speedup']},{row['cv']},{row['ref_mag']},{row['max_diff']}")
     else:
         # Calculate column widths
         col_widths = {
+            "status": max(len(row["status"]) for row in rows) if rows else 0,
             "op": max(len(row["op"]) for row in rows) if rows else 0,
             "shape": max(len(row["shape"]) for row in rows) if rows else 0,
             "vendor": max(len(row["vendor"]) for row in rows) if rows else 0,
@@ -239,6 +296,7 @@ def print_table(pairs, sort_by=None, as_csv=False):
 
         # Print header
         header = [
+            "status".ljust(col_widths["status"]),
             "op".ljust(col_widths["op"]),
             "shape".ljust(col_widths["shape"]),
             "vendor".ljust(col_widths["vendor"]),
@@ -253,11 +311,12 @@ def print_table(pairs, sort_by=None, as_csv=False):
             "max_diff".ljust(col_widths["max_diff"])
         ]
         print(" | ".join(header))
-        print("-" * (sum(col_widths.values()) + 11))  # 11 for the 10 " | " separators
+        print("-" * (sum(col_widths.values()) + 12))  # 12 for the 11 " | " separators
 
         # Print rows
         for row in rows:
             line = [
+                row["status"].ljust(col_widths["status"]),
                 row["op"].ljust(col_widths["op"]),
                 row["shape"].ljust(col_widths["shape"]),
                 row["vendor"].ljust(col_widths["vendor"]),
@@ -291,7 +350,21 @@ def print_table(pairs, sort_by=None, as_csv=False):
         for warning in warnings:
             print(f"  {warning}")
 
-    print("\nspeedup > 1.00x means CUT is faster than the vendor library.")
+    # To stderr, so it stays loud without corrupting --csv output.
+    failed = [r for r in rows if r["status"] == "FAIL"]
+    if failed:
+        print(f"\nCORRECTNESS FAILURES ({len(failed)}):", file=sys.stderr)
+        for row in failed:
+            detail = row["detail"] or (f"max_diff {row['max_diff']} against "
+                                       f"ref_mag {row['ref_mag']}")
+            print(f"  {row['op']}/{row['shape']}: {detail}", file=sys.stderr)
+        print("CUT's output disagreed with the vendor reference on the above; "
+              "their speedups read VOID\nand must not be quoted.",
+              file=sys.stderr)
+
+    if not as_csv:
+        print("\nspeedup > 1.00x means CUT is faster than the vendor library.")
+    return len(failed)
 
 def main():
     parser = argparse.ArgumentParser(description="Compare CUT vs vendor benchmarks")
@@ -335,7 +408,13 @@ def main():
         print("No valid benchmark pairs found", file=sys.stderr)
         sys.exit(1)
 
-    print_table(all_pairs, args.sort, args.csv)
+    # Nonzero exit on a correctness failure, so a caller that only checks the
+    # status still learns that a comparison was void. The table is printed
+    # either way — the numbers are still worth seeing, they are just not
+    # quotable.
+    failures = print_table(all_pairs, args.sort, args.csv)
+    if failures:
+        sys.exit(2)
 
 if __name__ == "__main__":
     main()

@@ -62,6 +62,16 @@ struct ModelShape {
   uint32_t rows, cols;
 };
 
+/// Correctness gate for both softmax tiers.
+///
+/// Relative to ref_mag, not absolute: a softmax over 152064 columns produces
+/// values around 1/152064, so an absolute bound tight enough to mean anything
+/// on the wide rows would be meaningless on the narrow ones. Measured, the
+/// worst case across both tiers is ~4e-6 relative (max_diff 1.6e-9 against a
+/// ref_mag of 2.4e-4); 1e-4 leaves 25x headroom.
+static const cutbench::Tolerance kSoftmaxTolerance =
+    cutbench::Tolerance::rel(1e-4);
+
 /// n=rows, c=cols, h=w=1, so MODE_CHANNEL reduces over `cols` for each row —
 /// element-for-element the same axis softmax(dim=-1) reduces on a row-major
 /// [rows, cols] buffer. MODE_INSTANCE (reduce C*H*W per sample) would be
@@ -152,6 +162,7 @@ static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
   // the GB/s is conservative — equally so for both sides, which is what makes
   // the ratio meaningful even though the absolute figure understates.
   spec.bytes = 2.0 * s.rows * s.cols * sizeof(float);
+  spec.tolerance = kSoftmaxTolerance;
   spec.check = check;
 
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);
@@ -188,6 +199,7 @@ static void registerLargeSoftmaxCase(cut::Runtime &runtime,
   // sized as though CUT needed only an input and an output aborted the run at
   // 21 GB resident, and the shapes that do fit peak at ~8x their element count.
   spec.footprintBytes = 8.0 * elems * sizeof(float);
+  spec.tolerance = kSoftmaxTolerance;
   spec.warmupIterations = 1;
   spec.iterations = 3;
 

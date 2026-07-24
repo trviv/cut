@@ -220,13 +220,20 @@ Getting this comparison honest matters more than getting it favourable.
 - **No implicit precision advantage.** cuBLAS is set to `CUBLAS_DEFAULT_MATH`
   so it does not silently drop to TF32 against CUT's true f32 kernels. Any
   reduced-precision comparison should be its own explicitly-labelled case.
-- **Correctness is checked once, outside every timed region.** It runs at
-  registration and rides along as the `max_diff` and `ref_mag` counters on both
-  halves of the pair, so a JSON consumer never has to join two sources to find
-  out whether a fast number was also a correct one. `ref_mag` is the mean
-  magnitude of the reference output: without it, two silently-empty buffers would
-  agree perfectly, and a benchmark that can report a false pass is worse than
-  useless. A zero `ref_mag` makes the case fail loudly via `SkipWithError`.
+- **Correctness is checked once, outside every timed region, and it is a
+  gate — not a column.** It runs at registration and rides along as the
+  `max_diff`, `ref_mag` and `max_diff_allowed` counters on both halves of the
+  pair, so a JSON consumer never has to join two sources to find out whether a
+  fast number was also a correct one. `ref_mag` is the mean magnitude of the
+  reference output: without it, two silently-empty buffers would agree
+  perfectly. A zero `ref_mag`, or a `max_diff` over the case's tolerance, fails
+  the case via `SkipWithError`, marks **both** halves of the pair, and makes the
+  binary exit **2**.
+
+  This used to be advisory, and that was a real hole: the f16 GEMV at M=1
+  returns garbage (`max_diff` 8.4e13 against a `ref_mag` of 24) and for a while
+  it printed a GFLOPS figure and exited 0 like any passing case. A number that
+  is fast and wrong is the one number a benchmark must never quietly report.
 - **Above ~12M elements the check is sampled, not exhaustive.** The largest
   output in the suite is nearly two billion elements; holding both sides of it
   on the host as f32 would cost more memory than the GPU side of the whole
@@ -256,18 +263,73 @@ Getting this comparison honest matters more than getting it favourable.
   `CaseSpec::iterations` to a small fixed number and lean on
   `--benchmark_repetitions` for stability instead.
 
-Two per-operator caveats worth repeating when quoting numbers:
+### Tolerances
 
-- **Scan `max_diff` is not a pass/fail gate.** A parallel scan sums in a
-  different order than a sequential one, so f32 drift accumulates over millions
-  of elements. It is a magnitude witness; ~3e-3 at N=16M is normal.
+Every case declares the largest `max_diff` it accepts, via `CaseSpec::tolerance`.
+A case passes when `max_diff <= max(absolute, relative * ref_mag)`.
+
+These are **garbage detectors, not precision certificates**. The gap between real
+rounding error and a broken kernel is many orders of magnitude — f16 rounding
+lands at ~2e-3 relative, the broken GEMV at ~1e12 — so each bound is set well
+above measured error. A loose gate that is always on beats a tight one that gets
+switched off the first time it cries wolf.
+
+| Operator | Tolerance | Measured worst case | Why |
+|---|---|---|---|
+| f32 GEMM/GEMV | `rel(1e-4)` | 0 | Different accumulation order than cuBLAS; in practice bit-exact here |
+| f16 GEMM (both tiers) | `rel(1e-2)` | ~2e-3 | Half carries ~3 decimal digits |
+| Transpose (both tiers) | `exact()` | 0 | Moves values, computes none — no rounding to allow for |
+| Softmax (both tiers) | `rel(1e-4)` | ~4e-6 | Relative, since a 152064-wide row produces values around 1/152064 |
+| Conv2D | `rel(1e-3)` | ~3.3e-5 | Accumulates `C*k*k` products in a different order than cuDNN |
+| Prefix scan | `rel(1e-3)` | ~9e-6 | Parallel reordering drift, which grows with N |
+| Radix sort | `exact()` | 0 | `max_diff` is a mismatch **count**, not a float delta |
+
+The default for a case that sets nothing is `rel(1e-2)` — deliberately a gate
+rather than an exemption, so a new benchmark is checked by default and its author
+tightens it. `Tolerance::reportOnly()` disables the gate and should carry a
+comment saying why; an ungated case is a case that cannot fail.
+
+Two per-operator notes worth repeating when quoting numbers:
+
 - **Sort `max_diff` is a mismatch count, not a float delta.** Sorted uint32 keys
-  must agree with the vendor exactly, so anything but 0 is a real bug.
+  must agree with the vendor exactly, hence `exact()`.
 - **f16 GEMM `max_diff` has to be read against `ref_mag`.** Half carries ~3
   decimal digits, so a diff a few thousandths of `ref_mag` is ordinary rounding
-  where the same figure would be alarming in the f32 table. What is *not*
-  ordinary is a diff of the same order as `ref_mag` or larger — see the M=1 row
-  in *Findings*.
+  where the same figure would be alarming in the f32 table.
+
+### What a failure looks like
+
+The binary names the failing comparisons and exits 2:
+
+```
+cut/hgemm/M=1_K=4096_N=4096/manual_time  ERROR OCCURRED: 'INCORRECT: CUT disagrees
+  with the reference — max_diff 1.198e+13 exceeds the 1.735e-01 allowed against ref_mag 1.735e+01'
+
+=== CORRECTNESS FAILURES (2 comparison(s)) ===
+  hgemm/M=1_K=4096_N=4096
+  hgemm/M=1_K=8192_N=8192
+```
+
+`vendor_compare.py` adds a `status` column, prints the failures to stderr, and
+**withholds the speedup** — a failed row reads `VOID`, not a ratio, so there is
+no number on the line to quote by accident:
+
+```
+status | op    | shape              | ... | speedup | ref_mag | max_diff
+ok     | hgemm | M=16_K=4096_N=4096 | ... | 0.41x   | 16.997  | 3.10e-02
+FAIL   | hgemm | M=1_K=4096_N=4096  | ... | VOID    | 0       | 0.00e+00
+```
+
+(A failed row's counters read 0 because Google Benchmark drops every user counter
+from an errored row — the real numbers are in the failure block above the table,
+which reads them from `error_message`.)
+
+Exit codes are **0** clean, **1** a benchmark failed to run, **2** a comparison
+failed its correctness gate. `vendor_bench.sh` propagates the same three, and
+correctness outranks run failure: a benchmark that did not run is a gap, but one
+that ran fast and wrong is a wrong answer. Note that a binary exiting 2 still has
+its JSON compared — dropping it would hide exactly the failures the gate exists
+to surface.
 
 Note on layout: CUT is row-major (`C[M,N] = A[M,K] * B[K,N]`), cuBLAS is
 column-major. The benches compute `C^T = B^T * A^T`, which yields the row-major
@@ -339,6 +401,11 @@ GPU-timestamp column these numbers come from.
   is fine, so the fault is specific to the half-input M=1 path. This is exactly
   the LLM decode shape, so it is worth fixing before any f16 decode numbers are
   quoted.
+
+  **These two cases now fail the correctness gate**, so `cublas_extras_bench`
+  exits 2 and `vendor_bench.sh` exits 2 until the bug is fixed. That is the
+  suite working, not the suite broken — a known-wrong kernel should not be able
+  to report a clean run. Everything else in the suite passes its gate.
 - **Transpose is at parity with cuBLAS: 0.98–1.07x**, and bit-exact (`max_diff`
   is 0.00e+00 on every shape). Both sides run at 740–830 GB/s, which is ~85–95%
   of the 3090's 936 GB/s peak, so the operator is saturated and there is nothing
@@ -436,17 +503,22 @@ these ratios are solid despite each case running only three iterations.
    `main` and the lambdas outlive that scope.
 4. Run the correctness check there too, outside any timed region, and store the
    `compareBuffers` result in `CaseSpec::check`.
-5. Fill the rest of the `CaseSpec`: `flops` for a compute-bound op or `bytes` for
+5. Set `CaseSpec::tolerance`. Run the case once, look at the `max_diff` it
+   actually produces against its `ref_mag`, and set the bound an order of
+   magnitude above that — see *Tolerances*. Leaving it unset gets the `rel(1e-2)`
+   default, which catches garbage but is looser than most operators deserve.
+6. Fill the rest of the `CaseSpec`: `flops` for a compute-bound op or `bytes` for
    a memory-bound one — set exactly one, it picks the counter — then call
    `registerPair`.
-6. End `main` with `const int rc = cutbench::runAll(argc, argv);` followed by
-   `runtime.shutdown();`. That order is required: `runAll` clears the benchmark
-   registry so the captured `cut::Tensor` handles are released while the runtime
-   is still up, and letting the `Runtime` destructor run at end of `main` instead
-   of calling `shutdown()` segfaults.
-7. Device buffers, vendor handles and descriptors are deliberately leaked — they
+7. End `main` with `const int rc = cutbench::runAll(argc, argv);` followed by
+   `runtime.shutdown();` and `return rc;`. That order is required: `runAll`
+   clears the benchmark registry so the captured `cut::Tensor` handles are
+   released while the runtime is still up, and letting the `Runtime` destructor
+   run at end of `main` instead of calling `shutdown()` segfaults. Returning
+   `rc` is what carries a correctness failure into the exit status.
+8. Device buffers, vendor handles and descriptors are deliberately leaked — they
    must outlive every registered lambda, and the process exits immediately after.
-8. Register the target in that directory's `CMakeLists.txt`, linking
+9. Register the target in that directory's `CMakeLists.txt`, linking
    `benchmark::benchmark`, guarded by a `find_*` so a missing SDK skips rather
    than breaks the build.
 

@@ -172,6 +172,10 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n) {
   spec.vendor = "rocPRIM";
   spec.shape = "N=" + std::to_string(n);
   spec.bytes = 2.0 * n * sizeof(float); // one read + one write per element
+  // Matches the CUB scan bench: loose enough that parallel-reordering drift
+  // never fails, tight enough that a garbage scan still does. Not measured on
+  // real hardware — see the rocBLAS bench's note.
+  spec.tolerance = cutbench::Tolerance::rel(1e-3);
   spec.check = check;
 
   cutbench::registerPair(rt, spec, cutIssue, refTimed);
@@ -230,6 +234,9 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
   spec.shape = "N=" + std::to_string(n);
   // keys + values, each read once and written once.
   spec.bytes = 2.0 * n * 2 * sizeof(uint32_t);
+  // max_diff is a mismatch COUNT here, so the only passing value is zero —
+  // sorted uint32 keys either agree with rocPRIM exactly or the sort is wrong.
+  spec.tolerance = cutbench::Tolerance::exact();
   spec.check = check;
 
   cutbench::registerPair(rt, spec, cutIssue, refTimed);

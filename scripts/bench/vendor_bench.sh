@@ -92,6 +92,7 @@ fi
 mkdir -p "$OUT_DIR"
 JSONS=()
 FAILED=0
+INCORRECT=0
 
 # Candidate binaries as "<subdir>/<name>" pairs
 candidates=(
@@ -129,6 +130,16 @@ for candidate in "${candidates[@]}"; do
   # and an unset rc trips `set -u` on the first iteration.
   rc=0
   "$binary_path" "${flags[@]}" >/dev/null || rc=$?
+  # Exit 2 means the binary ran fine but at least one case disagreed with its
+  # vendor reference. Its JSON is valid and MUST still be compared — that is
+  # where the FAIL rows come from — so this is recorded and falls through
+  # rather than being treated as a crash. Dropping the file here would hide
+  # exactly the failures the correctness gate exists to surface.
+  if [[ $rc -eq 2 ]]; then
+    echo "    CORRECTNESS FAILURES: ${name} (see the table below)"
+    INCORRECT=$((INCORRECT + 1))
+    rc=0
+  fi
   if [[ $rc -ne 0 ]]; then
     echo "    FAILED: ${name}"
     # Assignment, not ((FAILED++)): post-increment evaluates to the OLD value, so
@@ -160,11 +171,32 @@ fi
 echo ""
 echo "==> Combined comparison"
 echo ""
-python3 "${SCRIPT_DIR}/vendor_compare.py" "${JSONS[@]}"
+# vendor_compare.py exits 2 when any comparison failed its correctness gate.
+# Captured rather than allowed to abort under `set -e`, so the summary below
+# still prints and the exit status can distinguish the two kinds of failure.
+compare_rc=0
+python3 "${SCRIPT_DIR}/vendor_compare.py" "${JSONS[@]}" || compare_rc=$?
+if [[ $compare_rc -eq 2 ]]; then
+  INCORRECT=$((INCORRECT + 1))
+elif [[ $compare_rc -ne 0 ]]; then
+  echo "Error: vendor_compare.py failed with status $compare_rc" >&2
+  exit $compare_rc
+fi
 
 echo ""
 echo "Done! JSON written to: $OUT_DIR"
 if [[ $FAILED -gt 0 ]]; then
-  echo "Note: $FAILED benchmarks failed"
+  echo "Note: $FAILED benchmarks failed to run"
+fi
+if [[ $INCORRECT -gt 0 ]]; then
+  echo "Note: at least one comparison FAILED its correctness gate — CUT's output"
+  echo "      disagreed with the vendor reference. Those timings are not quotable."
+fi
+# Correctness failures outrank run failures in the exit status: a benchmark that
+# did not run is a gap, but one that ran fast and wrong is a wrong answer.
+if [[ $INCORRECT -gt 0 ]]; then
+  exit 2
+fi
+if [[ $FAILED -gt 0 ]]; then
   exit 1
 fi

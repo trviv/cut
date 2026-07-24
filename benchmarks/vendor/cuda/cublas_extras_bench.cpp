@@ -73,6 +73,15 @@ struct ModelShape {
   uint32_t M, K, N;
 };
 
+/// Correctness gate for both f16 GEMM tiers.
+///
+/// Half carries ~3 decimal digits, so the honest bound here is far looser than
+/// the f32 bench's. Measured across every shape in both tiers, max_diff sits at
+/// 0.031 against a ref_mag of 17 and 0.062 against 31.7 — about 2e-3 relative,
+/// consistently. 1e-2 is five times that, and still ten orders of magnitude
+/// below the 8.4e13 the broken M=1 path produces.
+static const cutbench::Tolerance kHgemmTolerance = cutbench::Tolerance::rel(1e-2);
+
 /// Row-major C[M,N] = A[M,K] * B[K,N] under cuBLAS's column-major convention,
 /// computed as C^T = B^T * A^T so neither side is charged for a layout
 /// conversion. Shared by the eager and lazy halves of the f16 GEMM bench.
@@ -158,6 +167,7 @@ static void registerHgemmCase(cut::Runtime &runtime, cublasHandle_t handle,
   spec.shape = "M=" + std::to_string(s.M) + " K=" + std::to_string(s.K) +
                " N=" + std::to_string(s.N);
   spec.flops = 2.0 * s.M * s.K * s.N; // compute-bound: rate counter is FLOPS
+  spec.tolerance = kHgemmTolerance;
   spec.check = check;
 
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);
@@ -188,6 +198,7 @@ static void registerLargeHgemmCase(cut::Runtime &runtime,
   // A single call runs for a good fraction of a second at these sizes, so three
   // untimed warmups would cost more than the measurement. One is enough to get
   // the kernel compiled, which is all the warmup is for.
+  spec.tolerance = kHgemmTolerance;
   spec.warmupIterations = 1;
   // Pinned rather than adaptive: each issue allocates a multi-GB output tensor,
   // and that allocation is host-side cost the manual-time loop cannot see.
@@ -330,6 +341,10 @@ static void registerTransposeCase(cut::Runtime &runtime, cublasHandle_t handle,
   // does not also have to place, so this is the achievable-bandwidth
   // denominator.
   spec.bytes = 2.0 * s.M * s.N * sizeof(float);
+  // A transpose moves values without computing on them, so there is no rounding
+  // to allow for: it either places every element correctly or it has a bug.
+  // Measured bit-exact on every shape and every aspect ratio.
+  spec.tolerance = cutbench::Tolerance::exact();
   spec.check = check;
 
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);
@@ -355,6 +370,7 @@ static void registerLargeTransposeCase(cut::Runtime &runtime,
                " N=" + std::to_string(N);
   spec.bytes = 2.0 * elems * sizeof(float); // read once, write once
   spec.footprintBytes = 4.0 * elems * sizeof(float); // in + out, both sides
+  spec.tolerance = cutbench::Tolerance::exact(); // moves values, computes none
   spec.warmupIterations = 1;
   spec.iterations = 5;
 

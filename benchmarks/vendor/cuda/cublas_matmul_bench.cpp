@@ -152,6 +152,11 @@ static void registerMatmulCase(cut::Runtime &runtime, cublasHandle_t handle,
   spec.shape = "M=" + std::to_string(s.M) + " K=" + std::to_string(s.K) +
                " N=" + std::to_string(s.N);
   spec.flops = 2.0 * s.M * s.K * s.N; // compute-bound: rate counter is FLOPS
+  // f32 accumulation over K terms in a different order than cuBLAS uses. In
+  // practice this lands at max_diff 0 on these shapes; 1e-4 of the reference
+  // magnitude leaves room for a deeper K to drift without ever admitting a
+  // broken kernel.
+  spec.tolerance = cutbench::Tolerance::rel(1e-4);
   spec.check = check;
 
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);

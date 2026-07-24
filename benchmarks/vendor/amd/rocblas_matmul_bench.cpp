@@ -142,6 +142,10 @@ static void registerMatmulCase(cut::Runtime &runtime, void *handle,
   spec.shape = "M=" + std::to_string(s.M) + " K=" + std::to_string(s.K) +
                " N=" + std::to_string(s.N);
   spec.flops = 2.0 * s.M * s.K * s.N; // compute-bound: rate counter is FLOPS
+  // Matches the cuBLAS f32 bench. Unlike that one this bound is NOT measured —
+  // no ROCm hardware here — so it is the first thing to re-check if these cases
+  // fail on a real build rather than assuming CUT is broken.
+  spec.tolerance = cutbench::Tolerance::rel(1e-4);
   spec.check = check;
 
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);

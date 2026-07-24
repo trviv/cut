@@ -195,6 +195,12 @@ static void registerConvCase(cut::Runtime &runtime, cudnnHandle_t handle,
   // the case holds.
   spec.footprintBytes =
       2.0 * (inElems + wElems + outElems) * sizeof(float) + kMaxWorkspaceBytes;
+  // Each output element sums C*k*k products, and cuDNN's algorithms accumulate
+  // in a different order than CUT's direct loop — so some drift is expected and
+  // it grows with the reduction depth. Measured worst case is 3.3e-5 relative
+  // (max_diff 9.3e-4 against ref_mag 27.8) at the deepest case, C=1280 k=3;
+  // 1e-3 is 30x that. The 1x1 and patch-embed cases come back bit-exact.
+  spec.tolerance = cutbench::Tolerance::rel(1e-3);
   spec.warmupIterations = 1;
   spec.iterations = 3;
 
