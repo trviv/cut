@@ -52,8 +52,7 @@ extern "C" __global__ void cut_main(const CUT_SCALAR_DTYPE_INPUT* __restrict__ d
     // Butterfly: transpose the 32x32 (lane x reg) array. After the loop
     // lane l holds reg[r] = A[l][r] (row l of the tile). Both loops fully unroll
     // so every reg[] index is a compile-time constant (stays in registers).
-    for (uint kbit = 0; kbit < 5; kbit++) {
-        const uint s = 1u << kbit;
+    for (uint s = 1; s < WARP; s <<= 1) {
         const bool low = ((lane & s) == 0u);
         for (uint r = 0; r < WARP; r++) {
             if ((r & s) == 0u) {
