@@ -113,38 +113,21 @@
       }
     },
     {
-      "name": "TiledVec4",
-      "template": "TransposeTiledVec4",
+      "name": "TiledVec4W",
+      "template": "TransposeTiledVec4W",
+      "defines": {
+        "TILE_SIZE": 16,
+        "RPT": 1
+      },
       "wg": [
         16,
         16
       ],
       "eff_tile": [
-        16,
-        64
-      ],
-      "description": "SharedMem Vec4 16x64",
-      "dtype_slots": {
-        "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "TiledVec4RW",
-      "template": "TransposeTiledVec4RW",
-      "wg": [
-        16,
+        64,
         16
       ],
-      "eff_tile": [
-        16,
-        64
-      ],
-      "description": "SharedMem Vec4 R+W 16x64",
+      "description": "SharedMem scalar-R vec4-W 16x64 RPT=1",
       "dtype_slots": {
         "combos": [
           {"input": "Float32", "output": "Float32"},
