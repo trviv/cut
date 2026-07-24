@@ -23,8 +23,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <random>
@@ -47,6 +49,45 @@ struct BenchResult {
   double min_ms;
   double mean_ms;
 };
+
+// GPU-timestamp timing (matches op_bench's timeOpGpu): issue -> flush -> sum the
+// per-dispatch gpuMicros from Runtime::lastDispatchTimings(). This isolates the
+// kernel's GPU time, excluding host-side tensor setup and — critically — the
+// per-iteration launch/submit/device-sync overhead that a host wall-clock timer
+// includes. That overhead (~50-75us with ~10us jitter) previously swamped the
+// 1-2us differences between fast bandwidth-bound kernels, making the "best
+// variant" pick essentially noise; GPU timestamps resolve them. `issue` should
+// allocate its own fresh inputs each call (avoids graph result caching), and it
+// must NOT flush — this helper owns the flush. Requires
+// runtime.setProfilingEnabled(true).
+static BenchResult timeGpu(Runtime &runtime,
+                           const std::function<void()> &issue, int warmup,
+                           int iters) {
+  for (int i = 0; i < warmup; i++) {
+    issue();
+    runtime.flush();
+    runtime.lastDispatchTimings(); // drain
+  }
+  std::vector<double> us;
+  us.reserve(iters);
+  for (int i = 0; i < iters; i++) {
+    issue();
+    runtime.flush();
+    auto timings = runtime.lastDispatchTimings();
+    double t = 0.0;
+    for (const auto &d : timings)
+      t += d.gpuMicros;
+    if (t > 0.0)
+      us.push_back(t);
+  }
+  if (us.empty())
+    return {0.0, 0.0};
+  double minUs = *std::min_element(us.begin(), us.end());
+  double sum = 0.0;
+  for (double v : us)
+    sum += v;
+  return {minUs / 1000.0, (sum / us.size()) / 1000.0}; // us -> ms
+}
 
 static std::string escapeJson(const std::string &s) {
   std::ostringstream o;
@@ -112,36 +153,21 @@ autotuneTranspose(Runtime &runtime, int warmup, int iters, std::ostream &out) {
       if (!spirv.has_value())
         continue;
 
-      // Warmup
-      for (int i = 0; i < warmup; i++) {
-        auto buf =
-            runtime.createTensor({s.M, s.N}, DataType::Float32, host.data());
-        runtime.ops().transpose(buf, vi);
-        runtime.flush();
-      }
+      // GPU-timestamp timing: fresh input each call (avoids graph caching); the
+      // upload is a transfer, not a dispatch, so only the transpose kernel is
+      // timed.
+      BenchResult br = timeGpu(
+          runtime,
+          [&]() {
+            auto buf = runtime.createTensor({s.M, s.N}, DataType::Float32,
+                                            host.data());
+            runtime.ops().transpose(buf, vi);
+          },
+          warmup, iters);
 
-      // Timed runs
-      std::vector<double> times;
-      times.reserve(iters);
-      for (int i = 0; i < iters; i++) {
-        auto buf =
-            runtime.createTensor({s.M, s.N}, DataType::Float32, host.data());
-        auto start = std::chrono::high_resolution_clock::now();
-        runtime.ops().transpose(buf, vi);
-        runtime.flush();
-        auto end = std::chrono::high_resolution_clock::now();
-        times.push_back(
-            std::chrono::duration<double, std::milli>(end - start).count());
-      }
-      double minT = *std::min_element(times.begin(), times.end());
-      double sum = 0;
-      for (double t : times)
-        sum += t;
-      double meanT = sum / times.size();
-
-      results.push_back({vi, {minT, meanT}});
-      if (minT < bestMin) {
-        bestMin = minT;
+      results.push_back({vi, br});
+      if (br.min_ms < bestMin) {
+        bestMin = br.min_ms;
         bestVariant = vi;
       }
     }
@@ -279,44 +305,27 @@ autotuneMatMul(Runtime &runtime, int warmup, int iters, std::ostream &out) {
       if (!spirv.has_value())
         continue;
 
-      // Warmup
-      for (int i = 0; i < warmup; i++) {
-        auto bufA =
-            runtime.createTensor({s.M, s.K}, DataType::Float32, hostA.data());
-        auto bufB =
-            runtime.createTensor({s.K, s.N}, DataType::Float32, hostB.data());
-        runtime.ops().matmul(bufA, bufB, vi);
-        runtime.flush();
-      }
+      // GPU-timestamp timing: fresh inputs each call (avoids graph caching);
+      // uploads are transfers, not dispatches, so only the matmul kernel(s) are
+      // timed (sum across dispatches for multi-pass variants).
+      BenchResult br = timeGpu(
+          runtime,
+          [&]() {
+            auto bufA = runtime.createTensor({s.M, s.K}, DataType::Float32,
+                                             hostA.data());
+            auto bufB = runtime.createTensor({s.K, s.N}, DataType::Float32,
+                                             hostB.data());
+            runtime.ops().matmul(bufA, bufB, vi);
+          },
+          warmup, iters);
 
-      // Timed runs
-      std::vector<double> times;
-      times.reserve(iters);
-      for (int i = 0; i < iters; i++) {
-        auto bufA =
-            runtime.createTensor({s.M, s.K}, DataType::Float32, hostA.data());
-        auto bufB =
-            runtime.createTensor({s.K, s.N}, DataType::Float32, hostB.data());
-        auto start = std::chrono::high_resolution_clock::now();
-        runtime.ops().matmul(bufA, bufB, vi);
-        runtime.flush();
-        auto end = std::chrono::high_resolution_clock::now();
-        times.push_back(
-            std::chrono::duration<double, std::milli>(end - start).count());
-      }
-      double minT = *std::min_element(times.begin(), times.end());
-      double sum = 0;
-      for (double t : times)
-        sum += t;
-      double meanT = sum / times.size();
-
-      results.push_back({vi, {minT, meanT}});
-      if (minT < bestMin) {
-        bestMin = minT;
+      results.push_back({vi, br});
+      if (br.min_ms < bestMin) {
+        bestMin = br.min_ms;
         bestVariant = vi;
       }
       if (vi == defaultVariant)
-        defaultMin = minT;
+        defaultMin = br.min_ms;
     }
 
     double speedup = (defaultMin > 0) ? defaultMin / bestMin : 1.0;
@@ -359,6 +368,10 @@ autotuneMatMul(Runtime &runtime, int warmup, int iters, std::ostream &out) {
 // ============================================================================
 
 int main(int argc, char *argv[]) {
+  // Silence the Vulkan per-dispatch [GPU Profile] stderr log; timings are read
+  // via Runtime::lastDispatchTimings() instead.
+  setenv("CUT_PROFILE_QUIET", "1", 1);
+
   int warmup = 3;
   int iterations = 8;
   std::string outputPath = "autotune_raw.json";
@@ -384,6 +397,7 @@ int main(int argc, char *argv[]) {
     }
   }
   runtime.init(backend);
+  runtime.setProfilingEnabled(true);
   const std::string backendStr =
       (backend == BackendType::CUDA) ? "cuda" : "vulkan";
   std::cerr << "Autotune backend: " << backendStr << std::endl;
