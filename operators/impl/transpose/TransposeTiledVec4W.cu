@@ -45,7 +45,6 @@ extern "C" __global__ void cut_main(const CUT_SCALAR_DTYPE_INPUT* __restrict__ d
     // n_local = tid.x (N-within-tile); m_local = tid.y + rr*TILE_SIZE.
     const uint inCol = bid.x * TILE_SIZE + tid.x; // N index
     uint inRow = bid.y * (TILE_SIZE * VEC4 * RPT) + tid.y; // M index
-    #pragma unroll
     for (uint rr = 0; rr < VEC4 * RPT; rr++, inRow += TILE_SIZE) {
         CUT_SCALAR_DTYPE_INPUT v = (CUT_SCALAR_DTYPE_INPUT)(0);
         if (inRow < pc.M && inCol < pc.N) {
@@ -63,7 +62,6 @@ extern "C" __global__ void cut_main(const CUT_SCALAR_DTYPE_INPUT* __restrict__ d
     // [M, strideOut) padding.
     const uint outRow = bid.x * TILE_SIZE + tid.y;     // N index
     const uint strideOut4 = pc.strideOut / 4;
-    #pragma unroll
     for (uint p = 0; p < RPT; p++) {
         const uint vc = tid.x + p * TILE_SIZE;          // vec4 col within tile
         const uint absVec4Col = bid.y * (TILE_SIZE * RPT) + vc;
