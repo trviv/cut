@@ -10,6 +10,14 @@ Usage:
     ./build/benchmarks/autotune/autotune 3 8 vulkan_raw.json
     # merge into one backend-aware tuning_data.json:
     python3 scripts/bench/derive_rules.py cuda_raw.json vulkan_raw.json --output tuning_data.json
+
+By default the output is UPDATED IN PLACE, not overwritten: only the (operator,
+backend) pairs present in the raw input are replaced, and every other operator
+or backend already in the file is preserved. So a subset retune is safe --
+    autotune 8 40 t_raw.json transpose   # transpose only
+    derive_rules.py t_raw.json --output tuning_data.json
+updates just Transpose@cuda and leaves the MatMul rules (and Transpose@vulkan)
+untouched. Pass --fresh to regenerate the file from scratch instead.
 """
 
 import argparse
@@ -145,6 +153,13 @@ def main():
         default="tuning_data.json",
         help="Output tuning data file (default: tuning_data.json)",
     )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Regenerate the output from scratch. Default is to merge into the "
+             "existing file, preserving operators/backends not covered by this "
+             "run's raw data (so a subset retune never deletes other rules).",
+    )
     args = parser.parse_args()
 
     # Read input
@@ -156,9 +171,9 @@ def main():
     else:
         docs.append(json.load(sys.stdin))
 
-    # Process each operator
+    # Derive rules from this run's raw data, keyed op -> backend.
     print("Deriving rules:", file=sys.stderr)
-    out_operators = {}
+    derived_operators = {}
     gpu = "Unknown"
     timestamp = ""
 
@@ -171,13 +186,54 @@ def main():
             timestamp = doc.get("timestamp", "")
         for op_name, op_data in doc.get("operators", {}).items():
             derived = derive_rules_for_operator(op_name, op_data)
-            entry = out_operators.setdefault(op_name, {"dimensions": derived["dimensions"], "backends": {}})
+            entry = derived_operators.setdefault(
+                op_name, {"dimensions": derived["dimensions"], "backends": {}})
             if not entry.get("dimensions"):
                 entry["dimensions"] = derived["dimensions"]
             entry["backends"][backend] = {
                 "default_variant": derived["default_variant"],
                 "rules": derived["rules"],
             }
+
+    # Merge into the existing file by default: a subset retune (e.g. transpose
+    # only) must update just the (operator, backend) pairs it covers and leave
+    # every other operator/backend already in the file intact. --fresh opts out.
+    out_operators = {}
+    if not args.fresh:
+        try:
+            with open(args.output) as f:
+                existing = json.load(f)
+            out_operators = existing.get("operators", {}) or {}
+            if gpu == "Unknown":
+                gpu = existing.get("gpu", "Unknown")
+            if not timestamp:
+                timestamp = existing.get("timestamp", "")
+        except FileNotFoundError:
+            pass
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"Warning: could not read existing {args.output} to merge "
+                  f"({e}); writing fresh instead", file=sys.stderr)
+            out_operators = {}
+
+    # Record what will be kept untouched, for the summary.
+    updated = {(op, b) for op, e in derived_operators.items()
+               for b in e["backends"]}
+    preserved = sorted(
+        f"{op}@{b}"
+        for op, e in out_operators.items()
+        for b in e.get("backends", {})
+        if (op, b) not in updated
+    )
+
+    # Overlay the freshly-derived op+backend rules onto the existing structure.
+    for op_name, new_entry in derived_operators.items():
+        dst = out_operators.setdefault(
+            op_name, {"dimensions": new_entry["dimensions"], "backends": {}})
+        if new_entry.get("dimensions"):
+            dst["dimensions"] = new_entry["dimensions"]
+        dst.setdefault("backends", {})
+        for backend, rules in new_entry["backends"].items():
+            dst["backends"][backend] = rules
 
     # Build output
     output = {
@@ -191,8 +247,12 @@ def main():
         json.dump(output, f, indent=2)
         f.write("\n")
 
-    backends = sorted({b for op in out_operators.values() for b in op["backends"]})
-    print(f"Wrote {args.output}: {len(out_operators)} operators, backends={backends}", file=sys.stderr)
+    updated_str = sorted(f"{op}@{b}" for op, b in updated)
+    msg = (f"Wrote {args.output}: {len(out_operators)} operators total; "
+           f"updated {updated_str}")
+    if preserved:
+        msg += f"; preserved {preserved}"
+    print(msg, file=sys.stderr)
 
 if __name__ == "__main__":
     main()
