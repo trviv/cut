@@ -6,6 +6,8 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -16,6 +18,67 @@
 namespace cut {
 
 namespace {
+
+/// Directory named by CUT_CUDA_DUMP_PTX, or empty when the variable is unset.
+///
+/// Kernels are NVRTC-compiled at runtime from embedded source plus a long list
+/// of per-variant -D defines, so reproducing one by hand to inspect its PTX
+/// means reconstructing that command line exactly. Dumping from inside the
+/// compile is the only way to be sure the PTX corresponds to what actually ran.
+const std::string &ptxDumpDir() {
+  static const std::string dir = []() -> std::string {
+    const char *env = std::getenv("CUT_CUDA_DUMP_PTX");
+    if (env == nullptr || *env == '\0') {
+      return {};
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(env, ec);
+    if (ec) {
+      logMsg("CUT_CUDA_DUMP_PTX: cannot create %s (%s); PTX dump disabled", env,
+             ec.message().c_str());
+      return {};
+    }
+    return env;
+  }();
+  return dir;
+}
+
+/// Writes one kernel's PTX and logs the resource usage the driver reports for
+/// it. Named after the variant stem ("Add_Float32_Float32"), not the entry
+/// point: every kernel here is `cut_main`, so entry names would all collide.
+void dumpKernelPtx(const CudaKernelEntry *entry, const std::string &ptx,
+                   CUfunction fn) {
+  const std::string &dir = ptxDumpDir();
+  if (dir.empty()) {
+    return;
+  }
+  const std::string path = dir + "/" + entry->name + ".ptx";
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (!out) {
+    logMsg("CUT_CUDA_DUMP_PTX: cannot write %s", path.c_str());
+    return;
+  }
+  // The defines are part of the answer: the same source compiled with a
+  // different dtype or tile size is a different kernel, and the .ptx alone
+  // does not say which one it is.
+  out << "// CUT kernel : " << entry->name << "\n"
+      << "// entry      : " << entry->entry << "\n"
+      << "// native .cu : " << (entry->native ? "yes" : "no (transpiled)")
+      << "\n"
+      << "// defines    : " << entry->defines << "\n\n"
+      << ptx;
+
+  // Register count and shared memory are usually what the PTX is being read
+  // for — they set occupancy — and the driver's numbers are authoritative in a
+  // way that reading the PTX by eye is not.
+  int regs = -1, sharedBytes = -1, localBytes = -1, maxThreads = -1;
+  cuFuncGetAttribute(&regs, CU_FUNC_ATTRIBUTE_NUM_REGS, fn);
+  cuFuncGetAttribute(&sharedBytes, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, fn);
+  cuFuncGetAttribute(&localBytes, CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES, fn);
+  cuFuncGetAttribute(&maxThreads, CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK, fn);
+  logMsg("PTX dump %s: regs=%d shared=%dB local=%dB maxThreads/block=%d -> %s",
+         entry->name, regs, sharedBytes, localBytes, maxThreads, path.c_str());
+}
 
 // NVRTC-compiles the CUDA kernel for @p spirv (native .cu or transpiled,
 // looked up by normalized hash) and loads it into @p out. On any failure the
@@ -149,6 +212,8 @@ void compileCudaKernel(CUcontext context,
     cuModuleUnload(mod);
     return;
   }
+
+  dumpKernelPtx(entry, ptx, fn);
 
   out.module = mod;
   out.function = fn;
