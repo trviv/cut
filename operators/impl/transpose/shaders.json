@@ -156,6 +156,56 @@
           {"input": "UInt32", "output": "UInt32"}
         ]
       }
+    },
+    {
+      "name": "Tiled16R4Reg",
+      "template": "TransposeTiledReg",
+      "defines": {
+        "TILE_SIZE": 16,
+        "RPT": 4
+      },
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        64,
+        16
+      ],
+      "description": "Tiled16R4 with register-staged loads/stores (RPT-way MLP)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
+    },
+    {
+      "name": "Tiled16R8Reg",
+      "template": "TransposeTiledReg",
+      "defines": {
+        "TILE_SIZE": 16,
+        "RPT": 8
+      },
+      "wg": [
+        16,
+        16
+      ],
+      "eff_tile": [
+        128,
+        16
+      ],
+      "description": "Register-staged tiled transpose, RPT=8 (deeper MLP)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     }
   ]
 }
