@@ -247,10 +247,8 @@ enum OperatorEnum {
   InternalPartialReduce = OP_INTERNAL_PARTIAL_REDUCE,
   InternalFinalReduce = OP_INTERNAL_FINAL_REDUCE,
 
-  // Prefix scan (three-pass)
-  InternalScanPerWg = OP_INTERNAL_SCAN_PER_WG,
-  InternalScanPartialSums = OP_INTERNAL_SCAN_PARTIAL_SUMS,
-  InternalScanPropagate = OP_INTERNAL_SCAN_PROPAGATE,
+  // Prefix scan (single-pass decoupled look-back)
+  InternalScanDecoupled = OP_INTERNAL_SCAN_DECOUPLED,
 
   // Bitonic sort
   InternalBitonicStep = OP_INTERNAL_BITONIC_STEP,

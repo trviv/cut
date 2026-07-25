@@ -7,9 +7,7 @@
 
 namespace cut {
 
-std::optional<std::vector<uint32_t>> compiledScanPerWg(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledScanPartialSums(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledScanPropagate(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanDecoupled(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanUint(DataType input, DataType output);
 
 } // namespace cut

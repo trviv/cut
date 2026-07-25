@@ -239,10 +239,11 @@
 #define OP_INTERNAL_PARTIAL_REDUCE 280
 #define OP_INTERNAL_FINAL_REDUCE 281
 
-// Prefix scan (three-pass)
-#define OP_INTERNAL_SCAN_PER_WG 282
-#define OP_INTERNAL_SCAN_PARTIAL_SUMS 283
-#define OP_INTERNAL_SCAN_PROPAGATE 284
+// Prefix scan (single-pass decoupled look-back). Uses a free slot below the
+// 280-block; kept out of the [BITONIC_STEP, FUSED_SCATTER] dispatch range on
+// purpose and handled by its own branch in getShader(). Values 282-284 are
+// retired (were the old three-pass ScanPerWg/PartialSums/Propagate).
+#define OP_INTERNAL_SCAN_DECOUPLED 279
 
 // Bitonic sort
 #define OP_INTERNAL_BITONIC_STEP 285

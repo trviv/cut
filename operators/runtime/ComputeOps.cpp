@@ -297,12 +297,8 @@ const char *operatorName(OperatorEnum op) {
     return "InternalPartialReduce";
   case InternalFinalReduce:
     return "InternalFinalReduce";
-  case InternalScanPerWg:
-    return "InternalScanPerWg";
-  case InternalScanPartialSums:
-    return "InternalScanPartialSums";
-  case InternalScanPropagate:
-    return "InternalScanPropagate";
+  case InternalScanDecoupled:
+    return "InternalScanDecoupled";
   case InternalBitonicStep:
     return "InternalBitonicStep";
   case InternalBitonicPadInit:

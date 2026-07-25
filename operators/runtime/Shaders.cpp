@@ -114,17 +114,12 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledPartialReduce(datatype, datatype);
   } else if (shader == InternalFinalReduce) {
     compiled = compiledFinalReduce(datatype, datatype);
-  } else if (shader >= InternalScanPerWg && shader <= InternalFusedScatter) {
+  } else if (shader == InternalScanDecoupled) {
+    // Numbered below the 280-block, so it does not fall in the range dispatch
+    // just below; handled explicitly here.
+    compiled = compiledScanDecoupled(datatype, datatype);
+  } else if (shader >= InternalBitonicStep && shader <= InternalFusedScatter) {
     switch (shader) {
-    case InternalScanPerWg:
-      compiled = compiledScanPerWg(datatype, datatype);
-      break;
-    case InternalScanPartialSums:
-      compiled = compiledScanPartialSums(datatype, datatype);
-      break;
-    case InternalScanPropagate:
-      compiled = compiledScanPropagate(datatype, datatype);
-      break;
     case InternalBitonicStep:
       compiled = compiledBitonicStep(datatype, datatype);
       break;
