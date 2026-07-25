@@ -71,6 +71,14 @@ CudaCompute::CudaCompute(CudaContextConfig config) {
   const int cc = ccMajor * 10 + ccMinor;
   caps_.backend = ComputeBackend::CUDA;
   caps_.subgroupSize = 32;
+  // Static-shared cap (non-optin): kernels here use static __shared__ and launch
+  // with sharedMemBytes=0, so the relevant limit is MAX_SHARED_MEMORY_PER_BLOCK
+  // (48 KB on modern GPUs), not the larger dynamic opt-in pool. Queried once and
+  // returned by maxSharedMemoryPerBlock().
+  int maxSmem = 49152;
+  cuDeviceGetAttribute(&maxSmem,
+                       CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK, device_);
+  maxSharedMemoryPerBlock_ = static_cast<uint32_t>(maxSmem);
   // Capability flags flip only once the corresponding native CUDA kernels are
   // registered (WMMA coopmat GEMM / __dp4a Q8 dot); until then the transpiled
   // path keeps them off and op selection is unchanged.

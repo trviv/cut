@@ -866,6 +866,10 @@ size_t VulkanCompute::bufferOffsetAlignment() const {
                   deviceProperties_.limits.minStorageBufferOffsetAlignment);
 }
 
+uint32_t VulkanCompute::maxSharedMemoryPerBlock() const {
+  return deviceProperties_.limits.maxComputeSharedMemorySize;
+}
+
 void VulkanCompute::releaseLoadingResources() {
   // Drain cached (freed but not destroyed) buffers — these are intermediates
   // from transpose ops etc. that were cached for potential reuse.

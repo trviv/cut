@@ -60,6 +60,11 @@ public:
   /// Returns the capabilities of the device backing this store's interface.
   const DeviceCaps &caps() const { return iface_->caps(); }
 
+  /// Max static shared/threadgroup memory per block, in bytes (device limit).
+  uint32_t maxSharedMemoryPerBlock() const {
+    return iface_->maxSharedMemoryPerBlock();
+  }
+
 private:
   ComputeInterface *iface_;
 

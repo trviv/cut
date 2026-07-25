@@ -71,6 +71,10 @@ public:
   size_t bufferCount() const override;
   size_t activeBufferMemoryBytes() const override;
   size_t deviceTotalMemoryBytes() const override;
+
+  uint32_t maxSharedMemoryPerBlock() const override {
+    return maxSharedMemoryPerBlock_;
+  }
   size_t bufferOffsetAlignment() const override;
   void releaseLoadingResources() override;
 
@@ -85,6 +89,7 @@ private:
   void cleanup();
 
   CUdevice device_ = 0;
+  uint32_t maxSharedMemoryPerBlock_ = 49152; ///< Static-shared cap, queried once.
   CUcontext context_ = nullptr;
 
   std::unique_ptr<CudaContainers> containers_;

@@ -149,6 +149,15 @@ public:
   virtual size_t bufferOffsetAlignment() const { return 256; }
 
   /**
+   * Returns the maximum static shared / threadgroup memory per block or
+   * workgroup, in bytes. Backends report their device limit (Vulkan
+   * maxComputeSharedMemorySize / CUDA MAX_SHARED_MEMORY_PER_BLOCK); the default
+   * is the 48 KB floor common to modern GPUs. Used to pick the largest
+   * shared-memory-bound variant that fits the device (e.g. the scan tile size).
+   */
+  virtual uint32_t maxSharedMemoryPerBlock() const { return 49152; }
+
+  /**
    * Returns the capabilities of the device backing this interface.
    */
   const DeviceCaps &caps() const { return caps_; }
