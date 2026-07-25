@@ -15,6 +15,7 @@
 /// Prefer using: ./scripts/bench/autotune.sh (builds, runs, and derives rules).
 
 #include "impl/matmul/MatMulVariants.generated.h"
+#include "impl/scan/ScanVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
@@ -196,6 +197,97 @@ autotuneTranspose(Runtime &runtime, int warmup, int iters, std::ostream &out) {
     out << "\n";
 
     std::cerr << " best=" << kTransposeVariants[bestVariant].name << std::endl;
+  }
+
+  out << "      ]\n";
+  out << "    }";
+}
+
+// ============================================================================
+// Scan (prefix scan) autotune — sweeps the IPT items-per-thread variants
+// ============================================================================
+
+static void
+autotuneScan(Runtime &runtime, int warmup, int iters, std::ostream &out) {
+  std::vector<uint32_t> sizes = {1024,    16384,   65536,   262144,
+                                 1048576, 4194304, 16777216};
+  // Variants whose tile exceeds this device's shared memory are clamped to the
+  // default at dispatch, so timing them would just duplicate the default's
+  // number — skip them here instead.
+  const uint32_t maxShared = runtime.store().maxSharedMemoryPerBlock();
+
+  out << "    \"Scan\": {\n";
+  out << "      \"dimensions\": [\"N\"],\n";
+  out << "      \"variant_count\": " << kScanVariantCount << ",\n";
+  out << "      \"variants\": [";
+  for (int i = 0; i < kScanVariantCount; i++) {
+    if (i > 0)
+      out << ", ";
+    out << "\"" << escapeJson(kScanVariants[i].name) << "\"";
+  }
+  out << "],\n";
+  out << "      \"default_variant\": " << kScanDefaultVariant << ",\n";
+  out << "      \"raw_data\": [\n";
+
+  for (size_t si = 0; si < sizes.size(); si++) {
+    const uint32_t n = sizes[si];
+    auto host = randomFloats(n, 42);
+    std::cerr << "Scan N=" << n << " ..." << std::flush;
+
+    int bestVariant = -1;
+    double bestMin = 1e9;
+    std::vector<std::pair<int, BenchResult>> results;
+
+    for (int vi = 0; vi < kScanVariantCount; ++vi) {
+      size_t need = static_cast<size_t>(kScanVariants[vi].effTileM) *
+                        kScanVariants[vi].effTileN * sizeof(float) +
+                    256u;
+      if (need > maxShared)
+        continue;
+      auto spirv = getCompiledScan(vi, DataType::Float32, DataType::Float32);
+      if (!spirv.has_value())
+        continue;
+
+      BenchResult br = timeGpu(
+          runtime,
+          [&]() {
+            auto buf =
+                runtime.createTensor({n}, DataType::Float32, host.data());
+            runtime.ops().prefixScan(buf, PrefixScanInclusiveSum, vi);
+          },
+          warmup, iters);
+
+      results.push_back({vi, br});
+      if (br.min_ms < bestMin) {
+        bestMin = br.min_ms;
+        bestVariant = vi;
+      }
+    }
+
+    out << "        {\n";
+    out << "          \"shape\": [" << n << "],\n";
+    out << "          \"results\": [\n";
+    for (size_t ri = 0; ri < results.size(); ri++) {
+      const auto &r = results[ri];
+      out << "            {\"variant\": " << r.first
+          << ", \"min_ms\": " << std::fixed << std::setprecision(4)
+          << r.second.min_ms << ", \"mean_ms\": " << r.second.mean_ms << "}";
+      if (ri < results.size() - 1)
+        out << ",";
+      out << "\n";
+    }
+    out << "          ],\n";
+    out << "          \"best_variant\": " << bestVariant << ",\n";
+    out << "          \"best_ms\": " << std::fixed << std::setprecision(4)
+        << bestMin << "\n";
+    out << "        }";
+    if (si < sizes.size() - 1)
+      out << ",";
+    out << "\n";
+
+    std::cerr << " best="
+              << (bestVariant >= 0 ? kScanVariants[bestVariant].name : "none")
+              << std::endl;
   }
 
   out << "      ]\n";
@@ -389,9 +481,10 @@ int main(int argc, char *argv[]) {
 
   const bool doTranspose = (opFilter == "all" || opFilter == "transpose");
   const bool doMatMul = (opFilter == "all" || opFilter == "matmul");
-  if (!doTranspose && !doMatMul) {
+  const bool doScan = (opFilter == "all" || opFilter == "scan");
+  if (!doTranspose && !doMatMul && !doScan) {
     std::cerr << "Unknown op filter '" << opFilter
-              << "' (expected: all | transpose | matmul)" << std::endl;
+              << "' (expected: all | transpose | matmul | scan)" << std::endl;
     return 1;
   }
 
@@ -432,6 +525,12 @@ int main(int argc, char *argv[]) {
   bool wroteOp = false;
   if (doTranspose) {
     autotuneTranspose(runtime, warmup, iterations, outFile);
+    wroteOp = true;
+  }
+  if (doScan) {
+    if (wroteOp)
+      outFile << ",\n";
+    autotuneScan(runtime, warmup, iterations, outFile);
     wroteOp = true;
   }
   if (doMatMul) {
