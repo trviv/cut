@@ -1,29 +1,126 @@
 {
-  "type": "variants",
-  "cpp_prefix": "",
-  "variants": [
+  "groups": [
     {
-      "name": "ScanDecoupled",
-      "description": "Single-pass decoupled look-back scan",
-      "dtype_slots": {
-        "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+      "type": "variants",
+      "cpp_prefix": "Scan",
+      "default_variant": "IPT32",
+      "autotune_shapes": {
+        "dimensions": ["N"],
+        "grid": [
+          [1024], [16384], [65536], [262144],
+          [1048576], [4194304], [16777216]
         ]
-      }
+      },
+      "variants": [
+        {
+          "name": "IPT8",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 8},
+          "wg": [256, 1],
+          "eff_tile": [256, 8],
+          "description": "Decoupled look-back scan, 8 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "IPT16",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 16},
+          "wg": [256, 1],
+          "eff_tile": [256, 16],
+          "description": "Decoupled look-back scan, 16 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "IPT24",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 24},
+          "wg": [256, 1],
+          "eff_tile": [256, 24],
+          "description": "Decoupled look-back scan, 24 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "IPT32",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 32},
+          "wg": [256, 1],
+          "eff_tile": [256, 32],
+          "description": "Decoupled look-back scan, 32 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "IPT40",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 40},
+          "wg": [256, 1],
+          "eff_tile": [256, 40],
+          "description": "Decoupled look-back scan, 40 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "IPT46",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 46},
+          "wg": [256, 1],
+          "eff_tile": [256, 46],
+          "description": "Decoupled look-back scan, 46 items/thread (48KB-shared peak)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        }
+      ]
     },
     {
-      "name": "ScanUint",
-      "description": "Scan for uint data",
-      "dtype_slots": {
-        "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
-        ]
-      }
+      "type": "variants",
+      "cpp_prefix": "",
+      "variants": [
+        {
+          "name": "ScanUint",
+          "description": "Scan for uint data",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Float16", "output": "Float16"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        }
+      ]
     }
   ]
 }

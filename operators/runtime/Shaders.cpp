@@ -116,8 +116,10 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     compiled = compiledFinalReduce(datatype, datatype);
   } else if (shader == InternalScanDecoupled) {
     // Numbered below the 280-block, so it does not fall in the range dispatch
-    // just below; handled explicitly here.
-    compiled = compiledScanDecoupled(datatype, datatype);
+    // just below; handled explicitly here. This is the default-variant fallback;
+    // the autotuned IPT variant is selected via InternalOpNode::shader(), which
+    // carries the chosen variant index.
+    compiled = getCompiledScan(kScanDefaultVariant, datatype, datatype);
   } else if (shader >= InternalBitonicStep && shader <= InternalFusedScatter) {
     switch (shader) {
     case InternalBitonicStep:

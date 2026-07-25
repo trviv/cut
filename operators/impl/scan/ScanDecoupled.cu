@@ -29,8 +29,10 @@
 #include "ComputeOpsShared.h"
 
 #define BLOCK 256
-#define IPT 32
-#define TILE (BLOCK * IPT)      // elements per tile (8192 at IPT=32)
+#ifndef IPT
+#define IPT 46  // overridden per-variant by the native manifest (-DIPT=N)
+#endif
+#define TILE (BLOCK * IPT)      // elements per tile (11776 at IPT=46)
 #define NUM_WARPS (BLOCK / 32)  // 8
 
 #define FLAG_AGG 1u
@@ -70,16 +72,17 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     __shared__ uint sTile;
     __shared__ scalar_t sExclusive;
 
-    uint tid = threadIdx.x;
-    uint lane = tid & 31u;
-    uint warp = tid >> 5;
-    uint numTiles = pc.numTiles;
+    const uint tid = threadIdx.x;
+    const uint lane = tid & 31u;
+    const uint warp = tid >> 5;
+    const uint numTiles = pc.numTiles;
 
     // Claim a tile id (dynamic, for forward-progress order).
     if (tid == 0) {
         sTile = atomicAdd(&state[3u * numTiles], 1u);
     }
     __syncthreads();
+
     uint tile = sTile;
     uint tileStart = tile * TILE;
 

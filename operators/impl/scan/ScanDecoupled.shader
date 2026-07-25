@@ -32,7 +32,7 @@
 // NOTE: decoupled look-back relies on concurrent workgroup forward progress,
 // which Vulkan does not formally guarantee; validated on the target GPU.
 #define BLOCK 256
-#define IPT 32
+#define IPT %IPT%
 #define TILE (BLOCK * IPT)
 
 #define FLAG_AGG 1u

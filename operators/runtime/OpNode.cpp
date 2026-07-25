@@ -95,11 +95,28 @@ InternalOpNode::InternalOpNode(OperatorEnum op,
                                Tensor output,
                                ThreadSize threadSize,
                                std::vector<uint8_t> pushConstants,
-                               bool barrierAfter)
+                               bool barrierAfter,
+                               std::optional<uint32_t> variant)
     : OpNode(op), dtype_(dtype), threadSize_(threadSize),
       pushConstants_(std::move(pushConstants)), barrierAfter_(barrierAfter) {
   inputs_ = std::move(inputs);
   output_ = output;
+  spec_ = variant; // selected variant index (currently: scan IPT variant)
+}
+
+std::optional<std::vector<uint32_t>> InternalOpNode::shader() const {
+  if (op_ == InternalScanDecoupled) {
+    auto compiled = getCompiledScan(
+        static_cast<int>(spec_.value_or(kScanDefaultVariant)), dtype_, dtype_);
+    if (!compiled.has_value())
+      return std::nullopt;
+    auto spirv = std::move(compiled.value());
+    // Patch the op_enum specialization constant (constant_id = 1), matching
+    // getShader()'s handling for the default-variant path.
+    patchSpecConstant(spirv, 1, static_cast<uint32_t>(op_));
+    return spirv;
+  }
+  return OpNode::shader();
 }
 
 DataType InternalOpNode::outputDtype() const {

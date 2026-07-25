@@ -182,8 +182,12 @@ public:
                  Tensor output,
                  ThreadSize threadSize,
                  std::vector<uint8_t> pushConstants,
-                 bool barrierAfter = false);
+                 bool barrierAfter = false,
+                 std::optional<uint32_t> variant = {});
 
+  /// Variant-aware for ops that expose a variant dispatch table (currently the
+  /// autotuned scan): fetches the chosen variant, else defers to the base.
+  std::optional<std::vector<uint32_t>> shader() const override;
   DataType outputDtype() const override;
   std::vector<uint32_t> outputShape() const override;
   ThreadSize dispatchSize() const override;
