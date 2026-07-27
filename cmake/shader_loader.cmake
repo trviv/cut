@@ -311,6 +311,27 @@ else()
     set(SHADER_GEN_EXTRA_ARGS "")
 endif()
 
+# The generator runs at CONFIGURE time, so nothing in the build graph knows its
+# inputs: editing a manifest, a .shader or a .cu leaves every already-configured
+# build tree holding stale generated sources, and `cmake --build` alone will
+# never notice. That failure mode is silent and nasty — a manifest edit shifts
+# variant indices, so the host picks tile geometry for one variant while
+# dispatching another, and you get WRONG RESULTS rather than a build error.
+#
+# Two mechanisms are needed, and they cover different things:
+#   * CONFIGURE_DEPENDS on the glob re-runs the glob at build time, catching a
+#     shader being ADDED or REMOVED.
+#   * the CMAKE_CONFIGURE_DEPENDS property catches an existing file's CONTENTS
+#     changing, which the glob alone would not.
+file(GLOB_RECURSE SHADER_GEN_INPUTS CONFIGURE_DEPENDS
+    ${SHADER_SOURCE_DIR}/*/shaders.json
+    ${SHADER_SOURCE_DIR}/*/*.shader
+    ${SHADER_SOURCE_DIR}/*/*.comp
+    ${SHADER_SOURCE_DIR}/*/*.cu
+    ${SHADER_SOURCE_DIR}/*/*.cuh)
+set_property(DIRECTORY ${CMAKE_SOURCE_DIR} APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    ${SHADER_GEN_INPUTS} ${SHADER_VARIANT_GENERATOR})
+
 # Run the generator at configure time to produce preprocessed .shader files
 # and the generated_shaders.cmake manifest.
 execute_process(
