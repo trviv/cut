@@ -19,13 +19,13 @@
 //
 // State layout (globallycoherent uint buffer), with T = numTiles:
 //   state[0*T + tile]  status flag  (0 = NOT_READY, 1 = AGGREGATE, 2 = INCLUSIVE)
-//   state[1*T + tile]  tile aggregate        (value bits; written once, immutable)
-//   state[2*T + tile]  tile inclusive prefix (value bits; valid once status=INC)
-//   state[3*T]         dynamic tile counter
-// Aggregate and inclusive live in separate slots so a reader never confuses one
-// for the other. A DeviceMemory barrier orders the value store before the status
-// store (and the status load before the value load), so seeing a flag guarantees
-// seeing its value.
+//   state[1*T + tile]  value bits — aggregate, then the inclusive prefix
+//   state[2*T]         dynamic tile counter
+// A DeviceMemory barrier orders the value store before the status store (and the
+// status load before the value load), so seeing a flag guarantees seeing a value.
+// One value slot keeps the buffer at 2*T + 1, matching what ScanOp.cpp allocates;
+// see ScanDecoupled.shader's header for the confirming re-read that makes sharing
+// the slot between the aggregate and the inclusive prefix safe.
 //
 // NOTE: decoupled look-back relies on concurrent workgroup forward progress,
 // which Vulkan does not formally guarantee; validated on the target GPU.
@@ -74,7 +74,7 @@ void main(uint3 GTid : SV_GroupThreadID) {
     // Claim a tile id (dynamic, for forward-progress order).
     if (tid == 0) {
         uint claimed;
-        InterlockedAdd(state[3u * numTiles], 1u, claimed);
+        InterlockedAdd(state[2u * numTiles], 1u, claimed);
         sTile = claimed;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -139,7 +139,7 @@ void main(uint3 GTid : SV_GroupThreadID) {
         scalar_t exclusive = (scalar_t)0;
         uint old;
         if (tile == 0u) {
-            InterlockedExchange(state[2u * numTiles + tile], SCALAR_TO_BITS(tileAgg), old);
+            InterlockedExchange(state[numTiles + tile], SCALAR_TO_BITS(tileAgg), old);
             DeviceMemoryBarrier();
             InterlockedExchange(state[tile], FLAG_INC, old);
         } else {
@@ -151,23 +151,33 @@ void main(uint3 GTid : SV_GroupThreadID) {
             [allow_uav_condition]
             while (pred >= 0) {
                 uint s = 0u;
+                uint b = 0u;
+                // Single value slot, so confirm the (flag, value) pair belongs
+                // together — see ScanDecoupled.shader's header. Only AGGREGATE
+                // can still be overwritten; INCLUSIVE is terminal.
                 [allow_uav_condition]
-                do {
+                while (true) {
                     InterlockedAdd(state[uint(pred)], 0u, s);
-                } while (s == 0u);
-                DeviceMemoryBarrier();
-                if (s == FLAG_INC) {
-                    uint b;
-                    InterlockedAdd(state[2u * numTiles + uint(pred)], 0u, b);
-                    exclusive += BITS_TO_SCALAR(b);
-                    break;
+                    if (s != 0u) {
+                        DeviceMemoryBarrier();
+                        InterlockedAdd(state[numTiles + uint(pred)], 0u, b);
+                        if (s == FLAG_INC) break;
+                        DeviceMemoryBarrier();
+                        uint s2;
+                        InterlockedAdd(state[uint(pred)], 0u, s2);
+                        if (s2 == s) break;
+                    }
                 }
-                uint b;
-                InterlockedAdd(state[numTiles + uint(pred)], 0u, b);
                 exclusive += BITS_TO_SCALAR(b);
+                if (s == FLAG_INC) break;
                 pred--;
             }
-            InterlockedExchange(state[2u * numTiles + tile],
+            // Retract the flag before mutating the shared value slot — see
+            // ScanDecoupled.shader for why the confirming re-read alone is not
+            // enough.
+            InterlockedExchange(state[tile], 0u, old);
+            DeviceMemoryBarrier();
+            InterlockedExchange(state[numTiles + tile],
                                 SCALAR_TO_BITS(exclusive + tileAgg), old);
             DeviceMemoryBarrier();
             InterlockedExchange(state[tile], FLAG_INC, old);

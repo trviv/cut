@@ -16,13 +16,25 @@
 //
 // State layout (globallycoherent uint buffer), with T = numTiles:
 //   state[0*T + tile]  status flag  (0 = NOT_READY, 1 = AGGREGATE, 2 = INCLUSIVE)
-//   state[1*T + tile]  tile aggregate        (value bits; written once, immutable)
-//   state[2*T + tile]  tile inclusive prefix (value bits; valid once status=INC)
-//   state[3*T]         dynamic tile counter
-// Aggregate and inclusive live in separate slots so a reader never confuses one
-// for the other. A DeviceMemory barrier orders the value store before the status
-// store (and the status load before the value load), so seeing a flag guarantees
-// seeing its value.
+//   state[1*T + tile]  value bits — the tile aggregate while the flag says
+//                      AGGREGATE, overwritten with the inclusive prefix on the
+//                      upgrade to INCLUSIVE
+//   state[2*T]         dynamic tile counter
+// A DeviceMemory barrier orders the value store before the status store (and the
+// status load before the value load), so seeing a flag guarantees seeing a value.
+//
+// ONE value slot, not two, so the buffer is 2*T + 1 uints and matches what
+// ScanOp.cpp allocates for the CUDA kernels. The cost is that a reader can catch
+// the slot mid-upgrade and pair an INCLUSIVE flag's value with an AGGREGATE flag,
+// which would double-count. The reader therefore confirms the pair by re-reading
+// the flag — but only when it read AGGREGATE, since INCLUSIVE is terminal and its
+// value can never change again. The common case (predecessor already INCLUSIVE)
+// pays nothing.
+//
+// ScanDecoupled.cu gets the same 2*T + 1 by packing flag and value into ONE
+// 64-bit descriptor read with a single acquire load, which needs no confirming
+// re-read at all. That does not port: HLSL at cs_6_2 / vulkan1.1 has no 64-bit
+// atomics (they need SM 6.6 plus VK_KHR_shader_atomic_int64).
 //
 // The per-thread-totals scan is a two-level WAVE scan: a per-wave WavePrefixSum
 // (subgroup op — no shared memory, no barriers) plus a small cross-wave combine
@@ -94,7 +106,7 @@ void main(uint3 GTid : SV_GroupThreadID) {
     // Claim a tile id (dynamic, for forward-progress order).
     if (tid == 0) {
         uint claimed;
-        InterlockedAdd(state[3u * numTiles], 1u, claimed);
+        InterlockedAdd(state[2u * numTiles], 1u, claimed);
         sTile = claimed;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -166,7 +178,7 @@ void main(uint3 GTid : SV_GroupThreadID) {
         scalar_t exclusive = (scalar_t)0;
         uint old;
         if (tile == 0u) {
-            InterlockedExchange(state[2u * numTiles + tile], SCALAR_TO_BITS(tileAgg), old);
+            InterlockedExchange(state[numTiles + tile], SCALAR_TO_BITS(tileAgg), old);
             DeviceMemoryBarrier();
             InterlockedExchange(state[tile], FLAG_INC, old);
         } else {
@@ -178,23 +190,38 @@ void main(uint3 GTid : SV_GroupThreadID) {
             [allow_uav_condition]
             while (pred >= 0) {
                 uint s = 0u;
+                uint b = 0u;
+                // Read a (flag, value) pair that belong to each other. Spin until
+                // the flag is published, take the value, then confirm — see the
+                // header: only an AGGREGATE read can still be overwritten, so
+                // INCLUSIVE breaks out immediately.
                 [allow_uav_condition]
-                do {
+                while (true) {
                     InterlockedAdd(state[uint(pred)], 0u, s);
-                } while (s == 0u);
-                DeviceMemoryBarrier();
-                if (s == FLAG_INC) {
-                    uint b;
-                    InterlockedAdd(state[2u * numTiles + uint(pred)], 0u, b);
-                    exclusive += BITS_TO_SCALAR(b);
-                    break;
+                    if (s != 0u) {
+                        DeviceMemoryBarrier();
+                        InterlockedAdd(state[numTiles + uint(pred)], 0u, b);
+                        if (s == FLAG_INC) break;
+                        DeviceMemoryBarrier();
+                        uint s2;
+                        InterlockedAdd(state[uint(pred)], 0u, s2);
+                        if (s2 == s) break;
+                    }
                 }
-                uint b;
-                InterlockedAdd(state[numTiles + uint(pred)], 0u, b);
                 exclusive += BITS_TO_SCALAR(b);
+                if (s == FLAG_INC) break;
                 pred--;
             }
-            InterlockedExchange(state[2u * numTiles + tile],
+            // Retract the flag BEFORE mutating the shared value slot. Without
+            // this a reader that already sampled AGGREGATE can read the inclusive
+            // value written just below and still see AGGREGATE on its confirming
+            // re-read — the flag would not have moved yet — and double-count.
+            // With the flag parked at NOT_READY the reader either spins or fails
+            // its re-read, and since the flag never returns to AGGREGATE
+            // (0 -> AGG -> 0 -> INC), a confirmed AGGREGATE pair is genuine.
+            InterlockedExchange(state[tile], 0u, old);
+            DeviceMemoryBarrier();
+            InterlockedExchange(state[numTiles + tile],
                                 SCALAR_TO_BITS(exclusive + tileAgg), old);
             DeviceMemoryBarrier();
             InterlockedExchange(state[tile], FLAG_INC, old);

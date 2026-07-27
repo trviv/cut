@@ -101,9 +101,13 @@ void PrefixScanOpNode::buildSubOperations() {
   Tensor inputHandle = inputs_[0];
   Tensor outputHandle = output_;
 
-  // Per-tile look-back descriptors: [status | aggregate | inclusive] for each
-  // tile plus a trailing dynamic tile-counter slot (see ScanDecoupled.cu).
-  uint32_t stateSize = 3u * numTiles + 1u;
+  // Per-tile look-back descriptors plus a dynamic tile-counter slot: 2*T + 1
+  // uints, the layout both backends now use (see ScanDecoupled.cu / .shader).
+  // CUDA packs each descriptor into one 64-bit word (2 uint slots per tile);
+  // Vulkan keeps a status slot plus a single value slot per tile that the
+  // aggregate -> inclusive upgrade overwrites in place. The trailing slot is the
+  // dynamic tile counter.
+  uint32_t stateSize = 2u * numTiles + 1u;
   Tensor state = store_->acquireTempBuffer(stateSize, DataType::UInt32);
 
   // Zero the descriptors (status = NOT_READY) and the tile counter. Temp buffers
