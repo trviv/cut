@@ -90,10 +90,35 @@ if(ENABLE_CUDA_BACKEND)
             HINTS ${CUDA_PIP_ROOT}/lib /usr/local/cuda/lib64 REQUIRED)
     endif()
     list(GET NVRTC_LIBRARY 0 NVRTC_LIBRARY)
+
+    # CCCL (libcu++ / Cooperative Groups) for the native .cu kernels. NVRTC needs
+    # both the cccl/ root, which holds <cuda/...>, and its parent, which holds
+    # <nv/target> that cccl itself includes.
+    #
+    # Located separately from CUDA_DRIVER_INCLUDE_DIR because the CUDA pip
+    # packages do NOT ship CCCL: nvidia-cuda-cccl-cu13 is a placeholder stub on
+    # PyPI (the real wheel exists only for cu12), so on a pip-only toolchain this
+    # resolves to a system toolkit instead. REQUIRED on purpose — an NVRTC compile
+    # failure is non-fatal at runtime and merely skips the dispatch, so a missing
+    # header would silently disable every native kernel rather than error. Fail at
+    # configure time, where it is visible.
+    find_path(CUT_CCCL_INCLUDE_DIR cuda/atomic
+        HINTS ${CUDA_PIP_ROOT}/include/cccl
+              /usr/local/cuda/include/cccl
+              /usr/local/cuda/targets/x86_64-linux/include/cccl
+        REQUIRED)
+    find_path(CUT_CCCL_NV_INCLUDE_DIR nv/target
+        HINTS ${CUDA_PIP_ROOT}/include
+              /usr/local/cuda/include
+              /usr/local/cuda/targets/x86_64-linux/include
+        REQUIRED)
+
     message(STATUS "CUDA backend enabled")
     message(STATUS "  CUDA include : ${CUDA_DRIVER_INCLUDE_DIR}")
     message(STATUS "  CUDA driver  : ${CUDA_DRIVER_LIBRARY}")
     message(STATUS "  NVRTC        : ${NVRTC_LIBRARY}")
+    message(STATUS "  CCCL include : ${CUT_CCCL_INCLUDE_DIR}")
+    message(STATUS "  nv/target    : ${CUT_CCCL_NV_INCLUDE_DIR}")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
@@ -279,9 +304,12 @@ target_include_directories(CUTLib PRIVATE
 # and the pip lib dir is added to the RPATH so the versioned .so is found.
 if(ENABLE_CUDA_BACKEND)
     target_compile_definitions(CUTLib PUBLIC CUT_ENABLE_CUDA)
-    # Pass the CUDA header dir so NVRTC can resolve cuda_fp16.h etc. at runtime.
+    # Pass the CUDA header dir so NVRTC can resolve cuda_fp16.h etc. at runtime,
+    # plus the CCCL dirs so native kernels can include <cuda/atomic>.
     target_compile_definitions(CUTLib PRIVATE
-        CUT_CUDA_INCLUDE_DIR="${CUDA_DRIVER_INCLUDE_DIR}")
+        CUT_CUDA_INCLUDE_DIR="${CUDA_DRIVER_INCLUDE_DIR}"
+        CUT_CCCL_INCLUDE_DIR="${CUT_CCCL_INCLUDE_DIR}"
+        CUT_CCCL_NV_INCLUDE_DIR="${CUT_CCCL_NV_INCLUDE_DIR}")
     target_include_directories(CUTLib PRIVATE
         ${CUDA_DRIVER_INCLUDE_DIR}
         ${CMAKE_SOURCE_DIR}/core/backends/cuda

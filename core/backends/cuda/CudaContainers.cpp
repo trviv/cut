@@ -14,6 +14,12 @@
 #ifndef CUT_CUDA_INCLUDE_DIR
 #define CUT_CUDA_INCLUDE_DIR ""
 #endif
+#ifndef CUT_CCCL_INCLUDE_DIR
+#define CUT_CCCL_INCLUDE_DIR ""
+#endif
+#ifndef CUT_CCCL_NV_INCLUDE_DIR
+#define CUT_CCCL_NV_INCLUDE_DIR ""
+#endif
 
 namespace cut {
 
@@ -151,10 +157,21 @@ void compileCudaKernel(CUcontext context,
   std::vector<std::string> optStrs;
   optStrs.push_back("--gpu-architecture=compute_" + std::to_string(major) +
                     std::to_string(minor));
-  optStrs.push_back("--std=c++14");
+  // C++17, not 14: libcu++ hard-errors below it ("libcu++ requires at least
+  // C++ 17"), and CCCL is what supplies <cuda/atomic> and <nv/target> to the
+  // native kernels.
+  optStrs.push_back("--std=c++17");
   const std::string inc = CUT_CUDA_INCLUDE_DIR;
   if (!inc.empty()) {
     optStrs.push_back("-I" + inc);
+  }
+  // After the CUDA include dir, so anything present in both resolves to the
+  // toolchain NVRTC itself came from; cccl/ and nv/ exist only here.
+  for (const std::string &cccl :
+       {std::string(CUT_CCCL_INCLUDE_DIR), std::string(CUT_CCCL_NV_INCLUDE_DIR)}) {
+    if (!cccl.empty() && cccl != inc) {
+      optStrs.push_back("-I" + cccl);
+    }
   }
   for (const auto &sv : specs) {
     optStrs.push_back("-DCUT_SPEC_" + std::to_string(sv.id) + "=" +
