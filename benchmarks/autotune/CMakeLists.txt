@@ -14,3 +14,12 @@ add_executable(autotune
 target_include_directories(autotune PRIVATE ${BENCH_INCLUDE_DIRS})
 target_link_libraries(autotune PRIVATE CUTLib)
 target_compile_options(autotune PRIVATE -O2)
+
+# Correctness sweep for the scan variants (every IPT x inclusive/exclusive x a
+# size grid that stresses full tiles, partial tails, and multi-tile look-back).
+add_executable(scan_verify
+    scan_verify.cpp
+)
+target_include_directories(scan_verify PRIVATE ${BENCH_INCLUDE_DIRS})
+target_link_libraries(scan_verify PRIVATE CUTLib)
+target_compile_options(scan_verify PRIVATE -O2)
