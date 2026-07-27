@@ -17,35 +17,71 @@ struct ScanVariantInfo {
     const char* description;
 };
 
-inline constexpr int kScanVariantCount = 6;
-inline constexpr int kScanDefaultVariant = 3;
+inline constexpr int kScanVariantCount = 18;
+inline constexpr int kScanDefaultVariant = 6;
 
 inline constexpr ScanVariantInfo kScanVariants[kScanVariantCount] = {
     {"ScanIPT8", 256, 1, 256, 8, "Decoupled look-back scan, 8 items/thread"},
+    {"ScanIPT12", 256, 1, 256, 12, "Decoupled look-back scan, 12 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)"},
     {"ScanIPT16", 256, 1, 256, 16, "Decoupled look-back scan, 16 items/thread"},
+    {"ScanIPT20", 256, 1, 256, 20, "Decoupled look-back scan, 20 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)"},
     {"ScanIPT24", 256, 1, 256, 24, "Decoupled look-back scan, 24 items/thread"},
+    {"ScanIPT28", 256, 1, 256, 28, "Decoupled look-back scan, 28 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)"},
     {"ScanIPT32", 256, 1, 256, 32, "Decoupled look-back scan, 32 items/thread"},
+    {"ScanIPT36", 256, 1, 256, 36, "Decoupled look-back scan, 36 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)"},
     {"ScanIPT40", 256, 1, 256, 40, "Decoupled look-back scan, 40 items/thread"},
+    {"ScanIPT44", 256, 1, 256, 44, "Decoupled look-back scan, 44 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)"},
     {"ScanIPT46", 256, 1, 256, 46, "Decoupled look-back scan, 46 items/thread (48KB-shared peak)"},
+    {"ScanRegIPT8", 256, 1, 256, 8, "Register-resident decoupled scan, 8 items/thread"},
+    {"ScanRegIPT16", 256, 1, 256, 16, "Register-resident decoupled scan, 16 items/thread"},
+    {"ScanRegIPT24", 256, 1, 256, 24, "Register-resident decoupled scan, 24 items/thread"},
+    {"ScanRegIPT32", 256, 1, 256, 32, "Register-resident decoupled scan, 32 items/thread"},
+    {"ScanRegIPT40", 256, 1, 256, 40, "Register-resident decoupled scan, 40 items/thread"},
+    {"ScanRegIPT48", 256, 1, 256, 48, "Register-resident decoupled scan, 48 items/thread (past the 48KB-shared ceiling)"},
+    {"ScanRegIPT64", 256, 1, 256, 64, "Register-resident decoupled scan, 64 items/thread (past the 48KB-shared ceiling)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
 std::optional<std::vector<uint32_t>> compiledScanIPT8(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanIPT12(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanIPT20(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT24(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanIPT28(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT32(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanIPT36(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT40(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanIPT44(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT46(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanRegIPT8(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanRegIPT16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanRegIPT24(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanRegIPT32(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanRegIPT40(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanRegIPT48(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanRegIPT64(DataType input, DataType output);
 
 using CompiledScanFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
 inline const CompiledScanFn kScanCompiledFns[kScanVariantCount] = {
     compiledScanIPT8,
+    compiledScanIPT12,
     compiledScanIPT16,
+    compiledScanIPT20,
     compiledScanIPT24,
+    compiledScanIPT28,
     compiledScanIPT32,
+    compiledScanIPT36,
     compiledScanIPT40,
+    compiledScanIPT44,
     compiledScanIPT46,
+    compiledScanRegIPT8,
+    compiledScanRegIPT16,
+    compiledScanRegIPT24,
+    compiledScanRegIPT32,
+    compiledScanRegIPT40,
+    compiledScanRegIPT48,
+    compiledScanRegIPT64,
 };
 
 /// Returns compiled SPIR-V for a scan variant by index.

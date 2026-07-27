@@ -2,14 +2,17 @@
 
 %DTYPE_DEFINES_INPUT%
 
-// Single-pass prefix scan with decoupled look-back (Vulkan). One workgroup ==
-// one tile of TILE = BLOCK*IPT elements. The tile id is claimed from a global
-// atomic counter (not SV_GroupID) so the chained look-back has a forward-
-// progress order. Each thread owns a contiguous IPT-element slice; the tile is
-// scanned locally (per-slice sequential scan + a two-level wave scan of the
-// per-thread totals), then thread 0 walks predecessor tiles — summing their
-// aggregates until it hits an INCLUSIVE descriptor — to obtain this tile's
-// exclusive prefix, which is broadcast to every element.
+// Register-resident variant of ScanDecoupled (Vulkan). Same single-pass
+// decoupled look-back algorithm, same tile geometry (TILE = BLOCK*IPT), same
+// descriptor protocol — the only difference is that a thread reads and writes
+// its own contiguous IPT-element slice directly instead of transposing the tile
+// through a groupshared sData[TILE] staging buffer. That drops groupshared from
+// BLOCK*IPT*4 bytes to a handful of scalars, so occupancy stops being bounded
+// by shared memory; the cost is that a wave's accesses now span 32 separate
+// slices rather than one contiguous run.
+//
+// Native CUDA counterpart lives in ScanDecoupledReg.cu (which additionally uses
+// vec4 loads/stores for the slice); semantics kept in lockstep.
 //
 // Element type is the generator's %SCALAR_DTYPE_INPUT% (Float32 / Int32 /
 // UInt32); look-back descriptors store the value's bit pattern in a uint slot.
@@ -24,28 +27,6 @@
 // store (and the status load before the value load), so seeing a flag guarantees
 // seeing its value.
 //
-// The per-thread-totals scan is a two-level WAVE scan: a per-wave WavePrefixSum
-// (subgroup op — no shared memory, no barriers) plus a small cross-wave combine
-// through shared, instead of a full-block Hillis-Steele.
-//
-// Native CUDA counterpart lives in ScanDecoupled.cu; SEMANTICS are kept in
-// lockstep, but two of its optimisations deliberately do not appear here:
-//   * the look-back uses ld.acquire.gpu / st.release.gpu instead of atomics.
-//     The HLSL analogue is a plain read of the globallycoherent `state` (the
-//     buffer is already declared coherent, so it is device-visible). Measured on
-//     radv/NVIDIA: 0.98-1.00x, i.e. no gain and a slight loss at 4M/16M — the
-//     atomic unit is not the bottleneck on this driver the way it is on CUDA,
-//     where the same change was worth 1.02-1.17x. Kept the atomics.
-//   * __ldcs / __stcs streaming cache hints on the global load and store. HLSL
-//     and SPIR-V have no evict-first hint, so there is nothing to port.
-//
-// NOTE for tuning: on Vulkan this kernel falls off a cliff once the tile count
-// passes roughly 1500. At N=16M, IPT44/46 (1490/1425 tiles) hold 728/751 GB/s,
-// while IPT40 and below (1639+ tiles) drop to 300-590 — up to 2x slower for the
-// SAME occupancy, so it is tile count and not residency. CUDA shows none of it
-// (every variant 760-790), which points at workgroup forward progress, the
-// caveat below. Any Vulkan tuning data must be captured on Vulkan; a CUDA-derived
-// table would happily pick a variant that is half speed here.
 // NOTE: decoupled look-back relies on concurrent workgroup forward progress,
 // which Vulkan does not formally guarantee; validated on the target GPU.
 #define BLOCK 256
@@ -80,7 +61,6 @@ struct PushConstants {
 [[vk::binding(1, 0)]] RWStructuredBuffer<scalar_t> dataOut;
 [[vk::binding(2, 0)]] globallycoherent RWStructuredBuffer<uint> state;
 
-groupshared scalar_t sData[TILE];
 groupshared scalar_t sWaveTotals[BLOCK / 16]; // one slot per wave; assumes subgroup >= 16
 groupshared scalar_t sTileAgg;
 groupshared uint sTile;
@@ -100,41 +80,34 @@ void main(uint3 GTid : SV_GroupThreadID) {
     GroupMemoryBarrierWithGroupSync();
     uint tile = sTile;
     uint tileStart = tile * TILE;
+    uint sliceStart = tileStart + tid * IPT;
+    // Only the final tile can be partial; every other tile skips the bounds check.
+    bool fullTile = (tileStart + TILE) <= pc.numElements;
 
-    // Coalesced striped load into natural tile order.
-    [unroll]
-    for (uint r = 0; r < IPT; r++) {
-        uint i = r * BLOCK + tid;
-        uint g = tileStart + i;
-        sData[i] = (g < pc.numElements) ? dataIn[g] : (scalar_t)0;
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    // Each thread owns the contiguous slice [tid*IPT, tid*IPT+IPT); scan it.
+    // Each thread owns the contiguous slice [tid*IPT, tid*IPT+IPT); load it
+    // straight into registers, then scan it in place.
     scalar_t v[IPT];
-    [unroll]
-    for (uint r = 0; r < IPT; r++) {
-        v[r] = sData[tid * IPT + r];
+    if (fullTile) {
+        [unroll]
+        for (uint r = 0; r < IPT; r++) {
+            v[r] = dataIn[sliceStart + r];
+        }
+    } else {
+        [unroll]
+        for (uint r = 0; r < IPT; r++) {
+            uint g = sliceStart + r;
+            v[r] = (g < pc.numElements) ? dataIn[g] : (scalar_t)0;
+        }
     }
-    // Two elements per step: v[r+1] folds v[r-1] and the ORIGINAL v[r], so it
-    // does not wait on v[r]'s own update. Bound is r+1 < IPT — IPT is even, so
-    // r < IPT would write v[IPT] past the end — leaving the last element to be
-    // folded after the loop. Mirrors ScanDecoupled.cu.
     [unroll]
-    for (uint r = 1; r + 1 < IPT; r += 2) {
-        scalar_t val = v[r - 1];
-        v[r + 1] += val + v[r];
-        v[r] += val;
+    for (uint r = 1; r < IPT; r++) {
+        v[r] += v[r - 1];
     }
-    v[IPT - 1] += v[IPT - 2];
     scalar_t threadTotal = v[IPT - 1];
 
     // Two-level scan of the per-thread totals: a per-wave WavePrefixSum
     // (subgroup op — no shared memory, no barriers) plus a tiny serial spine
-    // over the wave totals. This replaces a full-block Hillis-Steele (16
-    // barriers) with 2 barriers, and mirrors the CUDA path (warp-shuffle scan +
-    // an 8-wide spine). The serial spine avoids any cross-subgroup lane-order
-    // assumption a second subgroup scan would carry.
+    // over the wave totals, mirroring the CUDA path.
     uint laneCount = WaveGetLaneCount();
     uint laneId = WaveGetLaneIndex();
     uint waveId = tid / laneCount;
@@ -204,22 +177,29 @@ void main(uint3 GTid : SV_GroupThreadID) {
     GroupMemoryBarrierWithGroupSync();
     scalar_t base = sExclusive + threadPrefix;
 
-    // Fold the prefix into every element; stage back through shared so the
-    // global stores stay coalesced (striped).
+    // Fold the prefix in place. The exclusive form shifts the slice right by
+    // one, so walk downwards to read v[r-1] before overwriting it.
     [unroll]
-    for (uint r = 0; r < IPT; r++) {
-        scalar_t outv = (pc.isExclusive != 0u)
-                            ? (base + ((r == 0u) ? (scalar_t)0 : v[r - 1]))
-                            : (base + v[r]);
-        sData[tid * IPT + r] = outv;
+    for (uint k = 0; k < IPT; k++) {
+        uint r = IPT - 1u - k;
+        v[r] = (pc.isExclusive != 0u)
+                   ? (base + ((r == 0u) ? (scalar_t)0 : v[r - 1]))
+                   : (base + v[r]);
     }
-    GroupMemoryBarrierWithGroupSync();
-    [unroll]
-    for (uint r = 0; r < IPT; r++) {
-        uint i = r * BLOCK + tid;
-        uint g = tileStart + i;
-        if (g < pc.numElements) {
-            dataOut[g] = sData[i];
+
+    // Store the slice back.
+    if (fullTile) {
+        [unroll]
+        for (uint r = 0; r < IPT; r++) {
+            dataOut[sliceStart + r] = v[r];
+        }
+    } else {
+        [unroll]
+        for (uint r = 0; r < IPT; r++) {
+            uint g = sliceStart + r;
+            if (g < pc.numElements) {
+                dataOut[g] = v[r];
+            }
         }
     }
 }

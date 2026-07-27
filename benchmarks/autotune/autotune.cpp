@@ -7,14 +7,15 @@
 /// Usage:
 ///   cmake --build build --target autotune
 ///   ./build/benchmarks/autotune/autotune [warmup] [iterations] [output_file] [op]
-/// where [op] is one of: all (default) | transpose | matmul — autotune just that
-/// operator (e.g. skip the long MatMul sweep when only Transpose changed).
+/// where [op] is one of: all (default) | transpose | matmul | scan — autotune
+/// just that operator (e.g. skip the long MatMul sweep when only Scan changed).
 ///
 /// Output: JSON written to output_file (default: autotune_raw.json).
 /// Progress is printed to stderr.
 /// Prefer using: ./scripts/bench/autotune.sh (builds, runs, and derives rules).
 
 #include "impl/matmul/MatMulVariants.generated.h"
+#include "impl/scan/ScanOp.h"
 #include "impl/scan/ScanVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
 #include <ComputeCommon.h>
@@ -215,6 +216,8 @@ autotuneScan(Runtime &runtime, int warmup, int iters, std::ostream &out) {
   // default at dispatch, so timing them would just duplicate the default's
   // number — skip them here instead.
   const uint32_t maxShared = runtime.store().maxSharedMemoryPerBlock();
+  const bool isCuda =
+      (runtime.store().caps().backend == ComputeBackend::CUDA);
 
   out << "    \"Scan\": {\n";
   out << "      \"dimensions\": [\"N\"],\n";
@@ -239,10 +242,11 @@ autotuneScan(Runtime &runtime, int warmup, int iters, std::ostream &out) {
     std::vector<std::pair<int, BenchResult>> results;
 
     for (int vi = 0; vi < kScanVariantCount; ++vi) {
-      size_t need = static_cast<size_t>(kScanVariants[vi].effTileM) *
-                        kScanVariants[vi].effTileN * sizeof(float) +
-                    256u;
-      if (need > maxShared)
+      // The register-resident family is CUDA-only (see ScanOp.h); on Vulkan it
+      // would just be clamped back to the default, duplicating that number.
+      if (scanVariantIsRegisterResident(vi) && !isCuda)
+        continue;
+      if (scanVariantSharedBytes(vi, sizeof(float)) > maxShared)
         continue;
       auto spirv = getCompiledScan(vi, DataType::Float32, DataType::Float32);
       if (!spirv.has_value())

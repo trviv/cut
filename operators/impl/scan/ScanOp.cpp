@@ -53,35 +53,41 @@ void PrefixScanOpNode::buildSubOperations() {
   // --- Select the IPT variant ---------------------------------------------
   // 1) explicit spec_ (autotune sweep) -> use it.
   // 2) else VariantSelector rules (tuning_data.json, per shape + backend).
-  // 3) else the hardware default: the largest IPT variant whose tile fits this
-  //    device's shared memory. A selected variant that would overrun shared
-  //    (e.g. tuning data captured on a larger GPU) falls back to that default.
+  // 3) else the hardware default: the largest IPT shared-staging variant whose
+  //    tile fits this device's shared memory. A selected variant that would
+  //    overrun shared (e.g. tuning data captured on a larger GPU) falls back to
+  //    that default.
   const uint32_t maxShared = store_->maxSharedMemoryPerBlock();
   const size_t scalarSize = dataTypeSize(dtype_);
-  auto fits = [&](int vi) -> bool {
-    // sData[BLOCK*IPT] + a small fixed overhead (per-warp totals + scalars);
-    // the 256 B margin covers both backends' book-keeping shared memory.
-    size_t need = static_cast<size_t>(kScanVariants[vi].effTileM) *
-                      kScanVariants[vi].effTileN * scalarSize +
-                  256u;
-    return need <= maxShared;
+  const bool isCuda = (store_->caps().backend == ComputeBackend::CUDA);
+  // A variant is usable if its staging fits shared memory AND, for the
+  // register-resident family, we are on CUDA: only the .cu path expresses the
+  // slice as vec4 loads/stores, so the HLSL counterpart exists to give the
+  // kernel its SPIR-V identity, not to be dispatched on Vulkan.
+  auto usable = [&](int vi) -> bool {
+    if (scanVariantIsRegisterResident(vi) && !isCuda)
+      return false;
+    return scanVariantSharedBytes(vi, scalarSize) <= maxShared;
   };
 
+  // The hardware default stays inside the shared-staging family: its ceiling is
+  // set by the device, which is exactly what a hardware default should track.
+  // The register-resident family has no such ceiling, so it is opt-in through
+  // tuning data or an explicit spec rather than something to fall into.
   int hwDefault = 0;
   for (int i = 0; i < kScanVariantCount; ++i)
-    if (fits(i))
-      hwDefault = i; // variants ascend in IPT; last fitting == largest fitting
+    if (!scanVariantIsRegisterResident(i) && usable(i))
+      hwDefault = i; // staging variants ascend in IPT; last fitting == largest
 
   int variant;
   if (spec_.has_value()) {
     variant = static_cast<int>(*spec_);
   } else {
-    const std::string backend =
-        (store_->caps().backend == ComputeBackend::CUDA) ? "cuda" : "vulkan";
+    const std::string backend = isCuda ? "cuda" : "vulkan";
     variant = VariantSelector::instance().select("Scan", {numElements},
                                                  hwDefault, backend);
   }
-  if (variant < 0 || variant >= kScanVariantCount || !fits(variant))
+  if (variant < 0 || variant >= kScanVariantCount || !usable(variant))
     variant = hwDefault;
 
   const uint32_t BLOCK = kScanVariants[variant].effTileM;

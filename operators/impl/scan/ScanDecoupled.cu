@@ -1,4 +1,8 @@
 // Native CUDA counterpart of ScanDecoupled.shader — keep semantics in lockstep.
+// The two implementations are NOT line-for-line: this one additionally uses
+// scoped acquire/release for the look-back and __ldcs/__stcs streaming hints for
+// the global load and store. Neither ports — see the note in the .shader for the
+// HLSL equivalents that were tried and what they measured.
 //
 // Single-pass prefix scan with decoupled look-back. One block == one tile of
 // TILE = BLOCK*IPT elements; the tile id is claimed from a global atomic counter
@@ -57,6 +61,51 @@ __device__ __forceinline__ uint scalarToBits(scalar_t s) { return __float_as_uin
 __device__ __forceinline__ scalar_t bitsToScalar(uint u) { return __uint_as_float(u); }
 #endif
 
+// Look-back descriptor traffic. The protocol needs a coherent, ordered view of
+// other blocks' descriptors. atomicAdd(p, 0) / atomicExch give that, but as a
+// read-modify-write at the L2 atomic unit — far heavier than a load or a store.
+// The .cg cache modifier is NOT a valid substitute (measured: tile-boundary
+// corruption); scoped acquire/release IS, and it also subsumes the separate
+// __threadfence(), since release orders the value store before the flag store
+// and acquire orders the flag load before the value load.
+// Scoped acquire/release is sm_70+. NVRTC compiles for the device's own compute
+// capability, so an older GPU would otherwise fail to compile the kernel — which
+// this backend surfaces as a silently skipped dispatch, not an error. Fall back
+// to the atomic form there; it is slower but identical in meaning.
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 700
+#define CUT_SCAN_HAS_ACQREL 1
+__device__ __forceinline__ uint loadAcquire(const uint *p) {
+    uint r;
+    asm volatile("ld.acquire.gpu.u32 %0, [%1];" : "=r"(r) : "l"(p) : "memory");
+    return r;
+}
+__device__ __forceinline__ uint loadRelaxed(const uint *p) {
+    uint r;
+    asm volatile("ld.relaxed.gpu.u32 %0, [%1];" : "=r"(r) : "l"(p) : "memory");
+    return r;
+}
+__device__ __forceinline__ void storeRelaxed(uint *p, uint v) {
+    asm volatile("st.relaxed.gpu.u32 [%0], %1;" ::"l"(p), "r"(v) : "memory");
+}
+__device__ __forceinline__ void storeRelease(uint *p, uint v) {
+    asm volatile("st.release.gpu.u32 [%0], %1;" ::"l"(p), "r"(v) : "memory");
+}
+#else
+__device__ __forceinline__ uint loadAcquire(uint *p) {
+    uint r = atomicAdd(p, 0u);
+    __threadfence();
+    return r;
+}
+__device__ __forceinline__ uint loadRelaxed(uint *p) { return atomicAdd(p, 0u); }
+__device__ __forceinline__ void storeRelaxed(uint *p, uint v) {
+    atomicExch(p, v);
+}
+__device__ __forceinline__ void storeRelease(uint *p, uint v) {
+    __threadfence();
+    atomicExch(p, v);
+}
+#endif
+
 struct PushConstants {
     uint numElements;
     uint isExclusive;
@@ -73,8 +122,8 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     __shared__ scalar_t sExclusive;
 
     const uint tid = threadIdx.x;
-    const uint lane = tid & 31u;
-    const uint warp = tid >> 5;
+    const unsigned short lane = tid & 31u;
+    const unsigned short warp = tid >> 5;
     const uint numTiles = pc.numTiles;
 
     // Claim a tile id (dynamic, for forward-progress order).
@@ -83,53 +132,62 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     }
     __syncthreads();
 
-    uint tile = sTile;
-    uint tileStart = tile * TILE;
+    const uint tile = sTile;
+    const uint tileStart = tile * TILE;
 
     // Coalesced striped load into natural tile order. The striped mapping keeps
     // every thread on a distinct shared-memory bank (conflict-free) and the
     // compiler already widens the consecutive global reads; an explicit float4
     // path was measured slower here (packing 4 contiguous values per thread into
     // shared reintroduces bank conflicts).
-#pragma unroll
-    for (uint r = 0; r < IPT; r++) {
-        uint i = r * BLOCK + tid;
-        uint g = tileStart + i;
-        sData[i] = (g < pc.numElements) ? dataIn[g] : (scalar_t)0;
+    for (unsigned short r = 0; r < IPT; r++) {
+        const unsigned short i = r * BLOCK + tid;
+        const uint g = tileStart + i;
+        sData[i] = (g < pc.numElements) ? __ldcs(&dataIn[g]) : (scalar_t)0;
     }
     __syncthreads();
 
     // Each thread owns the contiguous slice [tid*IPT, tid*IPT+IPT); scan it.
     scalar_t v[IPT];
-#pragma unroll
-    for (uint r = 0; r < IPT; r++) {
+
+    for (unsigned short r = 0; r < IPT; r++) {
         v[r] = sData[tid * IPT + r];
     }
-#pragma unroll
-    for (uint r = 1; r < IPT; r++) {
-        v[r] += v[r - 1];
+
+    // Sequential scan of the slice, two elements per step: v[r+1] is folded from
+    // v[r-1] and the ORIGINAL v[r], so it does not wait on v[r]'s own update —
+    // half the dependent-add chain of a plain running sum. The bound is r+1 <
+    // IPT, not r < IPT: IPT is even, so r < IPT would let the last iteration
+    // write v[IPT] and run off the end of the register array. That leaves the
+    // final element unpaired, folded after the loop.
+    for (uint r = 1; r + 1 < IPT; r += 2) {
+        const scalar_t val = v[r - 1];
+        v[r + 1] += val + v[r];
+        v[r] += val;
     }
-    scalar_t threadTotal = v[IPT - 1];
+    v[IPT - 1] += v[IPT - 2];
+
+    const scalar_t threadTotal = v[IPT - 1];
 
     // Block-wide inclusive scan of the per-thread totals (warp shuffle + shared).
     scalar_t x = threadTotal;
-#pragma unroll
+
     for (uint off = 1; off < 32; off <<= 1) {
-        scalar_t n = __shfl_up_sync(0xFFFFFFFFu, x, off);
-        if (lane >= off) x += n;
+        const scalar_t n = __shfl_up_sync(0xFFFFFFFFu, x, off);
+        x += lane >= off ? n : 0;
     }
     if (lane == 31u) warpTotals[warp] = x;
     __syncthreads();
 
     scalar_t warpPrefix = (scalar_t)0;
-#pragma unroll
+
     for (uint w = 0; w < NUM_WARPS; w++) {
         scalar_t s = warpTotals[w];
         if (w < warp) warpPrefix += s;
     }
-    scalar_t threadPrefix = (x - threadTotal) + warpPrefix; // exclusive prefix of totals
+    const scalar_t threadPrefix = (x - threadTotal) + warpPrefix; // exclusive prefix of totals
     scalar_t tileAgg = (scalar_t)0;
-#pragma unroll
+
     for (uint w = 0; w < NUM_WARPS; w++) {
         tileAgg += warpTotals[w];                           // whole-tile sum
     }
@@ -138,56 +196,56 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     if (tid == 0) {
         scalar_t exclusive = (scalar_t)0;
         if (tile == 0u) {
-            atomicExch(&state[2u * numTiles + tile], scalarToBits(tileAgg));
-            __threadfence();
-            atomicExch(&state[tile], FLAG_INC);
+            storeRelaxed(&state[2u * numTiles + tile], scalarToBits(tileAgg));
+            storeRelease(&state[tile], FLAG_INC);
         } else {
-            atomicExch(&state[numTiles + tile], scalarToBits(tileAgg));
-            __threadfence();
-            atomicExch(&state[tile], FLAG_AGG);
+            storeRelaxed(&state[numTiles + tile], scalarToBits(tileAgg));
+            storeRelease(&state[tile], FLAG_AGG);
 
             int pred = (int)tile - 1;
             while (pred >= 0) {
                 uint s;
                 do {
-                    s = atomicAdd(&state[(uint)pred], 0u);
+                    s = loadAcquire(&state[(uint)pred]);
                 } while (s == 0u);
-                __threadfence();
                 if (s == FLAG_INC) {
                     exclusive += bitsToScalar(
-                        atomicAdd(&state[2u * numTiles + (uint)pred], 0u));
+                        loadRelaxed(&state[2u * numTiles + (uint)pred]));
                     break;
                 }
-                exclusive += bitsToScalar(
-                    atomicAdd(&state[numTiles + (uint)pred], 0u));
+                exclusive +=
+                    bitsToScalar(loadRelaxed(&state[numTiles + (uint)pred]));
                 pred--;
             }
-            atomicExch(&state[2u * numTiles + tile],
-                       scalarToBits(exclusive + tileAgg));
-            __threadfence();
-            atomicExch(&state[tile], FLAG_INC);
+            storeRelaxed(&state[2u * numTiles + tile],
+                         scalarToBits(exclusive + tileAgg));
+            storeRelease(&state[tile], FLAG_INC);
         }
         sExclusive = exclusive;
     }
     __syncthreads();
-    scalar_t base = sExclusive + threadPrefix;
+    const scalar_t base = sExclusive + threadPrefix;
 
     // Fold the prefix into every element; stage back through shared so the
     // global stores stay coalesced (striped).
-#pragma unroll
-    for (uint r = 0; r < IPT; r++) {
-        scalar_t outv = (pc.isExclusive != 0u)
-                            ? (base + ((r == 0u) ? (scalar_t)0 : v[r - 1]))
-                            : (base + v[r]);
-        sData[tid * IPT + r] = outv;
+    if (pc.isExclusive != 0u) {
+        sData[tid * IPT] = base;
+        for (unsigned short r = 1; r < IPT; r++) {
+            sData[tid * IPT + r] = base + v[r - 1];
+        }
+    } else {
+        for (unsigned short r = 0; r < IPT; r++) {
+            sData[tid * IPT + r] = base + v[r];
+        }
     }
+
     __syncthreads();
-#pragma unroll
-    for (uint r = 0; r < IPT; r++) {
-        uint i = r * BLOCK + tid;
+
+    for (unsigned short r = 0; r < IPT; r++) {
+        unsigned short i = r * BLOCK + tid;
         uint g = tileStart + i;
         if (g < pc.numElements) {
-            dataOut[g] = sData[i];
+            __stcs(&dataOut[g], sData[i]);
         }
     }
 }

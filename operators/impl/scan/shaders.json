@@ -28,12 +28,42 @@
           }
         },
         {
+          "name": "IPT12",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 12},
+          "wg": [256, 1],
+          "eff_tile": [256, 12],
+          "description": "Decoupled look-back scan, 12 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
           "name": "IPT16",
           "template": "ScanDecoupled",
           "defines": {"IPT": 16},
           "wg": [256, 1],
           "eff_tile": [256, 16],
           "description": "Decoupled look-back scan, 16 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "IPT20",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 20},
+          "wg": [256, 1],
+          "eff_tile": [256, 20],
+          "description": "Decoupled look-back scan, 20 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)",
           "dtype_slots": {
             "combos": [
               {"input": "Float32", "output": "Float32"},
@@ -58,12 +88,42 @@
           }
         },
         {
+          "name": "IPT28",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 28},
+          "wg": [256, 1],
+          "eff_tile": [256, 28],
+          "description": "Decoupled look-back scan, 28 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
           "name": "IPT32",
           "template": "ScanDecoupled",
           "defines": {"IPT": 32},
           "wg": [256, 1],
           "eff_tile": [256, 32],
           "description": "Decoupled look-back scan, 32 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "IPT36",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 36},
+          "wg": [256, 1],
+          "eff_tile": [256, 36],
+          "description": "Decoupled look-back scan, 36 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)",
           "dtype_slots": {
             "combos": [
               {"input": "Float32", "output": "Float32"},
@@ -88,12 +148,132 @@
           }
         },
         {
+          "name": "IPT44",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 44},
+          "wg": [256, 1],
+          "eff_tile": [256, 44],
+          "description": "Decoupled look-back scan, 44 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
           "name": "IPT46",
           "template": "ScanDecoupled",
           "defines": {"IPT": 46},
           "wg": [256, 1],
           "eff_tile": [256, 46],
           "description": "Decoupled look-back scan, 46 items/thread (48KB-shared peak)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "RegIPT8",
+          "template": "ScanDecoupledReg",
+          "defines": {"IPT": 8},
+          "wg": [256, 1],
+          "eff_tile": [256, 8],
+          "description": "Register-resident decoupled scan, 8 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "RegIPT16",
+          "template": "ScanDecoupledReg",
+          "defines": {"IPT": 16},
+          "wg": [256, 1],
+          "eff_tile": [256, 16],
+          "description": "Register-resident decoupled scan, 16 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "RegIPT24",
+          "template": "ScanDecoupledReg",
+          "defines": {"IPT": 24},
+          "wg": [256, 1],
+          "eff_tile": [256, 24],
+          "description": "Register-resident decoupled scan, 24 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "RegIPT32",
+          "template": "ScanDecoupledReg",
+          "defines": {"IPT": 32},
+          "wg": [256, 1],
+          "eff_tile": [256, 32],
+          "description": "Register-resident decoupled scan, 32 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "RegIPT40",
+          "template": "ScanDecoupledReg",
+          "defines": {"IPT": 40},
+          "wg": [256, 1],
+          "eff_tile": [256, 40],
+          "description": "Register-resident decoupled scan, 40 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "RegIPT48",
+          "template": "ScanDecoupledReg",
+          "defines": {"IPT": 48},
+          "wg": [256, 1],
+          "eff_tile": [256, 48],
+          "description": "Register-resident decoupled scan, 48 items/thread (past the 48KB-shared ceiling)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "RegIPT64",
+          "template": "ScanDecoupledReg",
+          "defines": {"IPT": 64},
+          "wg": [256, 1],
+          "eff_tile": [256, 64],
+          "description": "Register-resident decoupled scan, 64 items/thread (past the 48KB-shared ceiling)",
           "dtype_slots": {
             "combos": [
               {"input": "Float32", "output": "Float32"},
