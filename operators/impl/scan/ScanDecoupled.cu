@@ -237,9 +237,10 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
 
     if (tile > 0u) {
         // Decoupled look-back on a single thread; broadcast the result via shared.
-        if (tid == 0) {
+        if (tid == 32) {
             storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
-
+        }
+        if (tid == 0) {
             int pred = (int)tile - 1;
             while (pred >= 0) {
                 // One acquire load yields both halves, so the value needs no

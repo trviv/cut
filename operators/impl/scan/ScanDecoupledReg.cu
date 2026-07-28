@@ -221,7 +221,11 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     // Publish this tile's aggregate BEFORE the fold, so a successor's look-back
     // is not blocked behind our fold. tileAgg is already known and the fold is
     // not on its critical path. (tile 0 has no predecessor aggregate to serve.)
-    if (tid == 0 && tile != 0u) {
+    // Published from tid 32 — the first thread of warp 1 — rather than from tid 0,
+    // which is the thread that then spins in the look-back below. Splitting them
+    // across warps keeps the release store from sharing an issue slot with the
+    // spin. tileAgg is block-uniform here, so any thread can publish it.
+    if (tid == 32 && tile != 0u) {
         storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
     }
 

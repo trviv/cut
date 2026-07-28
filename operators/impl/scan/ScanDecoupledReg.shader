@@ -136,7 +136,13 @@ void main(uint3 GTid : SV_GroupThreadID) {
 
     // Publish this tile's aggregate BEFORE the fold, so a successor's look-back
     // is not blocked behind it. (tile 0 has no predecessor aggregate to serve.)
-    if (tid == 0 && tile != 0u) {
+    // Published from the first thread of the SECOND wave rather than from tid 0,
+    // which is the thread that then spins in the look-back below — splitting them
+    // across waves keeps the release store out of the spin's issue slot. Written
+    // as laneCount, not a literal 32: on a wave64 device tid 32 is still wave 0
+    // and the split would be a no-op. tileAgg is block-uniform, so any thread can
+    // publish it. Mirrors ScanDecoupled.cu.
+    if (tid == laneCount && tile != 0u) {
         uint old;
         InterlockedExchange(state[numTiles + tile], SCALAR_TO_BITS(tileAgg), old);
         DeviceMemoryBarrier();

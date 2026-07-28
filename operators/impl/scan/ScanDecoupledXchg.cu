@@ -252,7 +252,11 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     // the spine above finishes and every successor's look-back is blocked on it,
     // so the fold must not sit in front of it.
     ull* const desc = DESC(state);
-    if (tid == 0 && tile != 0u) {
+    // Published from tid 32 — the first thread of warp 1 — rather than from tid 0,
+    // which is the thread that then spins in the look-back below. Splitting them
+    // across warps keeps the release store from sharing an issue slot with the
+    // spin. tileAgg is block-uniform here, so any thread can publish it.
+    if (tid == 32 && tile != 0u) {
         storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
     }
 
