@@ -134,19 +134,38 @@ void main(uint3 GTid : SV_GroupThreadID) {
     scalar_t threadPrefix = (waveInclusive - threadTotal) + sWaveTotals[waveId];
     scalar_t tileAgg = sTileAgg;
 
+    // Publish this tile's aggregate BEFORE the fold, so a successor's look-back
+    // is not blocked behind it. (tile 0 has no predecessor aggregate to serve.)
+    if (tid == 0 && tile != 0u) {
+        uint old;
+        InterlockedExchange(state[numTiles + tile], SCALAR_TO_BITS(tileAgg), old);
+        DeviceMemoryBarrier();
+        InterlockedExchange(state[tile], FLAG_AGG, old);
+    }
+
+    // Fold only the per-thread part of the prefix now, while tid 0's look-back
+    // runs; the block-wide exclusive prefix is added at the store. The exclusive
+    // form shifts the slice right by one, so walk downwards to read v[r-1] before
+    // overwriting it.
+    [unroll]
+    for (uint k = 0; k < IPT; k++) {
+        uint r = IPT - 1u - k;
+        v[r] = (pc.isExclusive != 0u)
+                   ? (threadPrefix + ((r == 0u) ? (scalar_t)0 : v[r - 1]))
+                   : (threadPrefix + v[r]);
+    }
+
     // Decoupled look-back on a single thread; broadcast the result via shared.
+    // sExclusive is written ONLY by tid 0 and the barrier that publishes it is
+    // unconditional — the two invariants the shared-staged kernel got wrong.
+    scalar_t exclusive = (scalar_t)0;
     if (tid == 0) {
-        scalar_t exclusive = (scalar_t)0;
         uint old;
         if (tile == 0u) {
             InterlockedExchange(state[numTiles + tile], SCALAR_TO_BITS(tileAgg), old);
             DeviceMemoryBarrier();
             InterlockedExchange(state[tile], FLAG_INC, old);
         } else {
-            InterlockedExchange(state[numTiles + tile], SCALAR_TO_BITS(tileAgg), old);
-            DeviceMemoryBarrier();
-            InterlockedExchange(state[tile], FLAG_AGG, old);
-
             int pred = int(tile) - 1;
             [allow_uav_condition]
             while (pred >= 0) {
@@ -185,30 +204,20 @@ void main(uint3 GTid : SV_GroupThreadID) {
         sExclusive = exclusive;
     }
     GroupMemoryBarrierWithGroupSync();
-    scalar_t base = sExclusive + threadPrefix;
+    scalar_t tileExclusive = sExclusive;
 
-    // Fold the prefix in place. The exclusive form shifts the slice right by
-    // one, so walk downwards to read v[r-1] before overwriting it.
-    [unroll]
-    for (uint k = 0; k < IPT; k++) {
-        uint r = IPT - 1u - k;
-        v[r] = (pc.isExclusive != 0u)
-                   ? (base + ((r == 0u) ? (scalar_t)0 : v[r - 1]))
-                   : (base + v[r]);
-    }
-
-    // Store the slice back.
+    // Store the slice, adding the block-wide exclusive prefix the fold left out.
     if (fullTile) {
         [unroll]
         for (uint r = 0; r < IPT; r++) {
-            dataOut[sliceStart + r] = v[r];
+            dataOut[sliceStart + r] = v[r] + tileExclusive;
         }
     } else {
         [unroll]
         for (uint r = 0; r < IPT; r++) {
             uint g = sliceStart + r;
             if (g < pc.numElements) {
-                dataOut[g] = v[r];
+                dataOut[g] = v[r] + tileExclusive;
             }
         }
     }

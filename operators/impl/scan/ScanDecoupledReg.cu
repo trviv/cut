@@ -216,15 +216,42 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
 
     scalar_t threadPrefix = (x - threadTotal) + warpPrefix; // exclusive prefix of totals
 
+    ull* const desc = DESC(state);
+
+    // Publish this tile's aggregate BEFORE the fold, so a successor's look-back
+    // is not blocked behind our fold. tileAgg is already known and the fold is
+    // not on its critical path. (tile 0 has no predecessor aggregate to serve.)
+    if (tid == 0 && tile != 0u) {
+        storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
+    }
+
+    // Fold only the per-thread part of the prefix into the registers now, while
+    // tid 0's look-back below runs; the block-wide exclusive prefix is added at
+    // the store instead of here, which is what lets the fold move ahead of the
+    // look-back. The exclusive form shifts the slice right by one, so walk
+    // downwards: a component's predecessor is still untouched when read.
+    for (unsigned short i = NVEC; i-- > 0;) {
+        for (unsigned short j = VW; j-- > 0;) {
+            scalar_t prev;
+            if (j > 0u)
+                prev = v[i].s[j - 1];
+            else if (i > 0u)
+                prev = v[i - 1].s[VW - 1];
+            else
+                prev = (scalar_t)0;
+            v[i].s[j] = (pc.isExclusive != 0u) ? (threadPrefix + prev)
+                                              : (threadPrefix + v[i].s[j]);
+        }
+    }
+
     // Decoupled look-back on a single thread; broadcast the result via shared.
+    // sExclusive is written ONLY by tid 0 and the __syncthreads() that publishes
+    // it is unconditional — the two invariants the shared-staged kernel got wrong.
+    scalar_t exclusive = (scalar_t)0;
     if (tid == 0) {
-        scalar_t exclusive = (scalar_t)0;
-        ull* desc = DESC(state);
         if (tile == 0u) {
             storeRelease64(&desc[tile], packDesc(FLAG_INC, tileAgg));
         } else {
-            storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
-
             int pred = (int)tile - 1;
             while (pred >= 0) {
                 // One acquire load yields both halves, so the value needs no
@@ -242,29 +269,15 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
         sExclusive = exclusive;
     }
     __syncthreads();
-    scalar_t base = sExclusive + threadPrefix;
+    const scalar_t tileExclusive = sExclusive;
 
-    // Fold the prefix in place. The exclusive form shifts the slice right by
-    // one, so walk downwards: the predecessor of a vector's first component is
-    // the previous vector's last, which is still untouched at that point.
-    for (unsigned short i = NVEC; i-- > 0;) {
-        for (unsigned short j = VW; j-- > 0;) {
-            scalar_t prev;
-            if (j > 0u)
-                prev = v[i].s[j - 1];
-            else if (i > 0u)
-                prev = v[i - 1].s[VW - 1];
-            else
-                prev = (scalar_t)0;
-            v[i].s[j] = (pc.isExclusive != 0u) ? (base + prev)
-                                              : (base + v[i].s[j]);
-        }
-    }
-
-    // Store the slice back through the same vector shape.
+    // Store the slice, adding the block-wide exclusive prefix the fold left out.
     if (fullTile) {
         VecT* __restrict__ dst = reinterpret_cast<VecT*>(dataOut + sliceStart);
         for (unsigned short i = 0; i < NVEC; i++) {
+            for (unsigned short j = 0; j < VW; j++) {
+                v[i].s[j] += tileExclusive;
+            }
             dst[i] = v[i];
         }
     } else {
@@ -272,7 +285,7 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
             for (unsigned short j = 0; j < VW; j++) {
                 const uint g = sliceStart + i * VW + j;
                 if (g < pc.numElements) {
-                    dataOut[g] = v[i].s[j];
+                    dataOut[g] = v[i].s[j] + tileExclusive;
                 }
             }
         }

@@ -231,19 +231,13 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
         }
     }
 
-    scalar_t exclusive = (scalar_t)0;
     ull* desc = DESC(state);
+    scalar_t prevBlockExclusive = (scalar_t)0;
+    scalar_t exclusive = (scalar_t)0;
 
-    // Decoupled look-back on a single thread; broadcast the result via shared.
-    // Both the shared write and the barrier must be UNCONDITIONAL:
-    //   - sSlot.exclusive belongs inside `tid == 0`. Outside it, all 256 threads
-    //     write the slot and 255 of them write their own zero-initialised
-    //     `exclusive`, so the look-back's result is lost to a race.
-    //   - the __syncthreads() cannot live under `if (tile > 0u)`. It is also what
-    //     orders the fold's sData writes above against the striped reads below, so
-    //     tile 0 needs it just as much (this is what the i=160 mismatch was).
-    if (tid == 0) {
-        if (tile > 0u) {
+    if (tile > 0u) {
+        // Decoupled look-back on a single thread; broadcast the result via shared.
+        if (tid == 0) {
             storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
 
             int pred = (int)tile - 1;
@@ -258,15 +252,17 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
                 if (descFlag(d) == FLAG_INC) break;
                 pred--;
             }
+            sSlot.exclusive = exclusive;
         }
-        // Publish before the barrier, not after: successors are blocked on this
-        // and there is no reason to make them wait for the other 255 threads.
-        storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + tileAgg));
-        sSlot.exclusive = exclusive;
+        __syncthreads();
+        prevBlockExclusive = sSlot.exclusive;
+    } else {
+        __syncthreads();
     }
-    __syncthreads();
 
-    const scalar_t prevBlockExclusive = sSlot.exclusive;
+    if (tid == 0) {
+        storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + tileAgg));
+    }
 
     for (unsigned short r = 0; r < IPT; r++) {
         unsigned short i = r * BLOCK + tid;
