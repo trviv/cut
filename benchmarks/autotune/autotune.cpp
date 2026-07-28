@@ -242,9 +242,9 @@ autotuneScan(Runtime &runtime, int warmup, int iters, std::ostream &out) {
     std::vector<std::pair<int, BenchResult>> results;
 
     for (int vi = 0; vi < kScanVariantCount; ++vi) {
-      // The register-resident family is CUDA-only (see ScanOp.h); on Vulkan it
-      // would just be clamped back to the default, duplicating that number.
-      if (scanVariantIsRegisterResident(vi) && !isCuda)
+      // The alternative staging families are CUDA-only (see ScanOp.h); on Vulkan
+      // they would just be clamped back to the default, duplicating that number.
+      if (scanVariantIsCudaOnly(vi) && !isCuda)
         continue;
       if (scanVariantSharedBytes(vi, sizeof(float)) > maxShared)
         continue;

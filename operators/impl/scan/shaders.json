@@ -281,6 +281,216 @@
               {"input": "UInt32", "output": "UInt32"}
             ]
           }
+        },
+        {
+          "name": "XchgW1IPT16",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 16, "XW": 1},
+          "wg": [256, 1],
+          "eff_tile": [256, 16],
+          "description": "Windowed-exchange decoupled scan, 16 items/thread, 1 warp/round (2.1KB window vs 16KB full tile)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW1IPT32",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 32, "XW": 1},
+          "wg": [256, 1],
+          "eff_tile": [256, 32],
+          "description": "Windowed-exchange decoupled scan, 32 items/thread, 1 warp/round (4.1KB window vs 32KB full tile)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW1IPT48",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 48, "XW": 1},
+          "wg": [256, 1],
+          "eff_tile": [256, 48],
+          "description": "Windowed-exchange decoupled scan, 48 items/thread, 1 warp/round (6.1KB window vs 48KB full tile)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW1IPT64",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 64, "XW": 1},
+          "wg": [256, 1],
+          "eff_tile": [256, 64],
+          "description": "Windowed-exchange decoupled scan, 64 items/thread, 1 warp/round (8.1KB window vs 64KB full tile)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW2IPT16",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 16, "XW": 2},
+          "wg": [256, 1],
+          "eff_tile": [256, 16],
+          "description": "Windowed-exchange decoupled scan, 16 items/thread, 2 warps/round (4.2KB window vs 16KB full tile)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW2IPT32",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 32, "XW": 2},
+          "wg": [256, 1],
+          "eff_tile": [256, 32],
+          "description": "Windowed-exchange decoupled scan, 32 items/thread, 2 warps/round (8.2KB window vs 32KB full tile)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW2IPT48",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 48, "XW": 2},
+          "wg": [256, 1],
+          "eff_tile": [256, 48],
+          "description": "Windowed-exchange decoupled scan, 48 items/thread, 2 warps/round (12.2KB window vs 48KB full tile)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW2IPT64",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 64, "XW": 2},
+          "wg": [256, 1],
+          "eff_tile": [256, 64],
+          "description": "Windowed-exchange decoupled scan, 64 items/thread, 2 warps/round (16.2KB window vs 64KB full tile)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW4IPT16",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 16, "XW": 4},
+          "wg": [256, 1],
+          "eff_tile": [256, 16],
+          "description": "Windowed-exchange decoupled scan, 16 items/thread, 4 warps/round (8.5KB window, 2 rounds)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW4IPT32",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 32, "XW": 4},
+          "wg": [256, 1],
+          "eff_tile": [256, 32],
+          "description": "Windowed-exchange decoupled scan, 32 items/thread, 4 warps/round (16.5KB window, 2 rounds)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW4IPT48",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 48, "XW": 4},
+          "wg": [256, 1],
+          "eff_tile": [256, 48],
+          "description": "Windowed-exchange decoupled scan, 48 items/thread, 4 warps/round (24.5KB window, 2 rounds)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW4IPT64",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 64, "XW": 4},
+          "wg": [256, 1],
+          "eff_tile": [256, 64],
+          "description": "Windowed-exchange decoupled scan, 64 items/thread, 4 warps/round (32.5KB window, 2 rounds)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW8IPT16",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 16, "XW": 8},
+          "wg": [256, 1],
+          "eff_tile": [256, 16],
+          "description": "Windowed-exchange decoupled scan, 16 items/thread, 8 warps/round (17.0KB window, no time-slicing, one region per warp)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW8IPT32",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 32, "XW": 8},
+          "wg": [256, 1],
+          "eff_tile": [256, 32],
+          "description": "Windowed-exchange decoupled scan, 32 items/thread, 8 warps/round (33.0KB window, no time-slicing, one region per warp)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
         }
       ]
     },

@@ -60,23 +60,25 @@ void PrefixScanOpNode::buildSubOperations() {
   const uint32_t maxShared = store_->maxSharedMemoryPerBlock();
   const size_t scalarSize = dataTypeSize(dtype_);
   const bool isCuda = (store_->caps().backend == ComputeBackend::CUDA);
-  // A variant is usable if its staging fits shared memory AND, for the
-  // register-resident family, we are on CUDA: only the .cu path expresses the
-  // slice as vec4 loads/stores, so the HLSL counterpart exists to give the
-  // kernel its SPIR-V identity, not to be dispatched on Vulkan.
+  // A variant is usable if its staging fits shared memory AND, for the two
+  // alternative staging families (register-resident, windowed exchange), we are
+  // on CUDA: only the .cu paths express the slice as vec4 loads/stores and a
+  // warp-scoped window barrier, so their HLSL counterparts exist to give the
+  // kernels their SPIR-V identity, not to be dispatched on Vulkan.
   auto usable = [&](int vi) -> bool {
-    if (scanVariantIsRegisterResident(vi) && !isCuda)
+    if (scanVariantIsCudaOnly(vi) && !isCuda)
       return false;
     return scanVariantSharedBytes(vi, scalarSize) <= maxShared;
   };
 
   // The hardware default stays inside the shared-staging family: its ceiling is
   // set by the device, which is exactly what a hardware default should track.
-  // The register-resident family has no such ceiling, so it is opt-in through
-  // tuning data or an explicit spec rather than something to fall into.
+  // The alternative families have no such ceiling (they are bounded by registers
+  // and by one warp run respectively), so they are opt-in through tuning data or
+  // an explicit spec rather than something to fall into.
   int hwDefault = 0;
   for (int i = 0; i < kScanVariantCount; ++i)
-    if (!scanVariantIsRegisterResident(i) && usable(i))
+    if (!scanVariantIsCudaOnly(i) && usable(i))
       hwDefault = i; // staging variants ascend in IPT; last fitting == largest
 
   int variant;

@@ -43,7 +43,7 @@ int main() {
   int failures = 0;
   const bool isCuda = (backend == BackendType::CUDA);
   for (int vi = 0; vi < kScanVariantCount; ++vi) {
-    if ((scanVariantIsRegisterResident(vi) && !isCuda) ||
+    if ((scanVariantIsCudaOnly(vi) && !isCuda) ||
         scanVariantSharedBytes(vi, sizeof(float)) > maxShared) {
       std::cerr << "  " << kScanVariants[vi].name << " skipped\n";
       continue;
