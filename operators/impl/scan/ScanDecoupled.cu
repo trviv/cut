@@ -220,13 +220,30 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     const scalar_t tileAgg = cuda::device::warp_shuffle_idx(s, NUM_WARPS - 1);
     const scalar_t threadPrefix = (x - threadTotal) + warpPrefix; // exclusive prefix of totals
 
+    if (pc.isExclusive != 0u) {
+        sData[tid * IPT] = threadPrefix;
+        for (unsigned short r = 1; r < IPT; r++) {
+            sData[tid * IPT + r] = threadPrefix + v[r - 1];
+        }
+    } else {
+        for (unsigned short r = 0; r < IPT; r++) {
+            sData[tid * IPT + r] = threadPrefix + v[r];
+        }
+    }
+
+    scalar_t exclusive = (scalar_t)0;
+    ull* desc = DESC(state);
+
     // Decoupled look-back on a single thread; broadcast the result via shared.
+    // Both the shared write and the barrier must be UNCONDITIONAL:
+    //   - sSlot.exclusive belongs inside `tid == 0`. Outside it, all 256 threads
+    //     write the slot and 255 of them write their own zero-initialised
+    //     `exclusive`, so the look-back's result is lost to a race.
+    //   - the __syncthreads() cannot live under `if (tile > 0u)`. It is also what
+    //     orders the fold's sData writes above against the striped reads below, so
+    //     tile 0 needs it just as much (this is what the i=160 mismatch was).
     if (tid == 0) {
-        scalar_t exclusive = (scalar_t)0;
-        ull* desc = DESC(state);
-        if (tile == 0u) {
-            storeRelease64(&desc[tile], packDesc(FLAG_INC, tileAgg));
-        } else {
+        if (tile > 0u) {
             storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
 
             int pred = (int)tile - 1;
@@ -241,33 +258,21 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
                 if (descFlag(d) == FLAG_INC) break;
                 pred--;
             }
-            storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + tileAgg));
         }
+        // Publish before the barrier, not after: successors are blocked on this
+        // and there is no reason to make them wait for the other 255 threads.
+        storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + tileAgg));
         sSlot.exclusive = exclusive;
     }
     __syncthreads();
-    const scalar_t base = sSlot.exclusive + threadPrefix;
 
-    // Fold the prefix into every element; stage back through shared so the
-    // global stores stay coalesced (striped).
-    if (pc.isExclusive != 0u) {
-        sData[tid * IPT] = base;
-        for (unsigned short r = 1; r < IPT; r++) {
-            sData[tid * IPT + r] = base + v[r - 1];
-        }
-    } else {
-        for (unsigned short r = 0; r < IPT; r++) {
-            sData[tid * IPT + r] = base + v[r];
-        }
-    }
-
-    __syncthreads();
+    const scalar_t prevBlockExclusive = sSlot.exclusive;
 
     for (unsigned short r = 0; r < IPT; r++) {
         unsigned short i = r * BLOCK + tid;
         uint g = tileStart + i;
         if (g < pc.numElements) {
-            __stcs(&dataOut[g], sData[i]);
+            __stcs(&dataOut[g], sData[i] + prevBlockExclusive);
         }
     }
 }
