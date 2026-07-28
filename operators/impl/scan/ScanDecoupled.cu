@@ -49,12 +49,12 @@
 #include <cuda/atomic>
 #include <cuda/warp>
 
-#define BLOCK 256
+#define BLOCK 256u
 #ifndef IPT
-#define IPT 46  // overridden per-variant by the native manifest (-DIPT=N)
+#define IPT 46u  // overridden per-variant by the native manifest (-DIPT=N)
 #endif
 #define TILE (BLOCK * IPT)      // elements per tile (11776 at IPT=46)
-#define NUM_WARPS (BLOCK / 32)  // 8
+#define NUM_WARPS (BLOCK / 32u)  // 8
 
 #define FLAG_AGG 1u
 #define FLAG_INC 2u
@@ -155,42 +155,40 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     const uint tile = sSlot.tile;
     const uint tileStart = tile * TILE;
 
-    // Coalesced striped load into natural tile order. The striped mapping keeps
-    // every thread on a distinct shared-memory bank (conflict-free) and the
-    // compiler already widens the consecutive global reads; an explicit float4
-    // path was measured slower here (packing 4 contiguous values per thread into
-    // shared reintroduces bank conflicts).
-    for (unsigned short r = 0; r < IPT; r++) {
-        const unsigned short i = r * BLOCK + tid;
-        const uint g = tileStart + i;
-        sData[i] = (g < pc.numElements) ? __ldcs(&dataIn[g]) : (scalar_t)0;
+    // Warp-cooperative scan over stride-1 chunks. Warp w owns the contiguous
+    // region [w*32*IPT, (w+1)*32*IPT) and walks it 32 elements at a time, so every
+    // shared AND global access is lane-consecutive: conflict-free for any IPT, and
+    // there is no per-thread v[IPT] register array at all.
+    //
+    // The global load fuses into this pass. The blocked form staged the tile into
+    // shared and read it back for the serial slice scan (2 LDS + 2 STS per
+    // element); this is 1 STS here plus the 1 LDS in the store pass.
+    //
+    // What it costs: log2(32) shuffle steps per element, where the blocked form
+    // needed a single add. That is the trade.
+    const unsigned short threadBase = warp * 32u * IPT + lane;
+    scalar_t carry = (scalar_t)0;
+
+    for (unsigned short i = 0; i < IPT; i++) {
+        unsigned short idx = threadBase + i * 32u;
+        const uint g = tileStart + (uint)idx;
+        const scalar_t orig =
+            (g < pc.numElements) ? __ldcs(&dataIn[g]) : (scalar_t)0;
+
+        scalar_t x = orig;
+        for (unsigned short off = 1; off < 32; off <<= 1) {
+            const auto up = cuda::device::warp_shuffle_up(x, off);
+            if (up.pred) x += up.data;
+        }
+        x += carry;
+        // Region-local result. The region's own prefix and the tile's are both
+        // warp-uniform, so both are added once, at the store.
+        sData[idx] = (pc.isExclusive != 0u) ? (x - orig) : x;
+        carry = cuda::device::warp_shuffle_idx(x, 31);
     }
-    __syncthreads();
 
-    // Each thread owns the contiguous slice [tid*IPT, tid*IPT+IPT); scan it.
-    scalar_t v[IPT];
-
-    v[0] = sData[tid * IPT];
-    for (unsigned short r = 1; r < IPT; r++) {
-        v[r] = sData[tid * IPT + r];
-        v[r] += v[r - 1];
-    }
-
-    const scalar_t threadTotal = v[IPT - 1];
-
-    // Block-wide inclusive scan of the per-thread totals (warp shuffle + shared).
-    scalar_t x = threadTotal;
-
-    // cuda::device::warp_shuffle_up returns the shuffled value AND the predicate
-    // the hardware already set for it: shfl.up's second destination, true exactly
-    // when the source lane is in range, which at full warp width IS `lane >= off`.
-    // __shfl_up_sync has nowhere to return that, so it forces a redundant compare
-    // and a select between the shuffle and the add on every step.
-    for (unsigned short off = 1; off < 32; off <<= 1) {
-        const auto up = cuda::device::warp_shuffle_up(x, off);
-        if (up.pred) x += up.data;
-    }
-    if (lane == 31u) warpTotals[warp] = x;
+    // carry is now this region's total, uniform across the warp.
+    if (lane == 0u) warpTotals[warp] = carry;
     __syncthreads();
 
     // Scan the NUM_WARPS totals with the same shuffle ladder rather than a serial
@@ -218,18 +216,7 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     const scalar_t prevIncl = cuda::device::warp_shuffle_idx(s, prevWarp);
     const scalar_t warpPrefix = (warp == 0u) ? (scalar_t)0 : prevIncl;
     const scalar_t tileAgg = cuda::device::warp_shuffle_idx(s, NUM_WARPS - 1);
-    const scalar_t threadPrefix = (x - threadTotal) + warpPrefix; // exclusive prefix of totals
-
-    if (pc.isExclusive != 0u) {
-        sData[tid * IPT] = threadPrefix;
-        for (unsigned short r = 1; r < IPT; r++) {
-            sData[tid * IPT + r] = threadPrefix + v[r - 1];
-        }
-    } else {
-        for (unsigned short r = 0; r < IPT; r++) {
-            sData[tid * IPT + r] = threadPrefix + v[r];
-        }
-    }
+    // No fold pass: warpPrefix is warp-uniform and is added at the store.
 
     ull* desc = DESC(state);
     scalar_t prevBlockExclusive = (scalar_t)0;
@@ -257,19 +244,20 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
         }
         __syncthreads();
         prevBlockExclusive = sSlot.exclusive;
-    } else {
-        __syncthreads();
     }
 
     if (tid == 0) {
         storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + tileAgg));
     }
 
-    for (unsigned short r = 0; r < IPT; r++) {
-        unsigned short i = r * BLOCK + tid;
-        uint g = tileStart + i;
+    // Same region-striped walk as the scan pass, so this is conflict-free in
+    // shared and coalesced in global. Both bias terms are warp-uniform.
+    const scalar_t bias = warpPrefix + prevBlockExclusive;
+    for (uint i = 0; i < IPT; i++) {
+        const uint idx = threadBase + i * 32u;
+        const uint g = tileStart + idx;
         if (g < pc.numElements) {
-            __stcs(&dataOut[g], sData[i] + prevBlockExclusive);
+            __stcs(&dataOut[g], sData[idx] + bias);
         }
     }
 }
