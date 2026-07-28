@@ -40,11 +40,20 @@ inline bool scanVariantIsWarpExchange(int vi) {
 inline unsigned scanVariantExchangeWarps(int vi) {
   if (!scanVariantIsWarpExchange(vi))
     return 0u;
+  // The "W<n>" group must exist in the name of every Xchg variant. Guard the
+  // lookup anyway: a manifest name that merely contains "Xchg" would otherwise
+  // walk a null pointer here, which is a segfault at variant-selection time
+  // rather than anything that looks like a naming mistake.
   const char *w = std::strstr(kScanVariants[vi].name, "XchgW");
+  w = (w != nullptr) ? w + 5 : std::strstr(kScanVariants[vi].name, "W");
+  if (w == nullptr)
+    return 0u;
+  if (*w == 'W')
+    ++w; // matched the bare "W<n>" form, e.g. XchgB512W4IPT16
   unsigned n = 0u;
-  for (w += 5; *w >= '0' && *w <= '9'; ++w)
+  for (; *w >= '0' && *w <= '9'; ++w)
     n = n * 10u + static_cast<unsigned>(*w - '0');
-  return n;
+  return n == 0u ? 1u : n;
 }
 
 /// True if variant @p vi only exists on the CUDA backend. Both alternative

@@ -285,7 +285,7 @@
         {
           "name": "XchgW1IPT16",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 16, "XW": 1},
+          "defines": {"IPT": 16, "XW": 1, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 16],
           "description": "Windowed-exchange decoupled scan, 16 items/thread, 1 warp/round (2.1KB window vs 16KB full tile)",
@@ -300,7 +300,7 @@
         {
           "name": "XchgW1IPT32",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 32, "XW": 1},
+          "defines": {"IPT": 32, "XW": 1, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 32],
           "description": "Windowed-exchange decoupled scan, 32 items/thread, 1 warp/round (4.1KB window vs 32KB full tile)",
@@ -315,7 +315,7 @@
         {
           "name": "XchgW1IPT48",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 48, "XW": 1},
+          "defines": {"IPT": 48, "XW": 1, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 48],
           "description": "Windowed-exchange decoupled scan, 48 items/thread, 1 warp/round (6.1KB window vs 48KB full tile)",
@@ -330,7 +330,7 @@
         {
           "name": "XchgW1IPT64",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 64, "XW": 1},
+          "defines": {"IPT": 64, "XW": 1, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 64],
           "description": "Windowed-exchange decoupled scan, 64 items/thread, 1 warp/round (8.1KB window vs 64KB full tile)",
@@ -345,7 +345,7 @@
         {
           "name": "XchgW2IPT16",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 16, "XW": 2},
+          "defines": {"IPT": 16, "XW": 2, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 16],
           "description": "Windowed-exchange decoupled scan, 16 items/thread, 2 warps/round (4.2KB window vs 16KB full tile)",
@@ -360,7 +360,7 @@
         {
           "name": "XchgW2IPT32",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 32, "XW": 2},
+          "defines": {"IPT": 32, "XW": 2, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 32],
           "description": "Windowed-exchange decoupled scan, 32 items/thread, 2 warps/round (8.2KB window vs 32KB full tile)",
@@ -375,7 +375,7 @@
         {
           "name": "XchgW2IPT48",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 48, "XW": 2},
+          "defines": {"IPT": 48, "XW": 2, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 48],
           "description": "Windowed-exchange decoupled scan, 48 items/thread, 2 warps/round (12.2KB window vs 48KB full tile)",
@@ -390,7 +390,7 @@
         {
           "name": "XchgW2IPT64",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 64, "XW": 2},
+          "defines": {"IPT": 64, "XW": 2, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 64],
           "description": "Windowed-exchange decoupled scan, 64 items/thread, 2 warps/round (16.2KB window vs 64KB full tile)",
@@ -405,7 +405,7 @@
         {
           "name": "XchgW4IPT16",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 16, "XW": 4},
+          "defines": {"IPT": 16, "XW": 4, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 16],
           "description": "Windowed-exchange decoupled scan, 16 items/thread, 4 warps/round (8.5KB window, 2 rounds)",
@@ -420,7 +420,7 @@
         {
           "name": "XchgW4IPT32",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 32, "XW": 4},
+          "defines": {"IPT": 32, "XW": 4, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 32],
           "description": "Windowed-exchange decoupled scan, 32 items/thread, 4 warps/round (16.5KB window, 2 rounds)",
@@ -435,7 +435,7 @@
         {
           "name": "XchgW4IPT48",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 48, "XW": 4},
+          "defines": {"IPT": 48, "XW": 4, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 48],
           "description": "Windowed-exchange decoupled scan, 48 items/thread, 4 warps/round (24.5KB window, 2 rounds)",
@@ -450,7 +450,7 @@
         {
           "name": "XchgW4IPT64",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 64, "XW": 4},
+          "defines": {"IPT": 64, "XW": 4, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 64],
           "description": "Windowed-exchange decoupled scan, 64 items/thread, 4 warps/round (32.5KB window, 2 rounds)",
@@ -465,7 +465,7 @@
         {
           "name": "XchgW8IPT16",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 16, "XW": 8},
+          "defines": {"IPT": 16, "XW": 8, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 16],
           "description": "Windowed-exchange decoupled scan, 16 items/thread, 8 warps/round (17.0KB window, no time-slicing, one region per warp)",
@@ -480,10 +480,100 @@
         {
           "name": "XchgW8IPT32",
           "template": "ScanDecoupledXchg",
-          "defines": {"IPT": 32, "XW": 8},
+          "defines": {"IPT": 32, "XW": 8, "BLOCK": 256},
           "wg": [256, 1],
           "eff_tile": [256, 32],
           "description": "Windowed-exchange decoupled scan, 32 items/thread, 8 warps/round (33.0KB window, no time-slicing, one region per warp)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW4B512IPT16",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 16, "XW": 4, "BLOCK": 512},
+          "wg": [512, 1],
+          "eff_tile": [512, 16],
+          "description": "Windowed-exchange decoupled scan, 512 threads/group, 16 items/thread, 4 warps/round (8.5KB window)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW8B512IPT16",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 16, "XW": 8, "BLOCK": 512},
+          "wg": [512, 1],
+          "eff_tile": [512, 16],
+          "description": "Windowed-exchange decoupled scan, 512 threads/group, 16 items/thread, 8 warps/round (17.0KB window)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW4B512IPT32",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 32, "XW": 4, "BLOCK": 512},
+          "wg": [512, 1],
+          "eff_tile": [512, 32],
+          "description": "Windowed-exchange decoupled scan, 512 threads/group, 32 items/thread, 4 warps/round (16.5KB window)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW16B512IPT16",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 16, "XW": 16, "BLOCK": 512},
+          "wg": [512, 1],
+          "eff_tile": [512, 16],
+          "description": "Windowed-exchange decoupled scan, 512 threads/group, 16 items/thread, 16 warps/round (34.0KB window)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW8B1024IPT16",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 16, "XW": 8, "BLOCK": 1024},
+          "wg": [1024, 1],
+          "eff_tile": [1024, 16],
+          "description": "Windowed-exchange decoupled scan, 1024 threads/group, 16 items/thread, 8 warps/round (17.0KB window)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "XchgW16B1024IPT16",
+          "template": "ScanDecoupledXchg",
+          "defines": {"IPT": 16, "XW": 16, "BLOCK": 1024},
+          "wg": [1024, 1],
+          "eff_tile": [1024, 16],
+          "description": "Windowed-exchange decoupled scan, 1024 threads/group, 16 items/thread, 16 warps/round (34.0KB window)",
           "dtype_slots": {
             "combos": [
               {"input": "Float32", "output": "Float32"},

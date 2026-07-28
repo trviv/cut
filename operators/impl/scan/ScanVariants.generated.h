@@ -17,7 +17,7 @@ struct ScanVariantInfo {
     const char* description;
 };
 
-inline constexpr int kScanVariantCount = 32;
+inline constexpr int kScanVariantCount = 38;
 inline constexpr int kScanDefaultVariant = 6;
 
 inline constexpr ScanVariantInfo kScanVariants[kScanVariantCount] = {
@@ -53,6 +53,12 @@ inline constexpr ScanVariantInfo kScanVariants[kScanVariantCount] = {
     {"ScanXchgW4IPT64", 256, 1, 256, 64, "Windowed-exchange decoupled scan, 64 items/thread, 4 warps/round (32.5KB window, 2 rounds)"},
     {"ScanXchgW8IPT16", 256, 1, 256, 16, "Windowed-exchange decoupled scan, 16 items/thread, 8 warps/round (17.0KB window, no time-slicing, one region per warp)"},
     {"ScanXchgW8IPT32", 256, 1, 256, 32, "Windowed-exchange decoupled scan, 32 items/thread, 8 warps/round (33.0KB window, no time-slicing, one region per warp)"},
+    {"ScanXchgW4B512IPT16", 512, 1, 512, 16, "Windowed-exchange decoupled scan, 512 threads/group, 16 items/thread, 4 warps/round (8.5KB window)"},
+    {"ScanXchgW8B512IPT16", 512, 1, 512, 16, "Windowed-exchange decoupled scan, 512 threads/group, 16 items/thread, 8 warps/round (17.0KB window)"},
+    {"ScanXchgW4B512IPT32", 512, 1, 512, 32, "Windowed-exchange decoupled scan, 512 threads/group, 32 items/thread, 4 warps/round (16.5KB window)"},
+    {"ScanXchgW16B512IPT16", 512, 1, 512, 16, "Windowed-exchange decoupled scan, 512 threads/group, 16 items/thread, 16 warps/round (34.0KB window)"},
+    {"ScanXchgW8B1024IPT16", 1024, 1, 1024, 16, "Windowed-exchange decoupled scan, 1024 threads/group, 16 items/thread, 8 warps/round (17.0KB window)"},
+    {"ScanXchgW16B1024IPT16", 1024, 1, 1024, 16, "Windowed-exchange decoupled scan, 1024 threads/group, 16 items/thread, 16 warps/round (34.0KB window)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
@@ -88,6 +94,12 @@ std::optional<std::vector<uint32_t>> compiledScanXchgW4IPT48(DataType input, Dat
 std::optional<std::vector<uint32_t>> compiledScanXchgW4IPT64(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanXchgW8IPT16(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanXchgW8IPT32(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanXchgW4B512IPT16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanXchgW8B512IPT16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanXchgW4B512IPT32(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanXchgW16B512IPT16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanXchgW8B1024IPT16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanXchgW16B1024IPT16(DataType input, DataType output);
 
 using CompiledScanFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
@@ -124,6 +136,12 @@ inline const CompiledScanFn kScanCompiledFns[kScanVariantCount] = {
     compiledScanXchgW4IPT64,
     compiledScanXchgW8IPT16,
     compiledScanXchgW8IPT32,
+    compiledScanXchgW4B512IPT16,
+    compiledScanXchgW8B512IPT16,
+    compiledScanXchgW4B512IPT32,
+    compiledScanXchgW16B512IPT16,
+    compiledScanXchgW8B1024IPT16,
+    compiledScanXchgW16B1024IPT16,
 };
 
 /// Returns compiled SPIR-V for a scan variant by index.

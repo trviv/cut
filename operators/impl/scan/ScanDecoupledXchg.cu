@@ -73,7 +73,9 @@
 #include <cuda/atomic>
 #include <cuda/warp>
 
-#define BLOCK 256
+#ifndef BLOCK
+#define BLOCK 256  // overridden per-variant by the native manifest (-DBLOCK=N)
+#endif
 #ifndef IPT
 #define IPT 32  // overridden per-variant by the native manifest (-DIPT=N)
 #endif
