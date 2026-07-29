@@ -157,36 +157,43 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     if (lane == 31u) warpTotals[warp] = x;
     __syncthreads();
 
-    // The NUM_WARPS totals stay a serial pass over shared, NOT the shuffle ladder
-    // ScanDecoupled.cu uses. The ladder keeps the totals live in registers across
-    // the look-back, and this kernel is register-limited by construction — that is
-    // the whole point of the register-resident variant. Measured on sm_86: the
-    // ladder costs +7 registers at IPT=32, +15 at 48, +29 at 64 (80 -> 109), which
-    // drops IPT=64 from 3 resident blocks/SM to 2. ScanDecoupled.cu pays nothing
-    // for it only because its 47 KB of staging pins it to 1 block/SM anyway, so
-    // its register count is slack. Same code, opposite verdict.
-    scalar_t warpPrefix = (scalar_t)0;
-    scalar_t tileAgg = (scalar_t)0;
-    for (unsigned short w = 0; w < NUM_WARPS; w++) {
-        scalar_t s = warpTotals[w];
-        tileAgg += s;
-        if (w < warp) warpPrefix += s;
-    }
-
-    scalar_t threadPrefix = (x - threadTotal) + warpPrefix; // exclusive prefix of totals
-
+    // The NUM_WARPS totals stay a serial pass over shared rather than a second
+    // warp-shuffle ladder over them. A ladder keeps the totals live in registers
+    // across the look-back, and this kernel is register-limited by construction —
+    // that is the whole point of the register-resident variant. Measured on
+    // sm_86 it cost +7 registers at IPT=32, +15 at 48 and +29 at 64, dropping
+    // IPT=64 from 3 resident blocks/SM to 2.
+    //
+    // Only warpTotals[0 .. warp-1] reaches this thread's prefix, so the trip
+    // count is the warp index, not NUM_WARPS — the triangle that is read, not
+    // the square that was summed. Warp 0's is the empty sum and touches shared
+    // not at all. Not unrolled on purpose: an unrolled NUM_WARPS pass under a
+    // `w < warp` predicate puts the square back. See ScanDecoupled.cu.
     ull* const desc = DESC(state);
 
-    // Publish this tile's aggregate BEFORE the fold, so a successor's look-back
-    // is not blocked behind our fold. tileAgg is already known and the fold is
-    // not on its critical path. (tile 0 has no predecessor aggregate to serve.)
-    // Published from tid 32 — the first thread of warp 1 — rather than from tid 0,
-    // which is the thread that then spins in the look-back below. Splitting them
-    // across warps keeps the release store from sharing an issue slot with the
-    // spin. tileAgg is block-uniform here, so any thread can publish it.
+    // The AGGREGATE release goes FIRST, ahead of every other thread's prefix
+    // work and ahead of the fold: it is what each successor tile's look-back is
+    // blocked on. tid 32 is warp 1's lane 0 — not the warp that spins in the
+    // walk below, so the release store never shares its issue slots.
+    //
+    // It sums warpTotals itself. The last warp holds the whole-tile total for
+    // free as `warpPrefix + x`, but it is also the last warp scheduled and has
+    // the longest prefix loop to run first; measured, publishing from there
+    // costs ~4% at 64K. One thread walking NUM_WARPS shared slots is nothing —
+    // it was the BLOCK-WIDE square that was worth deleting.
     if (tid == 32 && tile != 0u) {
-        storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
+        scalar_t agg = (scalar_t)0;
+#pragma unroll
+        for (unsigned short w = 0; w < NUM_WARPS; w++)
+            agg += warpTotals[w];
+        storeRelease64(&desc[tile], packDesc(FLAG_AGG, agg));
     }
+
+    scalar_t warpPrefix = (scalar_t)0;
+    for (unsigned short w = 0; w < warp; w++)
+        warpPrefix += warpTotals[w];
+
+    scalar_t threadPrefix = (x - threadTotal) + warpPrefix; // exclusive prefix of totals
 
     // Fold only the per-thread part of the prefix into the registers now, while
     // tid 0's look-back below runs; the block-wide exclusive prefix is added at
@@ -217,9 +224,15 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
         exclusive = scanWarpLookBack(desc, tile, lane);
     }
     if (tid == 0) {
-        // Covers tile 0 too: exclusive is 0 there, so this is the same publish the
-        // old `if (tile == 0u)` arm made.
-        storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + tileAgg));
+        // Covers tile 0 too: exclusive is 0 there, so this is the same publish
+        // the old `if (tile == 0u)` arm made. tid 0 already holds `exclusive`
+        // from the walk, so this lands a full barrier earlier than it would
+        // from a thread that has to read it back out of shared.
+        scalar_t agg = (scalar_t)0;
+#pragma unroll
+        for (unsigned short w = 0; w < NUM_WARPS; w++)
+            agg += warpTotals[w];
+        storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + agg));
         sExclusive = exclusive;
     }
     __syncthreads();

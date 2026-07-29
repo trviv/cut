@@ -8,11 +8,11 @@
 // Single-pass prefix scan with decoupled look-back. One block == one tile of
 // TILE = BLOCK*IPT elements; the tile id is claimed from a global atomic counter
 // (NOT blockIdx) so the chained look-back has a forward-progress order. Each
-// thread owns a contiguous IPT-element slice; the tile is scanned locally (a
-// per-slice sequential scan plus a warp-shuffle block scan of the per-thread
-// totals), then thread 0 walks predecessor tiles — summing their aggregates
-// until it hits an INCLUSIVE descriptor — to obtain this tile's exclusive
-// prefix, which is broadcast to every element.
+// warp owns a contiguous region of the tile and scans it cooperatively, 32
+// elements at a time; each warp then folds the per-warp totals below it into its
+// own exclusive prefix, while warp 0 walks predecessor tiles — summing their
+// aggregates until it hits an INCLUSIVE descriptor — to obtain this tile's
+// exclusive prefix. Both are warp-uniform and are added at the store.
 //
 // Element type is the generator's CUT_SCALAR_DTYPE_INPUT (Float32 / Int32 /
 // UInt32); look-back descriptors store the value's bit pattern in a uint slot.
@@ -57,6 +57,7 @@
 #define TILE (BLOCK * IPT)      // elements per tile (11776 at IPT=46)
 #define NUM_WARPS (BLOCK / 32u)  // 8
 
+
 #include "ScanCommon.cuh"
 
 struct PushConstants {
@@ -71,11 +72,6 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
                                     PushConstants pc) {
     __shared__ scalar_t sData[TILE];
     __shared__ scalar_t warpTotals[NUM_WARPS];
-    // The claimed tile id and the look-back's exclusive prefix share one slot:
-    // their lifetimes are disjoint and a __syncthreads() separates them. Every
-    // thread copies .tile into a register immediately after the claim barrier,
-    // well before the look-back writes .exclusive. Reordering either use across
-    // the barriers below would make them alias for real.
     __shared__ union {
         uint tile;
         scalar_t exclusive;
@@ -86,10 +82,6 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     const unsigned short warp = tid >> 5;
     const uint numTiles = pc.numTiles;
 
-    // Claim a tile id (dynamic, for forward-progress order). The counter lives at
-    // 2*T, the first slot past the packed descriptors. Relaxed is enough: only the
-    // counter's atomicity matters, and the __syncthreads() below is what publishes
-    // the result to the rest of the block.
     if (tid == 0) {
         sSlot.tile = cuda::atomic_ref<uint, cuda::thread_scope_device>(
                     state[2u * numTiles])
@@ -98,37 +90,15 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     __syncthreads();
 
     const uint tile = sSlot.tile;
-    const uint tileStart = tile * TILE;
-
-    // Warp-cooperative scan over stride-1 chunks. Warp w owns the contiguous
-    // region [w*32*IPT, (w+1)*32*IPT) and walks it 32 elements at a time, so every
-    // shared AND global access is lane-consecutive: conflict-free for any IPT, and
-    // there is no per-thread v[IPT] register array at all.
-    //
-    // The global load fuses into this pass. The blocked form staged the tile into
-    // shared and read it back for the serial slice scan (2 LDS + 2 STS per
-    // element); this is 1 STS here plus the 1 LDS in the store pass.
-    //
-    // What it costs: log2(32) shuffle steps per element, where the blocked form
-    // needed a single add. That is the trade.
     const unsigned short threadBase = warp * 32u * IPT + lane;
+    // const bool fullTile = (tile * TILE + TILE) <= pc.numElements;
     scalar_t carry = (scalar_t)0;
-    // Only the last tile can be partial; every other tile then skips the
-    // per-element bounds test on both the load and the store.
-    const bool fullTile = (tileStart + TILE) <= pc.numElements;
 
-    // #pragma unroll is load-bandwidth-critical, not a micro-opt. The inner
-    // shuffle ladder stops ptxas unrolling this loop on its own, and un-unrolled
-    // it emits TWO LDG for the whole loop — i.e. at most two global loads in
-    // flight per thread, against a 47 KB shared footprint that already pins the
-    // block to one per SM. Unrolled, ptxas hoists a rolling window of eight.
 #pragma unroll
     for (unsigned short i = 0; i < IPT; i++) {
         unsigned short idx = threadBase + i * 32u;
-        const uint g = tileStart + (uint)idx;
-        const scalar_t orig =
-            (fullTile || g < pc.numElements) ? __ldcs(&dataIn[g]) : (scalar_t)0;
-
+        const uint g = min(tile * TILE + (uint)idx, pc.numElements - 1);
+        const scalar_t orig = __ldcs(&dataIn[g]);
         scalar_t x = orig;
         for (unsigned short off = 1; off < 32; off <<= 1) {
             const auto up = cuda::device::warp_shuffle_up(x, off);
@@ -137,7 +107,7 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
         x += carry;
         // Region-local result. The region's own prefix and the tile's are both
         // warp-uniform, so both are added once, at the store.
-        sData[idx] = (pc.isExclusive != 0u) ? (x - orig) : x;
+        sData[idx] = x - ((pc.isExclusive != 0u) ? orig : 0);
         carry = cuda::device::warp_shuffle_idx(x, 31);
     }
 
@@ -145,70 +115,60 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     if (lane == 0u) warpTotals[warp] = carry;
     __syncthreads();
 
-    // Scan the NUM_WARPS totals with the same shuffle ladder rather than a serial
-    // pass over shared memory. Lane w holds warpTotals[w] and lanes past NUM_WARPS
-    // hold 0, so log2(NUM_WARPS) steps leave every lane holding the inclusive
-    // prefix of the totals; two broadcasts then hand each thread what it needs.
-    // Requires NUM_WARPS <= 32 so the totals fit one lane apiece — true while
-    // BLOCK <= 1024. Every warp recomputes this redundantly, which is exactly what
-    // avoids a second __syncthreads(): the result lands in registers, not shared.
-    scalar_t s = (lane < NUM_WARPS) ? warpTotals[lane] : (scalar_t)0;
-
-    for (unsigned short off = 1; off < NUM_WARPS; off <<= 1) {
-        const auto up = cuda::device::warp_shuffle_up(s, off);
-        if (up.pred) s += up.data;
-    }
-
-    // s at lane w == warpTotals[0] + ... + warpTotals[w]. The exclusive prefix of
-    // this thread's warp is therefore lane warp-1's value (0 for warp 0), and the
-    // whole-tile sum is the last populated lane. Both shuffles run unconditionally
-    // — a warp-uniform branch around one would be legal, but the source lane is
-    // cheaper to clamp than the control flow is to reason about. warp_shuffle_idx
-    // converts implicitly to the value; its predicate is uninteresting here since
-    // both source lanes are always in range.
-    const uint prevWarp = (warp == 0u) ? 0u : (uint)warp - 1u;
-    const scalar_t prevIncl = cuda::device::warp_shuffle_idx(s, prevWarp);
-    const scalar_t warpPrefix = (warp == 0u) ? (scalar_t)0 : prevIncl;
-    const scalar_t tileAgg = cuda::device::warp_shuffle_idx(s, NUM_WARPS - 1);
-    // No fold pass: warpPrefix is warp-uniform and is added at the store.
-
     ull* desc = DESC(state);
     scalar_t prevBlockExclusive = (scalar_t)0;
-    scalar_t exclusive = (scalar_t)0;
+    scalar_t warpPrefix = (scalar_t)0;
 
+    // Warp 0 fetches the scan from previous blocks
+    if (warp == 0u) {
+        // Only needed for 2nd tile and onwards
+        if (tile > 0u) {
+            prevBlockExclusive = scanWarpLookBack(desc, tile, lane);
+            // Only one lane writes to shared mem
+            if (lane == 0u) {
+                sSlot.exclusive = prevBlockExclusive;
+            }
+        }
+    } else {
+        //  Calculate warp prefix for warp after index 0
+        for (unsigned short w = 0; w < warp; w++) {
+            warpPrefix += warpTotals[w];
+        }
+
+        // In the last warp, for 2nd tile and onwards
+        // Store the intermediate scan result
+        if (warp == NUM_WARPS - 1 && tile > 0u) {
+            if (lane == 0u) {
+                const scalar_t agg = warpPrefix + carry;
+                storeRelease64(&desc[tile], packDesc(FLAG_AGG, agg));
+            }
+        }
+    }
+
+    // For 2nd tile and onwards, get scan results from previous block
+    // which is stored in shared mem
     if (tile > 0u) {
-        // Warp 0 walks the predecessors; ScanCommon.cuh carries the rationale
-        // for the windowed, ready-prefix shape. Publishing the AGGREGATE from
-        // tid 32 (warp 1) keeps that release store off the walking warp's issue
-        // slots.
-        if (tid == 32) {
-            storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
-        }
-        if (warp == 0u) {
-            exclusive = scanWarpLookBack(desc, tile, lane);
-            if (lane == 0u)
-                sSlot.exclusive = exclusive;
-        }
         __syncthreads();
         prevBlockExclusive = sSlot.exclusive;
     }
 
-    if (tid == 0) {
-        storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + tileAgg));
+    if (tid == BLOCK - 1) {
+        const scalar_t agg = warpPrefix + carry;
+        storeRelease64(&desc[tile], packDesc(FLAG_INC, prevBlockExclusive + agg));
     }
 
     // Same region-striped walk as the scan pass, so this is conflict-free in
     // shared and coalesced in global. Both bias terms are warp-uniform.
     const scalar_t bias = warpPrefix + prevBlockExclusive;
-    if (fullTile) {
+    if ((tile * TILE + TILE) <= pc.numElements) {
         for (uint i = 0; i < IPT; i++) {
             const uint idx = threadBase + i * 32u;
-            __stcs(&dataOut[tileStart + idx], sData[idx] + bias);
+            __stcs(&dataOut[tile * TILE + idx], sData[idx] + bias);
         }
     } else {
         for (uint i = 0; i < IPT; i++) {
             const uint idx = threadBase + i * 32u;
-            const uint g = tileStart + idx;
+            const uint g = tile * TILE + idx;
             if (g < pc.numElements) {
                 __stcs(&dataOut[g], sData[idx] + bias);
             }
