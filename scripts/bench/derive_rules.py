@@ -18,6 +18,12 @@ or backend already in the file is preserved. So a subset retune is safe --
     derive_rules.py t_raw.json --output tuning_data.json
 updates just Transpose@cuda and leaves the MatMul rules (and Transpose@vulkan)
 untouched. Pass --fresh to regenerate the file from scratch instead.
+
+The per-shape winner is NOT the autotune binary's `best_variant` field (argmin over
+min_ms). It is recomputed here: min_ms gates which variants are capable, mean_ms
+picks among them. See pick_best_variant for why, and --tolerance to tune or disable
+it. Re-deriving from an existing raw JSON is therefore worthwhile on its own -- no
+re-benchmarking needed.
 """
 
 import argparse
@@ -25,12 +31,54 @@ import json
 import sys
 from math import prod
 
-def derive_rules_for_operator(op_name, op_data):
+DEFAULT_TOLERANCE = 0.02
+
+
+def pick_best_variant(entry, tolerance):
+    """Choose a variant for one shape from its per-variant results.
+
+    The autotune binary's own `best_variant` is argmin over `min_ms` — the single
+    fastest of N iterations. That is the right statistic for "how fast can this
+    variant go", and the wrong one for "which variant should ship": once several
+    variants saturate memory bandwidth they land within ~1% of each other, well
+    inside run-to-run noise, and argmin-over-min just selects whichever caught the
+    luckiest iteration. Observed directly on Scan at N=16M, where two back-to-back
+    runs of the same binary produced a top-6 spread of 0.6-1.1% and a completely
+    different ranking below rank 0.
+
+    So use min_ms as a GATE and mean_ms as the CHOICE: keep every variant whose
+    min_ms is within `tolerance` of the best min_ms (i.e. is demonstrably capable
+    of the same peak), then take the lowest mean_ms among them, which rewards
+    consistency instead of a lucky outlier. Ties break on variant index so the
+    output is deterministic.
+
+    Returns (variant, min_ms, changed), where `changed` compares against the
+    autotune binary's own pick so the summary reports what actually moved.
+    """
+    results = [r for r in entry.get("results", []) if r.get("min_ms", 0) > 0]
+    fallback = entry.get("best_variant")
+    if not results:
+        return fallback, entry.get("best_ms", 0), False
+
+    argmin = min(results, key=lambda r: (r["min_ms"], r["variant"]))
+    cutoff = argmin["min_ms"] * (1.0 + tolerance)
+    band = [r for r in results if r["min_ms"] <= cutoff]
+    # mean_ms is optional in older raw files; fall back to min_ms so the gate
+    # still applies and the choice degrades to the previous behaviour.
+    chosen = min(band, key=lambda r: (r.get("mean_ms", r["min_ms"]), r["variant"]))
+    was = fallback if fallback is not None else argmin["variant"]
+    return chosen["variant"], chosen["min_ms"], chosen["variant"] != was
+
+
+def derive_rules_for_operator(op_name, op_data, tolerance=DEFAULT_TOLERANCE):
     """Derive selection rules for a single operator from raw benchmark data.
 
     Strategy: sort shapes by total_elements, walk through and group contiguous
     ranges that share the same best_variant, emit one rule per range.
     Non-contiguous ranges for the same variant get separate rules.
+
+    The per-shape winner is recomputed from the raw per-variant results rather
+    than taken from the autotune binary's `best_variant`; see pick_best_variant.
     """
     dimensions = op_data.get("dimensions", [])
     raw_data = op_data.get("raw_data", [])
@@ -46,19 +94,32 @@ def derive_rules_for_operator(op_name, op_data):
 
     # Annotate each entry with total_elements
     entries = []
+    rescued = []
     for entry in raw_data:
         shape = entry.get("shape", [])
-        best = entry.get("best_variant")
+        best, best_ms, changed = pick_best_variant(entry, tolerance)
         if best is None or not shape:
             continue
+        if changed:
+            rescued.append((shape, entry.get("best_variant"), best))
         entries.append(
             {
                 "shape": shape,
                 "total_elements": prod(shape),
                 "best_variant": best,
-                "best_ms": entry.get("best_ms", 0),
+                "best_ms": best_ms,
             }
         )
+
+    if rescued:
+        print(
+            f"  {op_name}: {len(rescued)} shape(s) where the min_ms winner lost the "
+            f"mean_ms tiebreak within {tolerance:.0%}:",
+            file=sys.stderr,
+        )
+        for shape, was, now in rescued:
+            name = lambda v: variants[v] if v is not None and v < len(variants) else f"variant_{v}"
+            print(f"    shape {shape}: {name(was)} -> {name(now)}", file=sys.stderr)
 
     # Sort by total_elements
     entries.sort(key=lambda e: e["total_elements"])
@@ -154,6 +215,16 @@ def main():
         help="Output tuning data file (default: tuning_data.json)",
     )
     parser.add_argument(
+        "--tolerance",
+        type=float,
+        default=DEFAULT_TOLERANCE,
+        help="Fraction of the best min_ms within which variants are treated as "
+             f"tied and decided on mean_ms instead (default: {DEFAULT_TOLERANCE:.0%}). "
+             "0 narrows the band to variants that tie min_ms exactly -- note that "
+             "mean_ms still breaks those exact ties, which at small N (where min_ms "
+             "rounds to 4dp and many variants collide) is most of them.",
+    )
+    parser.add_argument(
         "--fresh",
         action="store_true",
         help="Regenerate the output from scratch. Default is to merge into the "
@@ -185,7 +256,7 @@ def main():
         if not timestamp:
             timestamp = doc.get("timestamp", "")
         for op_name, op_data in doc.get("operators", {}).items():
-            derived = derive_rules_for_operator(op_name, op_data)
+            derived = derive_rules_for_operator(op_name, op_data, args.tolerance)
             entry = derived_operators.setdefault(
                 op_name, {"dimensions": derived["dimensions"], "backends": {}})
             if not entry.get("dimensions"):

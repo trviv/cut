@@ -41,7 +41,14 @@
 // through shared, instead of a full-block Hillis-Steele.
 //
 // Native CUDA counterpart lives in ScanDecoupled.cu; SEMANTICS are kept in
-// lockstep, but two of its optimisations deliberately do not appear here:
+// lockstep, but three of its optimisations deliberately do not appear here:
+//   * the look-back is WARP-PARALLEL there — one wave probes 32 predecessors at
+//     a time and consumes their ready prefix — while this stays a single-thread
+//     walk. The HLSL pieces exist (WaveActiveBallot + WaveActiveSum), but the
+//     cross-wave arithmetic wave ops are exactly what returned WRONG results on
+//     this Mesa/radv NVIDIA driver when the block scan tried them (see the wave
+//     note above), so this is not a port to make without re-validating there.
+//     On CUDA it is worth 1.2-1.3x at 64K-1M.
 //   * the look-back uses ld.acquire.gpu / st.release.gpu instead of atomics.
 //     The HLSL analogue is a plain read of the globallycoherent `state` (the
 //     buffer is already declared coherent, so it is device-visible). Measured on

@@ -1,8 +1,9 @@
 // Native CUDA counterpart of ScanDecoupled.shader — keep semantics in lockstep.
 // The two implementations are NOT line-for-line: this one additionally uses
-// scoped acquire/release for the look-back and __ldcs/__stcs streaming hints for
-// the global load and store. Neither ports — see the note in the .shader for the
-// HLSL equivalents that were tried and what they measured.
+// scoped acquire/release for the look-back, __ldcs/__stcs streaming hints for
+// the global load and store, and a warp-parallel look-back. None of the three
+// ports — see the note in the .shader for the HLSL equivalents that were tried
+// and what they measured.
 //
 // Single-pass prefix scan with decoupled look-back. One block == one tile of
 // TILE = BLOCK*IPT elements; the tile id is claimed from a global atomic counter
@@ -56,63 +57,7 @@
 #define TILE (BLOCK * IPT)      // elements per tile (11776 at IPT=46)
 #define NUM_WARPS (BLOCK / 32u)  // 8
 
-#define FLAG_AGG 1u
-#define FLAG_INC 2u
-
-#ifndef CUT_SCALAR_DTYPE_INPUT
-#define CUT_SCALAR_DTYPE_INPUT float
-#endif
-typedef CUT_SCALAR_DTYPE_INPUT scalar_t;
-typedef unsigned long long ull;
-
-// Reinterpret the scalar value <-> its uint bit pattern for the descriptor slots.
-// For int/uint the value cast preserves the two's-complement bit pattern and
-// round-trips exactly; for float it is an explicit bitcast.
-#if defined(CUT_DTYPE_INPUT_IS_INT)
-__device__ __forceinline__ uint scalarToBits(scalar_t s) { return (uint)s; }
-__device__ __forceinline__ scalar_t bitsToScalar(uint u) { return (int)u; }
-#elif defined(CUT_DTYPE_INPUT_IS_UINT)
-__device__ __forceinline__ uint scalarToBits(scalar_t s) { return (uint)s; }
-__device__ __forceinline__ scalar_t bitsToScalar(uint u) { return (uint)u; }
-#else
-__device__ __forceinline__ uint scalarToBits(scalar_t s) { return __float_as_uint(s); }
-__device__ __forceinline__ scalar_t bitsToScalar(uint u) { return __uint_as_float(u); }
-#endif
-
-// The per-tile descriptor: {flag, value bits} as one 64-bit word. The state buffer
-// is allocated as uint32, so reinterpret it — state is at least 8-byte aligned and
-// slot t sits at byte 8*t, so every descriptor is naturally aligned.
-#define DESC(state) ((ull*)(state))
-__device__ __forceinline__ ull packDesc(uint flag, scalar_t value) {
-    return (ull)flag | ((ull)scalarToBits(value) << 32);
-}
-__device__ __forceinline__ uint descFlag(ull d) { return (uint)d; }
-__device__ __forceinline__ scalar_t descValue(ull d) {
-    return bitsToScalar((uint)(d >> 32));
-}
-
-// Look-back descriptor traffic. The protocol needs a coherent, ordered view of
-// other blocks' descriptors. atomicAdd(p, 0) / atomicExch give that, but as a
-// read-modify-write at the L2 atomic unit — far heavier than a load or a store.
-// The .cg cache modifier is NOT a valid substitute (measured: tile-boundary
-// corruption); scoped acquire/release IS. The descriptor is one 64-bit word, so
-// a single acquire load carries both the flag and the value it vouches for —
-// there is nothing left for a __threadfence() to order.
-//
-// cuda::atomic_ref at device scope emits exactly that (ld.acquire.gpu /
-// st.release.gpu on sm_70+) and handles the older-arch lowering itself, which is
-// why there is no __CUDA_ARCH__ dispatch here: hand-written scoped-PTX helpers
-// only compile on sm_70+, and NVRTC targets the device's own compute capability,
-// so on an older GPU the kernel would fail to build — which this backend
-// surfaces as a silently skipped dispatch, not an error.
-using DescRef = cuda::atomic_ref<ull, cuda::thread_scope_device>;
-
-__device__ __forceinline__ ull loadAcquire64(ull *p) {
-    return DescRef(*p).load(cuda::memory_order_acquire);
-}
-__device__ __forceinline__ void storeRelease64(ull *p, ull v) {
-    DescRef(*p).store(v, cuda::memory_order_release);
-}
+#include "ScanCommon.cuh"
 
 struct PushConstants {
     uint numElements;
@@ -168,12 +113,21 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     // needed a single add. That is the trade.
     const unsigned short threadBase = warp * 32u * IPT + lane;
     scalar_t carry = (scalar_t)0;
+    // Only the last tile can be partial; every other tile then skips the
+    // per-element bounds test on both the load and the store.
+    const bool fullTile = (tileStart + TILE) <= pc.numElements;
 
+    // #pragma unroll is load-bandwidth-critical, not a micro-opt. The inner
+    // shuffle ladder stops ptxas unrolling this loop on its own, and un-unrolled
+    // it emits TWO LDG for the whole loop — i.e. at most two global loads in
+    // flight per thread, against a 47 KB shared footprint that already pins the
+    // block to one per SM. Unrolled, ptxas hoists a rolling window of eight.
+#pragma unroll
     for (unsigned short i = 0; i < IPT; i++) {
         unsigned short idx = threadBase + i * 32u;
         const uint g = tileStart + (uint)idx;
         const scalar_t orig =
-            (g < pc.numElements) ? __ldcs(&dataIn[g]) : (scalar_t)0;
+            (fullTile || g < pc.numElements) ? __ldcs(&dataIn[g]) : (scalar_t)0;
 
         scalar_t x = orig;
         for (unsigned short off = 1; off < 32; off <<= 1) {
@@ -223,24 +177,17 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     scalar_t exclusive = (scalar_t)0;
 
     if (tile > 0u) {
-        // Decoupled look-back on a single thread; broadcast the result via shared.
+        // Warp 0 walks the predecessors; ScanCommon.cuh carries the rationale
+        // for the windowed, ready-prefix shape. Publishing the AGGREGATE from
+        // tid 32 (warp 1) keeps that release store off the walking warp's issue
+        // slots.
         if (tid == 32) {
             storeRelease64(&desc[tile], packDesc(FLAG_AGG, tileAgg));
         }
-        if (tid == 0) {
-            int pred = (int)tile - 1;
-            while (pred >= 0) {
-                // One acquire load yields both halves, so the value needs no
-                // second dependent load and no fence to pair it with the flag.
-                ull d;
-                do {
-                    d = loadAcquire64(&desc[(uint)pred]);
-                } while (descFlag(d) == 0u);
-                exclusive += descValue(d);
-                if (descFlag(d) == FLAG_INC) break;
-                pred--;
-            }
-            sSlot.exclusive = exclusive;
+        if (warp == 0u) {
+            exclusive = scanWarpLookBack(desc, tile, lane);
+            if (lane == 0u)
+                sSlot.exclusive = exclusive;
         }
         __syncthreads();
         prevBlockExclusive = sSlot.exclusive;
@@ -253,11 +200,18 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     // Same region-striped walk as the scan pass, so this is conflict-free in
     // shared and coalesced in global. Both bias terms are warp-uniform.
     const scalar_t bias = warpPrefix + prevBlockExclusive;
-    for (uint i = 0; i < IPT; i++) {
-        const uint idx = threadBase + i * 32u;
-        const uint g = tileStart + idx;
-        if (g < pc.numElements) {
-            __stcs(&dataOut[g], sData[idx] + bias);
+    if (fullTile) {
+        for (uint i = 0; i < IPT; i++) {
+            const uint idx = threadBase + i * 32u;
+            __stcs(&dataOut[tileStart + idx], sData[idx] + bias);
+        }
+    } else {
+        for (uint i = 0; i < IPT; i++) {
+            const uint idx = threadBase + i * 32u;
+            const uint g = tileStart + idx;
+            if (g < pc.numElements) {
+                __stcs(&dataOut[g], sData[idx] + bias);
+            }
         }
     }
 }

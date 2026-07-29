@@ -50,17 +50,12 @@
 #define TILE (BLOCK * IPT)      // elements per tile (8192 at IPT=32)
 #define NUM_WARPS (BLOCK / 32)  // 8
 
-#define FLAG_AGG 1u
-#define FLAG_INC 2u
-
-#ifndef CUT_SCALAR_DTYPE_INPUT
-#define CUT_SCALAR_DTYPE_INPUT float
-#endif
-typedef CUT_SCALAR_DTYPE_INPUT scalar_t;
+#include "ScanCommon.cuh"
 
 // Widest vector width usable for a thread's slice. The slice base is
 // tileStart + tid*IPT elements and tileStart is a multiple of TILE = 256*IPT,
-// so the guaranteed element alignment is gcd(IPT, 4).
+// so the guaranteed element alignment is gcd(IPT, 4). Vector staging is this
+// variant's whole point, so it stays here rather than in ScanCommon.cuh.
 #if (IPT % 4) == 0
 #define VW 4
 #define VEC_ALIGN 16
@@ -80,42 +75,6 @@ typedef CUT_SCALAR_DTYPE_INPUT scalar_t;
 struct __align__(VEC_ALIGN) VecT {
     scalar_t s[VW];
 };
-
-// Reinterpret the scalar value <-> its uint bit pattern for the descriptor slots.
-// For int/uint the value cast preserves the two's-complement bit pattern and
-// round-trips exactly; for float it is an explicit bitcast.
-#if defined(CUT_DTYPE_INPUT_IS_INT)
-__device__ __forceinline__ uint scalarToBits(scalar_t s) { return (uint)s; }
-__device__ __forceinline__ scalar_t bitsToScalar(uint u) { return (int)u; }
-#elif defined(CUT_DTYPE_INPUT_IS_UINT)
-__device__ __forceinline__ uint scalarToBits(scalar_t s) { return (uint)s; }
-__device__ __forceinline__ scalar_t bitsToScalar(uint u) { return (uint)u; }
-#else
-__device__ __forceinline__ uint scalarToBits(scalar_t s) { return __float_as_uint(s); }
-__device__ __forceinline__ scalar_t bitsToScalar(uint u) { return __uint_as_float(u); }
-#endif
-
-// Packed per-tile descriptor plus its acquire/release accessors — the same
-// protocol as ScanDecoupled.cu. cuda::atomic_ref at device scope emits
-// ld.acquire.gpu / st.release.gpu on sm_70+ and handles older-arch lowering
-// itself, so there is no __CUDA_ARCH__ dispatch to maintain here.
-typedef unsigned long long ull;
-#define DESC(state) ((ull*)(state))
-using DescRef = cuda::atomic_ref<ull, cuda::thread_scope_device>;
-
-__device__ __forceinline__ ull packDesc(uint flag, scalar_t value) {
-    return (ull)flag | ((ull)scalarToBits(value) << 32);
-}
-__device__ __forceinline__ uint descFlag(ull d) { return (uint)d; }
-__device__ __forceinline__ scalar_t descValue(ull d) {
-    return bitsToScalar((uint)(d >> 32));
-}
-__device__ __forceinline__ ull loadAcquire64(ull *p) {
-    return DescRef(*p).load(cuda::memory_order_acquire);
-}
-__device__ __forceinline__ void storeRelease64(ull *p, ull v) {
-    DescRef(*p).store(v, cuda::memory_order_release);
-}
 
 struct PushConstants {
     uint numElements;
@@ -248,28 +207,19 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
         }
     }
 
-    // Decoupled look-back on a single thread; broadcast the result via shared.
-    // sExclusive is written ONLY by tid 0 and the __syncthreads() that publishes
-    // it is unconditional — the two invariants the shared-staged kernel got wrong.
+    // Warp 0 walks the predecessors; ScanCommon.cuh carries the rationale for
+    // the windowed, ready-prefix shape. `exclusive` comes back warp-uniform, so
+    // tid 0 below has the value the INCLUSIVE publish needs. sExclusive is
+    // written ONLY by tid 0 and the __syncthreads() that publishes it is
+    // unconditional — the two invariants the shared-staged kernel got wrong.
     scalar_t exclusive = (scalar_t)0;
+    if (tile > 0u && warp == 0u) {
+        exclusive = scanWarpLookBack(desc, tile, lane);
+    }
     if (tid == 0) {
-        if (tile == 0u) {
-            storeRelease64(&desc[tile], packDesc(FLAG_INC, tileAgg));
-        } else {
-            int pred = (int)tile - 1;
-            while (pred >= 0) {
-                // One acquire load yields both halves, so the value needs no
-                // second dependent load and no fence to pair it with the flag.
-                ull d;
-                do {
-                    d = loadAcquire64(&desc[(uint)pred]);
-                } while (descFlag(d) == 0u);
-                exclusive += descValue(d);
-                if (descFlag(d) == FLAG_INC) break;
-                pred--;
-            }
-            storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + tileAgg));
-        }
+        // Covers tile 0 too: exclusive is 0 there, so this is the same publish the
+        // old `if (tile == 0u)` arm made.
+        storeRelease64(&desc[tile], packDesc(FLAG_INC, exclusive + tileAgg));
         sExclusive = exclusive;
     }
     __syncthreads();

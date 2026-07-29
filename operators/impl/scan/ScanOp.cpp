@@ -92,6 +92,8 @@ void PrefixScanOpNode::buildSubOperations() {
   if (variant < 0 || variant >= kScanVariantCount || !usable(variant))
     variant = hwDefault;
 
+  // variant = 3;
+
   const uint32_t BLOCK = kScanVariants[variant].effTileM;
   const uint32_t IPT = kScanVariants[variant].effTileN;
   const uint32_t TILE = BLOCK * IPT;

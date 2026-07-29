@@ -12,7 +12,12 @@
 // slices rather than one contiguous run.
 //
 // Native CUDA counterpart lives in ScanDecoupledReg.cu (which additionally uses
-// vec4 loads/stores for the slice); semantics kept in lockstep.
+// vec4 loads/stores for the slice); semantics kept in lockstep. Its look-back is
+// also WARP-PARALLEL — one wave probes 32 predecessors per step and consumes their
+// ready prefix — where this stays a single-thread walk. See the note in
+// ScanDecoupled.shader for why that is not ported: the cross-wave arithmetic wave
+// ops it needs are exactly the ones that returned wrong results on this Mesa/radv
+// NVIDIA driver.
 //
 // Element type is the generator's %SCALAR_DTYPE_INPUT% (Float32 / Int32 /
 // UInt32); look-back descriptors store the value's bit pattern in a uint slot.

@@ -21,9 +21,14 @@
 // odd for every even IPT.
 //
 // Native CUDA counterpart lives in ScanDecoupledXchg.cu; semantics kept in
-// lockstep. It differs in two mechanical places: it uses a wave-scoped barrier
-// between the window's write and read halves where HLSL has only the group-wide
-// one, and it packs the descriptor's flag and value into a single 64-bit word.
+// lockstep. It differs in three places: it uses a wave-scoped barrier between the
+// window's write and read halves where HLSL has only the group-wide one, it packs
+// the descriptor's flag and value into a single 64-bit word, and its look-back is
+// WARP-PARALLEL (one wave probes 32 predecessors per step and consumes their ready
+// prefix) where this stays a single-thread walk. See the note in
+// ScanDecoupled.shader for why the warp-parallel form is not ported: the
+// cross-wave arithmetic wave ops it needs are exactly the ones that returned wrong
+// results on this Mesa/radv NVIDIA driver.
 //
 // Element type is the generator's %SCALAR_DTYPE_INPUT% (Float32 / Int32 /
 // UInt32); look-back descriptors store the value's bit pattern in a uint slot.
