@@ -132,7 +132,7 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
         if (up.pred) x += up.data;
     }
     const scalar_t threadExcl = x - sum;             // exclusive within region
-    const scalar_t carry = cuda::device::warp_shuffle_idx(x, 31); // region total
+    const scalar_t carry = x; // region total
 
     // 4. BLOCKED WRITE-BACK of the region-local scan. The exclusive form shifts
     //    the slice right by one; v[i-1] is the untouched predecessor, so no
@@ -144,7 +144,7 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     __syncwarp();
 
     // ---- everything below is ScanDecoupled.cu unchanged -------------------
-    if (lane == 0u) warpTotals[warp] = carry;
+    if (lane == 31u) warpTotals[warp] = carry;
     __syncthreads();
 
     ull* desc = DESC(state);
@@ -163,7 +163,7 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
             warpPrefix += warpTotals[w];
         }
         if (warp == NUM_WARPS - 1 && tile > 0u) {
-            if (lane == 0u) {
+            if (lane == 31u) {
                 const scalar_t agg = warpPrefix + carry;
                 storeRelease64(&desc[tile], packDesc(FLAG_AGG, agg));
             }
