@@ -131,6 +131,10 @@ private:
   CudaContainers &containers_;
   std::vector<CUstream> streams_;
   uint32_t nextStreamIndex_ = 0;
+  /// Shared by every command buffer this container hands out. It has to live
+  /// here rather than in the buffers: ComputeInterface::encode() builds a new
+  /// CudaCommandBuffer per submission, so a per-buffer pool would never hit.
+  CudaEventPool eventPool_;
 };
 
 } // namespace cut

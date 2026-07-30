@@ -21,17 +21,59 @@ bool cudaGraphsDisabled() {
 }
 } // namespace
 
-CudaCommandBuffer::CudaCommandBuffer(CUcontext context, CUstream stream,
-                                     CudaContainers &containers)
-    : context_(context), stream_(stream), containers_(containers) {
+CudaEventPool::~CudaEventPool() {
   CudaContextGuard guard(context_);
-  CU_CHECK(cuEventCreate(&doneEvent_, CU_EVENT_DISABLE_TIMING));
+  for (std::vector<CUevent> *list : {&timing_, &untimed_}) {
+    for (CUevent event : *list) {
+      cuEventDestroy(event);
+    }
+    list->clear();
+  }
+}
+
+std::vector<CUevent> &CudaEventPool::listFor(unsigned int flags) {
+  return (flags & CU_EVENT_DISABLE_TIMING) != 0u ? untimed_ : timing_;
+}
+
+CUevent CudaEventPool::acquire(unsigned int flags) {
+  std::vector<CUevent> &list = listFor(flags);
+  if (!list.empty()) {
+    CUevent event = list.back();
+    list.pop_back();
+    return event;
+  }
+  CUevent event = nullptr;
+  CU_CHECK(cuEventCreate(&event, flags));
+  return event;
+}
+
+void CudaEventPool::release(unsigned int flags, CUevent event) {
+  if (event != nullptr) {
+    listFor(flags).push_back(event);
+  }
+}
+
+CudaCommandBuffer::CudaCommandBuffer(CUcontext context, CUstream stream,
+                                     CudaContainers &containers,
+                                     CudaEventPool &events)
+    : context_(context), stream_(stream), containers_(containers),
+      events_(events) {
+  CudaContextGuard guard(context_);
+  doneEvent_ = events_.acquire(CU_EVENT_DISABLE_TIMING);
 }
 
 CudaCommandBuffer::~CudaCommandBuffer() {
   CudaContextGuard guard(context_);
+  settleAndRecycleTimingSlots();
   if (doneEvent_) {
-    cuEventDestroy(doneEvent_);
+    // Pool it rather than destroy it. If wait() ran, doneEvent_ has already
+    // been synchronized; otherwise this buffer is being dropped with work in
+    // flight, and the event has to be settled before another buffer re-records
+    // it.
+    if (ended_ && !waited_) {
+      cuEventSynchronize(doneEvent_);
+    }
+    events_.release(CU_EVENT_DISABLE_TIMING, doneEvent_);
     doneEvent_ = nullptr;
   }
   if (graphExec_) {
@@ -42,21 +84,37 @@ CudaCommandBuffer::~CudaCommandBuffer() {
     cuGraphDestroy(graph_);
     graph_ = nullptr;
   }
-  clearTimingSlots();
 }
 
 void CudaCommandBuffer::begin() {
   ended_ = false;
+  waited_ = false;
 }
 
-void CudaCommandBuffer::clearTimingSlots() {
+void CudaCommandBuffer::recycleTimingSlots() {
+  // The events go back to the pool instead of being destroyed, but ONLY once
+  // they have completed: the next holder re-records them, which overwrites the
+  // state cuEventElapsedTime would read. Every caller of this either just
+  // synchronized doneEvent_ (wait(), and doneEvent_ is recorded after the last
+  // dispatch, so all of these have fired) or came through
+  // settleAndRecycleTimingSlots().
   for (auto &slot : timingSlots_) {
-    if (slot.start)
-      cuEventDestroy(slot.start);
-    if (slot.stop)
-      cuEventDestroy(slot.stop);
+    events_.release(CU_EVENT_DEFAULT, slot.start);
+    events_.release(CU_EVENT_DEFAULT, slot.stop);
   }
   timingSlots_.clear();
+}
+
+void CudaCommandBuffer::settleAndRecycleTimingSlots() {
+  if (timingSlots_.empty()) {
+    return;
+  }
+  // Slots survive past wait() only when a submission was never waited on, so
+  // the events may still be in flight. Settle them before they can be reused.
+  if (ended_ && !waited_ && doneEvent_ != nullptr) {
+    cuEventSynchronize(doneEvent_);
+  }
+  recycleTimingSlots();
 }
 
 void CudaCommandBuffer::launchDispatch(const ComputeDispatch &dispatch,
@@ -162,9 +220,8 @@ void CudaCommandBuffer::launchDispatch(const ComputeDispatch &dispatch,
   const uint32_t gz = ceilDiv(std::max(wgSize.z, 1u), bz);
 
   if (isProfilingEnabled()) {
-    CUevent start = nullptr, stop = nullptr;
-    CU_CHECK(cuEventCreate(&start, CU_EVENT_DEFAULT));
-    CU_CHECK(cuEventCreate(&stop, CU_EVENT_DEFAULT));
+    CUevent start = events_.acquire(CU_EVENT_DEFAULT);
+    CUevent stop = events_.acquire(CU_EVENT_DEFAULT);
     CU_CHECK(cuEventRecord(start, stream_));
     CU_CHECK(cuLaunchKernel(function, gx, gy, gz, bx, by, bz,
                             /*sharedMemBytes=*/0, stream_, kernelParams.data(),
@@ -196,7 +253,7 @@ bool CudaCommandBuffer::eligibleForGraph() {
 void CudaCommandBuffer::end() {
   CudaContextGuard guard(context_);
   if (isProfilingEnabled())
-    clearTimingSlots();
+    settleAndRecycleTimingSlots();
 
   // Reusable CBs (cached decode/prefill segments, resubmitted every token)
   // capture their kernel sequence once and replay it with a single
@@ -242,6 +299,7 @@ void CudaCommandBuffer::wait() {
   } else {
     CU_CHECK(cuStreamSynchronize(stream_));
   }
+  waited_ = true;
   if (isProfilingEnabled() && !timingSlots_.empty()) {
     timings_.clear();
     timings_.reserve(timingSlots_.size());
@@ -250,7 +308,9 @@ void CudaCommandBuffer::wait() {
       cuEventElapsedTime(&ms, slot.start, slot.stop);
       timings_.push_back({slot.label, static_cast<double>(ms) * 1000.0});
     }
-    clearTimingSlots();
+    // Safe to pool: doneEvent_ is recorded after the last dispatch and was
+    // just synchronized, so every timing event above has fired.
+    recycleTimingSlots();
   }
 }
 

@@ -353,7 +353,8 @@ void CudaShaderContainer::destroyAPIObject(const ComputeHandle &handle) {
 
 CudaCommandBufferContainer::CudaCommandBufferContainer(
     CUcontext context, uint32_t maxCommandBuffers, CudaContainers &containers)
-    : CudaContainerBase(context), containers_(containers) {
+    : CudaContainerBase(context), containers_(containers),
+      eventPool_(context) {
   CudaContextGuard guard(context);
   const uint32_t count = std::max(maxCommandBuffers, 1u);
   streams_.resize(count);
@@ -377,7 +378,7 @@ ComputeHandle CudaCommandBufferContainer::createCommandBuffer() {
   nextStreamIndex_ = (nextStreamIndex_ + 1) % streams_.size();
 
   return ComputeDataContainer::create(
-      new CudaCommandBuffer(getContext(), stream, containers_));
+      new CudaCommandBuffer(getContext(), stream, containers_, eventPool_));
 }
 
 } // namespace cut
