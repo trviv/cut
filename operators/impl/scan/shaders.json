@@ -3,7 +3,7 @@
     {
       "type": "variants",
       "cpp_prefix": "Scan",
-      "default_variant": "IPT32",
+      "default_variant": "IPT14",
       "autotune_shapes": {
         "dimensions": ["N"],
         "grid": [
@@ -43,6 +43,21 @@
           }
         },
         {
+          "name": "IPT14",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 14},
+          "wg": [256, 1],
+          "eff_tile": [256, 14],
+          "description": "Decoupled look-back scan, 14 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
           "name": "IPT16",
           "template": "ScanDecoupled",
           "defines": {"IPT": 16},
@@ -58,12 +73,42 @@
           }
         },
         {
+          "name": "IPT18",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 18},
+          "wg": [256, 1],
+          "eff_tile": [256, 18],
+          "description": "Decoupled look-back scan, 18 items/thread",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
           "name": "IPT20",
           "template": "ScanDecoupled",
           "defines": {"IPT": 20},
           "wg": [256, 1],
           "eff_tile": [256, 20],
           "description": "Decoupled look-back scan, 20 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "IPT22",
+          "template": "ScanDecoupled",
+          "defines": {"IPT": 22},
+          "wg": [256, 1],
+          "eff_tile": [256, 22],
+          "description": "Decoupled look-back scan, 22 items/thread",
           "dtype_slots": {
             "combos": [
               {"input": "Float32", "output": "Float32"},

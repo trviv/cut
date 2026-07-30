@@ -17,14 +17,17 @@ struct ScanVariantInfo {
     const char* description;
 };
 
-inline constexpr int kScanVariantCount = 38;
-inline constexpr int kScanDefaultVariant = 6;
+inline constexpr int kScanVariantCount = 41;
+inline constexpr int kScanDefaultVariant = 2;
 
 inline constexpr ScanVariantInfo kScanVariants[kScanVariantCount] = {
     {"ScanIPT8", 256, 1, 256, 8, "Decoupled look-back scan, 8 items/thread"},
     {"ScanIPT12", 256, 1, 256, 12, "Decoupled look-back scan, 12 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)"},
+    {"ScanIPT14", 256, 1, 256, 14, "Decoupled look-back scan, 14 items/thread"},
     {"ScanIPT16", 256, 1, 256, 16, "Decoupled look-back scan, 16 items/thread"},
+    {"ScanIPT18", 256, 1, 256, 18, "Decoupled look-back scan, 18 items/thread"},
     {"ScanIPT20", 256, 1, 256, 20, "Decoupled look-back scan, 20 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)"},
+    {"ScanIPT22", 256, 1, 256, 22, "Decoupled look-back scan, 22 items/thread"},
     {"ScanIPT24", 256, 1, 256, 24, "Decoupled look-back scan, 24 items/thread"},
     {"ScanIPT28", 256, 1, 256, 28, "Decoupled look-back scan, 28 items/thread (4-aligned: VECW=4 shared access, conflict-free unpadded)"},
     {"ScanIPT32", 256, 1, 256, 32, "Decoupled look-back scan, 32 items/thread"},
@@ -64,8 +67,11 @@ inline constexpr ScanVariantInfo kScanVariants[kScanVariantCount] = {
 // Forward declarations (defined in CompiledShaders.cpp)
 std::optional<std::vector<uint32_t>> compiledScanIPT8(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT12(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanIPT14(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanIPT18(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT20(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanIPT22(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT24(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT28(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanIPT32(DataType input, DataType output);
@@ -106,8 +112,11 @@ using CompiledScanFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataTy
 inline const CompiledScanFn kScanCompiledFns[kScanVariantCount] = {
     compiledScanIPT8,
     compiledScanIPT12,
+    compiledScanIPT14,
     compiledScanIPT16,
+    compiledScanIPT18,
     compiledScanIPT20,
+    compiledScanIPT22,
     compiledScanIPT24,
     compiledScanIPT28,
     compiledScanIPT32,

@@ -125,7 +125,7 @@ scanWarpLookBack(ull *desc, uint tile, unsigned int lane) {
         const int p = base - (int)lane;
         // Lanes below tile 0 act as a zero-valued INCLUSIVE terminator, which
         // stops the walk without any lane having to probe.
-        uint flag = FLAG_INC;
+        unsigned short flag = FLAG_INC;
         scalar_t val = (scalar_t)0;
         if (p >= 0) {
             // One acquire load yields both halves, so the value needs no second
@@ -149,26 +149,29 @@ scanWarpLookBack(ull *desc, uint tile, unsigned int lane) {
         // and re-probing costs one more window, not one more element.
         const uint readyMask = __ballot_sync(FULL, flag != 0u);
         const uint notReady = ~readyMask;
-        const int firstNR = (notReady != 0u) ? (__ffs((int)notReady) - 1) : 32;
+        const unsigned short firstNR = (notReady != 0u) ? (__ffs((int)notReady) - 1u) : 32u;
         const uint usable = (firstNR >= 32) ? FULL : ((1u << firstNR) - 1u);
         // Nearest INCLUSIVE inside the ready prefix terminates the sum: it already
         // carries everything below it. __ffs finds the lowest set bit == the
         // nearest tile, since lane l holds the l-th predecessor.
         const uint incMask = __ballot_sync(FULL, flag == FLAG_INC) & usable;
         const bool done = (incMask != 0u);
-        const int stop = done ? (__ffs((int)incMask) - 1) : (firstNR - 1);
-        if ((int)lane > stop)
+        const short stop = (done ? __ffs((int)incMask) : firstNR) - 1;
+        if ((int)lane > stop) {
             val = (scalar_t)0;
+        }
 
         // Butterfly rather than shuffle-down so every lane ends up with the window
         // total and `exclusive` stays warp-uniform — the loop exit is uniform too,
         // so no lane can fall out mid-accumulation.
-        for (int off = 16; off > 0; off >>= 1)
+        for (unsigned short off = 16; off > 0; off >>= 1) {
             val += __shfl_xor_sync(FULL, val, off);
+        }
         exclusive += val;
 
-        if (done)
+        if (done) {
             break;
+        }
         // firstNR == 0 means even the nearest predecessor is still NOT_READY:
         // nothing was claimed and `base` must not move, which is exactly the
         // serial walk's spin — one window wide.
