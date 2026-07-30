@@ -626,6 +626,216 @@
               {"input": "UInt32", "output": "UInt32"}
             ]
           }
+        },
+        {
+          "name": "WTIPT11",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 11},
+          "wg": [256, 1],
+          "eff_tile": [256, 11],
+          "description": "Decoupled look-back scan, 11 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT13",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 13},
+          "wg": [256, 1],
+          "eff_tile": [256, 13],
+          "description": "Decoupled look-back scan, 13 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT15",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 15},
+          "wg": [256, 1],
+          "eff_tile": [256, 15],
+          "description": "Decoupled look-back scan, 15 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read, CUB's f32 policy)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT17",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 17},
+          "wg": [256, 1],
+          "eff_tile": [256, 17],
+          "description": "Decoupled look-back scan, 17 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT21",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 21},
+          "wg": [256, 1],
+          "eff_tile": [256, 21],
+          "description": "Decoupled look-back scan, 21 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT14",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 14},
+          "wg": [256, 1],
+          "eff_tile": [256, 14],
+          "description": "Decoupled look-back scan, 14 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read, control for IPT13/15)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT16",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 16},
+          "wg": [256, 1],
+          "eff_tile": [256, 16],
+          "description": "Decoupled look-back scan, 16 items/thread, warp-transposed to a blocked scan (power of two: 16-way bank conflict on the blocked read, worst-case control)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT10",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 10},
+          "wg": [256, 1],
+          "eff_tile": [256, 10],
+          "description": "Decoupled look-back scan, 10 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT12",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 12},
+          "wg": [256, 1],
+          "eff_tile": [256, 12],
+          "description": "Decoupled look-back scan, 12 items/thread, warp-transposed to a blocked scan (even: 4-way bank conflict on the blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT18",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 18},
+          "wg": [256, 1],
+          "eff_tile": [256, 18],
+          "description": "Decoupled look-back scan, 18 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT20",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 20},
+          "wg": [256, 1],
+          "eff_tile": [256, 20],
+          "description": "Decoupled look-back scan, 20 items/thread, warp-transposed to a blocked scan (even: 4-way bank conflict on the blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT22",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 22},
+          "wg": [256, 1],
+          "eff_tile": [256, 22],
+          "description": "Decoupled look-back scan, 22 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT24",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 24},
+          "wg": [256, 1],
+          "eff_tile": [256, 24],
+          "description": "Decoupled look-back scan, 24 items/thread, warp-transposed to a blocked scan (even: 8-way bank conflict on the blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
+        },
+        {
+          "name": "WTIPT26",
+          "template": "ScanDecoupledWT",
+          "defines": {"IPT": 26},
+          "wg": [256, 1],
+          "eff_tile": [256, 26],
+          "description": "Decoupled look-back scan, 26 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read)",
+          "dtype_slots": {
+            "combos": [
+              {"input": "Float32", "output": "Float32"},
+              {"input": "Int32", "output": "Int32"},
+              {"input": "UInt32", "output": "UInt32"}
+            ]
+          }
         }
       ]
     },

@@ -17,7 +17,7 @@ struct ScanVariantInfo {
     const char* description;
 };
 
-inline constexpr int kScanVariantCount = 41;
+inline constexpr int kScanVariantCount = 55;
 inline constexpr int kScanDefaultVariant = 2;
 
 inline constexpr ScanVariantInfo kScanVariants[kScanVariantCount] = {
@@ -62,6 +62,20 @@ inline constexpr ScanVariantInfo kScanVariants[kScanVariantCount] = {
     {"ScanXchgW16B512IPT16", 512, 1, 512, 16, "Windowed-exchange decoupled scan, 512 threads/group, 16 items/thread, 16 warps/round (34.0KB window)"},
     {"ScanXchgW8B1024IPT16", 1024, 1, 1024, 16, "Windowed-exchange decoupled scan, 1024 threads/group, 16 items/thread, 8 warps/round (17.0KB window)"},
     {"ScanXchgW16B1024IPT16", 1024, 1, 1024, 16, "Windowed-exchange decoupled scan, 1024 threads/group, 16 items/thread, 16 warps/round (34.0KB window)"},
+    {"ScanWTIPT11", 256, 1, 256, 11, "Decoupled look-back scan, 11 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read)"},
+    {"ScanWTIPT13", 256, 1, 256, 13, "Decoupled look-back scan, 13 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read)"},
+    {"ScanWTIPT15", 256, 1, 256, 15, "Decoupled look-back scan, 15 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read, CUB's f32 policy)"},
+    {"ScanWTIPT17", 256, 1, 256, 17, "Decoupled look-back scan, 17 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read)"},
+    {"ScanWTIPT21", 256, 1, 256, 21, "Decoupled look-back scan, 21 items/thread, warp-transposed to a blocked scan (odd: conflict-free blocked read)"},
+    {"ScanWTIPT14", 256, 1, 256, 14, "Decoupled look-back scan, 14 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read, control for IPT13/15)"},
+    {"ScanWTIPT16", 256, 1, 256, 16, "Decoupled look-back scan, 16 items/thread, warp-transposed to a blocked scan (power of two: 16-way bank conflict on the blocked read, worst-case control)"},
+    {"ScanWTIPT10", 256, 1, 256, 10, "Decoupled look-back scan, 10 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read)"},
+    {"ScanWTIPT12", 256, 1, 256, 12, "Decoupled look-back scan, 12 items/thread, warp-transposed to a blocked scan (even: 4-way bank conflict on the blocked read)"},
+    {"ScanWTIPT18", 256, 1, 256, 18, "Decoupled look-back scan, 18 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read)"},
+    {"ScanWTIPT20", 256, 1, 256, 20, "Decoupled look-back scan, 20 items/thread, warp-transposed to a blocked scan (even: 4-way bank conflict on the blocked read)"},
+    {"ScanWTIPT22", 256, 1, 256, 22, "Decoupled look-back scan, 22 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read)"},
+    {"ScanWTIPT24", 256, 1, 256, 24, "Decoupled look-back scan, 24 items/thread, warp-transposed to a blocked scan (even: 8-way bank conflict on the blocked read)"},
+    {"ScanWTIPT26", 256, 1, 256, 26, "Decoupled look-back scan, 26 items/thread, warp-transposed to a blocked scan (even: 2-way bank conflict on the blocked read)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
@@ -106,6 +120,20 @@ std::optional<std::vector<uint32_t>> compiledScanXchgW4B512IPT32(DataType input,
 std::optional<std::vector<uint32_t>> compiledScanXchgW16B512IPT16(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanXchgW8B1024IPT16(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledScanXchgW16B1024IPT16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT11(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT13(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT15(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT17(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT21(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT14(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT16(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT10(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT12(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT18(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT20(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT22(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT24(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledScanWTIPT26(DataType input, DataType output);
 
 using CompiledScanFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
@@ -151,6 +179,20 @@ inline const CompiledScanFn kScanCompiledFns[kScanVariantCount] = {
     compiledScanXchgW16B512IPT16,
     compiledScanXchgW8B1024IPT16,
     compiledScanXchgW16B1024IPT16,
+    compiledScanWTIPT11,
+    compiledScanWTIPT13,
+    compiledScanWTIPT15,
+    compiledScanWTIPT17,
+    compiledScanWTIPT21,
+    compiledScanWTIPT14,
+    compiledScanWTIPT16,
+    compiledScanWTIPT10,
+    compiledScanWTIPT12,
+    compiledScanWTIPT18,
+    compiledScanWTIPT20,
+    compiledScanWTIPT22,
+    compiledScanWTIPT24,
+    compiledScanWTIPT26,
 };
 
 /// Returns compiled SPIR-V for a scan variant by index.

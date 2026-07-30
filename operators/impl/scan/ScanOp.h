@@ -56,11 +56,24 @@ inline unsigned scanVariantExchangeWarps(int vi) {
   return n == 0u ? 1u : n;
 }
 
-/// True if variant @p vi only exists on the CUDA backend. Both alternative
+/// True if scan variant @p vi transposes the tile through shared between the
+/// load and the scan, so each thread scans its own contiguous slice
+/// sequentially instead of running a warp scan per item (the ScanDecoupledWT
+/// family, named "Scan*WTIPT<n>"). Staging size is the plain tile — the
+/// transpose reuses the same buffer and adds no padding — so unlike the other
+/// alternative families this one needs no shared-bytes exception.
+inline bool scanVariantIsWarpTranspose(int vi) {
+  if (vi < 0 || vi >= kScanVariantCount)
+    return false;
+  return std::strstr(kScanVariants[vi].name, "WTIPT") != nullptr;
+}
+
+/// True if variant @p vi only exists on the CUDA backend. All the alternative
 /// staging families are CUDA-only: their .shader counterparts exist to give the
 /// native kernels their SPIR-V identity, not to be dispatched.
 inline bool scanVariantIsCudaOnly(int vi) {
-  return scanVariantIsRegisterResident(vi) || scanVariantIsWarpExchange(vi);
+  return scanVariantIsRegisterResident(vi) || scanVariantIsWarpExchange(vi) ||
+         scanVariantIsWarpTranspose(vi);
 }
 
 /// Bytes of shared/groupshared memory a scan variant's tile staging needs. Zero
