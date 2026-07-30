@@ -93,7 +93,7 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     __syncthreads();
 
     const uint tile = sSlot.tile;
-    const uint regionBase = warp * 32u * IPT;
+    const unsigned short regionBase = warp * 32u * IPT;
     const unsigned short threadBase = regionBase + lane;
 
     // 1. STRIPED LOAD into shared, raw. Coalesced in global (consecutive lanes,
@@ -103,8 +103,8 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     //    has no successor to read its aggregate, and every position the garbage
     //    reaches is past numElements and therefore never stored.
 #pragma unroll
-    for (uint i = 0; i < IPT; i++) {
-        const uint idx = threadBase + i * 32u;
+    for (unsigned short i = 0; i < IPT; i++) {
+        const unsigned short idx = threadBase + i * 32u;
         const uint g = min(tile * TILE + idx, pc.numElements - 1u);
         sData[idx] = __ldcs(&dataIn[g]);
     }
