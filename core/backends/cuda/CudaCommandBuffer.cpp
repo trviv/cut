@@ -105,8 +105,15 @@ void CudaCommandBuffer::recycleTimingSlots() {
   timingSlots_.clear();
 }
 
+void CudaCommandBuffer::recycleSpanEvents() {
+  events_.release(CU_EVENT_DEFAULT, spanStart_);
+  events_.release(CU_EVENT_DEFAULT, spanStop_);
+  spanStart_ = nullptr;
+  spanStop_ = nullptr;
+}
+
 void CudaCommandBuffer::settleAndRecycleTimingSlots() {
-  if (timingSlots_.empty()) {
+  if (timingSlots_.empty() && spanStart_ == nullptr) {
     return;
   }
   // Slots survive past wait() only when a submission was never waited on, so
@@ -115,6 +122,7 @@ void CudaCommandBuffer::settleAndRecycleTimingSlots() {
     cuEventSynchronize(doneEvent_);
   }
   recycleTimingSlots();
+  recycleSpanEvents();
 }
 
 void CudaCommandBuffer::launchDispatch(const ComputeDispatch &dispatch,
@@ -219,7 +227,7 @@ void CudaCommandBuffer::launchDispatch(const ComputeDispatch &dispatch,
   const uint32_t gy = ceilDiv(std::max(wgSize.y, 1u), by);
   const uint32_t gz = ceilDiv(std::max(wgSize.z, 1u), bz);
 
-  if (isProfilingEnabled()) {
+  if (isProfilingEnabled() && perDispatchTimingsEnabled()) {
     CUevent start = events_.acquire(CU_EVENT_DEFAULT);
     CUevent stop = events_.acquire(CU_EVENT_DEFAULT);
     CU_CHECK(cuEventRecord(start, stream_));
@@ -276,9 +284,23 @@ void CudaCommandBuffer::end() {
     return;
   }
 
+  // Submit-span pair: recorded at the boundaries only, so it never lands
+  // between two kernels and cannot widen the gap the way the per-dispatch
+  // pairs do. This is what to compare against a timer wrapped around a vendor
+  // library call.
+  const bool spanTiming = isProfilingEnabled();
+  if (spanTiming) {
+    spanStart_ = events_.acquire(CU_EVENT_DEFAULT);
+    spanStop_ = events_.acquire(CU_EVENT_DEFAULT);
+    CU_CHECK(cuEventRecord(spanStart_, stream_));
+  }
+
   uint32_t index = 0;
   for (const auto &dispatch : dispatches()) {
     launchDispatch(dispatch, index++);
+  }
+  if (spanTiming) {
+    CU_CHECK(cuEventRecord(spanStop_, stream_));
   }
   CU_CHECK(cuEventRecord(doneEvent_, stream_));
   ended_ = true;
@@ -300,6 +322,13 @@ void CudaCommandBuffer::wait() {
     CU_CHECK(cuStreamSynchronize(stream_));
   }
   waited_ = true;
+  submitSpanMicros_ = 0.0;
+  if (spanStart_ != nullptr && spanStop_ != nullptr) {
+    float ms = 0.0f;
+    cuEventElapsedTime(&ms, spanStart_, spanStop_);
+    submitSpanMicros_ = static_cast<double>(ms) * 1000.0;
+    recycleSpanEvents();
+  }
   if (isProfilingEnabled() && !timingSlots_.empty()) {
     timings_.clear();
     timings_.reserve(timingSlots_.size());

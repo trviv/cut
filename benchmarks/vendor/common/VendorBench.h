@@ -167,8 +167,29 @@ using TimedFn = std::function<double()>;
 /// Issues ONE CUT op, flushes, and returns the summed GPU hardware-timestamp
 /// duration in milliseconds. `issue` records exactly one op into the graph.
 inline double timeCutOnce(cut::Runtime &rt, const std::function<void()> &issue) {
+  // Measure CUT the way the vendor side is measured: ONE event pair around the
+  // whole submission. Summing per-dispatch timings instead is not comparable —
+  // those timestamps sit between the kernels, so they widen the inter-kernel
+  // gap AND fold each kernel's launch latency into its own window. On a
+  // two-dispatch scan that overstated CUT by 2-3 us, which at N=64K reported
+  // CUT 1.16x slower than CUB when the true spans were 1.22x faster.
+  //
+  // Per-dispatch timestamps are switched off here for the same reason: leaving
+  // them on would inflate the span they sit inside. Operator-level attribution
+  // (op_bench, scan_ab) leaves them on and does not use this helper.
+  static bool configured = false;
+  if (!configured) {
+    rt.setPerDispatchTimingsEnabled(false);
+    configured = true;
+  }
   issue();
   rt.flush();
+  const double spanUs = rt.lastSubmitSpanMicros();
+  if (spanUs > 0.0) {
+    rt.lastDispatchTimings(); // drain; empty when per-dispatch timings are off
+    return spanUs / 1000.0;
+  }
+  // Backend without submit-span support (Vulkan): fall back to the sum.
   double us = 0.0;
   for (const auto &d : rt.lastDispatchTimings())
     us += d.gpuMicros;

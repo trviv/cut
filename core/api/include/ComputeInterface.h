@@ -189,6 +189,15 @@ public:
   void setProfilingEnabled(bool enabled);
 
   /**
+   * Enables or disables per-dispatch timestamps while profiling (default on).
+   * Turning them off leaves only the submit-span pair at the boundaries: no
+   * per-op attribution, but nothing is recorded between the kernels, so the
+   * span is not inflated by its own instrumentation. See
+   * CommandBuffer::setPerDispatchTimingsEnabled.
+   */
+  void setPerDispatchTimingsEnabled(bool enabled);
+
+  /**
    * Encodes a compute dispatch to the active command buffer.
    * If no command buffer is currently recording, one will be created.
    * @param dispatch The compute dispatch object to encode (moved).
@@ -229,6 +238,14 @@ public:
    * Backend-agnostic (Vulkan timestamp queries / CUDA events).
    */
   std::vector<DispatchTiming> takeLastTimings();
+
+  /**
+   * Returns and clears the summed submit-span GPU microseconds of the command
+   * buffers waited on since the last call: first dispatch start to last
+   * dispatch end, with no instrumentation in between. Zero unless profiling is
+   * enabled, and on backends that do not implement it.
+   */
+  double takeLastSubmitSpanMicros();
 
 protected:
   /**
@@ -285,7 +302,9 @@ private:
   ///< Currently recording command buffer handle.
   ComputeHandle activeCommandBuffer_;
 
-  bool profilingEnabled_ = false; ///< Per-dispatch GPU profiling flag.
+  bool profilingEnabled_ = false;   ///< GPU profiling flag.
+  bool perDispatchTimings_ = true;  ///< Record per-dispatch timestamps too.
+  double lastSubmitSpanMicros_ = 0.0; ///< Accumulated spans, drained by take.
 
   ///< Per-dispatch GPU timings accumulated across waits, drained by
   ///< takeLastTimings().

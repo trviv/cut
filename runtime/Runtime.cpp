@@ -300,8 +300,18 @@ void Runtime::setProfilingEnabled(bool enabled) {
   }
 }
 
+void Runtime::setPerDispatchTimingsEnabled(bool enabled) {
+  for (auto &ctx : devices_) {
+    ctx.interface->setPerDispatchTimingsEnabled(enabled);
+  }
+}
+
 std::vector<DispatchTiming> Runtime::lastDispatchTimings(size_t deviceId) {
   return device(deviceId).interface->takeLastTimings();
+}
+
+double Runtime::lastSubmitSpanMicros(size_t deviceId) {
+  return device(deviceId).interface->takeLastSubmitSpanMicros();
 }
 
 // =========================================================================

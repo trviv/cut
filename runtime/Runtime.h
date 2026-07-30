@@ -295,6 +295,26 @@ public:
   std::vector<DispatchTiming> lastDispatchTimings(size_t deviceId = 0);
 
   /**
+   * Enables or disables per-dispatch timestamps while profiling (default on).
+   *
+   * Off leaves only the submit-span pair, which is the measurement to use when
+   * comparing against a vendor library: per-dispatch timestamps sit BETWEEN
+   * the kernels, so they widen the inter-kernel gap and fold each launch
+   * latency into its own window, while the vendor side is timed by one event
+   * pair around the whole call. Measured on a two-dispatch scan, that
+   * asymmetry overstates CUT by 2-3 us per op.
+   */
+  void setPerDispatchTimingsEnabled(bool enabled);
+
+  /**
+   * Returns and clears the summed submit-span GPU microseconds since the last
+   * call: first dispatch start to last dispatch end, with no instrumentation
+   * recorded in between. Zero unless profiling is enabled. CUDA only for now;
+   * the Vulkan backend leaves it at zero.
+   */
+  double lastSubmitSpanMicros(size_t deviceId = 0);
+
+  /**
    * Dispatches a compute operator using an OpNode.
    * The OpNode provides all operator-level information.
    */

@@ -97,6 +97,17 @@ private:
   /// settles them against doneEvent_ first.
   void settleAndRecycleTimingSlots();
 
+  /// Returns the submit-span pair to the pool. Same completion rule as
+  /// recycleTimingSlots().
+  void recycleSpanEvents();
+
+  /// Timing pair bracketing the WHOLE submission — recorded once before the
+  /// first dispatch and once after the last, so nothing lands between the
+  /// kernels. This is the measurement that is comparable to an external timer
+  /// wrapped around a vendor library call.
+  CUevent spanStart_ = nullptr;
+  CUevent spanStop_ = nullptr;
+
   /// Whether this CB may use the CUDA-graph capture/replay fast path.
   bool eligibleForGraph();
 

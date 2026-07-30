@@ -495,11 +495,31 @@ public:
   /// Returns true if this command buffer is reusable.
   bool isReusable() const { return reusable_; }
 
-  /// Enables or disables per-dispatch GPU profiling for this command buffer.
+  /// Enables or disables GPU profiling for this command buffer.
   void setProfilingEnabled(bool enabled) { profilingEnabled_ = enabled; }
 
   /// Returns true if GPU profiling is enabled.
   bool isProfilingEnabled() const { return profilingEnabled_; }
+
+  /// Enables or disables PER-DISPATCH timestamps, independently of profiling.
+  ///
+  /// Per-dispatch attribution costs accuracy: the timestamps sit between the
+  /// kernels, so they both perturb the timeline (measured ~1.4 us per record
+  /// on sm_86) and fold each kernel's launch latency into its own window — a
+  /// 1.06 us kernel reads 3.07 us. Turn this off to leave only the
+  /// submit-span pair at the boundaries, which measures a whole submission the
+  /// way an external timer would and perturbs nothing in between.
+  void setPerDispatchTimingsEnabled(bool enabled) {
+    perDispatchTimings_ = enabled;
+  }
+
+  /// Returns true if per-dispatch timestamps are recorded when profiling.
+  bool perDispatchTimingsEnabled() const { return perDispatchTimings_; }
+
+  /// GPU microseconds from the start of the first dispatch to the end of the
+  /// last, for the most recent wait(). Zero when profiling is off or the
+  /// backend does not implement it.
+  double lastSubmitSpanMicros() const { return submitSpanMicros_; }
 
   /// Per-dispatch GPU timings recorded during the most recent wait().
   /// Populated only when profiling is enabled; empty otherwise.
@@ -512,10 +532,14 @@ protected:
   /// Returns the list of encoded compute dispatches.
   const std::vector<ComputeDispatch> &dispatches() { return dispatches_; }
 
-  bool profilingEnabled_ = false; ///< Per-dispatch GPU profiling flag.
-  bool reusable_ = false;         ///< Whether this CB can be re-submitted.
+  bool profilingEnabled_ = false; ///< GPU profiling flag.
+  /// Whether profiling also records per-dispatch timestamps. Defaults on, so
+  /// existing profiling callers keep their attribution.
+  bool perDispatchTimings_ = true;
+  bool reusable_ = false; ///< Whether this CB can be re-submitted.
   std::vector<DispatchTiming>
       timings_; ///< Per-dispatch GPU timings from last wait().
+  double submitSpanMicros_ = 0.0; ///< Whole-submission GPU span, last wait().
 
 private:
   std::vector<ComputeDispatch> dispatches_; ///< List of compute dispatches.

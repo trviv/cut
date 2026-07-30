@@ -8,12 +8,17 @@ void ComputeInterface::setProfilingEnabled(bool enabled) {
   profilingEnabled_ = enabled;
 }
 
+void ComputeInterface::setPerDispatchTimingsEnabled(bool enabled) {
+  perDispatchTimings_ = enabled;
+}
+
 void ComputeInterface::encode(ComputeDispatch &&dispatch) {
   if (!activeCommandBuffer_) {
     activeCommandBuffer_ = commandBufferContainer_->createCommandBuffer();
     auto *cb = commandBufferContainer_->get(activeCommandBuffer_);
     cb->begin();
     cb->setProfilingEnabled(profilingEnabled_);
+    cb->setPerDispatchTimingsEnabled(perDispatchTimings_);
   }
 
   commandBufferContainer_->get(activeCommandBuffer_)
@@ -73,10 +78,17 @@ void ComputeInterface::wait(const ComputeHandle &commandBufferHandle) {
   const auto &t = cb->lastTimings();
   if (!t.empty())
     lastTimings_.insert(lastTimings_.end(), t.begin(), t.end());
+  lastSubmitSpanMicros_ += cb->lastSubmitSpanMicros();
 }
 
 std::vector<DispatchTiming> ComputeInterface::takeLastTimings() {
   return std::move(lastTimings_);
+}
+
+double ComputeInterface::takeLastSubmitSpanMicros() {
+  const double span = lastSubmitSpanMicros_;
+  lastSubmitSpanMicros_ = 0.0;
+  return span;
 }
 
 void ComputeInterface::setCommandBufferContainer(
