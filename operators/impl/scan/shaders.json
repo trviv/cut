@@ -3,7 +3,7 @@
     {
       "type": "variants",
       "cpp_prefix": "Scan",
-      "default_variant": "IPT14",
+      "default_variant": "WTIPT14",
       "autotune_shapes": {
         "dimensions": ["N"],
         "grid": [

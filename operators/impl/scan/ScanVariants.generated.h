@@ -18,7 +18,7 @@ struct ScanVariantInfo {
 };
 
 inline constexpr int kScanVariantCount = 55;
-inline constexpr int kScanDefaultVariant = 2;
+inline constexpr int kScanDefaultVariant = 46;
 
 inline constexpr ScanVariantInfo kScanVariants[kScanVariantCount] = {
     {"ScanIPT8", 256, 1, 256, 8, "Decoupled look-back scan, 8 items/thread"},
