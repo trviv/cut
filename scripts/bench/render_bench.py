@@ -150,7 +150,7 @@ def collect_snapshot(results_dir):
     results are still a valid (if partial) snapshot — and a partial snapshot is
     visible as blank cells in the table, which is the honest rendering.
     """
-    cases, skipped, when, host = {}, [], None, None
+    cases, skipped, when = {}, [], None
     for name in sorted(os.listdir(results_dir)):
         if not name.endswith(".json"):
             continue
@@ -165,9 +165,11 @@ def collect_snapshot(results_dir):
             skipped.append((name, f"unparseable ({e.msg} at line {e.lineno}) — run interrupted?"))
             continue
 
+        # Google Benchmark's context also carries host_name. It is deliberately
+        # NOT read: the machine's name identifies where the run happened and
+        # nothing in the rendered output needs it.
         ctx = data.get("context", {})
         when = when or ctx.get("date")
-        host = host or ctx.get("host_name")
 
         by_run = {}
         for row in data.get("benchmarks", []):
@@ -197,7 +199,6 @@ def collect_snapshot(results_dir):
         "commit": sh("git", "-C", PROJECT_DIR, "rev-parse", "--short", "HEAD"),
         "gpu": gpu[0] if gpu and gpu[0] else "unknown GPU",
         "driver": gpu[1] if len(gpu) > 1 else "",
-        "host": host,
         "cases": cases,
     }, skipped
 

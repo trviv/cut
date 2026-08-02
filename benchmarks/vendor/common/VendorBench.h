@@ -16,6 +16,7 @@
 #include <benchmark/benchmark.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -148,8 +149,33 @@ inline CheckResult compareBuffers(const std::vector<float> &a,
 /// header free of vendor headers.
 using TimedFn = std::function<double()>;
 
-/// Issues ONE CUT op, flushes, and returns the GPU-measured milliseconds.
-inline double timeCutOnce(cut::Runtime &rt, const std::function<void()> &issue) {
+/// Running mean of the host-side half of the CUT measurement, reported as the
+/// `cut_host_us` counter. It is part of the number by the argument in
+/// timeCutOnce, but it is also the part that OVERLAPS with GPU work when a
+/// caller issues a graph of ops and flushes once, rather than issuing one op in
+/// isolation as this harness does. Publishing it separately lets a reader take
+/// the isolated-op total at face value and still see how much of it a batched
+/// workload would hide. It matters most exactly where it is least visible: ~2 us
+/// is noise on a 500 us GEMM and a third of a 7 us scan.
+struct CutIssueStats {
+  double sumUs = 0.0;
+  long count = 0;
+};
+inline CutIssueStats &cutIssueStats() {
+  static CutIssueStats s;
+  return s;
+}
+
+/// Issues ONE CUT op, flushes, and returns the measured milliseconds.
+///
+/// `setup` runs UNTIMED and fully settled before the clock starts. It exists for
+/// operators whose operand has to be restored between iterations — an in-place
+/// destructive sort, say. That restore is bench scaffolding, not the operator,
+/// and the vendor side has no equivalent (its sorts are out-of-place and read a
+/// pristine input every call), so timing it would invent a cost on one side
+/// only.
+inline double timeCutOnce(cut::Runtime &rt, const std::function<void()> &issue,
+                          const std::function<void()> &setup = nullptr) {
   // ONE event pair around the whole submission, matching how the vendor side is
   // measured. Summing per-dispatch timings instead is not comparable: those
   // timestamps sit between the kernels, so they widen the inter-kernel gap AND
@@ -163,12 +189,36 @@ inline double timeCutOnce(cut::Runtime &rt, const std::function<void()> &issue) 
     rt.setPerDispatchTimingsEnabled(false);
     configured = true;
   }
+
+  if (setup) {
+    setup();
+    rt.flush();
+    rt.lastSubmitSpanMicros(); // drain: the restore's span is not the op's
+    rt.lastDispatchTimings();
+  }
+
+  // The host half of the op is TIMED, and leaving it out is the one place this
+  // comparison was not symmetric. A vendor call is bracketed by two stream
+  // events, so whatever the library does on the host between them — policy
+  // dispatch, temp-storage layout, its own launch calls — lands inside its span
+  // as GPU idle. CUT's span, by contrast, opens at submit, after the OpNode
+  // graph is built and its temp buffers acquired. That work is real and the
+  // caller waits for it, so it belongs in the number. It is ~2 us for a sort,
+  // which is under 5% at the smallest shapes and noise everywhere else; the
+  // point is that the remaining difference between the two sides is now the
+  // operator and not the measurement.
+  const auto hostStart = std::chrono::steady_clock::now();
   issue();
+  const auto hostEnd = std::chrono::steady_clock::now();
   rt.flush();
+  const double issueUs =
+      std::chrono::duration<double, std::micro>(hostEnd - hostStart).count();
+  cutIssueStats().sumUs += issueUs;
+  cutIssueStats().count++;
   const double spanUs = rt.lastSubmitSpanMicros();
   if (spanUs > 0.0) {
     rt.lastDispatchTimings(); // drain; empty when per-dispatch timings are off
-    return spanUs / 1000.0;
+    return (spanUs + issueUs) / 1000.0;
   }
   // Backend without submit-span support (Vulkan): fall back to the sum. This is
   // a WEAKER measurement, not an equivalent one — a sum of kernel spans excludes
@@ -180,7 +230,7 @@ inline double timeCutOnce(cut::Runtime &rt, const std::function<void()> &issue) 
   double us = 0.0;
   for (const auto &d : rt.lastDispatchTimings())
     us += d.gpuMicros;
-  return us / 1000.0;
+  return (us + issueUs) / 1000.0;
 }
 
 /// One (operator, shape) comparison. Set exactly ONE of flops/bytes: it picks
@@ -382,12 +432,17 @@ inline std::shared_ptr<LazyCase> acquireCase(const std::string &key,
 ///   <vendor>/<op>/<shape>
 /// so --benchmark_filter can select one side and the pair can be matched up by
 /// name afterwards.
+/// `cutSetup`, when given, restores the operand before each timed call and is
+/// itself untimed — see timeCutOnce. Only in-place destructive operators need it.
 inline void registerPair(cut::Runtime &rt, const CaseSpec &spec,
-                         std::function<void()> cutIssue, TimedFn refTimed) {
+                         std::function<void()> cutIssue, TimedFn refTimed,
+                         std::function<void()> cutSetup = nullptr) {
   // rt is captured by reference: it is a local of main() that outlives
   // RunSpecifiedBenchmarks(). Everything else is captured BY VALUE — registration
   // happens in main() and the lambdas outlive that scope.
-  TimedFn cutTimed = [&rt, cutIssue]() { return timeCutOnce(rt, cutIssue); };
+  TimedFn cutTimed = [&rt, cutIssue, cutSetup]() {
+    return timeCutOnce(rt, cutIssue, cutSetup);
+  };
 
   const std::string slug = slugify(spec.shape);
 
@@ -403,7 +458,11 @@ inline void registerPair(cut::Runtime &rt, const CaseSpec &spec,
   configure(benchmark::RegisterBenchmark(
       ("cut/" + spec.op + "/" + slug).c_str(),
       [spec, cutTimed](benchmark::State &state) {
+        cutIssueStats() = {};
         runTimed(state, spec, cutTimed);
+        const auto &st = cutIssueStats();
+        if (st.count > 0)
+          state.counters["cut_host_us"] = st.sumUs / st.count;
       }));
   configure(benchmark::RegisterBenchmark(
       (spec.vendor + "/" + spec.op + "/" + slug).c_str(),
@@ -446,9 +505,13 @@ inline void registerPairLazy(cut::Runtime &rt, const CaseSpec &spec,
   configure(benchmark::RegisterBenchmark(
       ("cut/" + spec.op + "/" + slug).c_str(),
       [body](benchmark::State &state) {
+        cutIssueStats() = {};
         body(state, [](cut::Runtime &rt, const LazyCase &c) -> TimedFn {
           return [&rt, issue = c.cutIssue]() { return timeCutOnce(rt, issue); };
         });
+        const auto &st = cutIssueStats();
+        if (st.count > 0)
+          state.counters["cut_host_us"] = st.sumUs / st.count;
       }));
   configure(benchmark::RegisterBenchmark(
       (spec.vendor + "/" + spec.op + "/" + slug).c_str(),

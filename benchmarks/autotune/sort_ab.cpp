@@ -22,6 +22,7 @@
 #include <Runtime.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -61,6 +62,20 @@ int main(int argc, char **argv) {
   runtime.init(backend);
   runtime.setProfilingEnabled(true);
   runtime.setPerDispatchTimingsEnabled(true);
+
+  // Wall-clock mode: no GPU events, no per-dispatch timing, no profiler — just
+  // CPU-observed latency of one warm sort, which is what a caller actually
+  // waits for and the only metric that is method-identical to a vendor library
+  // timed the same way. The input is re-uploaded (untimed) before every
+  // measured call so the sort always sees random keys, exactly as the vendor
+  // benchmark does; sorting already-sorted keys is a different workload.
+  // Exactly the vendor benchmark's configuration: profiling on so the submit
+  // span is recorded, per-dispatch events off so they cannot widen it.
+  const bool wallClock = std::getenv("CUT_SORT_WALLCLOCK") != nullptr;
+  if (wallClock) {
+    runtime.setProfilingEnabled(true);
+    runtime.setPerDispatchTimingsEnabled(false);
+  }
 
   const int kReps = 12;
   int failures = 0;
@@ -103,6 +118,50 @@ int main(int argc, char **argv) {
         failures++;
         break;
       }
+    }
+
+    if (wallClock) {
+      // Split the latency: everything before submit (graph build, temp-buffer
+      // acquisition, dispatch recording) vs submit-and-wait. The vendor
+      // benchmark's GPU span starts at submit, so the `issue` half is exactly
+      // what that measurement cannot see.
+      std::vector<double> wall, issueUs, spans;
+      // Control: with the refill skipped, iterations 2..n sort already-sorted
+      // keys, which is a different workload — but it proves whether the untimed
+      // refill above is leaking into the measured region.
+      const bool noUpload = std::getenv("CUT_SORT_NOUPLOAD") != nullptr;
+      uint32_t drain = 0;
+      for (int r = 0; r < 40; r++) {
+        if (!noUpload) {
+          runtime.copyToTensor(keys, hostKeys.data(), bytes);
+          runtime.copyToTensor(vals, hostVals.data(), bytes);
+        }
+        runtime.flush();
+        // flush() alone does not settle the upload: a blocking read-back of one
+        // word does. Without this the refill is still in flight when the clock
+        // starts and lands inside the measured region, which is worth up to
+        // 80 us at N=1M and reads as CUT overhead that does not exist.
+        runtime.copyFromTensor(keys, &drain, sizeof(uint32_t));
+        runtime.lastSubmitSpanMicros(); // drain the upload's span
+        auto t0 = std::chrono::steady_clock::now();
+        runtime.ops().sortRadixOneSweep(keys, vals);
+        auto t1 = std::chrono::steady_clock::now();
+        runtime.flush();
+        auto t2 = std::chrono::steady_clock::now();
+        const double span = runtime.lastSubmitSpanMicros();
+        if (r >= 8) { // discard warm-up
+          issueUs.push_back(
+              std::chrono::duration<double, std::micro>(t1 - t0).count());
+          wall.push_back(
+              std::chrono::duration<double, std::micro>(t2 - t0).count());
+          spans.push_back(span);
+        }
+      }
+      std::cout << "N=" << n << "  wall=" << median(wall)
+                << " us  span=" << median(spans)
+                << " us  issue=" << median(issueUs) << " us  unaccounted="
+                << (median(wall) - median(issueUs) - median(spans)) << " us\n";
+      continue;
     }
 
     std::map<std::string, std::vector<double>> perLabel;

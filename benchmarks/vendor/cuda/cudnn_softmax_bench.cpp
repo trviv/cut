@@ -73,15 +73,25 @@ static cudnnTensorDescriptor_t makeRowDescriptor(uint32_t rows, uint32_t cols) {
 /// MODE_INSTANCE (reduce C*H*W per sample) and MODE_CHANNEL (reduce C per
 /// (n,h,w)) name the same axis over the same bytes in this degenerate H=W=1
 /// layout, and both were measured bit-identical against a double-precision CPU
-/// reference. They are NOT the same speed. MODE_CHANNEL's kernel loses its row
-/// reuse once a row stops fitting in L2: at a fixed 1 GiB it holds ~845 GB/s at
-/// 256 columns and ~787 at 1024, then falls off a cliff to ~357 at 4096 and
-/// ~330 from 8192 columns up. MODE_INSTANCE holds ~840 GB/s at every width from
-/// 256 to 65536 columns. Wide rows are exactly what the softmax_large tier
-/// exists to measure, so timing against MODE_CHANNEL would hand CUT a 2.4x head
-/// start on every model-scale shape and report it as a win. A baseline has to be
-/// the fastest way the vendor can be asked for the function, not the most
-/// idiomatic way — hence MODE_INSTANCE.
+/// reference. They are NOT the same speed. Measured at a fixed 1 GiB, sweeping
+/// only the rows/cols split (GB/s counted at 2N, so ~845 is this card's ceiling):
+///
+///        cols    256   1024   2048   4096   8192  16384  32768  65536  262144
+///   INSTANCE    842    842      -    842      -    838    839    329     314
+///   CHANNEL     845    787    503    357    335    333    332    329     315
+///
+/// CHANNEL loses its row reuse as soon as a row stops fitting in L2; INSTANCE
+/// holds the ceiling to 32768 columns and then falls back to the same path.
+/// INSTANCE is therefore never slower and often 2.4x faster, and wide rows are
+/// exactly what the softmax_large tier exists to measure — timing against
+/// CHANNEL would hand CUT a 2.4x head start on the model-scale attention shapes
+/// and report it as a win. A baseline has to be the fastest way the vendor can be
+/// asked for the function, not the most idiomatic way.
+///
+/// Caveat worth keeping in view: this is the legacy cudnnSoftmaxForward API.
+/// cuDNN 9's graph API (cudnn_graph.h / the frontend) has not been measured here,
+/// so the >=65536-column column of that table is the floor of THIS entry point,
+/// not proof that cuDNN cannot do better.
 static void launchSoftmax(cudnnHandle_t handle, cudnnTensorDescriptor_t desc,
                           const float *dIn, float *dOut) {
   const float alpha = 1.0f, beta = 0.0f;

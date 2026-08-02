@@ -178,20 +178,22 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
                              const std::vector<uint32_t> &hostVals,
                              const std::vector<uint32_t> &refKeys,
                              cutbench::TimedFn refTimed) {
-  // The sorts are in-place and destructive, so the operand cannot be hoisted.
-  // Instead, we create the tensors once and re-upload the unsorted data at the
-  // start of every timed call.
+  // The sorts are in-place and destructive, so the operand cannot be hoisted;
+  // the tensors are created once and refilled before every timed call.
   cut::Tensor keys = rt.createTensor({static_cast<uint32_t>(n)},
                                      cut::DataType::UInt32, hostKeys.data());
   cut::Tensor vals = rt.createTensor({static_cast<uint32_t>(n)},
                                      cut::DataType::UInt32, hostVals.data());
 
-  auto cutIssue = [&rt, keys, vals, v, n, &hostKeys, &hostVals]() {
+  // Declared as SETUP so the harness flushes and settles it before starting the
+  // clock. rocPRIM needs no counterpart, so charging CUT's host-side refill to
+  // the operator would be a cost on one side of the comparison only.
+  auto cutSetup = [&rt, keys, vals, n, &hostKeys, &hostVals]() {
     const size_t bytes = static_cast<size_t>(n) * sizeof(uint32_t);
     rt.copyToTensor(keys, hostKeys.data(), bytes);
     rt.copyToTensor(vals, hostVals.data(), bytes);
-    runSort(rt, v, keys, vals);
   };
+  auto cutIssue = [&rt, keys, vals, v]() { runSort(rt, v, keys, vals); };
 
   // Pinned, not adaptive: the refill is host-side cost the manual-time loop
   // cannot see, so the adaptive count would run unbounded. CUT's multi-pass
@@ -201,6 +203,7 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
 
   cutbench::CheckResult check;
   {
+    cutSetup();
     cutIssue();
     std::vector<uint32_t> cutKeys(static_cast<size_t>(n));
     rt.copyFromTensor(keys, cutKeys.data(), static_cast<size_t>(n) * sizeof(uint32_t));
@@ -224,7 +227,7 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
   spec.tolerance = cutbench::Tolerance::exact();
   spec.check = check;
 
-  cutbench::registerPair(rt, spec, cutIssue, refTimed);
+  cutbench::registerPair(rt, spec, cutIssue, refTimed, cutSetup);
 }
 
 int main(int argc, char **argv) {
