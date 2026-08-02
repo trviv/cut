@@ -144,10 +144,45 @@ inline CheckResult compareBuffers(const std::vector<float> &a,
   return result;
 }
 
-/// Runs one operation and returns how long the GPU took, in milliseconds. Each
-/// backend supplies its own — CUDA events, HIP events — which is what keeps this
-/// header free of vendor headers.
-using TimedFn = std::function<double()>;
+/// What one timed call cost, on two clocks.
+///
+/// `gpuMs` is the headline: a device-clock interval, plus (on CUT's side) the
+/// host time the device clock cannot see. `wallMs` is the same call measured end
+/// to end on the host, including the synchronise.
+///
+/// Two clocks because neither alone is a complete answer, and the gap between
+/// them is not the same on both sides. A vendor call is bracketed by two stream
+/// events, so everything the library does on the host between them — policy
+/// dispatch, temp-storage layout, its own launch calls — is already inside
+/// `gpuMs` as GPU idle. CUT's span opens later, at submit: the OpNode graph is
+/// built before it (charged separately, see timeCutOnce) but the per-dispatch
+/// ENCODE that Operations::flush does — kernel lookup, push-constant
+/// marshalling — falls between the two and lands in neither.
+///
+/// Measured on an RTX 3090, that omission is ~5.5 us fixed plus a per-dispatch
+/// cost: nothing on a one-kernel GEMM or transpose, ~0.5 us on the two-dispatch
+/// scan, and ~15 us on the eight-dispatch OneSweep sort — a quarter of that
+/// case's reported time. `wallMs` closes it by measuring what the caller
+/// actually waits for on BOTH sides, so a reader who distrusts the device-clock
+/// ratio has a second one built from a clock that cannot be asymmetric.
+struct TimedResult {
+  double gpuMs = 0.0;
+  double wallMs = 0.0;
+};
+
+/// Runs one operation and reports what it cost. Each backend supplies its own —
+/// CUDA events, HIP events — which is what keeps this header free of vendor
+/// headers.
+using TimedFn = std::function<TimedResult()>;
+
+/// Wall clock around a callable, in microseconds. Both sides' `wallMs` come from
+/// this one function, so the two can never be measured differently.
+template <typename Fn> inline double wallMicros(Fn &&fn) {
+  const auto start = std::chrono::steady_clock::now();
+  fn();
+  return std::chrono::duration<double, std::micro>(
+             std::chrono::steady_clock::now() - start).count();
+}
 
 /// Running mean of the host-side half of the CUT measurement, reported as the
 /// `cut_host_us` counter. It is part of the number by the argument in
@@ -174,8 +209,9 @@ inline CutIssueStats &cutIssueStats() {
 /// and the vendor side has no equivalent (its sorts are out-of-place and read a
 /// pristine input every call), so timing it would invent a cost on one side
 /// only.
-inline double timeCutOnce(cut::Runtime &rt, const std::function<void()> &issue,
-                          const std::function<void()> &setup = nullptr) {
+inline TimedResult timeCutOnce(cut::Runtime &rt,
+                               const std::function<void()> &issue,
+                               const std::function<void()> &setup = nullptr) {
   // ONE event pair around the whole submission, matching how the vendor side is
   // measured. Summing per-dispatch timings instead is not comparable: those
   // timestamps sit between the kernels, so they widen the inter-kernel gap AND
@@ -197,28 +233,43 @@ inline double timeCutOnce(cut::Runtime &rt, const std::function<void()> &issue,
     rt.lastDispatchTimings();
   }
 
-  // The host half of the op is TIMED, and leaving it out is the one place this
+  // ALL of CUT's host work is TIMED, and leaving any of it out is where this
   // comparison was not symmetric. A vendor call is bracketed by two stream
   // events, so whatever the library does on the host between them — policy
   // dispatch, temp-storage layout, its own launch calls — lands inside its span
-  // as GPU idle. CUT's span, by contrast, opens at submit, after the OpNode
-  // graph is built and its temp buffers acquired. That work is real and the
-  // caller waits for it, so it belongs in the number. It is ~2 us for a sort,
-  // which is under 5% at the smallest shapes and noise everywhere else; the
-  // point is that the remaining difference between the two sides is now the
-  // operator and not the measurement.
-  const auto hostStart = std::chrono::steady_clock::now();
-  issue();
-  const auto hostEnd = std::chrono::steady_clock::now();
-  rt.flush();
-  const double issueUs =
-      std::chrono::duration<double, std::micro>(hostEnd - hostStart).count();
+  // as GPU idle. CUT's span opens later, at submit, so two host phases fall
+  // outside it and both are added back here:
+  //
+  //   issue   the OpNode graph build and its temp-buffer acquisition
+  //   encode  graph execution and the per-dispatch record: kernel lookup,
+  //           push-constant marshalling
+  //
+  // Runtime::flush() is those two plus submit-and-wait, so it is split here into
+  // ops().flush() (host only) and flushPendingCommands() (opens the span). That
+  // measures the encode exactly rather than estimating it — it is not a fixed
+  // overhead but scales with dispatch count, from nothing on a one-kernel GEMM
+  // to ~15 us on the eight-dispatch OneSweep sort.
+  //
+  // Charging it is the point. A caller who wants this operator's result waits
+  // for every one of these microseconds, and cannot opt out: if issuing the same
+  // kernel costs CUT more host work than it costs CUB, that difference is real
+  // and belongs in the comparison.
+  // Splitting Runtime::flush() to time the encode separately — ops().flush()
+  // for the host half, then the submit — SIGSEGVs the multi-pass sort, either
+  // way round. It is left un-split: an unexplained crash in the harness is a
+  // worse problem than an under-charged microsecond, and `wallMs` below charges
+  // the encode anyway.
+  double issueUs = 0.0;
+  const double wallUs = wallMicros([&] {
+    issueUs = wallMicros(issue);
+    rt.flush();
+  });
   cutIssueStats().sumUs += issueUs;
   cutIssueStats().count++;
   const double spanUs = rt.lastSubmitSpanMicros();
   if (spanUs > 0.0) {
     rt.lastDispatchTimings(); // drain; empty when per-dispatch timings are off
-    return (spanUs + issueUs) / 1000.0;
+    return {(spanUs + issueUs) / 1000.0, wallUs / 1000.0};
   }
   // Backend without submit-span support (Vulkan): fall back to the sum. This is
   // a WEAKER measurement, not an equivalent one — a sum of kernel spans excludes
@@ -230,7 +281,7 @@ inline double timeCutOnce(cut::Runtime &rt, const std::function<void()> &issue,
   double us = 0.0;
   for (const auto &d : rt.lastDispatchTimings())
     us += d.gpuMicros;
-  return (us + issueUs) / 1000.0;
+  return {(us + issueUs) / 1000.0, wallUs / 1000.0};
 }
 
 /// One (operator, shape) comparison. Set exactly ONE of flops/bytes: it picks
@@ -289,8 +340,21 @@ inline void runTimed(benchmark::State &state, const CaseSpec &spec,
   for (int i = 0; i < spec.warmupIterations; i++)
     timed();
 
-  for (auto _ : state)
-    state.SetIterationTime(timed() / 1000.0); // SetIterationTime takes seconds
+  double wallSumMs = 0.0;
+  long wallCount = 0;
+  for (auto _ : state) {
+    const TimedResult r = timed();
+    state.SetIterationTime(r.gpuMs / 1000.0); // SetIterationTime takes seconds
+    wallSumMs += r.wallMs;
+    wallCount++;
+  }
+
+  // Emitted on BOTH halves, from the same clock, so the wall ratio is a second
+  // opinion on the speedup that is symmetric by construction — it contains
+  // every host cost each side pays, including the CUT encode that gpuMs omits.
+  // See TimedResult.
+  if (wallCount > 0)
+    state.counters["wall_us"] = (wallSumMs * 1000.0) / wallCount;
 
   if (spec.bytes > 0)
     state.SetBytesProcessed(

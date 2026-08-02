@@ -9,14 +9,13 @@
 /// on first use, free them when the next case needs the memory, and sample the
 /// output rather than reading all of it back.
 
-#include "CudaBenchCommon.h"
+#include "BenchMain.h"
+#include "CublasBench.h"
 #include "VendorBench.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <Operations.h>
 #include <Runtime.h>
-#include <cublas_v2.h>
-#include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <cstdlib>
 #include <iostream>
@@ -26,16 +25,6 @@
 
 using namespace cut;
 using namespace cutbench;
-
-#define CUBLAS_CHECK(x)                                                        \
-  do {                                                                         \
-    cublasStatus_t st_ = (x);                                                  \
-    if (st_ != CUBLAS_STATUS_SUCCESS) {                                        \
-      std::cerr << "cuBLAS error: " << static_cast<int>(st_) << " at "         \
-                << __FILE__ << ":" << __LINE__ << "\n";                        \
-      std::exit(1);                                                            \
-    }                                                                          \
-  } while (0)
 
 struct Shape {
   uint32_t M, K, N;
@@ -50,7 +39,7 @@ struct ModelShape {
   uint32_t M, K, N;
 };
 
-/// Both sides write f32 (see launchHgemm), so what is left is the difference
+/// Both sides write f32 (see launchHgemmRowMajor), so what is left is the difference
 /// between two f32 accumulations of the same f16 products in different orders.
 ///
 /// Measured, that is small: every aligned-M shape is bit-exact against cuBLAS in
@@ -63,32 +52,6 @@ struct ModelShape {
 /// the reference's own storage rounding put every row at ~2e-3 regardless of
 /// what CUT computed, and the gate had to clear it.
 static const cutbench::Tolerance kHgemmTolerance = cutbench::Tolerance::rel(1e-3);
-
-/// Row-major C[M,N] = A[M,K] * B[K,N] under cuBLAS's column-major convention,
-/// computed as C^T = B^T * A^T so neither side is charged for a layout
-/// conversion.
-static void launchHgemm(cublasHandle_t handle, const __half *dA,
-                        const __half *dB, float *dC, uint32_t M, uint32_t K,
-                        uint32_t N) {
-  const float alpha = 1.0f, beta = 0.0f;
-  // CUBLAS_COMPUTE_32F keeps the f32 accumulator, matching CUT's coopmat path
-  // exactly: f16 operands, f32 accumulate. CUBLAS_COMPUTE_16F would make this a
-  // different operator, not a faster one.
-  //
-  // C is CUDA_R_32F because MatMulOpNode::outputDtype() is unconditionally
-  // Float32, so that is what CUT writes. Asking cuBLAS for an f16 C — which this
-  // did until it was corrected — made the two sides different operators: cuBLAS
-  // wrote half the bytes CUT did, and every max_diff was dominated by the
-  // reference's own storage rounding rather than by CUT's arithmetic, which is
-  // precisely the error the gate exists to detect.
-  CUBLAS_CHECK(cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N,
-                            static_cast<int>(N), static_cast<int>(M),
-                            static_cast<int>(K), &alpha, dB, CUDA_R_16F,
-                            static_cast<int>(N), dA, CUDA_R_16F,
-                            static_cast<int>(K), &beta, dC, CUDA_R_32F,
-                            static_cast<int>(N), CUBLAS_COMPUTE_32F,
-                            CUBLAS_GEMM_DEFAULT));
-}
 
 static void registerHgemmCase(cut::Runtime &runtime, cublasHandle_t handle,
                               const Shape &s) {
@@ -113,7 +76,7 @@ static void registerHgemmCase(cut::Runtime &runtime, cublasHandle_t handle,
   auto cutIssue = [&runtime, a, b]() { runtime.ops().matmul(a, b); };
 
   // Leaked deliberately: these outlive registration. dC is f32, matching what
-  // CUT's matmul writes — see launchHgemm.
+  // CUT's matmul writes — see launchHgemmRowMajor.
   __half *dA = nullptr, *dB = nullptr;
   float *dC = nullptr;
   CUDA_CHECK(cudaMalloc(&dA, halfA.size() * sizeof(__half)));
@@ -125,7 +88,7 @@ static void registerHgemmCase(cut::Runtime &runtime, cublasHandle_t handle,
                         cudaMemcpyHostToDevice));
 
   auto refLaunch = [handle, dA, dB, dC, s]() {
-    launchHgemm(handle, dA, dB, dC, s.M, s.K, s.N);
+    cutbench::launchHgemmRowMajor(handle, dA, dB, dC, s.M, s.K, s.N);
   };
   cutbench::TimedFn refTimed = cudaTimed(refLaunch);
 
@@ -220,8 +183,10 @@ static void registerLargeHgemmCase(cut::Runtime &runtime,
 
     live->cutIssue = [&runtime, a, b]() { runtime.ops().matmul(a, b); };
     auto refLaunch = [handle, dA, dB, dC, M, K, N]() {
-      launchHgemm(handle, dA, dB, dC, static_cast<uint32_t>(M),
-                  static_cast<uint32_t>(K), static_cast<uint32_t>(N));
+      cutbench::launchHgemmRowMajor(handle, dA, dB, dC,
+                                    static_cast<uint32_t>(M),
+                                    static_cast<uint32_t>(K),
+                                    static_cast<uint32_t>(N));
     };
     live->refTimed = cutbench::cudaTimed(refLaunch);
 
@@ -260,17 +225,8 @@ static void registerTransposeCase(cut::Runtime &runtime, cublasHandle_t handle,
       runtime.createTensor({s.M, s.N}, cut::DataType::Float32, hostA.data());
   auto cutIssue = [&runtime, a]() { runtime.ops().transpose(a); };
 
-  // A row-major [M,N] buffer *is* a column-major [N,M] matrix, so transposing it
-  // column-major-wise (lda=N) into a column-major [M,N] result (ldc=M) lands
-  // exactly the row-major [N,M] buffer CUT produces, with no extra copy. B is
-  // unused because beta is 0, but geam still requires a valid pointer.
   auto refLaunch = [handle, dA, dC, s]() {
-    const float alpha = 1.0f, beta = 0.0f;
-    CUBLAS_CHECK(cublasSgeam(handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                             static_cast<int>(s.M), static_cast<int>(s.N),
-                             &alpha, dA, static_cast<int>(s.N), &beta, dA,
-                             static_cast<int>(s.M), dC,
-                             static_cast<int>(s.M)));
+    cutbench::launchTransposeRowMajor(handle, dA, dC, s.M, s.N);
   };
   cutbench::TimedFn refTimed = cudaTimed(refLaunch);
 
@@ -354,11 +310,9 @@ static void registerLargeTransposeCase(cut::Runtime &runtime,
 
     live->cutIssue = [&runtime, a]() { runtime.ops().transpose(a); };
     auto refLaunch = [handle, dA, dC, M, N]() {
-      const float alpha = 1.0f, beta = 0.0f;
-      CUBLAS_CHECK(cublasSgeam(handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                               static_cast<int>(M), static_cast<int>(N), &alpha,
-                               dA, static_cast<int>(N), &beta, dA,
-                               static_cast<int>(M), dC, static_cast<int>(M)));
+      cutbench::launchTransposeRowMajor(handle, dA, dC,
+                                        static_cast<uint32_t>(M),
+                                        static_cast<uint32_t>(N));
     };
     live->refTimed = cutbench::cudaTimed(refLaunch);
 
@@ -379,24 +333,6 @@ static void registerLargeTransposeCase(cut::Runtime &runtime,
 }
 
 int main(int argc, char **argv) {
-  setenv("CUT_PROFILE_QUIET", "1", 1);
-
-  cut::Runtime runtime;
-  if (!runtime.isCudaAvailable()) {
-    std::cerr << "CUDA backend unavailable "
-                 "(build with -DENABLE_CUDA_BACKEND=ON)\n";
-    return 1;
-  }
-  runtime.init(cut::BackendType::CUDA);
-  runtime.setProfilingEnabled(true);
-
-  // CUT creates its own CUDA driver context and makes it current, so the CUDA
-  // runtime API and cuBLAS bind to that same context.
-  cublasHandle_t handle;
-  CUBLAS_CHECK(cublasCreate(&handle));
-  // No implicit TF32 downcast against CUT's true f32 kernels.
-  CUBLAS_CHECK(cublasSetMathMode(handle, CUBLAS_DEFAULT_MATH));
-
   // The same square / skinny / GEMV mix as the f32 bench, so the two tables can
   // be read side by side to isolate what the storage type alone costs.
   std::vector<Shape> hgemmShapes = {
@@ -472,20 +408,17 @@ int main(int argc, char **argv) {
       {"qwen2.5-14b-lm-head-w", 152064, 0, 5120},
   };
 
-  for (const auto &s : hgemmShapes)
-    registerHgemmCase(runtime, handle, s);
-  for (const auto &s : transposeShapes)
-    registerTransposeCase(runtime, handle, s);
-  for (const auto &s : largeHgemmShapes)
-    registerLargeHgemmCase(runtime, handle, s);
-  for (const auto &s : largeTransposeShapes)
-    registerLargeTransposeCase(runtime, handle, s);
-
-  const int rc = cutbench::runAll(argc, argv);
-
-  // Order is required: runAll clears the registry and evicts the resident lazy
-  // case, so the captured Tensor handles are released while the runtime is still
-  // up. Letting the Runtime destructor run at end of main instead segfaults.
-  runtime.shutdown();
-  return rc;
+  return cutbench::runVendorBenchMain(
+      argc, argv, cut::BackendType::CUDA,
+      [&](cut::Runtime &runtime) {
+        cublasHandle_t handle = cutbench::makeCublasHandle();
+        for (const auto &s : hgemmShapes)
+          registerHgemmCase(runtime, handle, s);
+        for (const auto &s : transposeShapes)
+          registerTransposeCase(runtime, handle, s);
+        for (const auto &s : largeHgemmShapes)
+          registerLargeHgemmCase(runtime, handle, s);
+        for (const auto &s : largeTransposeShapes)
+          registerLargeTransposeCase(runtime, handle, s);
+      });
 }

@@ -19,6 +19,8 @@
 /// not the apples-to-apples kernel comparison that the CUDA benches are.
 /// Record both caveats with any numbers published from this bench.
 
+#include "BenchMain.h"
+#include "HipBenchCommon.h"
 #include "VendorBench.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
@@ -51,19 +53,13 @@ void rocbSgemm(void *handle, const float *dA, const float *dB, float *dC, int M,
                int K, int N);
 }
 
-/// The events are created once and owned by the returned closure, so the
-/// per-iteration cost is a record/sync pair rather than an allocation. They are
-/// deliberately never destroyed — the closure outlives main().
+/// This wrapper's event API, handed to the shared hipTimed.
+static const cutbench::HipEventApi kEventApi = {
+    rocbEventCreate, rocbEventRecord, rocbEventSynchronize,
+    rocbEventElapsedMs};
+
 static cutbench::TimedFn hipTimed(std::function<void()> launch) {
-  void *start = rocbEventCreate();
-  void *stop = rocbEventCreate();
-  return [start, stop, launch]() {
-    rocbEventRecord(start);
-    launch();
-    rocbEventRecord(stop);
-    rocbEventSynchronize(stop);
-    return static_cast<double>(rocbEventElapsedMs(start, stop));
-  };
+  return cutbench::hipTimed(kEventApi, std::move(launch));
 }
 
 struct Shape {
@@ -134,15 +130,7 @@ static void registerMatmulCase(cut::Runtime &runtime, void *handle,
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);
 }
 
-int main(int argc, char **argv) {
-  setenv("CUT_PROFILE_QUIET", "1", 1); // Silence CUT's per-dispatch [GPU Profile] stderr log
-
-  cut::Runtime runtime;
-  // Vulkan, not CUDA: CUT has no HIP backend, so this is the backend a CUT
-  // caller actually gets on an AMD GPU. See the caveat at the top of the file.
-  runtime.init(BackendType::Vulkan);
-  runtime.setProfilingEnabled(true);
-
+static void registerAll(cut::Runtime &runtime) {
   // The same shape list as cublas_matmul_bench.cpp, deliberately, so the AMD and
   // NVIDIA tables can be read side by side.
   std::vector<Shape> shapes = {
@@ -158,17 +146,9 @@ int main(int argc, char **argv) {
   for (const auto &s : shapes)
     registerMatmulCase(runtime, handle, s);
 
-  const int rc = cutbench::runAll(argc, argv);
+}
 
-  // Explicit teardown. Letting the Runtime destructor run at end of main
-  // segfaults, so shut down while the HIP context is still in a known state.
-  // This is safe here and only here: runAll has returned, so no registered
-  // benchmark lambda will touch the runtime again.
-  //
-  // The rocBLAS handle and the rocbMalloc'd operand buffers are deliberately NOT
-  // freed. They have to outlive every registered lambda, and the process exits
-  // on the next line — the OS reclaims them. Freeing them before runAll would
-  // tear down state the benchmarks still use.
-  runtime.shutdown();
-  return rc;
+int main(int argc, char **argv) {
+  return cutbench::runVendorBenchMain(argc, argv, cut::BackendType::Vulkan,
+                                      registerAll);
 }

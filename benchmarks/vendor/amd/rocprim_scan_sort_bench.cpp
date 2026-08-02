@@ -21,6 +21,8 @@
 /// not the apples-to-apples kernel comparison that the CUDA benches are.
 /// Record both caveats with any numbers published from this bench.
 
+#include "BenchMain.h"
+#include "HipBenchCommon.h"
 #include "VendorBench.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
@@ -62,19 +64,13 @@ void rocpSortPairsU32(void *temp, size_t tempBytes, const uint32_t *keysIn,
                       uint32_t *valsOut, int n);
 }
 
-/// The events are created once and owned by the returned closure, so the
-/// per-iteration cost is a record/sync pair rather than an allocation. They are
-/// deliberately never destroyed — the closure outlives main().
+/// This wrapper's event API, handed to the shared hipTimed.
+static const cutbench::HipEventApi kEventApi = {
+    rocpEventCreate, rocpEventRecord, rocpEventSynchronize,
+    rocpEventElapsedMs};
+
 static cutbench::TimedFn hipTimed(std::function<void()> launch) {
-  void *start = rocpEventCreate();
-  void *stop = rocpEventCreate();
-  return [start, stop, launch]() {
-    rocpEventRecord(start);
-    launch();
-    rocpEventRecord(stop);
-    rocpEventSynchronize(stop);
-    return static_cast<double>(rocpEventElapsedMs(start, stop));
-  };
+  return cutbench::hipTimed(kEventApi, std::move(launch));
 }
 
 static const std::vector<int> kCounts = {1 << 16, 1 << 20, 1 << 22, 1 << 24};
@@ -230,13 +226,7 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
   cutbench::registerPair(rt, spec, cutIssue, refTimed, cutSetup);
 }
 
-int main(int argc, char **argv) {
-  setenv("CUT_PROFILE_QUIET", "1", 1); // Silence CUT's per-dispatch [GPU Profile] stderr log
-
-  cut::Runtime runtime;
-  runtime.init(cut::BackendType::Vulkan);
-  runtime.setProfilingEnabled(true);
-
+static void registerAll(cut::Runtime &runtime) {
   const ScanCase scanCases[] = {
       {"scan_inclusive", PrefixScanInclusiveSum, rocpInclusiveSumTempBytes,
        rocpInclusiveSumF32},
@@ -250,10 +240,13 @@ int main(int argc, char **argv) {
     }
   }
 
-  // Captured by reference by registerSortCase, so these must outlive
-  // registration — and be reserved up front, since a push_back that reallocated
-  // would dangle every reference handed out on a previous iteration.
-  std::vector<std::vector<uint32_t>> keyStore, valStore, refStore;
+  // STATIC, and that is load-bearing. registerSortCase captures these BY
+  // REFERENCE into the timed lambdas, which Google Benchmark invokes long after
+  // this function returns — as locals they would be destroyed at the end of
+  // registration and every measured sort would read freed memory. They also stay
+  // reserve()d up front, since a reallocating push_back would dangle every
+  // reference handed out on a previous iteration.
+  static std::vector<std::vector<uint32_t>> keyStore, valStore, refStore;
   keyStore.reserve(kCounts.size());
   valStore.reserve(kCounts.size());
   refStore.reserve(kCounts.size());
@@ -312,11 +305,9 @@ int main(int argc, char **argv) {
     // invoked later, during runAll.
   }
 
-  const int rc = cutbench::runAll(argc, argv);
+}
 
-  // Order is required: runAll clears the registry so the captured Tensor
-  // handles are released while the runtime is still up. Letting the Runtime
-  // destructor run at end of main instead segfaults.
-  runtime.shutdown();
-  return rc;
+int main(int argc, char **argv) {
+  return cutbench::runVendorBenchMain(argc, argv, cut::BackendType::Vulkan,
+                                      registerAll);
 }

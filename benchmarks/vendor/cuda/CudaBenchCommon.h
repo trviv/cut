@@ -28,6 +28,13 @@
 
 namespace cutbench {
 
+/// Times one vendor launch on both clocks — see TimedResult.
+///
+/// `gpuMs` is the interval between two stream events, so the library's own
+/// host-side work lands inside it as GPU idle; `wallMs` adds the synchronise,
+/// which the event interval by definition cannot contain. The CUT side measures
+/// its wall the same way, with the same helper.
+///
 /// The events are created once and owned by the returned closure, so the
 /// per-iteration cost is a record/sync pair rather than an allocation.
 inline TimedFn cudaTimed(std::function<void()> launch) {
@@ -36,13 +43,15 @@ inline TimedFn cudaTimed(std::function<void()> launch) {
   CUDA_CHECK(cudaEventCreate(start.get()));
   CUDA_CHECK(cudaEventCreate(stop.get()));
   return [start, stop, launch]() {
-    CUDA_CHECK(cudaEventRecord(*start));
-    launch();
-    CUDA_CHECK(cudaEventRecord(*stop));
-    CUDA_CHECK(cudaEventSynchronize(*stop));
     float ms = 0.0f;
+    const double wallUs = wallMicros([&] {
+      CUDA_CHECK(cudaEventRecord(*start));
+      launch();
+      CUDA_CHECK(cudaEventRecord(*stop));
+      CUDA_CHECK(cudaEventSynchronize(*stop));
+    });
     CUDA_CHECK(cudaEventElapsedTime(&ms, *start, *stop));
-    return static_cast<double>(ms);
+    return TimedResult{static_cast<double>(ms), wallUs / 1000.0};
   };
 }
 

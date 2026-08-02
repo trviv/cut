@@ -10,29 +10,19 @@
 /// is the model-scale set, whose operands are built on first use and freed when
 /// the next case needs the memory.
 
-#include "CudaBenchCommon.h"
+#include "BenchMain.h"
+#include "CudnnBench.h"
 #include "VendorBench.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <Operations.h>
 #include <Runtime.h>
 #include <cuda_runtime.h>
-#include <cudnn.h>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
-
-#define CUDNN_CHECK(x)                                                         \
-  do {                                                                         \
-    cudnnStatus_t st_ = (x);                                                   \
-    if (st_ != CUDNN_STATUS_SUCCESS) {                                         \
-      std::cerr << "cuDNN error: " << cudnnGetErrorString(st_) << " at "       \
-                << __FILE__ << ":" << __LINE__ << "\n";                        \
-      std::exit(1);                                                            \
-    }                                                                          \
-  } while (0)
 
 struct Shape {
   uint32_t rows, cols;
@@ -52,53 +42,6 @@ struct ModelShape {
 /// would be meaningless on the narrow ones. Measured worst case ~4e-6 relative.
 static const cutbench::Tolerance kSoftmaxTolerance =
     cutbench::Tolerance::rel(1e-4);
-
-/// n=rows, c=cols, h=w=1, so MODE_CHANNEL reduces over `cols` for each row —
-/// element-for-element the same axis softmax(dim=-1) reduces on a row-major
-/// [rows, cols] buffer.
-static cudnnTensorDescriptor_t makeRowDescriptor(uint32_t rows, uint32_t cols) {
-  cudnnTensorDescriptor_t desc;
-  CUDNN_CHECK(cudnnCreateTensorDescriptor(&desc));
-  CUDNN_CHECK(cudnnSetTensor4dDescriptor(desc, CUDNN_TENSOR_NCHW,
-                                         CUDNN_DATA_FLOAT,
-                                         static_cast<int>(rows),
-                                         static_cast<int>(cols), 1, 1));
-  return desc;
-}
-
-/// ACCURATE is the max-subtracting numerically stable form, which is what CUT
-/// computes. CUDNN_SOFTMAX_FAST skips that pass, so timing against it would
-/// compare different algorithms rather than two implementations of one.
-///
-/// MODE_INSTANCE (reduce C*H*W per sample) and MODE_CHANNEL (reduce C per
-/// (n,h,w)) name the same axis over the same bytes in this degenerate H=W=1
-/// layout, and both were measured bit-identical against a double-precision CPU
-/// reference. They are NOT the same speed. Measured at a fixed 1 GiB, sweeping
-/// only the rows/cols split (GB/s counted at 2N, so ~845 is this card's ceiling):
-///
-///        cols    256   1024   2048   4096   8192  16384  32768  65536  262144
-///   INSTANCE    842    842      -    842      -    838    839    329     314
-///   CHANNEL     845    787    503    357    335    333    332    329     315
-///
-/// CHANNEL loses its row reuse as soon as a row stops fitting in L2; INSTANCE
-/// holds the ceiling to 32768 columns and then falls back to the same path.
-/// INSTANCE is therefore never slower and often 2.4x faster, and wide rows are
-/// exactly what the softmax_large tier exists to measure — timing against
-/// CHANNEL would hand CUT a 2.4x head start on the model-scale attention shapes
-/// and report it as a win. A baseline has to be the fastest way the vendor can be
-/// asked for the function, not the most idiomatic way.
-///
-/// Caveat worth keeping in view: this is the legacy cudnnSoftmaxForward API.
-/// cuDNN 9's graph API (cudnn_graph.h / the frontend) has not been measured here,
-/// so the >=65536-column column of that table is the floor of THIS entry point,
-/// not proof that cuDNN cannot do better.
-static void launchSoftmax(cudnnHandle_t handle, cudnnTensorDescriptor_t desc,
-                          const float *dIn, float *dOut) {
-  const float alpha = 1.0f, beta = 0.0f;
-  CUDNN_CHECK(cudnnSoftmaxForward(handle, CUDNN_SOFTMAX_ACCURATE,
-                                  CUDNN_SOFTMAX_MODE_INSTANCE, &alpha, desc,
-                                  dIn, &beta, desc, dOut));
-}
 
 static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
                                const Shape &s) {
@@ -121,9 +64,9 @@ static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
 
   auto cutIssue = [&runtime, x]() { runtime.ops().softmax(x, -1); };
 
-  cudnnTensorDescriptor_t desc = makeRowDescriptor(s.rows, s.cols);
+  cudnnTensorDescriptor_t desc = cutbench::makeRowDescriptor(s.rows, s.cols);
   auto refLaunch = [handle, desc, dIn, dOut]() {
-    launchSoftmax(handle, desc, dIn, dOut);
+    cutbench::launchSoftmax(handle, desc, dIn, dOut);
   };
   cutbench::TimedFn refTimed = cutbench::cudaTimed(refLaunch);
 
@@ -198,7 +141,7 @@ static void registerLargeSoftmaxCase(cut::Runtime &runtime,
       cudaFree(dOut);
       return std::shared_ptr<cutbench::LazyCase>();
     }
-    cudnnTensorDescriptor_t desc = makeRowDescriptor(
+    cudnnTensorDescriptor_t desc = cutbench::makeRowDescriptor(
         static_cast<uint32_t>(rows), static_cast<uint32_t>(cols));
     // Installed before anything else can fail, so an early return still frees.
     live->release = [dIn, dOut, desc]() {
@@ -220,7 +163,7 @@ static void registerLargeSoftmaxCase(cut::Runtime &runtime,
 
     live->cutIssue = [&runtime, x]() { runtime.ops().softmax(x, -1); };
     auto refLaunch = [handle, desc, dIn, dOut]() {
-      launchSoftmax(handle, desc, dIn, dOut);
+      cutbench::launchSoftmax(handle, desc, dIn, dOut);
     };
     live->refTimed = cutbench::cudaTimed(refLaunch);
 
@@ -242,22 +185,6 @@ static void registerLargeSoftmaxCase(cut::Runtime &runtime,
 }
 
 int main(int argc, char **argv) {
-  setenv("CUT_PROFILE_QUIET", "1", 1);
-
-  cut::Runtime runtime;
-  if (!runtime.isCudaAvailable()) {
-    std::cerr << "CUDA backend unavailable "
-                 "(build with -DENABLE_CUDA_BACKEND=ON)\n";
-    return 1;
-  }
-  runtime.init(cut::BackendType::CUDA);
-  runtime.setProfilingEnabled(true);
-
-  // CUT creates its own CUDA driver context and makes it current, so the CUDA
-  // runtime API and cuDNN bind to that same context.
-  cudnnHandle_t handle;
-  CUDNN_CHECK(cudnnCreate(&handle));
-
   // Two families that stress opposite reduction strategies. Attention-score
   // softmax is many-short-rows, so the parallelism comes from the row count and
   // a whole row fits one workgroup's registers. Vocab-logit softmax is
@@ -295,16 +222,12 @@ int main(int argc, char **argv) {
       {"llama3-8b-attn-16k-1h", 16384, 16384},
   };
 
-  for (const auto &s : shapes)
-    registerSoftmaxCase(runtime, handle, s);
-  for (const auto &s : largeShapes)
-    registerLargeSoftmaxCase(runtime, handle, s);
-
-  const int rc = cutbench::runAll(argc, argv);
-
-  // Order is required: runAll clears the registry so the captured Tensor
-  // handles are released while the runtime is still up. Letting the Runtime
-  // destructor run at end of main instead segfaults.
-  runtime.shutdown();
-  return rc;
+  return cutbench::runVendorBenchMain(
+      argc, argv, cut::BackendType::CUDA, [&](cut::Runtime &runtime) {
+        cudnnHandle_t handle = cutbench::makeCudnnHandle();
+        for (const auto &s : shapes)
+          registerSoftmaxCase(runtime, handle, s);
+        for (const auto &s : largeShapes)
+          registerLargeSoftmaxCase(runtime, handle, s);
+      });
 }

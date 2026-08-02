@@ -9,29 +9,19 @@
 /// the README for what each window contains. Operands are allocated lazily, one
 /// case at a time: a single case holds gigabytes.
 
-#include "CudaBenchCommon.h"
+#include "BenchMain.h"
+#include "CudnnBench.h"
 #include "VendorBench.h"
 #include <ComputeCommon.h>
 #include <ComputeOps.h>
 #include <Operations.h>
 #include <Runtime.h>
 #include <cuda_runtime.h>
-#include <cudnn.h>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
-
-#define CUDNN_CHECK(x)                                                         \
-  do {                                                                         \
-    cudnnStatus_t st_ = (x);                                                   \
-    if (st_ != CUDNN_STATUS_SUCCESS) {                                         \
-      std::cerr << "cuDNN error: " << cudnnGetErrorString(st_) << " at "       \
-                << __FILE__ << ":" << __LINE__ << "\n";                        \
-      std::exit(1);                                                            \
-    }                                                                          \
-  } while (0)
 
 /// Square kernels, square inputs, symmetric padding — a general form would be
 /// untested generality.
@@ -293,22 +283,6 @@ static void registerConvCase(cut::Runtime &runtime, cudnnHandle_t handle,
 }
 
 int main(int argc, char **argv) {
-  setenv("CUT_PROFILE_QUIET", "1", 1);
-
-  cut::Runtime runtime;
-  if (!runtime.isCudaAvailable()) {
-    std::cerr << "CUDA backend unavailable "
-                 "(build with -DENABLE_CUDA_BACKEND=ON)\n";
-    return 1;
-  }
-  runtime.init(cut::BackendType::CUDA);
-  runtime.setProfilingEnabled(true);
-
-  // CUT creates its own CUDA driver context and makes it current, so the CUDA
-  // runtime API and cuDNN bind to that same context.
-  cudnnHandle_t handle;
-  CUDNN_CHECK(cudnnCreate(&handle));
-
   // Three convolution regimes that stress an implementation differently and that
   // no single shape would cover: patch embedding (a huge non-overlapping kernel
   // at matching stride over 3 channels — almost a GEMM), diffusion U-Net / VAE
@@ -343,14 +317,10 @@ int main(int argc, char **argv) {
       {"resnet50-stage1-1x1", 256, 256, 56, 64, 1, 1, 0},
   };
 
-  for (const auto &s : shapes)
-    registerConvCase(runtime, handle, s);
-
-  const int rc = cutbench::runAll(argc, argv);
-
-  // Order is required: runAll clears the registry and evicts the resident lazy
-  // case, so the captured Tensor handles are released while the runtime is still
-  // up. Letting the Runtime destructor run at end of main instead segfaults.
-  runtime.shutdown();
-  return rc;
+  return cutbench::runVendorBenchMain(
+      argc, argv, cut::BackendType::CUDA, [&](cut::Runtime &runtime) {
+        cudnnHandle_t handle = cutbench::makeCudnnHandle();
+        for (const auto &s : shapes)
+          registerConvCase(runtime, handle, s);
+      });
 }

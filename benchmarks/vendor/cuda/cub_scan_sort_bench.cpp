@@ -10,6 +10,8 @@
 ///
 /// The CUB calls live in cub_wrappers.cu behind a C ABI, since CUB needs nvcc.
 
+#include "BenchMain.h"
+#include "CudaBenchCommon.h"
 #include "VendorBench.h"
 
 #include <ComputeCommon.h>
@@ -41,34 +43,6 @@ void cubExclusiveSumF32(void *temp, size_t tempBytes, const float *in,
 void cubSortPairsU32(void *temp, size_t tempBytes, const uint32_t *keysIn,
                      uint32_t *keysOut, const uint32_t *valsIn,
                      uint32_t *valsOut, int n);
-}
-
-#define CUDA_CHECK(x)                                                          \
-  do {                                                                         \
-    cudaError_t err_ = (x);                                                    \
-    if (err_ != cudaSuccess) {                                                 \
-      std::cerr << "CUDA error: " << cudaGetErrorString(err_) << " at "        \
-                << __FILE__ << ":" << __LINE__ << "\n";                        \
-      std::exit(1);                                                            \
-    }                                                                          \
-  } while (0)
-
-/// The events are created once and owned by the returned closure, so the
-/// per-iteration cost is a record/sync pair rather than an allocation.
-static cutbench::TimedFn cudaTimed(std::function<void()> launch) {
-  auto start = std::make_shared<cudaEvent_t>();
-  auto stop = std::make_shared<cudaEvent_t>();
-  CUDA_CHECK(cudaEventCreate(start.get()));
-  CUDA_CHECK(cudaEventCreate(stop.get()));
-  return [start, stop, launch]() {
-    CUDA_CHECK(cudaEventRecord(*start));
-    launch();
-    CUDA_CHECK(cudaEventRecord(*stop));
-    CUDA_CHECK(cudaEventSynchronize(*stop));
-    float ms = 0.0f;
-    CUDA_CHECK(cudaEventElapsedTime(&ms, *start, *stop));
-    return static_cast<double>(ms);
-  };
 }
 
 static const std::vector<int> kCounts = {1 << 16, 1 << 20, 1 << 22, 1 << 24};
@@ -173,7 +147,7 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n,
     CUDA_CHECK(cudaMalloc(&dTemp, tempBytes));
 
   auto refLaunch = [=]() { c.runFn(dTemp, tempBytes, dIn, dOut, n); };
-  cutbench::TimedFn refTimed = cudaTimed(refLaunch);
+  cutbench::TimedFn refTimed = cutbench::cudaTimed(refLaunch);
 
   cutbench::CheckResult check;
   {
@@ -280,18 +254,7 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
   cutbench::registerPair(rt, spec, cutIssue, refTimed, cutSetup);
 }
 
-int main(int argc, char **argv) {
-  setenv("CUT_PROFILE_QUIET", "1", 1);
-
-  cut::Runtime runtime;
-  if (!runtime.isCudaAvailable()) {
-    std::cerr << "CUDA backend unavailable "
-                 "(build with -DENABLE_CUDA_BACKEND=ON)\n";
-    return 1;
-  }
-  runtime.init(cut::BackendType::CUDA);
-  runtime.setProfilingEnabled(true);
-
+static void registerAll(cut::Runtime &runtime) {
   const ScanCase scanCases[] = {
       {"scan_inclusive", PrefixScanInclusiveSum, cubInclusiveSumTempBytes,
        cubInclusiveSumF32},
@@ -310,10 +273,15 @@ int main(int argc, char **argv) {
     }
   }
 
-  // Captured by reference by registerSortCase, so these must outlive
-  // registration — and be reserved up front, since a push_back that reallocated
-  // would dangle every reference handed out on a previous iteration.
-  std::vector<std::vector<uint32_t>> keyStore, valStore, refStore;
+  // STATIC, and that is load-bearing. registerSortCase captures these BY
+  // REFERENCE into the timed lambdas, which Google Benchmark invokes long after
+  // this function returns — as locals they would be destroyed at the end of
+  // registration and every measured sort would read freed memory. That is a
+  // use-after-free that crashes ~80% of runs and passes the other 20%, which is
+  // exactly the failure mode that survives a casual test. They also stay
+  // reserve()d up front, since a reallocating push_back would dangle every
+  // reference handed out on a previous iteration.
+  static std::vector<std::vector<uint32_t>> keyStore, valStore, refStore;
   const size_t sortCases = kCounts.size() + kModelCounts.size();
   keyStore.reserve(sortCases);
   valStore.reserve(sortCases);
@@ -362,7 +330,7 @@ int main(int argc, char **argv) {
       cubSortPairsU32(dTemp, tempBytes, dKeysIn, dKeysOut, dValsIn,
                       dValsOut, n);
     };
-    cutbench::TimedFn refTimed = cudaTimed(refLaunch);
+    cutbench::TimedFn refTimed = cutbench::cudaTimed(refLaunch);
 
     // Run the reference once before reading it: cudaTimed only wraps the launch,
     // so without this dKeysOut still holds uninitialised memory and every key
@@ -387,11 +355,9 @@ int main(int argc, char **argv) {
     // invoked later, during runAll.
   }
 
-  const int rc = cutbench::runAll(argc, argv);
+}
 
-  // Order is required: runAll clears the registry so the captured Tensor
-  // handles are released while the runtime is still up. Letting the Runtime
-  // destructor run at end of main instead segfaults.
-  runtime.shutdown();
-  return rc;
+int main(int argc, char **argv) {
+  return cutbench::runVendorBenchMain(argc, argv, cut::BackendType::CUDA,
+                                      registerAll);
 }

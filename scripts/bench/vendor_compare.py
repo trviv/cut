@@ -238,6 +238,21 @@ def print_table(pairs, sort_by=None, as_csv=False):
         else:
             speedup = calculate_speedup(cut_ms, ref_ms) if cut_ms is not None and ref_ms is not None else "-"
 
+        # Second opinion on the speedup, from a clock that cannot be asymmetric.
+        # `speedup` divides two device-clock numbers, and the two sides do not
+        # put the same host work inside that window; wall_us is measured end to
+        # end on both sides by the same helper. Where the two disagree, the
+        # difference is host cost the device clock did not see — see
+        # "Two clocks" in benchmarks/vendor/README.md.
+        cut_wall = cut_row.get("wall_us") if cut_row else None
+        ref_wall = vendor_row.get("wall_us") if vendor_row else None
+        if status == "FAIL":
+            wall_speedup = "VOID"
+        elif cut_wall and ref_wall:
+            wall_speedup = calculate_speedup(cut_wall, ref_wall)
+        else:
+            wall_speedup = "-"
+
         rows.append({
             "status": status,
             "detail": failure_detail(cut_row, vendor_row),
@@ -250,6 +265,7 @@ def print_table(pairs, sort_by=None, as_csv=False):
             "ref_rate": ref_rate,
             "unit": cut_unit if cut_rate != "-" else ref_unit,
             "speedup": speedup,
+            "wall_x": wall_speedup,
             "cv": cv,
             "ref_mag": ref_mag,
             "max_diff": max_diff
@@ -273,9 +289,9 @@ def print_table(pairs, sort_by=None, as_csv=False):
 
     # Print table
     if as_csv:
-        print("status,op,shape,vendor,cut_ms,ref_ms,cut_rate,ref_rate,unit,speedup,cv,ref_mag,max_diff")
+        print("status,op,shape,vendor,cut_ms,ref_ms,cut_rate,ref_rate,unit,speedup,wall_x,cv,ref_mag,max_diff")
         for row in rows:
-            print(f"{row['status']},{row['op']},{row['shape']},{row['vendor']},{row['cut_ms']},{row['ref_ms']},{row['cut_rate']},{row['ref_rate']},{row['unit']},{row['speedup']},{row['cv']},{row['ref_mag']},{row['max_diff']}")
+            print(f"{row['status']},{row['op']},{row['shape']},{row['vendor']},{row['cut_ms']},{row['ref_ms']},{row['cut_rate']},{row['ref_rate']},{row['unit']},{row['speedup']},{row['wall_x']},{row['cv']},{row['ref_mag']},{row['max_diff']}")
     else:
         # Calculate column widths
         col_widths = {
@@ -289,6 +305,7 @@ def print_table(pairs, sort_by=None, as_csv=False):
             "ref_rate": max(len(row["ref_rate"]) for row in rows) if rows else 0,
             "unit": max(len(row["unit"]) for row in rows) if rows else 0,
             "speedup": max(len(row["speedup"]) for row in rows) if rows else 0,
+            "wall_x": max(len(row["wall_x"]) for row in rows) if rows else 0,
             "cv": max(len(row["cv"]) for row in rows) if rows else 0,
             "ref_mag": max(len(row["ref_mag"]) for row in rows) if rows else 0,
             "max_diff": max(len(row["max_diff"]) for row in rows) if rows else 0
@@ -306,12 +323,13 @@ def print_table(pairs, sort_by=None, as_csv=False):
             "ref_rate".ljust(col_widths["ref_rate"]),
             "unit".ljust(col_widths["unit"]),
             "speedup".ljust(col_widths["speedup"]),
+            "wall_x".ljust(col_widths["wall_x"]),
             "cv".ljust(col_widths["cv"]),
             "ref_mag".ljust(col_widths["ref_mag"]),
             "max_diff".ljust(col_widths["max_diff"])
         ]
         print(" | ".join(header))
-        print("-" * (sum(col_widths.values()) + 12))  # 12 for the 11 " | " separators
+        print("-" * (sum(col_widths.values()) + 15))
 
         # Print rows
         for row in rows:
@@ -326,6 +344,7 @@ def print_table(pairs, sort_by=None, as_csv=False):
                 row["ref_rate"].ljust(col_widths["ref_rate"]),
                 row["unit"].ljust(col_widths["unit"]),
                 row["speedup"].ljust(col_widths["speedup"]),
+                row["wall_x"].ljust(col_widths["wall_x"]),
                 row["cv"].ljust(col_widths["cv"]),
                 row["ref_mag"].ljust(col_widths["ref_mag"]),
                 row["max_diff"].ljust(col_widths["max_diff"])
@@ -364,6 +383,7 @@ def print_table(pairs, sort_by=None, as_csv=False):
 
     if not as_csv:
         print("\nspeedup > 1.00x means CUT is faster than the vendor library.")
+    print("speedup uses the device clock; wall_x is the same ratio measured end to end\non the host for both sides. A gap between them is host cost the device clock\ndid not see.")
     return len(failed)
 
 def main():

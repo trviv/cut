@@ -12,11 +12,19 @@ Measured results are not kept here — run the suite and read the table it print
 
 ## Layout
 
+Each `*_bench.cpp` holds only what is specific to its family: the shape tables,
+the case registration, and the reference launch. Everything shared sits in a
+header, in three layers — backend-neutral, backend, vendor library.
+
 ```
 vendor/
-├── common/VendorBench.h          Backend-neutral harness over Google Benchmark
+├── common/
+│   ├── VendorBench.h             Harness: CaseSpec, Tolerance, the two clocks, registration
+│   └── BenchMain.h               Runtime lifecycle; the teardown ORDER is load-bearing
 ├── cuda/
-│   ├── CudaBenchCommon.h         CUDA-only helpers: event timing, VRAM budget, sampling
+│   ├── CudaBenchCommon.h         CUDA layer: CUDA_CHECK, cudaTimed, VRAM budget, sampling
+│   ├── CublasBench.h             cuBLAS layer: handle + math mode, row-major GEMM/geam
+│   ├── CudnnBench.h              cuDNN layer: handle, row descriptor, softmax launch
 │   ├── cublas_matmul_bench.cpp   f32 GEMM/GEMV vs cuBLAS
 │   ├── cublas_extras_bench.cpp   f16 GEMM vs cublasGemmEx, transpose vs cublasSgeam
 │   ├── cudnn_softmax_bench.cpp   softmax vs cudnnSoftmaxForward
@@ -24,11 +32,25 @@ vendor/
 │   ├── cub_scan_sort_bench.cpp   scan + radix sort vs CUB
 │   └── cub_wrappers.cu           CUB behind a C ABI (needs nvcc)
 └── amd/
-    ├── rocblas_matmul_bench.cpp     f32 GEMM/GEMV vs rocBLAS
-    ├── rocblas_wrappers.hip         rocBLAS + all HIP calls behind a C ABI
-    ├── rocprim_scan_sort_bench.cpp  scan + radix sort vs rocPRIM
-    └── rocprim_wrappers.hip         rocPRIM + all HIP calls behind a C ABI
+    ├── HipBenchCommon.h            HIP layer: hipTimed over an injected event ABI
+    ├── rocblas_matmul_bench.cpp    f32 GEMM/GEMV vs rocBLAS
+    ├── rocblas_wrappers.hip        rocBLAS + all HIP calls behind a C ABI
+    ├── rocprim_scan_sort_bench.cpp scan + radix sort vs rocPRIM
+    └── rocprim_wrappers.hip        rocPRIM + all HIP calls behind a C ABI
 ```
+
+The vendor-library layer exists for fairness, not tidiness. `CublasBench.h`
+holds the two decisions that decide whether a GEMM comparison means anything —
+the row-major/column-major reconciliation that keeps either side from being
+charged for a layout conversion, and the math mode that stops cuBLAS answering a
+different question — and a copy of those per bench is a copy that can drift.
+`BenchMain.h` exists because the teardown order is subtle and was written out
+seven times: `runAll` must clear the benchmark registry before the runtime shuts
+down, since the registered lambdas hold refcounted `cut::Tensor` handles.
+
+`HipBenchCommon.h` takes the event functions as pointers rather than calling
+them, because the two AMD wrappers expose separate C ABIs (`rocb*`, `rocp*`) and
+neither `.cpp` may include a HIP header.
 
 `common/VendorBench.h` must stay free of CUDA and HIP headers so both sides can
 include it. `registerPair` registers the two halves of one comparison, and the
@@ -239,30 +261,47 @@ direct equivalent either; the comparison would be against dequant + SGEMM.
   unachievable figure. The vendor's window is the same shape: `DeviceScan` clears
   its own scratch inside the call it is timed around, so both sides are charged
   for their setup kernels.
-- **The one asymmetry that remains, and its size.** CUT's host-side op building —
-  node construction, kernel lookup, output allocation, encode — happens in
-  `issue()` *before* `rt.flush()` records the start event, whereas a vendor
-  library's host-side work (cuBLAS heuristic dispatch, cuDNN descriptor
-  validation) happens after `cudaEventRecord(start)`, on an idle GPU, and lands
-  inside the measurement. Measured on an RTX 3090 as the gap between a per-call
-  event pair and a steady-state batch of 50:
+- **Host cost is charged to both sides — but the device clock cannot see all of
+  CUT's, so there is a second clock.** A vendor call is bracketed by two stream
+  events, so everything the library does on the host between them — policy
+  dispatch, temp-storage layout, its own launch calls — is already inside its
+  number as GPU idle. CUT's side is assembled from two pieces to match: the
+  OpNode graph build is timed on the host in `timeCutOnce` and added to the span,
+  and the per-dispatch launches are inside the span already. What falls between
+  them is the ENCODE that `Operations::flush` does — kernel lookup, push-constant
+  marshalling — which happens after the graph build and before the span opens.
 
-  | call | per-pair | batched | difference |
+  Measured on an RTX 3090 as `flush` wall-clock minus span, which is that encode
+  plus a fixed synchronise wake-up that *both* sides exclude:
+
+  | CUT op | dispatches | span | flush wall − span |
   |---|---|---|---|
-  | empty kernel (the floor both sides pay) | 2.94 µs | 1.58 µs | +1.37 µs |
-  | `cublasSgemm` 128³ | 8.19 µs | 5.71 µs | +2.48 µs (+43%) |
-  | `cublasSgemm` 1024³ | 110.4 µs | 107.9 µs | +2.52 µs (+2.3%) |
-  | `cublasSgeam` 4096² | 164.9 µs | 163.7 µs | +1.19 µs (+0.7%) |
-  | CUB `InclusiveSum` N=65536 | 6.85 µs | 4.94 µs | +1.91 µs (+39%) |
-  | CUB `SortPairs` N=65536 | 51.2 µs | 50.0 µs | +1.21 µs (+2.4%) |
+  | `sgemm` 128³ | 1 | 6.61 µs | 5.53 µs |
+  | `transpose` 1024² | 1 | 11.29 µs | 5.67 µs |
+  | `scan` N=65536 | 2 | 6.79 µs | 6.05 µs |
+  | `sort_radix_1sweep` N=65536 | ~8 | 55.40 µs | 20.95 µs |
 
-  The ~1.4 µs floor is idle-GPU launch latency CUT's span contains too, once per
-  dispatch — so a multi-dispatch CUT op pays it more than once. The **net** tilt
-  in CUT's favour is the residual: ~1.1 µs against cuBLAS, ~0.5 µs against CUB, ~0
-  against `sgeam`, which has no host-side heuristic to run. That is up to ~10% on
-  the sub-20 µs cases and under 1% above ~100 µs. Rows in that band should not be
-  quoted to the percent; if they ever need to be, time a batch of N launches
-  inside one event pair on both sides and divide.
+  The ~5.5 µs floor is the wake-up and is symmetric. The rest scales with
+  dispatch count and is not: nothing on a one-kernel GEMM, ~0.5 µs on the
+  two-dispatch scan, ~15 µs on the eight-dispatch sort — a quarter of that case's
+  reported time.
+
+  Rather than guess at a correction, both sides also report `wall_us`: the same
+  call measured end to end on the host, by the same helper, including the
+  synchronise. `vendor_compare.py` prints it as the **`wall_x`** column next to
+  `speedup`. It is symmetric by construction, so where the two ratios disagree
+  the difference is host cost the device clock did not see:
+
+  ```
+  op                shape       speedup  wall_x
+  scan_inclusive    N=65536      0.98x    0.84x
+  scan_inclusive    N=16777216   0.99x    0.98x
+  sort_radix_1sweep N=65536      1.44x    1.10x
+  ```
+
+  They converge once the problem is big enough to amortise the host — 0.99x and
+  0.98x at N=16M — and diverge at the small, multi-dispatch end. **A sub-100 µs
+  row should be quoted with both.**
 - **Order matters slightly, and CUT always goes first.** `registerPair` registers
   `cut/<case>` before `<vendor>/<case>` and Google Benchmark runs in registration
   order, so the vendor half always inherits a card the CUT half just warmed.
