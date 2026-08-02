@@ -16,6 +16,7 @@
 #include "impl/transpose/TransposeVariants.generated.h"
 #include "impl/matmul/MatMulQ8Variants.generated.h"
 #include "impl/matmul/MatMulQ4Variants.generated.h"
+#include "impl/conv2d/Conv2DOp.h"
 #include "impl/conv2d/Conv2DVariants.generated.h"
 #include "impl/maxpool2d/MaxPool2DVariants.generated.h"
 #include "impl/avgpool2d/AvgPool2DVariants.generated.h"
@@ -690,11 +691,26 @@ static void benchQuantMatMul(Runtime &rt, int warmup, int iters, std::ostream &j
 
 static void benchConv2d(Runtime &rt, int warmup, int iters, std::ostream &json) {
   struct Shape {
-    uint32_t N, Cin, H, W, Cout, kH, kW;
+    uint32_t N, Cin, H, W, Cout, kH, kW, stride, pad;
   };
+  // The first two are the original synthetic 3x3s. The rest mirror
+  // benchmarks/vendor/cuda/cudnn_conv_bench.cpp's table — the regimes that
+  // decide which tile shape wins (patch embedding, U-Net/VAE 3x3, ResNet 3x3
+  // and 1x1) — at batch sizes trimmed so a whole sweep fits alongside the rest
+  // of op_bench. Which variant wins depends on C_out, the kernel and the
+  // stride, not on the batch.
   std::vector<Shape> shapes = {
-      {1, 32, 56, 56, 32, 3, 3},
-      {1, 64, 28, 28, 64, 3, 3}
+      {1, 32, 56, 56, 32, 3, 3, 1, 1},
+      {1, 64, 28, 28, 64, 3, 3, 1, 1},
+      {4, 3, 224, 224, 1024, 14, 14, 14, 0},   // vit-l14 patch embed
+      {2, 3, 1024, 1024, 1280, 16, 16, 16, 0}, // sam-vit-h patch embed
+      {2, 320, 128, 128, 320, 3, 3, 1, 1},     // sdxl-unet top block
+      {4, 1280, 32, 32, 1280, 3, 3, 1, 1},     // sdxl-unet mid block
+      {1, 512, 256, 256, 512, 3, 3, 1, 1},     // sd-vae decoder
+      {1, 128, 1024, 1024, 128, 3, 3, 1, 1},   // sd-vae decoder, 1024px
+      {32, 128, 28, 28, 128, 3, 3, 1, 1},      // resnet50 stage 2
+      {32, 64, 56, 56, 64, 3, 3, 1, 1},        // resnet50 stage 1
+      {32, 256, 56, 56, 64, 1, 1, 1, 0},       // resnet50 1x1 projection
   };
 
   json << "    \"Conv2D\": {\n";
@@ -708,11 +724,13 @@ static void benchConv2d(Runtime &rt, int warmup, int iters, std::ostream &json) 
 
     std::cerr << "Conv2D N=" << s.N << " Cin=" << s.Cin << " H=" << s.H
               << " W=" << s.W << " Cout=" << s.Cout << " kH=" << s.kH
-              << " kW=" << s.kW << " ..." << std::flush;
+              << " kW=" << s.kW << " s=" << s.stride << " p=" << s.pad << " ..."
+              << std::flush;
 
     json << "        {\n";
     json << "          \"shape\": [" << s.N << ", " << s.Cin << ", " << s.H
-         << ", " << s.W << ", " << s.Cout << ", " << s.kH << ", " << s.kW << "],\n";
+         << ", " << s.W << ", " << s.Cout << ", " << s.kH << ", " << s.kW
+         << ", " << s.stride << ", " << s.pad << "],\n";
     json << "          \"results\": [\n";
 
     std::vector<std::pair<int, Stat>> results;
@@ -720,13 +738,17 @@ static void benchConv2d(Runtime &rt, int warmup, int iters, std::ostream &json) 
       if (!getCompiledConv2D(vi, DataType::Float32, DataType::Float32)
                .has_value())
         continue;
+      // Skip rather than silently re-time the fallback: a variant that cannot
+      // express this window is not a data point about this window.
+      if (!conv2dVariantSupportsShape(vi, s.kH, s.kW, s.stride, s.stride))
+        continue;
 
       Stat st = timeOpGpu(
           rt,
           [&]() {
             auto in = rt.createTensor({s.N, s.Cin, s.H, s.W}, DataType::Float32, hostIn.data());
             auto w = rt.createTensor({s.Cout, s.Cin, s.kH, s.kW}, DataType::Float32, hostW.data());
-            rt.ops().conv2d(in, w, 1, 1, 1, 1, vi);
+            rt.ops().conv2d(in, w, s.stride, s.stride, s.pad, s.pad, vi);
           },
           warmup, iters);
 

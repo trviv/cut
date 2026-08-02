@@ -17,23 +17,35 @@ struct Conv2DVariantInfo {
     const char* description;
 };
 
-inline constexpr int kConv2DVariantCount = 2;
+inline constexpr int kConv2DVariantCount = 6;
 inline constexpr int kConv2DDefaultVariant = 0;
 
 inline constexpr Conv2DVariantInfo kConv2DVariants[kConv2DVariantCount] = {
     {"Conv2DNaive", 16, 16, 16, 16, "Naive (global memory)"},
     {"Conv2DTiled", 16, 16, 16, 16, "SharedMem input tiled"},
+    {"Conv2DImplicitGemm", 256, 1, 128, 128, "Implicit GEMM 128x128x8, 8x8 per thread"},
+    {"Conv2DImplicitGemmN64", 256, 1, 128, 64, "Implicit GEMM 128x64x8, 8x4 per thread (narrow C_out)"},
+    {"Conv2DImplicitGemmM256N64", 256, 1, 256, 64, "Implicit GEMM 256x64x8, 8x8 per thread (narrow C_out)"},
+    {"Conv2DImplicitGemmS3", 256, 1, 8, 16, "Spatially tiled 3x3 stride-1, 8x16 patch x 128 channels"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
 std::optional<std::vector<uint32_t>> compiledConv2DNaive(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledConv2DTiled(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledConv2DImplicitGemm(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledConv2DImplicitGemmN64(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledConv2DImplicitGemmM256N64(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledConv2DImplicitGemmS3(DataType input, DataType output);
 
 using CompiledConv2DFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
 inline const CompiledConv2DFn kConv2DCompiledFns[kConv2DVariantCount] = {
     compiledConv2DNaive,
     compiledConv2DTiled,
+    compiledConv2DImplicitGemm,
+    compiledConv2DImplicitGemmN64,
+    compiledConv2DImplicitGemmM256N64,
+    compiledConv2DImplicitGemmS3,
 };
 
 /// Returns compiled SPIR-V for a conv2d variant by index.

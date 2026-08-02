@@ -170,6 +170,20 @@ static CudnnConv makeCudnnConv(cudnnHandle_t handle, const ConvShape &s) {
         handle, c.xDesc, c.wDesc, c.convDesc, c.yDesc, c.algo,
         &c.workspaceBytes));
   }
+
+  // Which algorithm cuDNN picked is the single most useful thing to know when
+  // reading the gap: Winograd computes a 3x3 with ~2.25x fewer multiplies than
+  // the nominal FLOP count this benchmark charges both sides, so a Winograd row
+  // is not a like-for-like comparison against a direct implementation and its
+  // reported FLOP/s can exceed the device's fp32 FMA peak.
+  static const char *const kAlgoNames[] = {
+      "IMPLICIT_GEMM",       "IMPLICIT_PRECOMP_GEMM", "GEMM",
+      "DIRECT",              "FFT",                   "FFT_TILING",
+      "WINOGRAD",            "WINOGRAD_NONFUSED"};
+  const int algoIdx = static_cast<int>(c.algo);
+  std::cerr << "cuDNN algo for " << s.model << ": "
+            << (algoIdx >= 0 && algoIdx < 8 ? kAlgoNames[algoIdx] : "?")
+            << " (workspace " << (c.workspaceBytes / (1024 * 1024)) << " MB)\n";
   return c;
 }
 

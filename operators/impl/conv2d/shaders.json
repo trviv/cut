@@ -48,6 +48,120 @@
           {"input": "UInt32", "output": "UInt32"}
         ]
       }
+    },
+    {
+      "name": "ImplicitGemm",
+      "template": "Conv2DImplicitGemm",
+      "defines": {
+        "GEMM_BM": 128,
+        "GEMM_BN": 128,
+        "GEMM_BK": 8,
+        "GEMM_TM": 8,
+        "GEMM_TN": 8
+      },
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        128,
+        128
+      ],
+      "description": "Implicit GEMM 128x128x8, 8x8 per thread",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
+    },
+    {
+      "name": "ImplicitGemmN64",
+      "template": "Conv2DImplicitGemm",
+      "defines": {
+        "GEMM_BM": 128,
+        "GEMM_BN": 64,
+        "GEMM_BK": 8,
+        "GEMM_TM": 8,
+        "GEMM_TN": 4
+      },
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        128,
+        64
+      ],
+      "description": "Implicit GEMM 128x64x8, 8x4 per thread (narrow C_out)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
+    },
+    {
+      "name": "ImplicitGemmM256N64",
+      "template": "Conv2DImplicitGemm",
+      "defines": {
+        "GEMM_BM": 256,
+        "GEMM_BN": 64,
+        "GEMM_BK": 8,
+        "GEMM_TM": 8,
+        "GEMM_TN": 8
+      },
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        256,
+        64
+      ],
+      "description": "Implicit GEMM 256x64x8, 8x8 per thread (narrow C_out)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
+    },
+    {
+      "name": "ImplicitGemmS3",
+      "template": "Conv2DImplicitGemmS3",
+      "defines": {
+        "S3_TH": 8,
+        "S3_TW": 16,
+        "S3_BN": 128,
+        "S3_BK": 4,
+        "S3_TMH": 2,
+        "S3_TMW": 4,
+        "S3_TN": 8
+      },
+      "wg": [
+        256,
+        1
+      ],
+      "eff_tile": [
+        8,
+        16
+      ],
+      "description": "Spatially tiled 3x3 stride-1, 8x16 patch x 128 channels",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"},
+          {"input": "Int32", "output": "Int32"},
+          {"input": "UInt32", "output": "UInt32"}
+        ]
+      }
     }
   ]
 }
