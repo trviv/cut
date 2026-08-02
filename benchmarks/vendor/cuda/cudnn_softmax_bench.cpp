@@ -1,29 +1,14 @@
-/// CUT Softmax vs NVIDIA cuDNN softmax on the same GPU, in the same process.
+/// CUT Softmax vs NVIDIA cuDNN softmax, same GPU, same process, same context.
 ///
-/// CUT is timed with GPU hardware timestamps via Runtime::lastDispatchTimings()
-/// (CUDA events under the hood); cuDNN is timed with CUDA events directly. Both
-/// numbers therefore measure kernel execution, not host-side submit/wait.
-/// Correctness is checked by default so a fast-but-wrong CUT kernel cannot look
-/// like a win.
-///
-/// Usage:
-///   ./build-cuda-rel/benchmarks/vendor/cuda/cudnn_softmax_bench \
-///       [--benchmark_repetitions=N] [--benchmark_filter=REGEX] \
-///       [--benchmark_out=PATH --benchmark_out_format=json]
-///
-/// Every case is registered twice, as cut/<op>/<shape> and cuDNN/<op>/<shape>, so
-/// --benchmark_filter='^cut/' runs only the CUT side. Pass
-/// --benchmark_repetitions=5 to get median/stddev/cv rows.
-///
-/// Correctness is checked ONCE per shape, outside any timed region, and reported
-/// as the max_diff and ref_mag counters on both sides of the pair.
+/// Both sides are one CUDA event pair around one launch; see "Methodology" in
+/// the README for what each window contains. CUT's softmax is a multi-kernel
+/// composition, so its window also holds the gaps between those kernels — the
+/// latency a caller actually sees.
 ///
 /// Two tiers of shapes. `softmax` is the round-number set: many-short-rows and
 /// few-very-long-rows, which stress opposite reduction strategies. `softmax_large`
-/// is the model-scale set — full attention score matrices and prefill-batch
-/// vocabulary logits, 10-20 GB live — whose operands are built on first use and
-/// freed when the next case needs the memory, and whose correctness check
-/// therefore runs then rather than at registration.
+/// is the model-scale set, whose operands are built on first use and freed when
+/// the next case needs the memory.
 
 #include "CudaBenchCommon.h"
 #include "VendorBench.h"
@@ -54,29 +39,23 @@ struct Shape {
   const char *tag;
 };
 
-/// One softmax as it appears in a real network, named after where it comes
-/// from. `rows` is heads x queries for an attention-score softmax and a token
-/// count for a vocabulary softmax; `cols` is the key count or the vocabulary.
+/// One softmax as it appears in a real network. `rows` is heads x queries for an
+/// attention-score softmax and a token count for a vocabulary softmax; `cols` is
+/// the key count or the vocabulary.
 struct ModelShape {
   const char *model;
   uint32_t rows, cols;
 };
 
-/// Correctness gate for both softmax tiers.
-///
-/// Relative to ref_mag, not absolute: a softmax over 152064 columns produces
-/// values around 1/152064, so an absolute bound tight enough to mean anything
-/// on the wide rows would be meaningless on the narrow ones. Measured, the
-/// worst case across both tiers is ~4e-6 relative (max_diff 1.6e-9 against a
-/// ref_mag of 2.4e-4); 1e-4 leaves 25x headroom.
+/// Relative, not absolute: a softmax over 152064 columns produces values around
+/// 1/152064, so an absolute bound tight enough to mean anything on the wide rows
+/// would be meaningless on the narrow ones. Measured worst case ~4e-6 relative.
 static const cutbench::Tolerance kSoftmaxTolerance =
     cutbench::Tolerance::rel(1e-4);
 
 /// n=rows, c=cols, h=w=1, so MODE_CHANNEL reduces over `cols` for each row —
 /// element-for-element the same axis softmax(dim=-1) reduces on a row-major
-/// [rows, cols] buffer. MODE_INSTANCE (reduce C*H*W per sample) would be
-/// equivalent for this degenerate H=W=1 layout, but MODE_CHANNEL states the
-/// intent — reduce the channel axis — rather than relying on that accident.
+/// [rows, cols] buffer.
 static cudnnTensorDescriptor_t makeRowDescriptor(uint32_t rows, uint32_t cols) {
   cudnnTensorDescriptor_t desc;
   CUDNN_CHECK(cudnnCreateTensorDescriptor(&desc));
@@ -88,9 +67,8 @@ static cudnnTensorDescriptor_t makeRowDescriptor(uint32_t rows, uint32_t cols) {
 }
 
 /// ACCURATE is the max-subtracting numerically stable form, which is what CUT
-/// computes. CUDNN_SOFTMAX_FAST skips that pass, so timing against it would be
-/// comparing against a different algorithm rather than a faster implementation
-/// of the same one.
+/// computes. CUDNN_SOFTMAX_FAST skips that pass, so timing against it would
+/// compare different algorithms rather than two implementations of one.
 static void launchSoftmax(cudnnHandle_t handle, cudnnTensorDescriptor_t desc,
                           const float *dIn, float *dOut) {
   const float alpha = 1.0f, beta = 0.0f;
@@ -104,29 +82,20 @@ static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
   auto hostX = cutbench::randomFloats(static_cast<size_t>(s.rows) * s.cols, 42);
   const size_t outElems = static_cast<size_t>(s.rows) * s.cols;
 
-  // Device buffers are intentionally leaked: they must outlive registration.
+  // Leaked deliberately: these outlive registration.
   float *dIn = nullptr, *dOut = nullptr;
   CUDA_CHECK(cudaMalloc(&dIn, hostX.size() * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&dOut, outElems * sizeof(float)));
   CUDA_CHECK(cudaMemcpy(dIn, hostX.data(), hostX.size() * sizeof(float),
                         cudaMemcpyHostToDevice));
 
-  // The CUT operand is uploaded ONCE, here, so the timed region below holds
-  // the dispatch and nothing else. Creating them per iteration instead would
-  // cost a host->device upload that the GPU timestamp does not see but the wall
-  // clock does — Google Benchmark keeps iterating until it accumulates enough
-  // *manual* time, so a hidden 3 ms setup behind a 34 us kernel drove the
-  // iteration count past 20000 and the suite never finished. It would also tilt
-  // the comparison: cuDNN uploads dIn exactly once, just above.
-  //
-  // Reusing the handles across iterations is safe. Operations rebuilds its
-  // graph after each flush, but the underlying GPU buffers live in the
-  // TensorStore and stay valid.
+  // Both sides' operands are uploaded ONCE so the timed region is the dispatch
+  // alone. Uploading per iteration would tilt the comparison AND hang the
+  // adaptive loop, which cannot see host-side cost and keeps iterating for
+  // manual time it never accumulates.
   cut::Tensor x =
       runtime.createTensor({s.rows, s.cols}, cut::DataType::Float32, hostX.data());
 
-  // CUT, default variant — whatever the autotuned dispatch table picks, which
-  // is what a caller actually gets.
   auto cutIssue = [&runtime, x]() { runtime.ops().softmax(x, -1); };
 
   cudnnTensorDescriptor_t desc = makeRowDescriptor(s.rows, s.cols);
@@ -135,7 +104,6 @@ static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
   };
   cutbench::TimedFn refTimed = cutbench::cudaTimed(refLaunch);
 
-  // Correctness check runs once at registration time, outside any timing.
   cutbench::CheckResult check;
   {
     auto out = runtime.ops().softmax(x, -1);
@@ -156,11 +124,11 @@ static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
   spec.vendor = "cuDNN";
   spec.shape = "rows=" + std::to_string(s.rows) + " cols=" +
                std::to_string(s.cols);
-  // Memory-bound, so the rate column is GB/s. A numerically stable softmax
-  // really touches the input twice (max pass, then exp/sum pass); this counts
-  // the ideal single-pass traffic, so it is a lower bound on real traffic and
-  // the GB/s is conservative — equally so for both sides, which is what makes
-  // the ratio meaningful even though the absolute figure understates.
+  // Ideal traffic, which neither side achieves: a stable softmax reads twice,
+  // and CUT's composition also materialises the broadcast max, the shifted input
+  // and the exponentials at full size. The understatement is NOT symmetric, so
+  // read the ratio (exact — same denominator both sides) and not the absolute
+  // GB/s. Part of CUT's gap here is bytes moved, not speed.
   spec.bytes = 2.0 * s.rows * s.cols * sizeof(float);
   spec.tolerance = kSoftmaxTolerance;
   spec.check = check;
@@ -168,14 +136,10 @@ static void registerSoftmaxCase(cut::Runtime &runtime, cudnnHandle_t handle,
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);
 }
 
-/// A model-scale softmax, allocated lazily so only one is resident at a time.
-/// See "Lazily-allocated cases" in VendorBench.h.
-///
 /// Attention scores are where softmax gets genuinely large: the score matrix is
-/// heads x queries x keys and never gets written to memory in a fused
-/// implementation, but an unfused one — which is what both sides are here — has
-/// to materialise all of it. That is the case worth measuring, because it is
-/// pure bandwidth over a buffer far bigger than any cache.
+/// heads x queries x keys and never reaches memory in a fused implementation,
+/// but an unfused one — which is what both sides are here — must materialise all
+/// of it. Pure bandwidth over a buffer far bigger than any cache.
 static void registerLargeSoftmaxCase(cut::Runtime &runtime,
                                      cudnnHandle_t handle,
                                      const ModelShape &s) {
@@ -187,17 +151,11 @@ static void registerLargeSoftmaxCase(cut::Runtime &runtime,
   spec.vendor = "cuDNN";
   spec.shape = std::string(s.model) + " rows=" + std::to_string(rows) +
                " cols=" + std::to_string(cols);
-  // Counts the ideal single-pass traffic, as the small cases do: a stable
-  // softmax really reads the input twice. Conservative in the same way for both
-  // sides, so the ratio still means what it says.
-  spec.bytes = 2.0 * elems * sizeof(float);
-  // Two full-size buffers on the cuDNN side (in, out) and six on CUT's.
-  // Operations::softmax is a composition — subtract the row max, exp, reduce,
-  // divide — so besides its input and output it materialises the broadcast max,
-  // the shifted input and the exponentials, all at full size. The multiplier is
-  // measured against nvidia-smi rather than counted off the source: a case
-  // sized as though CUT needed only an input and an output aborted the run at
-  // 21 GB resident, and the shapes that do fit peak at ~8x their element count.
+  spec.bytes = 2.0 * elems * sizeof(float); // see the small case
+  // Two full-size buffers on cuDNN's side and six on CUT's, since its softmax is
+  // a composition. The multiplier is measured against nvidia-smi, not counted
+  // off the source: a case sized as though CUT needed only an input and an
+  // output aborted the run at 21 GB resident.
   spec.footprintBytes = 8.0 * elems * sizeof(float);
   spec.tolerance = kSoftmaxTolerance;
   spec.warmupIterations = 1;
@@ -219,6 +177,7 @@ static void registerLargeSoftmaxCase(cut::Runtime &runtime,
     }
     cudnnTensorDescriptor_t desc = makeRowDescriptor(
         static_cast<uint32_t>(rows), static_cast<uint32_t>(cols));
+    // Installed before anything else can fail, so an early return still frees.
     live->release = [dIn, dOut, desc]() {
       cudaFree(dIn);
       cudaFree(dOut);
@@ -226,6 +185,7 @@ static void registerLargeSoftmaxCase(cut::Runtime &runtime,
     };
 
     cut::Tensor x;
+    // Scoped so the host operand is freed once both sides have their copy.
     {
       const std::vector<float> hostX = cutbench::randomFloatsTiled(elems, 42);
       CUDA_CHECK(cudaMemcpy(dIn, hostX.data(), elems * sizeof(float),
@@ -259,7 +219,7 @@ static void registerLargeSoftmaxCase(cut::Runtime &runtime,
 }
 
 int main(int argc, char **argv) {
-  setenv("CUT_PROFILE_QUIET", "1", 1); // Silence CUT's per-dispatch [GPU Profile] stderr log
+  setenv("CUT_PROFILE_QUIET", "1", 1);
 
   cut::Runtime runtime;
   if (!runtime.isCudaAvailable()) {
@@ -271,19 +231,17 @@ int main(int argc, char **argv) {
   runtime.setProfilingEnabled(true);
 
   // CUT creates its own CUDA driver context and makes it current, so the CUDA
-  // runtime API and cuDNN calls below bind to that same context — both sides
-  // allocate from and run on the same device.
+  // runtime API and cuDNN bind to that same context.
   cudnnHandle_t handle;
   CUDNN_CHECK(cudnnCreate(&handle));
 
-  // Two families that stress opposite reduction strategies. Softmax over
-  // attention scores is many-short-rows, so the parallelism comes from the row
-  // count and a whole row fits in one workgroup's registers. Softmax over vocab
-  // logits is few-very-long-rows, so the parallelism has to come from *within*
-  // a row — a cross-workgroup reduction, or nothing runs wide. A kernel can be
-  // excellent at one and useless at the other, which is why both are here.
-  // Every `cols` value is a multiple of 4, keeping CUT's innermost-dimension
-  // alignment a no-op and the readback densely packed.
+  // Two families that stress opposite reduction strategies. Attention-score
+  // softmax is many-short-rows, so the parallelism comes from the row count and
+  // a whole row fits one workgroup's registers. Vocab-logit softmax is
+  // few-very-long-rows, so the parallelism has to come from *within* a row — a
+  // cross-workgroup reduction, or nothing runs wide. A kernel can be excellent
+  // at one and useless at the other. Every `cols` is a multiple of 4, keeping
+  // CUT's innermost-dimension alignment a no-op.
   std::vector<Shape> shapes = {
       {4096, 128, "softmax"},  {4096, 512, "softmax"},
       {8192, 1024, "softmax"}, {32768, 256, "softmax"},
@@ -291,18 +249,12 @@ int main(int argc, char **argv) {
       {1, 152064, "softmax"},  {32, 4096, "softmax"},
   };
 
-  // Model-scale softmaxes. The attention cases materialise a full
-  // heads x queries x keys score matrix, which is what an unfused attention
-  // does and what makes softmax a multi-gigabyte operator; the logits cases are
-  // an lm_head output over a whole prefill batch. Both are the shapes that
-  // decide whether the operator still holds its bandwidth when the buffer is
-  // far larger than any cache.
   std::vector<ModelShape> largeShapes = {
       // Llama-3-8B, 32 query heads, 4k context, batch 1: rows = 32 x 4096.
       {"llama3-8b-attn-4k", 131072, 4096},
-      // Same model at 8k context with 8 heads resident. The score matrix grows
-      // with the square of the context, so all 32 heads at 8k would be 100 GB —
-      // this is the shape a head-blocked attention actually materialises.
+      // Same model at 8k with 8 heads resident. The score matrix grows with the
+      // square of the context, so all 32 heads at 8k would be 100 GB — this is
+      // what a head-blocked attention actually materialises.
       {"llama3-8b-attn-8k-8h", 65536, 8192},
       // FLUX.1: 24 heads over 4096 image + 512 text tokens.
       {"flux-dit-attn", 110592, 4608},
@@ -310,16 +262,13 @@ int main(int argc, char **argv) {
       {"sd35-large-attn", 155648, 4096},
       // Llama-3-8B lm_head output for a 4k-token prefill: 128256 vocabulary.
       {"llama3-8b-logits-4k", 4096, 128256},
-      // Qwen2.5-14B, the widest vocabulary in common use, over 2k tokens.
       {"qwen2.5-14b-logits-2k", 2048, 152064},
-      // Gemma-2-27B: 256000 tokens of vocabulary, the widest in common use, over
-      // a 1k-token batch. Row length here is 2000x the attention cases', which
-      // is the whole span this operator has to cover with one strategy.
+      // Row length here is 2000x the attention cases', which is the span this
+      // operator has to cover with one strategy.
       {"gemma2-27b-logits-1k", 1024, 256000},
-      // A single 16k-context attention head. Long context makes the score matrix
-      // square and enormous rather than wide-and-short, so the row reduction and
-      // the row count are equally large — the case that breaks a kernel tuned
-      // for one or the other.
+      // A single 16k-context head: square and enormous rather than
+      // wide-and-short, so the row reduction and the row count are equally
+      // large — the case that breaks a kernel tuned for one or the other.
       {"llama3-8b-attn-16k-1h", 16384, 16384},
   };
 
@@ -330,15 +279,9 @@ int main(int argc, char **argv) {
 
   const int rc = cutbench::runAll(argc, argv);
 
-  // Explicit teardown. Letting the Runtime destructor run at end of main
-  // segfaults, so shut down while the CUDA context is still in a known state.
-  // This is safe here and only here: runAll has returned, so no registered
-  // benchmark lambda will touch the runtime again.
-  //
-  // The cuDNN handle and the cudnnTensorDescriptor_t descriptors are deliberately NOT
-  // freed. They have to outlive every registered lambda, and the process exits
-  // on the next line — the OS reclaims them. Freeing them before runAll would
-  // tear down state the benchmarks still use.
+  // Order is required: runAll clears the registry so the captured Tensor
+  // handles are released while the runtime is still up. Letting the Runtime
+  // destructor run at end of main instead segfaults.
   runtime.shutdown();
   return rc;
 }

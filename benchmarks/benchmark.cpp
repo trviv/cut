@@ -28,10 +28,6 @@
 
 using namespace cut;
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 static std::vector<float> randomFloats(size_t n, unsigned seed = 42) {
   std::mt19937 rng(seed);
   std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
@@ -140,10 +136,6 @@ static void printSingleRow(const char *desc, const TimingResult &r) {
             << r.std_ms << std::endl;
 }
 
-// ============================================================================
-// MatMul helpers
-// ============================================================================
-
 static std::vector<float> cpuMatmul(const std::vector<float> &A,
                                     const std::vector<float> &B,
                                     uint32_t M,
@@ -169,10 +161,6 @@ static float verifyResult(const std::vector<float> &gpu,
   }
   return maxErr;
 }
-
-// ============================================================================
-// MatMul Benchmark
-// ============================================================================
 
 static void benchmarkMatMul(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\nMatMul Shader Variant Benchmark" << std::endl;
@@ -261,10 +249,6 @@ static void benchmarkMatMul(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// MatMulQ8 Benchmark
-// ============================================================================
-
 static void benchmarkMatMulQ8(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nMatMulQ8 Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -332,10 +316,6 @@ static void benchmarkMatMulQ8(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// MatMulSiLU Benchmark
-// ============================================================================
-
 static void benchmarkMatMulSiLU(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nMatMulSiLU Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -377,10 +357,6 @@ static void benchmarkMatMulSiLU(Runtime &runtime, int warmup, int iterations) {
               << std::setprecision(1) << gflops << " GFLOPS)" << std::endl;
   }
 }
-
-// ============================================================================
-// Transpose Benchmark
-// ============================================================================
 
 static void benchmarkTranspose(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nTranspose Shader Variant Benchmark" << std::endl;
@@ -446,10 +422,6 @@ static void benchmarkTranspose(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// Dot Product Benchmark
-// ============================================================================
-
 static void benchmarkDot(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nDot Product Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -475,10 +447,6 @@ static void benchmarkDot(Runtime &runtime, int warmup, int iterations) {
     printSingleRow(desc.c_str(), r);
   }
 }
-
-// ============================================================================
-// Conv1D Benchmark
-// ============================================================================
 
 static void benchmarkConv1D(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nConv1D Shader Variant Benchmark" << std::endl;
@@ -519,10 +487,6 @@ static void benchmarkConv1D(Runtime &runtime, int warmup, int iterations) {
     }
   }
 }
-
-// ============================================================================
-// Conv2D Benchmark
-// ============================================================================
 
 static void benchmarkConv2D(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nConv2D Shader Variant Benchmark" << std::endl;
@@ -565,10 +529,6 @@ static void benchmarkConv2D(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// MaxPool2D Benchmark
-// ============================================================================
-
 static void benchmarkMaxPool2D(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nMaxPool2D Shader Variant Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -606,10 +566,6 @@ static void benchmarkMaxPool2D(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// AvgPool2D Benchmark
-// ============================================================================
-
 static void benchmarkAvgPool2D(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nAvgPool2D Shader Variant Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -646,10 +602,6 @@ static void benchmarkAvgPool2D(Runtime &runtime, int warmup, int iterations) {
     }
   }
 }
-
-// ============================================================================
-// ReduceDim Benchmark
-// ============================================================================
 
 static void benchmarkReduceDim(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nReduceDim Shader Variant Benchmark (ReduceSum)"
@@ -697,10 +649,6 @@ static void benchmarkReduceDim(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// Unary Ops Benchmark
-// ============================================================================
-
 static void benchmarkUnaryOps(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nUnary Ops Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -744,10 +692,6 @@ static void benchmarkUnaryOps(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// Binary Ops Benchmark
-// ============================================================================
-
 static void benchmarkBinaryOps(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nBinary Ops Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -784,10 +728,6 @@ static void benchmarkBinaryOps(Runtime &runtime, int warmup, int iterations) {
     }
   }
 }
-
-// ============================================================================
-// Softmax Benchmark
-// ============================================================================
 
 static void benchmarkSoftmax(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nSoftmax Benchmark" << std::endl;
@@ -836,10 +776,6 @@ static void benchmarkSoftmax(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// LayerNorm Benchmark
-// ============================================================================
-
 static void benchmarkLayerNorm(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nLayerNorm Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -887,10 +823,6 @@ static void benchmarkLayerNorm(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// RMSNorm Benchmark
-// ============================================================================
-
 static void benchmarkRMSNorm(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nRMSNorm Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -935,10 +867,6 @@ static void benchmarkRMSNorm(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// Embedding Benchmark
-// ============================================================================
-
 static void benchmarkEmbedding(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nEmbedding Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -980,10 +908,6 @@ static void benchmarkEmbedding(Runtime &runtime, int warmup, int iterations) {
     printSingleRow("Embedding", r);
   }
 }
-
-// ============================================================================
-// Sort Benchmark
-// ============================================================================
 
 static void benchmarkSort(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nSort Benchmark" << std::endl;
@@ -1052,10 +976,6 @@ static void benchmarkSort(Runtime &runtime, int warmup, int iterations) {
   }
 }
 
-// ============================================================================
-// Cast Benchmark
-// ============================================================================
-
 static void benchmarkCast(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nCast Benchmark" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
@@ -1094,10 +1014,6 @@ static void benchmarkCast(Runtime &runtime, int warmup, int iterations) {
     printSingleRow("Float16 -> Float32", rF16toF32);
   }
 }
-
-// ============================================================================
-// Attention Benchmark
-// ============================================================================
 
 static void benchmarkAttention(Runtime &runtime, int warmup, int iterations) {
   std::cout << "\n\nAttention Benchmark" << std::endl;
@@ -1146,10 +1062,6 @@ static void benchmarkAttention(Runtime &runtime, int warmup, int iterations) {
     printSingleRow("Attention", r);
   }
 }
-
-// ============================================================================
-// Main
-// ============================================================================
 
 int main() {
   Runtime runtime;

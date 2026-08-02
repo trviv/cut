@@ -19,6 +19,7 @@
 #include "impl/rmsnorm/RMSNormOp.h"
 #include "impl/scan/ScanOp.h"
 #include "impl/softmax/SoftmaxOp.h"
+#include "impl/softmax/SoftmaxVariants.generated.h"
 #include "impl/sort/SortOp.h"
 #include "impl/ternary/TernaryOp.h"
 #include "impl/transpose/TransposeOp.h"
@@ -463,6 +464,14 @@ Tensor Operations::softmax(const Tensor &a, int dim) {
   if (dim < 0)
     dim = ndim + dim;
 
+  // One kernel beats nine. The composition below reads the input four times and
+  // materialises three full-size intermediates (the broadcast max, the shifted
+  // input, the exponentials); the fused node does the whole thing in one
+  // dispatch with one read and one write. It only exists for Float32/Float16,
+  // so the composition stays as the fallback for every other dtype.
+  if (getCompiledSoftmax(0, getDtype(a), getDtype(a)).has_value())
+    return softmaxFused(a, dim);
+
   // softmax(x, dim) = exp(x - max(x, dim)) / sum(exp(x - max(x, dim)), dim)
   // All ops stay on GPU via reduce + unsqueeze + expand + elementwise ops.
   Tensor maxVal = reduce(OperatorEnum::ReduceMax, a, dim);
@@ -481,6 +490,10 @@ Tensor Operations::logSoftmax(const Tensor &a, int dim) {
   int ndim = static_cast<int>(shape.size());
   if (dim < 0)
     dim = ndim + dim;
+
+  // Same story as softmax() above: prefer the single fused dispatch.
+  if (getCompiledSoftmax(1, getDtype(a), getDtype(a)).has_value())
+    return logSoftmaxFused(a, dim);
 
   // logSoftmax(x, dim) = (x - max) - log(sum(exp(x - max), dim))
   Tensor maxVal = reduce(OperatorEnum::ReduceMax, a, dim);

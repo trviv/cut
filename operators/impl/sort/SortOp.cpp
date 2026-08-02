@@ -32,18 +32,26 @@ void buildOneSweepGraph(TensorStore *store,
   constexpr uint32_t BLOCK = 256;
 
   // Scatter tile size is backend-specific and MUST match the scatter kernel's
-  // compile-time TILE: the CUDA kernel (OneSweepScatter.cu) uses KPT=4 elements
-  // per thread (TILE = BLOCK*4 = 1024) for fewer/shorter look-back chains and
-  // coalesced writes at scale; the Vulkan kernel (OneSweepScatter.shader) uses
-  // one element per thread (TILE = BLOCK).
+  // compile-time TILE: the CUDA kernel (OneSweepScatter.cu) uses KPT=8 elements
+  // per thread (TILE = BLOCK*8 = 2048) for fewer/shorter look-back chains, a
+  // smaller look-back state buffer to zero, and coalesced writes at scale; the
+  // Vulkan kernel (OneSweepScatter.shader) uses one element per thread
+  // (TILE = BLOCK).
   bool isCuda = (store->caps().backend == ComputeBackend::CUDA);
-  uint32_t elemsPerTile = isCuda ? (BLOCK * 4u) : BLOCK;
+  uint32_t elemsPerTile = isCuda ? (BLOCK * 12u) : BLOCK;
 
   uint32_t numTiles =
       std::max((numElements + elemsPerTile - 1) / elemsPerTile, 1u);
-  // The global-histogram kernel processes one element per thread, so its grid
-  // must cover all N regardless of the scatter tile size.
-  uint32_t histTiles = std::max((numElements + BLOCK - 1) / BLOCK, 1u);
+  // The global-histogram kernel is PERSISTENT: each block zeroes a private
+  // 4*256-word shared histogram and merges it back with global atomics, so a
+  // grid sized to cover N one-element-per-thread pays that fixed cost once per
+  // 256 elements and never gets out of its own way (measured 92 GB/s on a
+  // 3090). Cap the grid instead and let each block grid-stride over its share.
+  // 512 blocks x 256 threads is 131072 threads, enough to fill any current GPU,
+  // and it keeps the merge at 512 atomics per histogram slot.
+  constexpr uint32_t kHistMaxBlocks = 512;
+  uint32_t histTiles = std::min(
+      std::max((numElements + BLOCK - 1) / BLOCK, 1u), kHistMaxBlocks);
 
   Tensor globalHist =
       store->acquireTempBuffer(NUM_PASSES * RADIX, DataType::UInt32);
@@ -85,7 +93,8 @@ void buildOneSweepGraph(TensorStore *store,
   {
     struct HistPC {
       uint32_t numElements;
-    } pc{numElements};
+      uint32_t numGroups; ///< Grid size; the kernel strides by numGroups*BLOCK.
+    } pc{numElements, histTiles};
     subOps.push_back(std::make_unique<InternalOpNode>(
         InternalOneSweepGlobalHist, DataType::Float32,
         std::vector<Tensor>{keysHandle, globalHist}, globalHist,
@@ -93,10 +102,11 @@ void buildOneSweepGraph(TensorStore *store,
   }
 
   // 4. Per-pass exclusive scan of the global histogram (4 independent 256-wide
-  //    scans; running sum resets at each pass boundary).
+  //    scans; running sum resets at each pass boundary). One block, one thread
+  //    per digit.
   subOps.push_back(std::make_unique<InternalOpNode>(
       InternalOneSweepGlobalScan, DataType::Float32,
-      std::vector<Tensor>{globalHist}, globalHist, ThreadSize{1, 1, 1},
+      std::vector<Tensor>{globalHist}, globalHist, ThreadSize{RADIX, 1, 1},
       std::vector<uint8_t>{}, true));
 
   // 5. Four decoupled-look-back scatter passes (ping-pong; 4 passes lands the

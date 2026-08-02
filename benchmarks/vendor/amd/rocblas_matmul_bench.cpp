@@ -1,28 +1,23 @@
 /// CUT MatMul vs AMD rocBLAS (rocblas_sgemm).
 ///
-/// CUT is timed with GPU hardware timestamps via Runtime::lastDispatchTimings();
-/// rocBLAS is timed with HIP events. Both numbers therefore measure kernel
-/// execution, not host-side submit/wait. Correctness is checked by default so a
-/// fast-but-wrong CUT kernel cannot look like a win.
+/// rocBLAS is timed with one HIP event pair around one launch. CUT is timed by
+/// SUMMING its per-dispatch GPU timestamps — not by the submit span the CUDA
+/// benches use, because Vulkan does not implement one and timeCutOnce falls back
+/// to the sum there. Correctness is checked by default so a fast-but-wrong CUT
+/// kernel cannot look like a win.
+///
+/// That fallback is a second reason not to read these numbers as
+/// apples-to-apples, and it tilts the same way as the first. A sum of kernel
+/// spans excludes the gaps between a multi-dispatch op's kernels and its own
+/// launch latency; the vendor's event pair, recorded on an idle GPU, contains
+/// both. So CUT is flattered here in a way it is not in the CUDA benches, where
+/// both sides are one event pair around one submission.
 ///
 /// IMPORTANT: CUT has no HIP backend, so the CUT side here runs on the VULKAN
 /// backend while the reference calls rocBLAS. That is a fair end-user
 /// comparison — it is what a CUT caller actually gets on an AMD GPU — but it is
 /// not the apples-to-apples kernel comparison that the CUDA benches are.
-/// Record that caveat with any numbers published from this bench.
-///
-/// Usage:
-///   ./build/benchmarks/vendor/amd/rocblas_matmul_bench \
-///       [--benchmark_repetitions=N] [--benchmark_filter=REGEX] \
-///       [--benchmark_out=PATH --benchmark_out_format=json]
-///
-/// Every case is registered twice, as cut/<op>/<shape> and rocBLAS/<op>/<shape>, so
-/// --benchmark_filter='^cut/' runs only the CUT side. Pass
-/// --benchmark_repetitions=5 to get median/stddev/cv rows.
-///
-/// Correctness is checked ONCE per shape at registration time, outside any timed
-/// region, and reported as the max_diff and ref_mag counters on both sides of the
-/// pair.
+/// Record both caveats with any numbers published from this bench.
 
 #include "VendorBench.h"
 #include <ComputeCommon.h>
@@ -37,8 +32,8 @@
 using namespace cut;
 using namespace cutbench;
 
-// Implemented in rocblas_wrappers.hip (hipcc). Declared here so this
-// translation unit needs no HIP header at all.
+// Implemented in rocblas_wrappers.hip (hipcc), so this translation unit needs
+// no HIP header at all.
 extern "C" {
 void *rocbMalloc(size_t bytes);
 void rocbFree(void *p);
@@ -56,14 +51,9 @@ void rocbSgemm(void *handle, const float *dA, const float *dB, float *dC, int M,
                int K, int N);
 }
 
-/// Wraps a HIP launch in a start/stop event pair, returning the GPU-measured
-/// milliseconds for that one launch. This is the cutbench::TimedFn the vendor
-/// side of every pair is registered with; Google Benchmark calls it once per
-/// iteration under UseManualTime().
-///
 /// The events are created once and owned by the returned closure, so the
-/// per-iteration cost is a record/sync pair rather than an allocation. They
-/// are deliberately never destroyed — the closure outlives main().
+/// per-iteration cost is a record/sync pair rather than an allocation. They are
+/// deliberately never destroyed — the closure outlives main().
 static cutbench::TimedFn hipTimed(std::function<void()> launch) {
   void *start = rocbEventCreate();
   void *stop = rocbEventCreate();
@@ -87,24 +77,18 @@ static void registerMatmulCase(cut::Runtime &runtime, void *handle,
   auto hostB = cutbench::randomFloats(static_cast<size_t>(s.K) * s.N, 123);
   const size_t outElems = static_cast<size_t>(s.M) * s.N;
 
-  // Device buffers are intentionally leaked: they must outlive registration.
+  // Leaked deliberately: these outlive registration.
   float *dA = static_cast<float *>(rocbMalloc(hostA.size() * sizeof(float)));
   float *dB = static_cast<float *>(rocbMalloc(hostB.size() * sizeof(float)));
   float *dC = static_cast<float *>(rocbMalloc(outElems * sizeof(float)));
   rocbMemcpyH2D(dA, hostA.data(), hostA.size() * sizeof(float));
   rocbMemcpyH2D(dB, hostB.data(), hostB.size() * sizeof(float));
 
-  // The CUT operands are uploaded ONCE, here, so the timed region below holds
-  // the dispatch and nothing else. Creating them per iteration instead would
-  // cost a host->device upload that the GPU timestamp does not see but the wall
-  // clock does — Google Benchmark keeps iterating until it accumulates enough
-  // *manual* time, so a hidden 3 ms setup behind a 34 us kernel drove the
-  // iteration count past 20000 and the suite never finished. It would also tilt
-  // the comparison: rocBLAS uploads dA/dB exactly once, just above.
+  // Both sides' operands are uploaded ONCE so the timed region is the dispatch
+  // alone. Uploading per iteration would tilt the comparison AND hang the
+  // adaptive loop, which cannot see host-side cost and keeps iterating for
+  // manual time it never accumulates.
   //
-  // Reusing the handles across iterations is safe. Operations rebuilds its
-  // graph after each flush, but the underlying GPU buffers live in the
-  // TensorStore and stay valid.
   cut::Tensor a =
       runtime.createTensor({s.M, s.K}, cut::DataType::Float32, hostA.data());
   cut::Tensor b =
@@ -121,7 +105,6 @@ static void registerMatmulCase(cut::Runtime &runtime, void *handle,
   };
   cutbench::TimedFn refTimed = hipTimed(refLaunch);
 
-  // Correctness check runs once at registration time, outside any timing.
   cutbench::CheckResult check;
   {
     auto out = runtime.ops().matmul(a, b);
@@ -141,7 +124,7 @@ static void registerMatmulCase(cut::Runtime &runtime, void *handle,
   spec.vendor = "rocBLAS";
   spec.shape = "M=" + std::to_string(s.M) + " K=" + std::to_string(s.K) +
                " N=" + std::to_string(s.N);
-  spec.flops = 2.0 * s.M * s.K * s.N; // compute-bound: rate counter is FLOPS
+  spec.flops = 2.0 * s.M * s.K * s.N;
   // Matches the cuBLAS f32 bench. Unlike that one this bound is NOT measured —
   // no ROCm hardware here — so it is the first thing to re-check if these cases
   // fail on a real build rather than assuming CUT is broken.

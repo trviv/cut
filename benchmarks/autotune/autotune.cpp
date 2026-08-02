@@ -4,15 +4,9 @@
 /// variants. Supports MatMul and Transpose initially, extensible to more
 /// operators.
 ///
-/// Usage:
-///   cmake --build build --target autotune
-///   ./build/benchmarks/autotune/autotune [warmup] [iterations] [output_file] [op]
-/// where [op] is one of: all (default) | transpose | matmul | scan — autotune
-/// just that operator (e.g. skip the long MatMul sweep when only Scan changed).
-///
-/// Output: JSON written to output_file (default: autotune_raw.json).
-/// Progress is printed to stderr.
-/// Prefer using: ./scripts/bench/autotune.sh (builds, runs, and derives rules).
+/// Prefer ./scripts/bench/autotune.sh, which builds, runs and derives rules.
+/// Takes [warmup] [iterations] [output_file] [op], where op is
+/// all (default) | transpose | matmul | scan.
 
 #include "impl/matmul/MatMulVariants.generated.h"
 #include "impl/scan/ScanOp.h"
@@ -54,16 +48,12 @@ struct BenchResult {
   double mean_ms;
 };
 
-// GPU-timestamp timing (matches op_bench's timeOpGpu): issue -> flush -> sum the
-// per-dispatch gpuMicros from Runtime::lastDispatchTimings(). This isolates the
-// kernel's GPU time, excluding host-side tensor setup and — critically — the
-// per-iteration launch/submit/device-sync overhead that a host wall-clock timer
-// includes. That overhead (~50-75us with ~10us jitter) previously swamped the
-// 1-2us differences between fast bandwidth-bound kernels, making the "best
-// variant" pick essentially noise; GPU timestamps resolve them. `issue` should
-// allocate its own fresh inputs each call (avoids graph result caching), and it
-// must NOT flush — this helper owns the flush. Requires
-// runtime.setProfilingEnabled(true).
+// GPU-timestamp timing, matching op_bench's timeOpGpu. Excluding host-side
+// launch/submit/device-sync overhead matters here: at ~50-75us with ~10us
+// jitter it swamped the 1-2us differences between fast bandwidth-bound kernels,
+// making the "best variant" pick essentially noise. `issue` should allocate its
+// own fresh inputs each call (avoids graph result caching) and must NOT flush —
+// this helper owns the flush. Requires runtime.setProfilingEnabled(true).
 static BenchResult timeGpu(Runtime &runtime,
                            const std::function<void()> &issue, int warmup,
                            int iters) {

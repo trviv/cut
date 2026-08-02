@@ -1,4 +1,4 @@
-# NVIDIA vendor-library comparisons (cuBLAS today; cuDNN / cuVS to follow).
+# NVIDIA vendor-library comparisons: cuBLAS, cuDNN and CUB.
 #
 # Requires the CUT CUDA backend, since the comparison runs both sides on the
 # same device inside one process. Configure with:

@@ -5,12 +5,6 @@
 /// kernel execution rather than host-side submit/wait overhead. Backend
 /// selectable (Vulkan or CUDA).
 ///
-/// Usage:
-///   ./build/benchmarks/op_bench [--backend vulkan|cuda] [--warmup N]
-///                               [--iters N] [--out PATH]
-///
-/// Output: JSON written to PATH (default: op_bench.json).
-/// Progress is printed to stderr.
 
 #include "impl/matmul/MatMulVariants.generated.h"
 #include "impl/transpose/TransposeVariants.generated.h"
@@ -72,11 +66,8 @@ static Stat computeStat(std::vector<double> v) {
   return s;
 }
 
-// Runs `issue` (records ONE op into the graph) `warmup` times to trigger kernel
-// compilation and warm caches, then `iters` timed runs. Each timed run:
-// issue -> flush -> sum lastDispatchTimings() gpuMicros. GPU timestamps exclude
-// host-side tensor setup, so `issue` may allocate fresh inputs each call (which
-// also avoids graph result caching).
+// GPU timestamps exclude host-side tensor setup, so `issue` may allocate fresh
+// inputs each call — which also avoids graph result caching.
 static Stat timeOpGpu(Runtime &rt, const std::function<void()> &issue,
                       int warmup, int iters) {
   for (int i = 0; i < warmup; i++) {

@@ -23,3 +23,13 @@ add_executable(scan_verify
 target_include_directories(scan_verify PRIVATE ${BENCH_INCLUDE_DIRS})
 target_link_libraries(scan_verify PRIVATE CUTLib)
 target_compile_options(scan_verify PRIVATE -O2)
+
+# Per-dispatch attribution + host-reference correctness check for the OneSweep
+# radix sort. The vendor benchmark reports one number for all 8 dispatches; this
+# says which of them the time is in.
+add_executable(sort_ab
+    sort_ab.cpp
+)
+target_include_directories(sort_ab PRIVATE ${BENCH_INCLUDE_DIRS})
+target_link_libraries(sort_ab PRIVATE CUTLib)
+target_compile_options(sort_ab PRIVATE -O2)

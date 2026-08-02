@@ -8,12 +8,18 @@
 
 // OneSweep global histogram (Vulkan): one pass over the keys counting all
 // NUM_PASSES 8-bit digit-places at once into globalHist[pass * RADIX + digit].
-// Each workgroup owns one tile of WG_SIZE elements, builds a local histogram in
-// shared memory, then atomically merges it into the global histogram. Native
-// CUDA counterpart lives in OneSweepGlobalHist.cu (selected on the CUDA
-// backend); semantics kept in lockstep.
+//
+// PERSISTENT GRID. Each workgroup owns a private NUM_PASSES * RADIX shared
+// histogram it has to zero on entry and merge into global on exit — 1024 shared
+// stores plus up to 1024 global atomics of fixed cost per workgroup. One
+// workgroup per WG_SIZE elements made that overhead per-element rather than
+// per-tile and dominated the kernel. The caller caps the group count instead
+// (kHistMaxBlocks in SortOp.cpp) and passes it in pc.numGroups; each group
+// grid-strides over its share. Native CUDA counterpart lives in
+// OneSweepGlobalHist.cu; semantics kept in lockstep.
 struct PushConstants {
     uint numElements;
+    uint numGroups;
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -31,9 +37,8 @@ void main(uint3 GTid : SV_GroupThreadID, uint3 Gid : SV_GroupID) {
     }
     GroupMemoryBarrierWithGroupSync();
 
-    // One element per thread (grid == numTiles workgroups covers all elements).
-    uint idx = Gid.x * WG_SIZE + tid;
-    if (idx < pc.numElements) {
+    const uint stride = WG_SIZE * pc.numGroups;
+    for (uint idx = Gid.x * WG_SIZE + tid; idx < pc.numElements; idx += stride) {
         uint key = keys[idx];
         for (uint p = 0; p < NUM_PASSES; p++) {
             uint digit = (key >> (p * 8u)) & 0xFFu;

@@ -1,19 +1,14 @@
-/// CUT prefix scan and radix sort vs NVIDIA CUB (cub::DeviceScan /
-/// cub::DeviceRadixSort) on the same GPU, in the same process.
+/// CUT prefix scan and radix sort vs NVIDIA CUB, same GPU, same process, same
+/// context.
 ///
 /// Both operators are memory-bound, so the rate column reports GB/s rather than
-/// GFLOPS. CUT is timed with GPU hardware timestamps via
-/// Runtime::lastDispatchTimings(); CUB is timed with CUDA events. The CUB calls
-/// themselves live in cub_wrappers.cu behind a C ABI, since CUB needs nvcc.
+/// GFLOPS. Both sides are one CUDA event pair around one launch; see
+/// "Methodology" in the README for what each window contains. Both windows hold
+/// the same work — CUT's scan is a look-back descriptor zero-fill plus the scan
+/// kernel, and CUB's DeviceScan likewise clears its own scratch inside the call
+/// it is timed around.
 ///
-/// Usage:
-///   ./build-cuda-rel/benchmarks/vendor/cuda/cub_scan_sort_bench \
-///       [--benchmark_repetitions=N] [--benchmark_filter=REGEX] \
-///       [--benchmark_out=PATH --benchmark_out_format=json]
-///
-/// Every case is registered twice, as cut/<op>/<shape> and CUB/<op>/<shape>, so
-/// --benchmark_filter='^cut/' runs only the CUT side. Pass
-/// --benchmark_repetitions=5 to get median/stddev/cv rows.
+/// The CUB calls live in cub_wrappers.cu behind a C ABI, since CUB needs nvcc.
 
 #include "VendorBench.h"
 
@@ -34,8 +29,7 @@
 using namespace cut;
 using namespace cutbench;
 
-// Implemented in cub_wrappers.cu (nvcc). Declared here so this translation unit
-// needs no CUB header.
+// Implemented in cub_wrappers.cu (nvcc).
 extern "C" {
 size_t cubInclusiveSumTempBytes(int n);
 size_t cubExclusiveSumTempBytes(int n);
@@ -59,11 +53,6 @@ void cubSortPairsU32(void *temp, size_t tempBytes, const uint32_t *keysIn,
     }                                                                          \
   } while (0)
 
-/// Wraps a CUDA launch in a start/stop event pair, returning the GPU-measured
-/// milliseconds for that one launch. This is the cutbench::TimedFn the vendor
-/// side of every pair is registered with; Google Benchmark calls it once per
-/// iteration under UseManualTime().
-///
 /// The events are created once and owned by the returned closure, so the
 /// per-iteration cost is a record/sync pair rather than an allocation.
 static cutbench::TimedFn cudaTimed(std::function<void()> launch) {
@@ -85,28 +74,18 @@ static cutbench::TimedFn cudaTimed(std::function<void()> launch) {
 static const std::vector<int> kCounts = {1 << 16, 1 << 20, 1 << 22, 1 << 24};
 
 /// Element counts taken from real models rather than the power-of-two sweep.
-///
-/// Both operators here have a specific job inside an inference loop, and the job
-/// fixes N:
-///   * SAMPLING. A top-k or top-p step sorts one row of logits and takes the
-///     cumulative sum of the sorted probabilities, so N is exactly the
-///     vocabulary. Vocabularies run 32000 to 256000 across models in common use
-///     — an 8x spread, easily enough to change which strategy wins.
-///   * MoE ROUTING. The dispatch builds per-expert offsets with a prefix sum
-///     over tokens x experts, then permutes the tokens by expert id with a sort.
-///     N is the batch's token count times the expert count.
-///   * VISION NMS. Detection heads sort a few thousand boxes by score, which is
-///     the small-N end where launch overhead, not bandwidth, decides.
-///
-/// None of these are power-of-two, and that is the point: the sweep above hides
-/// tail-tile handling that a 152064-element run walks straight into.
+/// Both operators have a specific job inside an inference loop, and the job
+/// fixes N: sampling (N = the vocabulary), MoE routing (N = tokens x experts),
+/// vision NMS (a few thousand boxes, where launch overhead decides). None of
+/// these are powers of two, which is the point — the sweep above hides tail-tile
+/// handling that a 152064-element run walks straight into.
 struct ModelCount {
-  const char *model; ///< e.g. "llama3-8b-vocab"
+  const char *model;
   int n;
-  /// Skip the sort registrations for this size. Set on the batched-sampling
-  /// shapes: CUT's multi-pass sortRadix runs ~2000x slower than CUB, so an 8M
-  /// entry would cost more wall time than the rest of the suite combined while
-  /// telling us nothing the 256000-entry case does not.
+  /// Skip the sort registrations. Set on the batched-sampling shapes: CUT's
+  /// multi-pass sortRadix runs ~2000x slower than CUB, so an 8M entry would cost
+  /// more wall time than the rest of the suite combined while telling us nothing
+  /// the 256000-entry case does not.
   bool scanOnly = false;
 };
 
@@ -127,9 +106,8 @@ static const std::vector<ModelCount> kModelCounts = {
     {"llama3-8b-batch64-logits", 8208384, true},   // 64 x 128256
 };
 
-/// Which CUT radix entry point to exercise. All three sort the same data with
-/// the same contract; comparing them against one CUB reference shows which CUT
-/// strategy comes closest.
+/// All three sort the same data with the same contract; comparing them against
+/// one CUB reference shows which CUT strategy comes closest.
 enum class SortVariant { Radix, SinglePass, OneSweep };
 
 static const char *sortVariantName(SortVariant v) {
@@ -171,19 +149,19 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n,
   auto hostIn = cutbench::randomFloats(static_cast<size_t>(n), 42);
   const size_t inBytes = static_cast<size_t>(n) * sizeof(float);
 
-  // Device buffers are intentionally leaked: they must outlive registration.
+  // Leaked deliberately: these outlive registration.
   float *dIn = nullptr, *dOut = nullptr;
   CUDA_CHECK(cudaMalloc(&dIn, inBytes));
   CUDA_CHECK(cudaMalloc(&dOut, inBytes));
   CUDA_CHECK(cudaMemcpy(dIn, hostIn.data(), inBytes, cudaMemcpyHostToDevice));
 
-  // The CUT operands are uploaded ONCE, here, so the timed region below holds
-  // the dispatch and nothing else. Creating them per iteration instead would
-  // cost a host->device upload that the GPU timestamp does not see but the wall
-  // clock does — Google Benchmark keeps iterating until it accumulates enough
-  // *manual* time, so a hidden 3 ms setup behind a 34 us kernel drove the
-  // iteration count past 20000 and the suite never finished. It would also tilt
-  // the comparison: cuBLAS uploads dA/dB exactly once, just above.
+  // Both sides' operands are uploaded ONCE so the timed region is the dispatch
+  // alone. Uploading per iteration would tilt the comparison AND hang the
+  // adaptive loop, which cannot see host-side cost and keeps iterating for
+  // manual time it never accumulates.
+  //
+  // Both sides scan out of place into a distinct destination: CUB dIn -> dOut,
+  // CUT `in` -> the tensor prefixScan returns. Same traffic, same contract.
   cut::Tensor in = rt.createTensor({static_cast<uint32_t>(n)},
                                    cut::DataType::Float32, hostIn.data());
 
@@ -197,7 +175,6 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n,
   auto refLaunch = [=]() { c.runFn(dTemp, tempBytes, dIn, dOut, n); };
   cutbench::TimedFn refTimed = cudaTimed(refLaunch);
 
-  // Correctness check runs once at registration time, outside any timing.
   cutbench::CheckResult check;
   {
     auto out = rt.ops().prefixScan(in, c.op);
@@ -220,10 +197,9 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n,
                "N=" + std::to_string(n);
   spec.bytes = 2.0 * n * sizeof(float); // one read + one write per element
   // A parallel scan sums in a different order than a sequential one, so f32
-  // drift accumulates with N and is expected rather than suspicious — 3.97e-03
-  // at N=16M against a ref_mag of 462, i.e. ~9e-6 relative. Gated loosely at
-  // 1e-3 (100x the measured worst case): tight enough that a scan producing
-  // garbage still fails, loose enough that reordering drift never does.
+  // drift accumulates with N and is expected — ~9e-6 relative at N=16M. 1e-3 is
+  // 100x the measured worst case: tight enough that a scan producing garbage
+  // still fails, loose enough that reordering drift never does.
   spec.tolerance = cutbench::Tolerance::rel(1e-3);
   spec.check = check;
 
@@ -236,9 +212,21 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
                              const std::vector<uint32_t> &refKeys,
                              cutbench::TimedFn refTimed,
                              const char *model = nullptr) {
-  // The sorts are in-place and destructive, so the operand cannot be hoisted.
-  // Instead, we create the tensors once and re-upload the unsorted data at the
-  // start of every timed call.
+  // The sorts are in-place and destructive, so the operand cannot be hoisted;
+  // the tensors are created once and refilled at the start of every timed call.
+  // That refill is a synchronous cuMemcpyHtoD on another stream and completes
+  // before the CUT command buffer is submitted, so it is outside the measured
+  // span — the CUB side is likewise handed an input it did not have to place.
+  //
+  // The two destination contracts differ in wording but not in cost. CUT sorts
+  // in place; CUB cannot (SortPairs requires distinct in/out). Both are
+  // nonetheless FIXED-DESTINATION sorts over 4 passes of 8-bit digits, and 4 is
+  // even, so each ping-pongs against one alternate buffer and lands on its
+  // mandated side with no extra copy: CUT keys -> alt -> keys -> alt -> keys
+  // (SortOp.cpp buildOneSweepGraph), CUB in -> temp -> out -> temp -> out.
+  // Per-pass traffic is identical. Neither side is given CUB's cheaper
+  // DoubleBuffer contract, which permits finishing in whichever buffer the last
+  // pass reached and is a weaker guarantee than CUT can offer.
   cut::Tensor keys = rt.createTensor({static_cast<uint32_t>(n)},
                                      cut::DataType::UInt32, hostKeys.data());
   cut::Tensor vals = rt.createTensor({static_cast<uint32_t>(n)},
@@ -251,18 +239,12 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
     runSort(rt, v, keys, vals);
   };
 
-  // The refill is a host->device upload the GPU timestamp does not see but the
-  // wall clock does, so Google Benchmark's adaptive loop would run unbounded here.
-  // Ten iterations with --benchmark_repetitions is enough to get a stable median.
-  // Also, CUT's multi-pass sortRadix is pathologically slow (seconds per call at
-  // N=16M), so an adaptive count would be intolerable regardless.
   cutbench::CaseSpec spec;
+  // Pinned, not adaptive: the refill is host-side cost the manual-time loop
+  // cannot see, so the adaptive count would run unbounded. CUT's multi-pass
+  // sortRadix also takes seconds per call at N=16M.
   spec.iterations = 10;
 
-  // Correctness: run cutIssue() once, then copy the KEY tensor back (the sorts
-  // are in-place and return void) into std::vector<uint32_t> cutKeys(n), and
-  // count mismatches against refKeys. max_diff is a MISMATCH COUNT, not a float
-  // delta: sorted uint32 keys must agree with CUB exactly, so 0 is the only pass.
   cutbench::CheckResult check;
   {
     cutIssue();
@@ -274,8 +256,8 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
         mismatches += 1.0;
     }
     check.maxAbsDiff = mismatches;
-    // Sorted keys have no meaningful "magnitude"; mark the reference as
-    // non-empty so the all-zero-output warning does not fire on a good sort.
+    // Sorted keys have no meaningful "magnitude"; mark the reference non-empty
+    // so the all-zero-output warning does not fire on a good sort.
     check.refMeanAbs = 1.0;
   }
 
@@ -283,11 +265,10 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
   spec.vendor = "CUB";
   spec.shape = (model ? std::string(model) + " " : std::string()) +
                "N=" + std::to_string(n);
-  // keys + values, each read once and written once.
-  spec.bytes = 2.0 * n * 2 * sizeof(uint32_t);
-  // max_diff is a mismatch COUNT here, so the gate is absolute and the limit is
-  // zero: sorted uint32 keys either agree with CUB exactly or the sort is
-  // wrong. A relative bound would be nonsense against a synthetic ref_mag of 1.
+  spec.bytes = 2.0 * n * 2 * sizeof(uint32_t); // keys + values, read and written
+  // max_diff is a mismatch COUNT here, not a float delta, so the gate is
+  // absolute and the limit is zero. A relative bound would be nonsense against a
+  // synthetic ref_mag of 1.
   spec.tolerance = cutbench::Tolerance::exact();
   spec.check = check;
 
@@ -295,7 +276,7 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
 }
 
 int main(int argc, char **argv) {
-  setenv("CUT_PROFILE_QUIET", "1", 1); // Silence CUT's per-dispatch [GPU Profile] stderr log
+  setenv("CUT_PROFILE_QUIET", "1", 1);
 
   cut::Runtime runtime;
   if (!runtime.isCudaAvailable()) {
@@ -324,10 +305,9 @@ int main(int argc, char **argv) {
     }
   }
 
-  // hostKeys/hostVals/refKeys must outlive registration because registerSortCase
-  // captures them by reference. Reserved up front as well: the closures outlive
-  // this loop, so a push_back that reallocated the outer vector would dangle
-  // every reference handed out on a previous iteration.
+  // Captured by reference by registerSortCase, so these must outlive
+  // registration — and be reserved up front, since a push_back that reallocated
+  // would dangle every reference handed out on a previous iteration.
   std::vector<std::vector<uint32_t>> keyStore, valStore, refStore;
   const size_t sortCases = kCounts.size() + kModelCounts.size();
   keyStore.reserve(sortCases);
@@ -356,7 +336,7 @@ int main(int argc, char **argv) {
 
     const size_t keyBytes = static_cast<size_t>(n) * sizeof(uint32_t);
 
-    // CUB reference, run once per size: it is the same for all three variants.
+    // One CUB reference per size, shared by all three CUT variants.
     uint32_t *dKeysIn = nullptr, *dKeysOut = nullptr;
     uint32_t *dValsIn = nullptr, *dValsOut = nullptr;
     CUDA_CHECK(cudaMalloc(&dKeysIn, keyBytes));
@@ -379,9 +359,9 @@ int main(int argc, char **argv) {
     };
     cutbench::TimedFn refTimed = cudaTimed(refLaunch);
 
-    // Run the reference once before reading it: cudaTimed only wraps the
-    // launch, so without this dKeysOut still holds uninitialised memory and
-    // every key would appear to mismatch.
+    // Run the reference once before reading it: cudaTimed only wraps the launch,
+    // so without this dKeysOut still holds uninitialised memory and every key
+    // would appear to mismatch.
     refLaunch();
     CUDA_CHECK(cudaDeviceSynchronize());
     std::vector<uint32_t> refKeys(static_cast<size_t>(n));
@@ -398,23 +378,15 @@ int main(int argc, char **argv) {
                        refStore.back(), refTimed, sz.model);
     }
 
-    // The reference device buffers are deliberately NOT freed: refTimed
-    // captured them and is invoked later, during runAll(). Freeing them here
-    // would be a use-after-free. The process exits right after runAll and the
-    // OS reclaims them.
+    // The reference device buffers are NOT freed: refTimed captured them and is
+    // invoked later, during runAll.
   }
 
   const int rc = cutbench::runAll(argc, argv);
 
-  // Explicit teardown. Letting the Runtime destructor run at end of main
-  // segfaults, so shut down while the CUDA context is still in a known state.
-  // This is safe here and only here: runAll has returned, so no registered
-  // benchmark lambda will touch the runtime again.
-  //
-  // The cudaMalloc'd operand and reference buffers are deliberately NOT
-  // freed. They have to outlive every registered lambda, and the process exits
-  // on the next line — the OS reclaims them. Freeing them before runAll would
-  // tear down state the benchmarks still use.
+  // Order is required: runAll clears the registry so the captured Tensor
+  // handles are released while the runtime is still up. Letting the Runtime
+  // destructor run at end of main instead segfaults.
   runtime.shutdown();
   return rc;
 }

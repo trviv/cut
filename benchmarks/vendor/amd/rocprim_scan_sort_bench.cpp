@@ -2,23 +2,24 @@
 /// exclusive_scan / radix_sort_pairs).
 ///
 /// Both operators are memory-bound, so the rate column reports GB/s rather than
-/// GFLOPS. CUT is timed with GPU hardware timestamps via
-/// Runtime::lastDispatchTimings(); rocPRIM is timed with HIP events.
+/// GFLOPS. rocPRIM is timed with one HIP event pair around one launch. CUT is
+/// timed by SUMMING its per-dispatch GPU timestamps — not by the submit span the
+/// CUDA benches use, because Vulkan does not implement one and timeCutOnce falls
+/// back to the sum there.
+///
+/// That fallback is a second reason not to read these numbers as
+/// apples-to-apples, and it tilts the same way as the first. A sum of kernel
+/// spans excludes the gaps between a multi-dispatch op's kernels and its own
+/// launch latency; the vendor's event pair, recorded on an idle GPU, contains
+/// both. It matters most here, where CUT's scan is two dispatches and its sort
+/// is ten. So CUT is flattered in a way it is not in the CUDA benches, where
+/// both sides are one event pair around one submission.
 ///
 /// IMPORTANT: CUT has no HIP backend, so the CUT side here runs on the VULKAN
 /// backend while the reference calls rocPRIM. That is a fair end-user
 /// comparison — it is what a CUT caller actually gets on an AMD GPU — but it is
 /// not the apples-to-apples kernel comparison that the CUDA benches are.
-/// Record that caveat with any numbers published from this bench.
-///
-/// Usage:
-///   ./build/benchmarks/vendor/amd/rocprim_scan_sort_bench \
-///       [--benchmark_repetitions=N] [--benchmark_filter=REGEX] \
-///       [--benchmark_out=PATH --benchmark_out_format=json]
-///
-/// Every case is registered twice, as cut/<op>/<shape> and rocPRIM/<op>/<shape>, so
-/// --benchmark_filter='^cut/' runs only the CUT side. Pass
-/// --benchmark_repetitions=5 to get median/stddev/cv rows.
+/// Record both caveats with any numbers published from this bench.
 
 #include "VendorBench.h"
 #include <ComputeCommon.h>
@@ -36,8 +37,8 @@
 using namespace cut;
 using namespace cutbench;
 
-// Implemented in rocprim_wrappers.hip (hipcc). Declared here so this
-// translation unit needs no HIP header at all.
+// Implemented in rocprim_wrappers.hip (hipcc), so this translation unit needs
+// no HIP header at all.
 extern "C" {
 void *rocpMalloc(size_t bytes);
 void rocpFree(void *p);
@@ -61,14 +62,9 @@ void rocpSortPairsU32(void *temp, size_t tempBytes, const uint32_t *keysIn,
                       uint32_t *valsOut, int n);
 }
 
-/// Wraps a HIP launch in a start/stop event pair, returning the GPU-measured
-/// milliseconds for that one launch. This is the cutbench::TimedFn the vendor
-/// side of every pair is registered with; Google Benchmark calls it once per
-/// iteration under UseManualTime().
-///
 /// The events are created once and owned by the returned closure, so the
-/// per-iteration cost is a record/sync pair rather than an allocation. They
-/// are deliberately never destroyed — the closure outlives main().
+/// per-iteration cost is a record/sync pair rather than an allocation. They are
+/// deliberately never destroyed — the closure outlives main().
 static cutbench::TimedFn hipTimed(std::function<void()> launch) {
   void *start = rocpEventCreate();
   void *stop = rocpEventCreate();
@@ -126,19 +122,16 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n) {
   auto hostIn = cutbench::randomFloats(static_cast<size_t>(n), 42);
   const size_t inBytes = static_cast<size_t>(n) * sizeof(float);
 
-  // Device buffers are intentionally leaked: they must outlive registration.
+  // Leaked deliberately: these outlive registration.
   float *dIn = nullptr, *dOut = nullptr;
   dIn = static_cast<float *>(rocpMalloc(inBytes));
   dOut = static_cast<float *>(rocpMalloc(inBytes));
   rocpMemcpyH2D(dIn, hostIn.data(), inBytes);
 
-  // The CUT operands are uploaded ONCE, here, so the timed region below holds
-  // the dispatch and nothing else. Creating them per iteration instead would
-  // cost a host->device upload that the GPU timestamp does not see but the wall
-  // clock does — Google Benchmark keeps iterating until it accumulates enough
-  // *manual* time, so a hidden 3 ms setup behind a 34 us kernel drove the
-  // iteration count past 20000 and the suite never finished. It would also tilt
-  // the comparison: rocPRIM uploads dIn exactly once, just above.
+  // Both sides' operands are uploaded ONCE so the timed region is the dispatch
+  // alone. Uploading per iteration would tilt the comparison AND hang the
+  // adaptive loop, which cannot see host-side cost and keeps iterating for
+  // manual time it never accumulates.
   cut::Tensor in = rt.createTensor({static_cast<uint32_t>(n)},
                                    cut::DataType::Float32, hostIn.data());
 
@@ -152,7 +145,6 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n) {
   auto refLaunch = [=]() { c.runFn(dTemp, tempBytes, dIn, dOut, n); };
   cutbench::TimedFn refTimed = hipTimed(refLaunch);
 
-  // Correctness check runs once at registration time, outside any timing.
   cutbench::CheckResult check;
   {
     auto out = rt.ops().prefixScan(in, c.op);
@@ -201,18 +193,12 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
     runSort(rt, v, keys, vals);
   };
 
-  // The refill is a host->device upload the GPU timestamp does not see but the
-  // wall clock does, so Google Benchmark's adaptive loop would run unbounded here.
-  // Ten iterations with --benchmark_repetitions is enough to get a stable median.
-  // Also, CUT's multi-pass sortRadix is pathologically slow (seconds per call at
-  // N=16M), so an adaptive count would be intolerable regardless.
+  // Pinned, not adaptive: the refill is host-side cost the manual-time loop
+  // cannot see, so the adaptive count would run unbounded. CUT's multi-pass
+  // sortRadix also takes seconds per call at N=16M.
   cutbench::CaseSpec spec;
   spec.iterations = 10;
 
-  // Correctness: run cutIssue() once, then copy the KEY tensor back (the sorts
-  // are in-place and return void) into std::vector<uint32_t> cutKeys(n), and
-  // count mismatches against refKeys. max_diff is a MISMATCH COUNT, not a float
-  // delta: sorted uint32 keys must agree with rocPRIM exactly, so 0 is the only pass.
   cutbench::CheckResult check;
   {
     cutIssue();
@@ -232,10 +218,9 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
   spec.op = sortVariantName(v);
   spec.vendor = "rocPRIM";
   spec.shape = "N=" + std::to_string(n);
-  // keys + values, each read once and written once.
   spec.bytes = 2.0 * n * 2 * sizeof(uint32_t);
-  // max_diff is a mismatch COUNT here, so the only passing value is zero —
-  // sorted uint32 keys either agree with rocPRIM exactly or the sort is wrong.
+  // max_diff is a mismatch COUNT here, not a float delta, so the gate is
+  // absolute and the limit is zero.
   spec.tolerance = cutbench::Tolerance::exact();
   spec.check = check;
 
@@ -262,10 +247,9 @@ int main(int argc, char **argv) {
     }
   }
 
-  // hostKeys/hostVals/refKeys must outlive registration because registerSortCase
-  // captures them by reference. Reserved up front as well: the closures outlive
-  // this loop, so a push_back that reallocated the outer vector would dangle
-  // every reference handed out on a previous iteration.
+  // Captured by reference by registerSortCase, so these must outlive
+  // registration — and be reserved up front, since a push_back that reallocated
+  // would dangle every reference handed out on a previous iteration.
   std::vector<std::vector<uint32_t>> keyStore, valStore, refStore;
   keyStore.reserve(kCounts.size());
   valStore.reserve(kCounts.size());
@@ -303,9 +287,9 @@ int main(int argc, char **argv) {
     };
     cutbench::TimedFn refTimed = hipTimed(refLaunch);
 
-    // Run the reference ONCE and synchronise BEFORE reading refKeys back — the
-    // hipTimed() helper only wraps the launch, so without this the reference output
-    // buffer still holds uninitialised memory and every key appears to mismatch.
+    // Run the reference once before reading it: hipTimed only wraps the launch,
+    // so without this the output buffer still holds uninitialised memory and
+    // every key would appear to mismatch.
     refLaunch();
     rocpDeviceSynchronize();
     std::vector<uint32_t> refKeys(static_cast<size_t>(n));
@@ -321,23 +305,15 @@ int main(int argc, char **argv) {
                        refStore.back(), refTimed);
     }
 
-    // The reference device buffers are deliberately NOT freed: refTimed
-    // captured them and is invoked later, during runAll(). Freeing them here
-    // would be a use-after-free. The process exits right after runAll and the
-    // OS reclaims them.
+    // The reference device buffers are NOT freed: refTimed captured them and is
+    // invoked later, during runAll.
   }
 
   const int rc = cutbench::runAll(argc, argv);
 
-  // Explicit teardown. Letting the Runtime destructor run at end of main
-  // segfaults, so shut down while the HIP context is still in a known state.
-  // This is safe here and only here: runAll has returned, so no registered
-  // benchmark lambda will touch the runtime again.
-  //
-  // The rocPRIM device buffers are deliberately NOT freed. They have to outlive
-  // every registered lambda, and the process exits on the next line — the OS
-  // reclaims them. Freeing them before runAll would tear down state the benchmarks
-  // still use.
+  // Order is required: runAll clears the registry so the captured Tensor
+  // handles are released while the runtime is still up. Letting the Runtime
+  // destructor run at end of main instead segfaults.
   runtime.shutdown();
   return rc;
 }

@@ -47,6 +47,8 @@ SoftmaxOpNode::SoftmaxOpNode(OperatorEnum op,
     inOuterStride_ = alignedBufInner_;
   }
 
+  cudaRowMapping_ = store.caps().backend == ComputeBackend::CUDA;
+
   inputs_ = {a};
   output_ = store.createTensorEmpty(outputShape(), outputDtype());
 }
@@ -67,8 +69,16 @@ std::vector<uint32_t> SoftmaxOpNode::outputShape() const {
 
 ThreadSize SoftmaxOpNode::dispatchSize() const {
   uint32_t numSlices = outerSize_ * innerSize_;
-  uint32_t gridX = numSlices * 256;
-  return {gridX, 1, 1};
+  if (!cudaRowMapping_) {
+    // HLSL/SPIR-V shape: one workgroup per slice, always.
+    return {numSlices * kSoftmaxWgSize, 1, 1};
+  }
+  // The native CUDA kernel gives a short row one warp rather than a whole
+  // block, so a block covers WG_SIZE/threadsPerRow rows and the grid shrinks by
+  // the same factor. SoftmaxCommon.cuh recomputes this split from reduceSize.
+  uint32_t rowsPerBlock = kSoftmaxWgSize / softmaxThreadsPerRow(reduceSize_);
+  uint32_t blocks = (numSlices + rowsPerBlock - 1) / rowsPerBlock;
+  return {blocks * kSoftmaxWgSize, 1, 1};
 }
 
 std::vector<uint8_t> SoftmaxOpNode::pushConstants() const {

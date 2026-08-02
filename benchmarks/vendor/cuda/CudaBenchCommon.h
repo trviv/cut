@@ -1,9 +1,6 @@
-/// CUDA-side helpers shared by the NVIDIA vendor benchmarks.
-///
-/// VendorBench.h has to stay free of CUDA headers so the AMD executables can
-/// include it; everything here is the CUDA half that could not live there —
-/// event timing, the VRAM budget the model-scale cases are gated on, and the
-/// sampled readback they check correctness with.
+/// CUDA-side helpers shared by the NVIDIA vendor benchmarks. VendorBench.h has
+/// to stay free of CUDA headers so the AMD executables can include it;
+/// everything here is the CUDA half that could not live there.
 #pragma once
 
 #include "VendorBench.h"
@@ -31,11 +28,6 @@
 
 namespace cutbench {
 
-/// Wraps a CUDA launch in a start/stop event pair, returning the GPU-measured
-/// milliseconds for that one launch. This is the TimedFn the vendor side of
-/// every pair is registered with; Google Benchmark calls it once per iteration
-/// under UseManualTime().
-///
 /// The events are created once and owned by the returned closure, so the
 /// per-iteration cost is a record/sync pair rather than an allocation.
 inline TimedFn cudaTimed(std::function<void()> launch) {
@@ -54,21 +46,15 @@ inline TimedFn cudaTimed(std::function<void()> launch) {
   };
 }
 
-// ===========================================================================
-// VRAM budget
-// ===========================================================================
-
 /// Device bytes a single model-scale case may hold across both sides.
 ///
-/// Derived from what is actually free when the benchmark starts, not from the
-/// card's nameplate size: CUT's context, its buffer cache and anything else
-/// already on the GPU have to come off the top, and on a shared machine that is
-/// not a small number. Override with CUT_VENDOR_BENCH_VRAM_GB to force a
-/// budget — useful for reproducing another card's case selection, and for
-/// checking that the skip path works without needing a smaller GPU.
+/// Derived from what is actually free at startup, not from the card's nameplate:
+/// CUT's context, its buffer cache and anything else already on the GPU come off
+/// the top, and on a shared machine that is not small. Override with
+/// CUT_VENDOR_BENCH_VRAM_GB to reproduce another card's case selection, or to
+/// check the skip path without needing a smaller GPU.
 ///
-/// Only one lazy case is resident at a time, so this is a per-case ceiling
-/// rather than a total for the binary.
+/// Only one lazy case is resident at a time, so this is a per-case ceiling.
 inline size_t vramBudgetBytes() {
   static const size_t budget = []() -> size_t {
     if (const char *env = std::getenv("CUT_VENDOR_BENCH_VRAM_GB")) {
@@ -89,8 +75,7 @@ inline size_t vramBudgetBytes() {
   return budget;
 }
 
-/// True if a case of `footprintBytes` fits the budget. Logs the skip if not, so
-/// a short table on a small card is never silently short.
+/// Logs the skip, so a short table on a small card is never silently short.
 inline bool fitsVramBudget(double footprintBytes, const std::string &op,
                            const std::string &shape) {
   if (footprintBytes <= static_cast<double>(vramBudgetBytes()))
@@ -101,13 +86,9 @@ inline bool fitsVramBudget(double footprintBytes, const std::string &op,
   return false;
 }
 
-// ===========================================================================
-// Operand generation
-// ===========================================================================
-
 /// randomFloatsTiled in half precision, without the full-size f32 intermediate
-/// that converting afterwards would need. At these sizes that intermediate is
-/// gigabytes of host memory, on top of the gigabytes the result already costs.
+/// that converting afterwards would need — at these sizes that intermediate is
+/// gigabytes of host memory on top of the gigabytes the result already costs.
 inline std::vector<__half> randomHalvesTiled(size_t n, unsigned seed = 42) {
   const std::vector<float> tile = randomFloatsTiled(std::min<size_t>(n, 65537),
                                                     seed);
@@ -117,21 +98,17 @@ inline std::vector<__half> randomHalvesTiled(size_t n, unsigned seed = 42) {
   return data;
 }
 
-// ===========================================================================
-// Sampled correctness checks
-// ===========================================================================
-
 /// Which slices of an output to read back for the correctness check.
 ///
 /// The small cases compare every element, which stops being possible when the
-/// output is 4 GB and both sides have to be resident on the host at once as
-/// f32. Sampling reads a bounded prefix, middle and suffix instead — enough to
-/// catch a wrong kernel (a GEMM that is wrong is essentially never wrong only in
-/// the unsampled region) without the check costing more than the benchmark.
+/// output is 4 GB and both sides have to be host-resident at once as f32.
+/// Sampling reads a bounded prefix, middle and suffix instead — enough to catch
+/// a wrong kernel (a GEMM that is wrong is essentially never wrong only in the
+/// unsampled region) without the check costing more than the benchmark.
 struct SamplePlan {
   struct Chunk {
     size_t offset; ///< In elements, from the start of the buffer.
-    size_t count;  ///< In elements.
+    size_t count;
   };
   std::vector<Chunk> chunks;
   size_t sampledElems = 0;
@@ -140,8 +117,7 @@ struct SamplePlan {
   bool isComplete() const { return sampledElems == totalElems; }
 };
 
-/// Splits `totalElems` into at most `maxElems` worth of head/middle/tail
-/// slices. Small outputs are covered completely and get a single chunk.
+/// Small outputs are covered completely and get a single chunk.
 inline SamplePlan planSample(size_t totalElems,
                              size_t maxElems = 12u * 1024 * 1024) {
   SamplePlan plan;
@@ -160,7 +136,6 @@ inline SamplePlan planSample(size_t totalElems,
   return plan;
 }
 
-/// Reads the planned slices of a device f32 buffer.
 inline std::vector<float> sampleDeviceFloats(const float *device,
                                              const SamplePlan &plan) {
   std::vector<float> out(plan.sampledElems);
@@ -173,8 +148,7 @@ inline std::vector<float> sampleDeviceFloats(const float *device,
   return out;
 }
 
-/// Reads the planned slices of a device f16 buffer, widened to f32 so it can be
-/// compared against a CUT output that may be stored either way.
+/// Widened to f32 so it can be compared against a CUT output stored either way.
 inline std::vector<float> sampleDeviceHalves(const __half *device,
                                              const SamplePlan &plan) {
   std::vector<__half> raw(plan.sampledElems);
@@ -191,9 +165,8 @@ inline std::vector<float> sampleDeviceHalves(const __half *device,
 }
 
 /// Reads the planned slices of a CUT tensor as f32, whatever it is stored as.
-/// A half-input matmul may hand back Float16 or Float32 depending on which
-/// variant the dispatch table picks, so the dtype is queried rather than
-/// assumed.
+/// The dtype is queried rather than assumed: a half-input matmul may hand back
+/// Float16 or Float32 depending on which variant the dispatch table picks.
 inline std::vector<float> sampleTensor(cut::Runtime &rt, cut::Tensor t,
                                        const SamplePlan &plan) {
   const cut::DataType dtype = rt.getTensor(t).getDtype();
@@ -227,7 +200,7 @@ inline std::vector<float> sampleTensor(cut::Runtime &rt, cut::Tensor t,
 
 /// cudaMalloc that reports failure instead of aborting. The model-scale cases
 /// are gated on vramBudgetBytes(), but a budget is an estimate and losing the
-/// race with another process on the card should skip one case, not kill the run.
+/// race with another process should skip one case, not kill the run.
 template <typename T> inline T *tryDeviceAlloc(size_t bytes) {
   void *p = nullptr;
   if (cudaMalloc(&p, bytes) != cudaSuccess) {

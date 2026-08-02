@@ -1,35 +1,13 @@
-/// CUT vs NVIDIA cuBLAS for f16 GEMM and transpose.
+/// CUT vs NVIDIA cuBLAS for f16 GEMM and transpose, same GPU, same process,
+/// same context.
 ///
-/// CUT is timed with GPU hardware timestamps via Runtime::lastDispatchTimings()
-/// (CUDA events under the hood); cuBLAS is timed with CUDA events directly. Both
-/// numbers therefore measure kernel execution, not host-side submit/wait.
-/// Correctness is checked by default so a fast-but-wrong CUT kernel cannot look
-/// like a win.
+/// Both sides are one CUDA event pair around one launch; see "Methodology" in
+/// the README for what each window contains.
 ///
-/// Usage:
-///   ./build-cuda-rel/benchmarks/vendor/cuda/cublas_extras_bench \
-///       [--benchmark_repetitions=N] [--benchmark_filter=REGEX] \
-///       [--benchmark_out=PATH --benchmark_out_format=json]
-///
-/// Every case is registered twice, as cut/<op>/<shape> and cuBLAS/<op>/<shape>, so
-/// --benchmark_filter='^cut/' runs only the CUT side. Pass
-/// --benchmark_repetitions=5 to get median/stddev/cv rows.
-///
-/// Correctness is checked ONCE per shape, outside any timed region, and reported
-/// as the max_diff and ref_mag counters on both sides of the pair.
-///
-/// Two tiers of shapes. `hgemm` and `transpose` are the round-number set.
-/// `hgemm_large` and `transpose_large` are model-scale — the projections a
-/// 10-20 GB-class network runs at prefill batch sizes, and activation-sized
-/// transposes up to 17 GB live. Those build their operands on first use and free
-/// them when the next case needs the memory, so their correctness check runs
-/// then rather than at registration, and it samples the output rather than
-/// reading all of it back.
-///
-/// Reading the f16 numbers: half carries ~3 decimal digits, so hgemm max_diff is
-/// orders of magnitude larger than the f32 bench's and means nothing in
-/// isolation. Read it against ref_mag — a max_diff a few thousandths of ref_mag
-/// is the expected f16 rounding, anything approaching ref_mag is a real bug.
+/// Two tiers of shapes. `hgemm` and `transpose` are the round-number set;
+/// `hgemm_large` and `transpose_large` are model-scale, and build their operands
+/// on first use, free them when the next case needs the memory, and sample the
+/// output rather than reading all of it back.
 
 #include "CudaBenchCommon.h"
 #include "VendorBench.h"
@@ -64,39 +42,50 @@ struct Shape {
   const char *tag;
 };
 
-/// One GEMM as it appears in a real network, named after where it comes from.
-/// The name is what makes the table readable — "M=32768 K=4096 N=28672" is the
-/// Llama-3-8B fused gate/up projection over a 32k-token batch, and that is the
-/// thing worth knowing about it.
+/// Named after where it comes from — "M=32768 K=4096 N=28672" is the Llama-3-8B
+/// fused gate/up projection over a 32k-token batch, and that is the thing worth
+/// knowing about it.
 struct ModelShape {
-  const char *model; ///< e.g. "llama3-8b-ffn-up"
+  const char *model;
   uint32_t M, K, N;
 };
 
-/// Correctness gate for both f16 GEMM tiers.
+/// Both sides write f32 (see launchHgemm), so what is left is the difference
+/// between two f32 accumulations of the same f16 products in different orders.
 ///
-/// Half carries ~3 decimal digits, so the honest bound here is far looser than
-/// the f32 bench's. Measured across every shape in both tiers, max_diff sits at
-/// 0.031 against a ref_mag of 17 and 0.062 against 31.7 — about 2e-3 relative,
-/// consistently. 1e-2 is five times that, and still ten orders of magnitude
-/// below the 8.4e13 the broken M=1 path produces.
-static const cutbench::Tolerance kHgemmTolerance = cutbench::Tolerance::rel(1e-2);
+/// Measured, that is small: every aligned-M shape is bit-exact against cuBLAS in
+/// both tiers, up to a K=28672 reduction. Only the shapes that miss the coopmat
+/// tiling drift — 2.4e-5 relative at M=16, and 7.5e-5 at the M=1 K=N=8192 GEMV,
+/// the worst case anywhere. 1e-3 is thirteen times that, and still nine orders
+/// of magnitude below the 8.4e13 the broken M=1 path produced.
+///
+/// The old bound was 1e-2, which was not a statement about CUT: with an f16 C
+/// the reference's own storage rounding put every row at ~2e-3 regardless of
+/// what CUT computed, and the gate had to clear it.
+static const cutbench::Tolerance kHgemmTolerance = cutbench::Tolerance::rel(1e-3);
 
 /// Row-major C[M,N] = A[M,K] * B[K,N] under cuBLAS's column-major convention,
 /// computed as C^T = B^T * A^T so neither side is charged for a layout
-/// conversion. Shared by the eager and lazy halves of the f16 GEMM bench.
+/// conversion.
 static void launchHgemm(cublasHandle_t handle, const __half *dA,
-                        const __half *dB, __half *dC, uint32_t M, uint32_t K,
+                        const __half *dB, float *dC, uint32_t M, uint32_t K,
                         uint32_t N) {
   const float alpha = 1.0f, beta = 0.0f;
-  // CUBLAS_COMPUTE_32F keeps the f32 accumulator, so the only difference from
-  // the f32 bench is the input/output storage type, not the math. Dropping to
-  // CUBLAS_COMPUTE_16F would make this a different operator, not a faster one.
+  // CUBLAS_COMPUTE_32F keeps the f32 accumulator, matching CUT's coopmat path
+  // exactly: f16 operands, f32 accumulate. CUBLAS_COMPUTE_16F would make this a
+  // different operator, not a faster one.
+  //
+  // C is CUDA_R_32F because MatMulOpNode::outputDtype() is unconditionally
+  // Float32, so that is what CUT writes. Asking cuBLAS for an f16 C — which this
+  // did until it was corrected — made the two sides different operators: cuBLAS
+  // wrote half the bytes CUT did, and every max_diff was dominated by the
+  // reference's own storage rounding rather than by CUT's arithmetic, which is
+  // precisely the error the gate exists to detect.
   CUBLAS_CHECK(cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N,
                             static_cast<int>(N), static_cast<int>(M),
                             static_cast<int>(K), &alpha, dB, CUDA_R_16F,
                             static_cast<int>(N), dA, CUDA_R_16F,
-                            static_cast<int>(K), &beta, dC, CUDA_R_16F,
+                            static_cast<int>(K), &beta, dC, CUDA_R_32F,
                             static_cast<int>(N), CUBLAS_COMPUTE_32F,
                             CUBLAS_GEMM_DEFAULT));
 }
@@ -113,30 +102,23 @@ static void registerHgemmCase(cut::Runtime &runtime, cublasHandle_t handle,
   const size_t outElems = static_cast<size_t>(s.M) * s.N;
 
   // Both sides are fed the half vectors, not the floats, so neither gets to
-  // start from higher-precision inputs than the other.
+  // start from higher-precision inputs than the other. Uploaded ONCE so the
+  // timed region is the dispatch alone: uploading per iteration would tilt the
+  // comparison AND hang the adaptive loop, which cannot see host-side cost.
   cut::Tensor a =
       runtime.createTensor({s.M, s.K}, cut::DataType::Float16, halfA.data());
   cut::Tensor b =
       runtime.createTensor({s.K, s.N}, cut::DataType::Float16, halfB.data());
 
-  // The CUT operands are uploaded ONCE, here, so the timed region below holds
-  // the dispatch and nothing else. Creating them per iteration instead would
-  // cost a host->device upload that the GPU timestamp does not see but the wall
-  // clock does — Google Benchmark keeps iterating until it accumulates enough
-  // *manual* time, so a hidden 3 ms setup behind a 34 us kernel drove the
-  // iteration count past 20000 and the suite never finished. It would also tilt
-  // the comparison: cuBLAS uploads dA/dB exactly once, just above.
-  //
-  // Reusing the handles across iterations is safe. Operations rebuilds its
-  // graph after each flush, but the underlying GPU buffers live in the
-  // TensorStore and stay valid.
   auto cutIssue = [&runtime, a, b]() { runtime.ops().matmul(a, b); };
 
-  // Device buffers are intentionally leaked: they must outlive registration.
-  __half *dA = nullptr, *dB = nullptr, *dC = nullptr;
+  // Leaked deliberately: these outlive registration. dC is f32, matching what
+  // CUT's matmul writes — see launchHgemm.
+  __half *dA = nullptr, *dB = nullptr;
+  float *dC = nullptr;
   CUDA_CHECK(cudaMalloc(&dA, halfA.size() * sizeof(__half)));
   CUDA_CHECK(cudaMalloc(&dB, halfB.size() * sizeof(__half)));
-  CUDA_CHECK(cudaMalloc(&dC, outElems * sizeof(__half)));
+  CUDA_CHECK(cudaMalloc(&dC, outElems * sizeof(float)));
   CUDA_CHECK(cudaMemcpy(dA, halfA.data(), halfA.size() * sizeof(__half),
                         cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(dB, halfB.data(), halfB.size() * sizeof(__half),
@@ -147,7 +129,6 @@ static void registerHgemmCase(cut::Runtime &runtime, cublasHandle_t handle,
   };
   cutbench::TimedFn refTimed = cudaTimed(refLaunch);
 
-  // Correctness check runs once at registration time, outside any timing.
   cutbench::CheckResult check;
   {
     auto out = runtime.ops().matmul(a, b);
@@ -156,7 +137,7 @@ static void registerHgemmCase(cut::Runtime &runtime, cublasHandle_t handle,
 
     refLaunch();
     CUDA_CHECK(cudaDeviceSynchronize());
-    std::vector<float> refOut = cutbench::sampleDeviceHalves(dC, plan);
+    std::vector<float> refOut = cutbench::sampleDeviceFloats(dC, plan);
 
     check = cutbench::compareBuffers(cutOut, refOut);
   }
@@ -166,17 +147,13 @@ static void registerHgemmCase(cut::Runtime &runtime, cublasHandle_t handle,
   spec.vendor = "cuBLAS";
   spec.shape = "M=" + std::to_string(s.M) + " K=" + std::to_string(s.K) +
                " N=" + std::to_string(s.N);
-  spec.flops = 2.0 * s.M * s.K * s.N; // compute-bound: rate counter is FLOPS
+  spec.flops = 2.0 * s.M * s.K * s.N;
   spec.tolerance = kHgemmTolerance;
   spec.check = check;
 
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);
 }
 
-/// A model-scale f16 GEMM, allocated lazily so only one of them is resident at
-/// a time. See "Lazily-allocated cases" in VendorBench.h for why: these hold
-/// gigabytes per side, and registering a dozen eagerly would exhaust the card
-/// before the first benchmark ran.
 static void registerLargeHgemmCase(cut::Runtime &runtime,
                                    cublasHandle_t handle, const ModelShape &s) {
   const size_t M = s.M, K = s.K, N = s.N;
@@ -188,20 +165,16 @@ static void registerLargeHgemmCase(cut::Runtime &runtime,
   spec.shape = std::string(s.model) + " M=" + std::to_string(M) +
                " K=" + std::to_string(K) + " N=" + std::to_string(N);
   spec.flops = 2.0 * M * K * N;
-  // Both sides hold A and B in f16; the vendor's C is f16 and CUT's is charged
-  // at f32, which is what a coopmat variant would produce. Overestimating the
-  // CUT output is the safe direction — the cost of being wrong is an abort
-  // mid-run rather than one skipped case.
+  // Same operands and same result storage on both sides, so this is a sum
+  // rather than an estimate: two f16 operand pairs and two f32 outputs.
   spec.footprintBytes = 2.0 * (M * K + K * N) * sizeof(__half) +
-                        outElems * (sizeof(__half) + sizeof(float) +
-                                    sizeof(__half));
-  // A single call runs for a good fraction of a second at these sizes, so three
-  // untimed warmups would cost more than the measurement. One is enough to get
-  // the kernel compiled, which is all the warmup is for.
+                        2.0 * outElems * sizeof(float);
   spec.tolerance = kHgemmTolerance;
+  // A single call runs for a good fraction of a second, so three untimed warmups
+  // would cost more than the measurement. Iterations are pinned rather than
+  // adaptive: each issue allocates a multi-GB output tensor, and that allocation
+  // is host-side cost the manual-time loop cannot see.
   spec.warmupIterations = 1;
-  // Pinned rather than adaptive: each issue allocates a multi-GB output tensor,
-  // and that allocation is host-side cost the manual-time loop cannot see.
   spec.iterations = 3;
 
   if (!cutbench::fitsVramBudget(spec.footprintBytes, spec.op, spec.shape))
@@ -213,7 +186,7 @@ static void registerLargeHgemmCase(cut::Runtime &runtime,
 
     __half *dA = cutbench::tryDeviceAlloc<__half>(M * K * sizeof(__half));
     __half *dB = cutbench::tryDeviceAlloc<__half>(K * N * sizeof(__half));
-    __half *dC = cutbench::tryDeviceAlloc<__half>(outElems * sizeof(__half));
+    float *dC = cutbench::tryDeviceAlloc<float>(outElems * sizeof(float));
     if (!dA || !dB || !dC) {
       cudaFree(dA);
       cudaFree(dB);
@@ -228,8 +201,8 @@ static void registerLargeHgemmCase(cut::Runtime &runtime,
     };
 
     cut::Tensor a, b;
-    // Scoped so the host operands — up to a gigabyte here — are freed as soon
-    // as both sides have their copy, rather than living as long as the case.
+    // Scoped so the host operands — up to a gigabyte — are freed as soon as both
+    // sides have their copy, rather than living as long as the case.
     {
       const std::vector<__half> hostA = cutbench::randomHalvesTiled(M * K, 42);
       const std::vector<__half> hostB = cutbench::randomHalvesTiled(K * N, 123);
@@ -252,10 +225,6 @@ static void registerLargeHgemmCase(cut::Runtime &runtime,
     };
     live->refTimed = cutbench::cudaTimed(refLaunch);
 
-    // Correctness, outside any timed region. Sampled rather than exhaustive:
-    // the largest output here is nearly two billion elements, and holding both
-    // sides of it on the host as f32 would cost more memory than the GPU side
-    // of the entire benchmark.
     {
       cut::Tensor out = runtime.ops().matmul(a, b);
       const cutbench::SamplePlan plan = cutbench::planSample(outElems);
@@ -264,7 +233,7 @@ static void registerLargeHgemmCase(cut::Runtime &runtime,
 
       refLaunch();
       CUDA_CHECK(cudaDeviceSynchronize());
-      const std::vector<float> refOut = cutbench::sampleDeviceHalves(dC, plan);
+      const std::vector<float> refOut = cutbench::sampleDeviceFloats(dC, plan);
 
       live->check = cutbench::compareBuffers(cutOut, refOut);
     }
@@ -277,35 +246,24 @@ static void registerTransposeCase(cut::Runtime &runtime, cublasHandle_t handle,
   auto hostA = cutbench::randomFloats(static_cast<size_t>(s.M) * s.N, 42);
   const size_t outElems = static_cast<size_t>(s.N) * s.M;
 
-  // Device buffers are intentionally leaked: they must outlive registration.
+  // Leaked deliberately: these outlive registration.
   float *dA = nullptr, *dC = nullptr;
   CUDA_CHECK(cudaMalloc(&dA, hostA.size() * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&dC, outElems * sizeof(float)));
   CUDA_CHECK(cudaMemcpy(dA, hostA.data(), hostA.size() * sizeof(float),
                         cudaMemcpyHostToDevice));
 
-  // CUT operands are uploaded ONCE, here, so the timed region below holds
-  // the dispatch and nothing else. Creating them per iteration instead would
-  // cost a host->device upload that the GPU timestamp does not see but the wall
-  // clock does — Google Benchmark keeps iterating until it accumulates enough
-  // *manual* time, so a hidden 3 ms setup behind a 34 us kernel drove the
-  // iteration count past 20000 and the suite never finished. It would also tilt
-  // the comparison: cuBLAS uploads dA/dB exactly once, just above.
-  //
-  // Reusing the handles across iterations is safe. Operations rebuilds its
-  // graph after each flush, but the underlying GPU buffers live in the
-  // TensorStore and stay valid.
+  // Uploaded ONCE so the timed region is the dispatch alone. Both sides read one
+  // f32 buffer and write a distinct f32 buffer of the same size — same storage,
+  // same traffic, neither transposing in place.
   cut::Tensor a =
       runtime.createTensor({s.M, s.N}, cut::DataType::Float32, hostA.data());
   auto cutIssue = [&runtime, a]() { runtime.ops().transpose(a); };
 
-  // CUT is row-major, cuBLAS is column-major, and a row-major [M,N]
-  // buffer *is* a column-major [N,M] matrix. So transposing it
-  // column-major-wise (lda=N) into a column-major [M,N] result (ldc=M)
-  // lands exactly the row-major [N,M] buffer CUT produces — no extra
-  // copy, and the reference is not charged for a layout conversion.
-  // B is unused because beta is 0, but geam still requires a valid
-  // pointer, so dA stands in for it.
+  // A row-major [M,N] buffer *is* a column-major [N,M] matrix, so transposing it
+  // column-major-wise (lda=N) into a column-major [M,N] result (ldc=M) lands
+  // exactly the row-major [N,M] buffer CUT produces, with no extra copy. B is
+  // unused because beta is 0, but geam still requires a valid pointer.
   auto refLaunch = [handle, dA, dC, s]() {
     const float alpha = 1.0f, beta = 0.0f;
     CUBLAS_CHECK(cublasSgeam(handle, CUBLAS_OP_T, CUBLAS_OP_N,
@@ -316,7 +274,6 @@ static void registerTransposeCase(cut::Runtime &runtime, cublasHandle_t handle,
   };
   cutbench::TimedFn refTimed = cudaTimed(refLaunch);
 
-  // Correctness check runs once at registration time, outside any timing.
   cutbench::CheckResult check;
   {
     auto out = runtime.ops().transpose(a);
@@ -336,27 +293,20 @@ static void registerTransposeCase(cut::Runtime &runtime, cublasHandle_t handle,
   spec.op = s.tag;
   spec.vendor = "cuBLAS";
   spec.shape = "M=" + std::to_string(s.M) + " N=" + std::to_string(s.N);
-  // Memory-bound, so the rate column is GB/s: every element is read once and
-  // written once, hence the factor of 2. A transpose moves no float that it
-  // does not also have to place, so this is the achievable-bandwidth
-  // denominator.
-  spec.bytes = 2.0 * s.M * s.N * sizeof(float);
+  spec.bytes = 2.0 * s.M * s.N * sizeof(float); // read once, write once
   // A transpose moves values without computing on them, so there is no rounding
   // to allow for: it either places every element correctly or it has a bug.
-  // Measured bit-exact on every shape and every aspect ratio.
   spec.tolerance = cutbench::Tolerance::exact();
   spec.check = check;
 
   cutbench::registerPair(runtime, spec, cutIssue, refTimed);
 }
 
-/// A model-scale transpose, allocated lazily like the large GEMMs above.
-///
-/// This is the cheapest way to reach a genuinely large working set: transpose
-/// moves bytes without doing arithmetic, so a case can hold 17 GB and still run
-/// in milliseconds, where a GEMM over the same footprint would take minutes. It
-/// is also the shape that answers a real question — whether the operator still
-/// hits bandwidth peak when the buffers are far larger than any cache.
+/// The cheapest way to reach a genuinely large working set: transpose moves
+/// bytes without arithmetic, so a case can hold 17 GB and still run in
+/// milliseconds where a GEMM over the same footprint would take minutes. It also
+/// answers a real question — whether the operator still hits bandwidth peak when
+/// the buffers are far larger than any cache.
 static void registerLargeTransposeCase(cut::Runtime &runtime,
                                        cublasHandle_t handle,
                                        const ModelShape &s) {
@@ -403,9 +353,6 @@ static void registerLargeTransposeCase(cut::Runtime &runtime,
     }
 
     live->cutIssue = [&runtime, a]() { runtime.ops().transpose(a); };
-    // Same column-major trick as the small case: a row-major [M,N] buffer is a
-    // column-major [N,M] matrix, so geam with lda=N into ldc=M lands exactly
-    // the row-major [N,M] result CUT produces, with no extra copy.
     auto refLaunch = [handle, dA, dC, M, N]() {
       const float alpha = 1.0f, beta = 0.0f;
       CUBLAS_CHECK(cublasSgeam(handle, CUBLAS_OP_T, CUBLAS_OP_N,
@@ -432,7 +379,7 @@ static void registerLargeTransposeCase(cut::Runtime &runtime,
 }
 
 int main(int argc, char **argv) {
-  setenv("CUT_PROFILE_QUIET", "1", 1); // Silence CUT's per-dispatch [GPU Profile] stderr log
+  setenv("CUT_PROFILE_QUIET", "1", 1);
 
   cut::Runtime runtime;
   if (!runtime.isCudaAvailable()) {
@@ -444,12 +391,10 @@ int main(int argc, char **argv) {
   runtime.setProfilingEnabled(true);
 
   // CUT creates its own CUDA driver context and makes it current, so the CUDA
-  // runtime API and cuBLAS calls below bind to that same context — both sides
-  // allocate from and run on the same device.
+  // runtime API and cuBLAS bind to that same context.
   cublasHandle_t handle;
   CUBLAS_CHECK(cublasCreate(&handle));
-  // Plain FP32: no implicit TF32 downcast, so the comparison is
-  // apples-to-apples with CUT's f32 kernels.
+  // No implicit TF32 downcast against CUT's true f32 kernels.
   CUBLAS_CHECK(cublasSetMathMode(handle, CUBLAS_DEFAULT_MATH));
 
   // The same square / skinny / GEMV mix as the f32 bench, so the two tables can
@@ -463,82 +408,67 @@ int main(int argc, char **argv) {
 
   // Square, wide and tall: a transpose's cost is dominated by how badly the
   // shape defeats coalescing, so one aspect ratio would not be representative.
-  // Every extent is a multiple of 4, which keeps CUT's innermost-dimension
-  // alignment a no-op and the readback densely packed.
+  // Every extent is a multiple of 4, keeping CUT's innermost-dimension alignment
+  // a no-op.
   std::vector<Shape> transposeShapes = {
       {1024, 0, 1024, "transpose"}, {4096, 0, 4096, "transpose"},
       {8192, 0, 1024, "transpose"}, {1024, 0, 8192, "transpose"},
       {8192, 0, 8192, "transpose"},
   };
 
-  // Model-scale GEMMs: the projections a 10-20 GB-class network actually runs,
-  // at prefill/training batch sizes rather than the round numbers above. M is a
-  // token count (batch x sequence), so it is the knob that sets the footprint.
-  //
-  // Every N is a multiple of 4, which keeps CUT's innermost-dimension alignment
-  // a no-op and the sampled readback densely packed.
+  // The projections a 10-20 GB-class network actually runs, at prefill/training
+  // batch sizes. M is a token count (batch x sequence), so it is the knob that
+  // sets the footprint. Every N is a multiple of 4.
   std::vector<ModelShape> largeHgemmShapes = {
-      // Llama-3-8B (16 GB in f16): d=4096, ffn=14336, 32 Q heads + 8 KV heads
-      // of 128, vocab 128256. qkv is the fused projection, 4096+1024+1024.
+      // Llama-3-8B: d=4096, ffn=14336, 32 Q heads + 8 KV heads of 128, vocab
+      // 128256. qkv is the fused projection, 4096+1024+1024.
       {"llama3-8b-qkv", 32768, 4096, 6144},
       {"llama3-8b-ffn-up", 32768, 4096, 28672}, // gate and up, fused
       {"llama3-8b-ffn-down", 32768, 14336, 4096},
       {"llama3-8b-lm-head", 4096, 4096, 128256},
-      // Llama-2-13B (13 GB at Q8): d=5120, ffn=13824.
+      // Llama-2-13B: d=5120, ffn=13824.
       {"llama2-13b-ffn-up", 16384, 5120, 27648},
       {"llama2-13b-attn-out", 16384, 5120, 5120},
-      // Qwen2.5-14B: d=5120 with a 152064-entry vocabulary — the widest lm_head
-      // in common use, and a shape where B alone is 1.5 GB.
+      // Qwen2.5-14B: the widest lm_head in common use, where B alone is 1.5 GB.
       {"qwen2.5-14b-lm-head", 2048, 5120, 152064},
-      // FLUX.1 (12B DiT, 24 GB in f16): d=3072, mlp 12288, 4096 image tokens at
-      // 1024x1024 plus 512 text tokens, batch 4.
+      // FLUX.1 (12B DiT): d=3072, mlp 12288, 4096 image + 512 text tokens,
+      // batch 4.
       {"flux-dit-mlp", 18432, 3072, 12288},
-      // SD3.5-Large (8B MMDiT, 16 GB in f16): d=2432, mlp 9728, batch 4.
+      // SD3.5-Large (8B MMDiT): d=2432, mlp 9728, batch 4.
       {"sd35-large-mlp", 16384, 2432, 9728},
       // ViT-g/14 vision tower: d=1408, mlp 6144, 257 patch tokens, batch 256.
       {"vit-g14-mlp", 65792, 1408, 6144},
-      // Same FFN as llama3-8b-ffn-up at a 64k-token batch: ~13 GB live, the
-      // largest case here that is still a GEMM rather than a bandwidth test.
+      // Same FFN as llama3-8b-ffn-up at a 64k-token batch: ~13 GB live.
       {"llama3-8b-ffn-up-xl", 65536, 4096, 28672},
-      // 70B-class, the tier above everything else here: d=8192, ffn=28672
-      // (57344 fused), 64 Q heads of 128 with 8 KV heads. These are the
-      // projections that decide a large-model prefill, and the shapes where a
-      // tiling tuned against 4096-wide operands stops being the right one.
+      // 70B-class: d=8192, ffn=28672 (57344 fused). The shapes where a tiling
+      // tuned against 4096-wide operands stops being the right one.
       {"llama3-70b-qkv", 8192, 8192, 10240},
       {"llama3-70b-ffn-up", 8192, 8192, 57344},
       {"llama3-70b-ffn-down", 8192, 28672, 8192},
       {"llama3-70b-lm-head", 2048, 8192, 128256},
-      // Gemma-2-27B: a narrower hidden (4608) with an unusually wide FFN
-      // (36864, 73728 fused), so K and N pull in the opposite directions from
-      // Llama's — the aspect ratio, not the size, is what this one tests.
+      // Gemma-2-27B: a narrow hidden (4608) with an unusually wide FFN, so K and
+      // N pull in the opposite directions from Llama's — aspect ratio, not size.
       {"gemma2-27b-ffn-up", 8192, 4608, 73728},
       // InternViT-6B, the vision tower in current VLMs: d=3200, mlp 12800.
       {"internvit-6b-mlp", 16384, 3200, 12800},
   };
 
-  // Activation-sized transposes. Named by the token count they correspond to,
-  // since that is what makes 32768 x 32768 f32 a plausible tensor rather than
-  // an arbitrary one.
+  // Activation-sized transposes, named by the token count they correspond to.
+  // The rectangular ones are what an inference engine actually performs, and
+  // what the square sweep cannot expose: a tiled transpose can hit peak on a
+  // square and still lose a third of it when one side is 30x the other.
   std::vector<ModelShape> largeTransposeShapes = {
       {"act-8k", 8192, 0, 8192},
       {"act-16k", 16384, 0, 16384},
       {"act-32k-x-16k", 32768, 0, 16384},
       {"act-32k", 32768, 0, 32768},
-      // The transposes an inference engine actually performs, as opposed to the
-      // square sweep above: a weight matrix relaid out for a GEMM that wants the
-      // other operand order, and a prefill activation moved between token-major
-      // and feature-major. Both are strongly rectangular, which the square cases
-      // cannot expose — a tiled transpose can hit peak on a square and still
-      // lose a third of it when one side is 30x the other.
       {"llama3-8b-lm-head-w", 128256, 0, 4096},
       {"llama3-8b-qkv-act", 32768, 0, 4096},
       {"vit-g14-tokens", 65792, 0, 1408},
       {"flux-dit-act", 18432, 0, 3072},
-      // 70B-class activation, and the widest lm_head weight that still fits:
-      // 152064 x 5120 needs 12.5 GB for the pair, so this case doubles as a
-      // probe of what happens when a transpose barely fits alongside its own
-      // output.
       {"llama3-70b-qkv-act", 32768, 0, 8192},
+      // 12.5 GB for the pair, so this doubles as a probe of what happens when a
+      // transpose barely fits alongside its own output.
       {"qwen2.5-14b-lm-head-w", 152064, 0, 5120},
   };
 
@@ -553,15 +483,9 @@ int main(int argc, char **argv) {
 
   const int rc = cutbench::runAll(argc, argv);
 
-  // Explicit teardown. Letting the Runtime destructor run at end of main
-  // segfaults, so shut down while the CUDA context is still in a known state.
-  // This is safe here and only here: runAll has returned, so no registered
-  // benchmark lambda will touch the runtime again.
-  //
-  // The cuBLAS handle and the cudaMalloc'd operand buffers are deliberately NOT
-  // freed. They have to outlive every registered lambda, and the process exits
-  // on the next line — the OS reclaims them. Freeing them before runAll would
-  // tear down state the benchmarks still use.
+  // Order is required: runAll clears the registry and evicts the resident lazy
+  // case, so the captured Tensor handles are released while the runtime is still
+  // up. Letting the Runtime destructor run at end of main instead segfaults.
   runtime.shutdown();
   return rc;
 }

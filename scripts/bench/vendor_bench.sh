@@ -17,6 +17,7 @@ FILTER=""
 DO_BUILD=1
 QUICK=0
 NO_LARGE=0
+INTERLEAVE=0
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -29,6 +30,17 @@ while [[ $# -gt 0 ]]; do
     --no-build) DO_BUILD=0; shift ;;
     --quick) QUICK=1; shift ;;
     --no-large) NO_LARGE=1; shift ;;
+    # Removes the systematic ordering bias: without it Google Benchmark runs
+    # cut/<case> to completion and then <vendor>/<case>, so the vendor half
+    # always inherits a card the CUT half just warmed. Measured at ~5% on
+    # compute-bound shapes (and nothing on bandwidth-bound ones), which matters
+    # only for the near-parity rows — hence opt-in rather than default.
+    #
+    # Implies --no-large, and that is not a convenience: random interleaving
+    # reorders repetitions across every registered benchmark, which defeats the
+    # model-scale tier's one-resident-case scheme and would re-upload multiple
+    # gigabytes per repetition instead of once per case.
+    --interleave) INTERLEAVE=1; NO_LARGE=1; shift ;;
     -h|--help)
       echo "Usage: $0 [options]"
       echo ""
@@ -41,6 +53,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --no-build            skip the cmake build step"
       echo "  --quick               skip the two largest sort_radix sizes (N=4M and N=16M)"
       echo "  --no-large            skip the model-scale cases (*_large and every conv2d)"
+      echo "  --interleave          randomly interleave repetitions, removing the"
+      echo "                        cut-then-vendor ordering bias (implies --no-large)"
       echo "  -h|--help             print usage and exit"
       echo ""
       echo "Notes:"
@@ -48,8 +62,8 @@ while [[ $# -gt 0 ]]; do
       echo "    Use --quick to skip the two largest sort sizes."
       echo "  - The model-scale cases hold up to 20 GB of VRAM and take minutes; --no-large"
       echo "    drops them. Cases that do not fit the card are skipped automatically."
-      echo "  - --quick and --no-large combine; either can be used with --filter only if you"
-      echo "    write the exclusion into the filter yourself."
+      echo "  - --quick, --no-large and --interleave combine; any of them can be used with"
+      echo "    --filter only if you write the exclusion into the filter yourself."
       echo "  - Individual binaries take the full Google Benchmark flag set; this script is a"
       echo "    convenience wrapper, not a replacement."
       exit 0
@@ -66,7 +80,7 @@ EXCLUDES=()
 [[ $NO_LARGE -eq 1 ]] && EXCLUDES+=("(_large|conv2d)/")
 if [[ ${#EXCLUDES[@]} -gt 0 ]]; then
   if [[ -n "$FILTER" ]]; then
-    echo "Error: --quick/--no-large and --filter cannot be used together" >&2
+    echo "Error: --quick/--no-large/--interleave and --filter cannot be used together" >&2
     exit 1
   fi
   FILTER="-($(IFS='|'; echo "${EXCLUDES[*]}"))"
@@ -185,6 +199,8 @@ for candidate in "${candidates[@]}"; do
   )
   [[ -n "$MIN_TIME" ]] && flags+=("--benchmark_min_time=$MIN_TIME")
   [[ -n "$FILTER" ]] && flags+=("--benchmark_filter=$FILTER")
+  # Needs --benchmark_repetitions > 1 to do anything, which is always set above.
+  [[ $INTERLEAVE -eq 1 ]] && flags+=("--benchmark_enable_random_interleaving=true")
 
   # rc must be reset every iteration: `|| rc=$?` only assigns on failure, so a
   # stale value would make every benchmark after the first failure report FAILED,
