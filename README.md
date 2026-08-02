@@ -15,8 +15,9 @@ A Vulkan-based GPU compute toolkit: cross-vendor, from-scratch shader pipeline, 
 <!-- BENCH:BADGES -->
 [![transpose vs cuBLAS](https://img.shields.io/badge/transpose_vs_cuBLAS-0.99x-3fb950)](benchmarks/)
 [![scan vs CUB](https://img.shields.io/badge/scan_vs_CUB-0.97x-3fb950)](benchmarks/)
-[![sort_radix_1pass vs CUB](https://img.shields.io/badge/sort__radix__1pass_vs_CUB-0.65x-d29922)](benchmarks/)
 [![sort_radix_1sweep vs CUB](https://img.shields.io/badge/sort__radix__1sweep_vs_CUB-0.65x-d29922)](benchmarks/)
+[![sort_radix_1pass vs CUB](https://img.shields.io/badge/sort__radix__1pass_vs_CUB-0.65x-d29922)](benchmarks/)
+[![conv2d vs cuDNN](https://img.shields.io/badge/conv2d_vs_cuDNN-0.61x-d29922)](benchmarks/)
 [![sgemm vs cuBLAS](https://img.shields.io/badge/sgemm_vs_cuBLAS-0.57x-d29922)](benchmarks/)
 [![sgemv vs cuBLAS](https://img.shields.io/badge/sgemv_vs_cuBLAS-0.55x-d29922)](benchmarks/)
 <!-- /BENCH:BADGES -->
