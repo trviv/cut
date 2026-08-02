@@ -335,6 +335,10 @@ int main(int argc, char **argv) {
       // ViT-g/14 at 336px — the CLIP vision tower in the large multimodal
       // checkpoints. Batch 24, capped the same way.
       {"vit-g14-patch-embed", 24, 3, 336, 1664, 14, 14, 0},
+      // SAM ViT-H patch embedding: 1024px input, 16x16 patches to 1280
+      // channels. The largest stride-16 stem in common use, and the case where
+      // an im2col-based conv has to move far more data than it computes on.
+      {"sam-vit-h-patch-embed", 8, 3, 1024, 1280, 16, 16, 0},
       // SDXL U-Net, top resolution block: 320 channels at 128x128 latent.
       {"sdxl-unet-320ch", 16, 320, 128, 320, 3, 1, 1},
       // SDXL U-Net, middle block: 1280 channels at 32x32.

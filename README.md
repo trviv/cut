@@ -10,6 +10,19 @@ A Vulkan-based GPU compute toolkit: cross-vendor, from-scratch shader pipeline, 
 - **Data types**: `float32`, `float16`, `int32`, `uint32`
 - **Multi-dimensional tensors** with automatic vec4 alignment for GPU efficiency
 
+## Performance
+
+<!-- BENCH:BADGES -->
+[![transpose vs cuBLAS](https://img.shields.io/badge/transpose_vs_cuBLAS-0.99x-3fb950)](benchmarks/)
+[![scan vs CUB](https://img.shields.io/badge/scan_vs_CUB-0.97x-3fb950)](benchmarks/)
+[![sort_radix_1pass vs CUB](https://img.shields.io/badge/sort__radix__1pass_vs_CUB-0.65x-d29922)](benchmarks/)
+[![sort_radix_1sweep vs CUB](https://img.shields.io/badge/sort__radix__1sweep_vs_CUB-0.65x-d29922)](benchmarks/)
+[![sgemm vs cuBLAS](https://img.shields.io/badge/sgemm_vs_cuBLAS-0.57x-d29922)](benchmarks/)
+[![sgemv vs cuBLAS](https://img.shields.io/badge/sgemv_vs_cuBLAS-0.55x-d29922)](benchmarks/)
+<!-- /BENCH:BADGES -->
+
+**Per-shape tables, history and methodology: [benchmarks/](benchmarks/)**
+
 ## Quick Start
 
 ```python
@@ -69,7 +82,8 @@ cc.shutdown()
 
 ## Operations Reference
 
-### Binary Arithmetic (vec-vec and vec-scalar)
+<details>
+<summary><b>Binary Arithmetic (vec-vec and vec-scalar)</b> — 15 ops</summary>
 
 Each operation has both a tensor-tensor variant and a tensor-scalar variant (suffixed with `_scalar`).
 
@@ -91,7 +105,10 @@ Each operation has both a tensor-tensor variant and a tensor-scalar variant (suf
 | `logaddexp` / `logaddexp_scalar` | `torch.logaddexp` | Numerically stable log(exp(a) + exp(b)) |
 | `logaddexp2` / `logaddexp2_scalar` | `torch.logaddexp2` | Base-2 log-sum-exp |
 
-### Comparison Operations (vec-vec and vec-scalar)
+</details>
+
+<details>
+<summary><b>Comparison Operations (vec-vec and vec-scalar)</b> — 6 ops</summary>
 
 Returns `1.0` for True, `0.0` for False.
 
@@ -104,7 +121,10 @@ Returns `1.0` for True, `0.0` for False.
 | `greater` / `greater_scalar` | `torch.gt` | Greater than |
 | `greater_equal` / `greater_equal_scalar` | `torch.ge` | Greater than or equal |
 
-### Bitwise Operations (vec-vec and vec-scalar, integers)
+</details>
+
+<details>
+<summary><b>Bitwise Operations (vec-vec and vec-scalar, integers)</b> — 5 ops</summary>
 
 | CUT | PyTorch | Description |
 |-----|---------|-------------|
@@ -114,7 +134,10 @@ Returns `1.0` for True, `0.0` for False.
 | `left_shift` / `left_shift_scalar` | `torch.bitwise_left_shift` | Left shift |
 | `right_shift` / `right_shift_scalar` | `torch.bitwise_right_shift` | Right shift |
 
-### Logical Operations (vec-vec and vec-scalar)
+</details>
+
+<details>
+<summary><b>Logical Operations (vec-vec and vec-scalar)</b> — 3 ops</summary>
 
 | CUT | PyTorch | Description |
 |-----|---------|-------------|
@@ -122,7 +145,10 @@ Returns `1.0` for True, `0.0` for False.
 | `logical_or` / `logical_or_scalar` | `torch.logical_or` | Logical OR |
 | `logical_xor` / `logical_xor_scalar` | `torch.logical_xor` | Logical XOR |
 
-### Unary Math Operations
+</details>
+
+<details>
+<summary><b>Unary Math Operations</b> — 39 ops</summary>
 
 | CUT | PyTorch | Description |
 |-----|---------|-------------|
@@ -166,7 +192,10 @@ Returns `1.0` for True, `0.0` for False.
 | `isinf` | `torch.isinf` | Check if infinite |
 | `isfinite` | `torch.isfinite` | Check if finite |
 
-### Activation Functions
+</details>
+
+<details>
+<summary><b>Activation Functions</b> — 22 ops</summary>
 
 | CUT | PyTorch | Description |
 |-----|---------|-------------|
@@ -193,7 +222,10 @@ Returns `1.0` for True, `0.0` for False.
 | `softmax` | `F.softmax` | Softmax along dimension |
 | `log_softmax` | `F.log_softmax` | Log-softmax along dimension |
 
-### Reduction Operations
+</details>
+
+<details>
+<summary><b>Reduction Operations</b> — 14 ops</summary>
 
 All reductions support both global (returns scalar) and dimension-wise (returns tensor) via the `dim` parameter.
 
@@ -214,7 +246,10 @@ All reductions support both global (returns scalar) and dimension-wise (returns 
 | `cumsum(x, dim=d)` | `torch.cumsum` | Cumulative sum along dimension |
 | `cumprod(x, dim=d)` | `torch.cumprod` | Cumulative product along dimension |
 
-### Matrix Operations
+</details>
+
+<details>
+<summary><b>Matrix Operations</b> — 3 ops</summary>
 
 | CUT | PyTorch | Description |
 |-----|---------|-------------|
@@ -222,14 +257,20 @@ All reductions support both global (returns scalar) and dimension-wise (returns 
 | `transpose(A)` | `torch.transpose` | Matrix transpose (2D) |
 | `dot(a, b)` | `torch.dot` | Dot product of vectors |
 
-### Ternary Operations
+</details>
+
+<details>
+<summary><b>Ternary Operations</b> — 2 ops</summary>
 
 | CUT | PyTorch | Description |
 |-----|---------|-------------|
 | `clamp(x, min, max)` | `torch.clamp` | Clamp values to [min, max] |
 | `where(cond, x, y)` | `torch.where` | Select x where cond else y |
 
-### Tensor Manipulation
+</details>
+
+<details>
+<summary><b>Tensor Manipulation</b> — 8 ops</summary>
 
 | CUT | PyTorch | Description |
 |-----|---------|-------------|
@@ -242,7 +283,10 @@ All reductions support both global (returns scalar) and dimension-wise (returns 
 | `unsqueeze(x, dim)` | `torch.unsqueeze` | Insert size-1 dimension |
 | `unflatten(x, dim, sizes)` | `torch.unflatten` | Expand a dimension into multiple |
 
-### Tensor Creation
+</details>
+
+<details>
+<summary><b>Tensor Creation</b> — 8 ops</summary>
 
 | CUT | PyTorch | Description |
 |-----|---------|-------------|
@@ -255,7 +299,10 @@ All reductions support both global (returns scalar) and dimension-wise (returns 
 | `ones_like(t)` | `torch.ones_like` | Ones with same shape/dtype |
 | `full_like(t, v)` | `torch.full_like` | Filled with v, same shape/dtype |
 
-### Loss Functions
+</details>
+
+<details>
+<summary><b>Loss Functions</b> — 3 ops</summary>
 
 | CUT | PyTorch | Description |
 |-----|---------|-------------|
@@ -263,13 +310,16 @@ All reductions support both global (returns scalar) and dimension-wise (returns 
 | `l1_loss(input, target)` | `F.l1_loss` | Mean absolute error loss |
 | `cross_entropy_loss(input, target)` | `F.cross_entropy` | Cross-entropy loss (with softmax) |
 
+</details>
+
 ---
 
 ## PyTorch Compatibility Roadmap
 
 Status: **Supported** | Not implemented
 
-### Pointwise Ops
+<details>
+<summary><b>Pointwise Ops</b> — 51/80 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -354,7 +404,10 @@ Status: **Supported** | Not implemented
 | `torch.complex` / `torch.polar` | Not implemented | complex number ops |
 | `torch.real` / `torch.imag` | Not implemented | complex number ops |
 
-### Comparison Ops
+</details>
+
+<details>
+<summary><b>Comparison Ops</b> — 8/21 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -380,7 +433,10 @@ Status: **Supported** | Not implemented
 | `torch.topk` | Not implemented | requires partial sort |
 | `torch.msort` | Not implemented | GPU sort is complex |
 
-### Bitwise Ops
+</details>
+
+<details>
+<summary><b>Bitwise Ops</b> — 6/6 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -391,7 +447,10 @@ Status: **Supported** | Not implemented
 | `torch.bitwise_left_shift` | **Supported** | `cc.left_shift` / `cc.left_shift_scalar` |
 | `torch.bitwise_right_shift` | **Supported** | `cc.right_shift` / `cc.right_shift_scalar` |
 
-### Logical Ops
+</details>
+
+<details>
+<summary><b>Logical Ops</b> — 4/4 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -400,7 +459,10 @@ Status: **Supported** | Not implemented
 | `torch.logical_xor` | **Supported** | `cc.logical_xor` / `cc.logical_xor_scalar` |
 | `torch.logical_not` | **Supported** | `cc.logical_not` |
 
-### Reduction Ops
+</details>
+
+<details>
+<summary><b>Reduction Ops</b> — 14/28 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -433,7 +495,10 @@ Status: **Supported** | Not implemented
 | `torch.unique` / `unique_consecutive` | Not implemented | requires sorting |
 | `torch.count_nonzero` | Not implemented | compose from ne_scalar + sum |
 
-### Matrix / Linear Algebra
+</details>
+
+<details>
+<summary><b>Matrix / Linear Algebra</b> — 3/33 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -471,7 +536,10 @@ Status: **Supported** | Not implemented
 | `torch.tril` / `triu` | Not implemented | triangular matrices |
 | `torch.kron` | Not implemented | Kronecker product |
 
-### Shape / Indexing
+</details>
+
+<details>
+<summary><b>Shape / Indexing</b> — 9/32 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -508,7 +576,10 @@ Status: **Supported** | Not implemented
 | `torch.segment_reduce` | Not implemented | segment reduction |
 | `torch.repeat_interleave` | Not implemented | element repetition |
 
-### Tensor Creation
+</details>
+
+<details>
+<summary><b>Tensor Creation</b> — 8/19 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -532,7 +603,10 @@ Status: **Supported** | Not implemented
 | `torch.from_dlpack` | Not implemented | interop |
 | `torch.frombuffer` / `from_file` | Not implemented | interop |
 
-### Activation Functions
+</details>
+
+<details>
+<summary><b>Activation Functions</b> — 23/28 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -565,7 +639,10 @@ Status: **Supported** | Not implemented
 | `F.softmin` | Not implemented | compose from neg + softmax |
 | `F.gumbel_softmax` | Not implemented | requires GPU PRNG |
 
-### Loss Functions
+</details>
+
+<details>
+<summary><b>Loss Functions</b> — 3/20 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -590,7 +667,10 @@ Status: **Supported** | Not implemented
 | `F.triplet_margin_loss` | Not implemented | |
 | `F.triplet_margin_with_distance_loss` | Not implemented | |
 
-### Other Utility Ops
+</details>
+
+<details>
+<summary><b>Other Utility Ops</b> — 0/18 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -613,7 +693,10 @@ Status: **Supported** | Not implemented
 | `torch.histc` / `histogram` | Not implemented | histograms |
 | `torch.gcd` / `lcm` | Not implemented | integer math |
 
-### Spectral Ops
+</details>
+
+<details>
+<summary><b>Spectral Ops</b> — 0/6 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -624,7 +707,10 @@ Status: **Supported** | Not implemented
 | `torch.hann_window` | Not implemented | window function |
 | `torch.kaiser_window` | Not implemented | window function |
 
-### Random Sampling
+</details>
+
+<details>
+<summary><b>Random Sampling</b> — 0/4 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -633,7 +719,10 @@ Status: **Supported** | Not implemented
 | `torch.normal` | Not implemented | requires GPU PRNG |
 | `torch.poisson` | Not implemented | requires GPU PRNG |
 
-### Neural Network Layers
+</details>
+
+<details>
+<summary><b>Neural Network Layers</b> — 0/23 supported</summary>
 
 | PyTorch | Status | Notes |
 |---------|--------|-------|
@@ -660,6 +749,8 @@ Status: **Supported** | Not implemented
 | `F.grid_sample` / `affine_grid` | Not implemented | spatial transform |
 | `F.pixel_shuffle` / `pixel_unshuffle` | Not implemented | spatial rearrange |
 | `F.scaled_dot_product_attention` | Not implemented | compose from matmul + softmax |
+
+</details>
 
 ---
 

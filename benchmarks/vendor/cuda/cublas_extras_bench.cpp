@@ -500,6 +500,20 @@ int main(int argc, char **argv) {
       // Same FFN as llama3-8b-ffn-up at a 64k-token batch: ~13 GB live, the
       // largest case here that is still a GEMM rather than a bandwidth test.
       {"llama3-8b-ffn-up-xl", 65536, 4096, 28672},
+      // 70B-class, the tier above everything else here: d=8192, ffn=28672
+      // (57344 fused), 64 Q heads of 128 with 8 KV heads. These are the
+      // projections that decide a large-model prefill, and the shapes where a
+      // tiling tuned against 4096-wide operands stops being the right one.
+      {"llama3-70b-qkv", 8192, 8192, 10240},
+      {"llama3-70b-ffn-up", 8192, 8192, 57344},
+      {"llama3-70b-ffn-down", 8192, 28672, 8192},
+      {"llama3-70b-lm-head", 2048, 8192, 128256},
+      // Gemma-2-27B: a narrower hidden (4608) with an unusually wide FFN
+      // (36864, 73728 fused), so K and N pull in the opposite directions from
+      // Llama's — the aspect ratio, not the size, is what this one tests.
+      {"gemma2-27b-ffn-up", 8192, 4608, 73728},
+      // InternViT-6B, the vision tower in current VLMs: d=3200, mlp 12800.
+      {"internvit-6b-mlp", 16384, 3200, 12800},
   };
 
   // Activation-sized transposes. Named by the token count they correspond to,
@@ -510,6 +524,22 @@ int main(int argc, char **argv) {
       {"act-16k", 16384, 0, 16384},
       {"act-32k-x-16k", 32768, 0, 16384},
       {"act-32k", 32768, 0, 32768},
+      // The transposes an inference engine actually performs, as opposed to the
+      // square sweep above: a weight matrix relaid out for a GEMM that wants the
+      // other operand order, and a prefill activation moved between token-major
+      // and feature-major. Both are strongly rectangular, which the square cases
+      // cannot expose — a tiled transpose can hit peak on a square and still
+      // lose a third of it when one side is 30x the other.
+      {"llama3-8b-lm-head-w", 128256, 0, 4096},
+      {"llama3-8b-qkv-act", 32768, 0, 4096},
+      {"vit-g14-tokens", 65792, 0, 1408},
+      {"flux-dit-act", 18432, 0, 3072},
+      // 70B-class activation, and the widest lm_head weight that still fits:
+      // 152064 x 5120 needs 12.5 GB for the pair, so this case doubles as a
+      // probe of what happens when a transpose barely fits alongside its own
+      // output.
+      {"llama3-70b-qkv-act", 32768, 0, 8192},
+      {"qwen2.5-14b-lm-head-w", 152064, 0, 5120},
   };
 
   for (const auto &s : hgemmShapes)

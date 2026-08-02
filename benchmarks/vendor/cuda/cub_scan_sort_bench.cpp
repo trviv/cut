@@ -84,6 +84,49 @@ static cutbench::TimedFn cudaTimed(std::function<void()> launch) {
 
 static const std::vector<int> kCounts = {1 << 16, 1 << 20, 1 << 22, 1 << 24};
 
+/// Element counts taken from real models rather than the power-of-two sweep.
+///
+/// Both operators here have a specific job inside an inference loop, and the job
+/// fixes N:
+///   * SAMPLING. A top-k or top-p step sorts one row of logits and takes the
+///     cumulative sum of the sorted probabilities, so N is exactly the
+///     vocabulary. Vocabularies run 32000 to 256000 across models in common use
+///     — an 8x spread, easily enough to change which strategy wins.
+///   * MoE ROUTING. The dispatch builds per-expert offsets with a prefix sum
+///     over tokens x experts, then permutes the tokens by expert id with a sort.
+///     N is the batch's token count times the expert count.
+///   * VISION NMS. Detection heads sort a few thousand boxes by score, which is
+///     the small-N end where launch overhead, not bandwidth, decides.
+///
+/// None of these are power-of-two, and that is the point: the sweep above hides
+/// tail-tile handling that a 152064-element run walks straight into.
+struct ModelCount {
+  const char *model; ///< e.g. "llama3-8b-vocab"
+  int n;
+  /// Skip the sort registrations for this size. Set on the batched-sampling
+  /// shapes: CUT's multi-pass sortRadix runs ~2000x slower than CUB, so an 8M
+  /// entry would cost more wall time than the rest of the suite combined while
+  /// telling us nothing the 256000-entry case does not.
+  bool scanOnly = false;
+};
+
+static const std::vector<ModelCount> kModelCounts = {
+    {"yolov8-nms-640", 8400},          // YOLOv8 at 640px: 8400 candidate boxes
+    {"llama2-7b-vocab", 32000},        // Llama-2 / Mistral / SD text encoders
+    {"mixtral-8x7b-moe-4k", 32768},    // 4096 tokens x 8 experts
+    {"llama3-8b-vocab", 128256},       // Llama-3 / Llama-3.1
+    {"qwen2.5-14b-vocab", 152064},     // widest vocabulary in common use
+    {"gemma2-9b-vocab", 256000},       // Gemma-2
+    {"mixtral-8x7b-moe-32k", 262144},  // 32768-token prefill x 8 experts
+    // Batched sampling in a server: one top-k/top-p step across a whole
+    // continuous batch is a single scan over batch x vocab, which is where this
+    // operator stops being a microbenchmark and starts being on the critical
+    // path of every decoded token.
+    {"llama3-8b-batch16-logits", 2052096, true},   // 16 x 128256
+    {"qwen2.5-14b-batch32-logits", 4866048, true}, // 32 x 152064
+    {"llama3-8b-batch64-logits", 8208384, true},   // 64 x 128256
+};
+
 /// Which CUT radix entry point to exercise. All three sort the same data with
 /// the same contract; comparing them against one CUB reference shows which CUT
 /// strategy comes closest.
@@ -123,7 +166,8 @@ struct ScanCase {
   void (*runFn)(void *, size_t, const float *, float *, int);
 };
 
-static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n) {
+static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n,
+                             const char *model = nullptr) {
   auto hostIn = cutbench::randomFloats(static_cast<size_t>(n), 42);
   const size_t inBytes = static_cast<size_t>(n) * sizeof(float);
 
@@ -172,7 +216,8 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n) {
   cutbench::CaseSpec spec;
   spec.op = c.name;
   spec.vendor = "CUB";
-  spec.shape = "N=" + std::to_string(n);
+  spec.shape = (model ? std::string(model) + " " : std::string()) +
+               "N=" + std::to_string(n);
   spec.bytes = 2.0 * n * sizeof(float); // one read + one write per element
   // A parallel scan sums in a different order than a sequential one, so f32
   // drift accumulates with N and is expected rather than suspicious — 3.97e-03
@@ -189,7 +234,8 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
                              const std::vector<uint32_t> &hostKeys,
                              const std::vector<uint32_t> &hostVals,
                              const std::vector<uint32_t> &refKeys,
-                             cutbench::TimedFn refTimed) {
+                             cutbench::TimedFn refTimed,
+                             const char *model = nullptr) {
   // The sorts are in-place and destructive, so the operand cannot be hoisted.
   // Instead, we create the tensors once and re-upload the unsorted data at the
   // start of every timed call.
@@ -235,7 +281,8 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
 
   spec.op = sortVariantName(v);
   spec.vendor = "CUB";
-  spec.shape = "N=" + std::to_string(n);
+  spec.shape = (model ? std::string(model) + " " : std::string()) +
+               "N=" + std::to_string(n);
   // keys + values, each read once and written once.
   spec.bytes = 2.0 * n * 2 * sizeof(uint32_t);
   // max_diff is a mismatch COUNT here, so the gate is absolute and the limit is
@@ -271,17 +318,34 @@ int main(int argc, char **argv) {
       registerScanCase(runtime, c, n);
     }
   }
+  for (const auto &m : kModelCounts) {
+    for (const auto &c : scanCases) {
+      registerScanCase(runtime, c, m.n, m.model);
+    }
+  }
 
   // hostKeys/hostVals/refKeys must outlive registration because registerSortCase
   // captures them by reference. Reserved up front as well: the closures outlive
   // this loop, so a push_back that reallocated the outer vector would dangle
   // every reference handed out on a previous iteration.
   std::vector<std::vector<uint32_t>> keyStore, valStore, refStore;
-  keyStore.reserve(kCounts.size());
-  valStore.reserve(kCounts.size());
-  refStore.reserve(kCounts.size());
+  const size_t sortCases = kCounts.size() + kModelCounts.size();
+  keyStore.reserve(sortCases);
+  valStore.reserve(sortCases);
+  refStore.reserve(sortCases);
 
-  for (int n : kCounts) {
+  // The synthetic sweep and the model sizes go through one loop, so a model
+  // shape cannot drift onto a different data set or reference path than the
+  // sweep it is compared against.
+  std::vector<ModelCount> sortSizes;
+  for (int n : kCounts)
+    sortSizes.push_back({nullptr, n});
+  for (const auto &m : kModelCounts)
+    if (!m.scanOnly)
+      sortSizes.push_back(m);
+
+  for (const auto &sz : sortSizes) {
+    const int n = sz.n;
     std::mt19937 rng(1234);
     std::uniform_int_distribution<uint32_t> keyDist(0, UINT32_MAX);
     std::vector<uint32_t> hostKeys(static_cast<size_t>(n));
@@ -331,7 +395,7 @@ int main(int argc, char **argv) {
     for (SortVariant v : {SortVariant::Radix, SortVariant::SinglePass,
                           SortVariant::OneSweep}) {
       registerSortCase(runtime, v, n, keyStore.back(), valStore.back(),
-                       refStore.back(), refTimed);
+                       refStore.back(), refTimed, sz.model);
     }
 
     // The reference device buffers are deliberately NOT freed: refTimed

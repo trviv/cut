@@ -312,6 +312,15 @@ int main(int argc, char **argv) {
       {"llama3-8b-logits-4k", 4096, 128256},
       // Qwen2.5-14B, the widest vocabulary in common use, over 2k tokens.
       {"qwen2.5-14b-logits-2k", 2048, 152064},
+      // Gemma-2-27B: 256000 tokens of vocabulary, the widest in common use, over
+      // a 1k-token batch. Row length here is 2000x the attention cases', which
+      // is the whole span this operator has to cover with one strategy.
+      {"gemma2-27b-logits-1k", 1024, 256000},
+      // A single 16k-context attention head. Long context makes the score matrix
+      // square and enormous rather than wide-and-short, so the row reduction and
+      // the row count are equally large — the case that breaks a kernel tuned
+      // for one or the other.
+      {"llama3-8b-attn-16k-1h", 16384, 16384},
   };
 
   for (const auto &s : shapes)

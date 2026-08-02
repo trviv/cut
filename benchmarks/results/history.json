@@ -1,0 +1,1307 @@
+{
+ "schema": 1,
+ "snapshots": [
+  {
+   "cases": {
+    "conv2d/resnet50-stage1-1x1_N=256_C=256_HW=56_Cout=64_k=1_s=1": {
+     "cut_ms": 41.82835133870442,
+     "ref": "cuDNN",
+     "ref_ms": 1.332906683286031,
+     "status": "ok"
+    },
+    "conv2d/resnet50-stage1-3x3_N=256_C=64_HW=56_Cout=64_k=3_s=1": {
+     "cut_ms": 51.52563222249349,
+     "ref": "cuDNN",
+     "ref_ms": 2.217365344365438,
+     "status": "ok"
+    },
+    "conv2d/resnet50-stage2-3x3_N=256_C=128_HW=28_Cout=128_k=3_s=1": {
+     "cut_ms": 51.12934494018555,
+     "ref": "cuDNN",
+     "ref_ms": 1.4315520127614338,
+     "status": "ok"
+    },
+    "conv2d/sd-vae-decoder-128ch-1024px_N=6_C=128_HW=1024_Cout=128_k=3_s=1": {
+     "cut_ms": 1782.7034098307292,
+     "ref": "cuDNN",
+     "ref_ms": 58.43859100341797,
+     "status": "ok"
+    },
+    "conv2d/sd-vae-decoder-128ch-2048px_N=2_C=128_HW=2048_Cout=128_k=3_s=1": {
+     "cut_ms": 2497.102132161458,
+     "ref": "cuDNN",
+     "ref_ms": 78.23598988850911,
+     "status": "ok"
+    },
+    "conv2d/sd-vae-decoder-512ch_N=6_C=512_HW=256_Cout=512_k=3_s=1": {
+     "cut_ms": 1845.7493489583333,
+     "ref": "cuDNN",
+     "ref_ms": 54.04486338297526,
+     "status": "ok"
+    },
+    "conv2d/sdxl-unet-1280ch_N=24_C=1280_HW=32_Cout=1280_k=3_s=1": {
+     "cut_ms": 554.8942464192709,
+     "ref": "cuDNN",
+     "ref_ms": 21.006645838419598,
+     "status": "ok"
+    },
+    "conv2d/sdxl-unet-320ch_N=16_C=320_HW=128_Cout=320_k=3_s=1": {
+     "cut_ms": 431.4501342773438,
+     "ref": "cuDNN",
+     "ref_ms": 14.330442428588867,
+     "status": "ok"
+    },
+    "conv2d/vit-g14-patch-embed_N=24_C=3_HW=336_Cout=1664_k=14_s=14": {
+     "cut_ms": 36.353705088297524,
+     "ref": "cuDNN",
+     "ref_ms": 1.3408213456471763,
+     "status": "ok"
+    },
+    "conv2d/vit-l14-patch-embed_N=32_C=3_HW=224_Cout=1024_k=14_s=14": {
+     "cut_ms": 12.338912010192871,
+     "ref": "cuDNN",
+     "ref_ms": 0.5203946828842163,
+     "status": "ok"
+    },
+    "hgemm/M=1024_K=1024_N=1024": {
+     "cut_ms": 0.12541553602481942,
+     "ref": "cuBLAS",
+     "ref_ms": 0.04070380440359533,
+     "status": "ok"
+    },
+    "hgemm/M=16_K=4096_N=4096": {
+     "cut_ms": 0.11259535805030363,
+     "ref": "cuBLAS",
+     "ref_ms": 0.04634414493864352,
+     "status": "ok"
+    },
+    "hgemm/M=1_K=4096_N=4096": {
+     "cut_ms": 0.0,
+     "ref": "cuBLAS",
+     "ref_ms": 0.0,
+     "status": "FAIL"
+    },
+    "hgemm/M=1_K=8192_N=8192": {
+     "cut_ms": 0.0,
+     "ref": "cuBLAS",
+     "ref_ms": 0.0,
+     "status": "FAIL"
+    },
+    "hgemm/M=2048_K=2048_N=2048": {
+     "cut_ms": 0.7254789524690436,
+     "ref": "cuBLAS",
+     "ref_ms": 0.2619848359927354,
+     "status": "ok"
+    },
+    "hgemm/M=4096_K=4096_N=4096": {
+     "cut_ms": 5.2154946789812655,
+     "ref": "cuBLAS",
+     "ref_ms": 1.9614638741587207,
+     "status": "ok"
+    },
+    "hgemm/M=512_K=4096_N=4096": {
+     "cut_ms": 0.8990855203922291,
+     "ref": "cuBLAS",
+     "ref_ms": 0.28279628695863246,
+     "status": "ok"
+    },
+    "hgemm_large/flux-dit-mlp_M=18432_K=3072_N=12288": {
+     "cut_ms": 53.05617141723633,
+     "ref": "cuBLAS",
+     "ref_ms": 17.908394495646156,
+     "status": "ok"
+    },
+    "hgemm_large/llama2-13b-attn-out_M=16384_K=5120_N=5120": {
+     "cut_ms": 32.378196716308594,
+     "ref": "cuBLAS",
+     "ref_ms": 11.190485000610352,
+     "status": "ok"
+    },
+    "hgemm_large/llama2-13b-ffn-up_M=16384_K=5120_N=27648": {
+     "cut_ms": 182.0159454345703,
+     "ref": "cuBLAS",
+     "ref_ms": 59.3524055480957,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-ffn-down_M=32768_K=14336_N=4096": {
+     "cut_ms": 140.83783467610678,
+     "ref": "cuBLAS",
+     "ref_ms": 48.88365681966146,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-ffn-up-xl_M=65536_K=4096_N=28672": {
+     "cut_ms": 606.5851033528646,
+     "ref": "cuBLAS",
+     "ref_ms": 198.80531311035156,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-ffn-up_M=32768_K=4096_N=28672": {
+     "cut_ms": 304.31911214192706,
+     "ref": "cuBLAS",
+     "ref_ms": 99.44471740722656,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-lm-head_M=4096_K=4096_N=128256": {
+     "cut_ms": 173.57775878906247,
+     "ref": "cuBLAS",
+     "ref_ms": 55.2031364440918,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-qkv_M=32768_K=4096_N=6144": {
+     "cut_ms": 61.47253290812176,
+     "ref": "cuBLAS",
+     "ref_ms": 21.377642313639324,
+     "status": "ok"
+    },
+    "hgemm_large/qwen2.5-14b-lm-head_M=2048_K=5120_N=152064": {
+     "cut_ms": 126.8684794108073,
+     "ref": "cuBLAS",
+     "ref_ms": 40.81493377685547,
+     "status": "ok"
+    },
+    "hgemm_large/sd35-large-mlp_M=16384_K=2432_N=9728": {
+     "cut_ms": 29.071701685587566,
+     "ref": "cuBLAS",
+     "ref_ms": 10.063733418782551,
+     "status": "ok"
+    },
+    "hgemm_large/vit-g14-mlp_M=65792_K=1408_N=6144": {
+     "cut_ms": 43.648681640625,
+     "ref": "cuBLAS",
+     "ref_ms": 14.998847961425781,
+     "status": "ok"
+    },
+    "scan_exclusive/N=1048576": {
+     "cut_ms": 0.18229040917229167,
+     "ref": "CUB",
+     "ref_ms": 0.015521272198914436,
+     "status": "ok"
+    },
+    "scan_exclusive/N=16777216": {
+     "cut_ms": 3.8646292225431993,
+     "ref": "CUB",
+     "ref_ms": 0.16456277199683167,
+     "status": "ok"
+    },
+    "scan_exclusive/N=4194304": {
+     "cut_ms": 0.9210886327843908,
+     "ref": "CUB",
+     "ref_ms": 0.044688960739969724,
+     "status": "ok"
+    },
+    "scan_exclusive/N=65536": {
+     "cut_ms": 0.01642301758887854,
+     "ref": "CUB",
+     "ref_ms": 0.0068879523304464845,
+     "status": "ok"
+    },
+    "scan_inclusive/N=1048576": {
+     "cut_ms": 0.18367260130676105,
+     "ref": "CUB",
+     "ref_ms": 0.015190592326066513,
+     "status": "ok"
+    },
+    "scan_inclusive/N=16777216": {
+     "cut_ms": 3.8664846894490763,
+     "ref": "CUB",
+     "ref_ms": 0.1644834511813747,
+     "status": "ok"
+    },
+    "scan_inclusive/N=4194304": {
+     "cut_ms": 0.9215281592370332,
+     "ref": "CUB",
+     "ref_ms": 0.04454499391606402,
+     "status": "ok"
+    },
+    "scan_inclusive/N=65536": {
+     "cut_ms": 0.01653390583277533,
+     "ref": "CUB",
+     "ref_ms": 0.006861779473083388,
+     "status": "ok"
+    },
+    "sgemm/M=1024_K=1024_N=1024": {
+     "cut_ms": 0.1961509817478008,
+     "ref": "cuBLAS",
+     "ref_ms": 0.11718356048776782,
+     "status": "ok"
+    },
+    "sgemm/M=128_K=128_N=128": {
+     "cut_ms": 0.006282042810045362,
+     "ref": "cuBLAS",
+     "ref_ms": 0.007146776656444964,
+     "status": "ok"
+    },
+    "sgemm/M=16_K=4096_N=4096": {
+     "cut_ms": 0.2854809412966938,
+     "ref": "cuBLAS",
+     "ref_ms": 0.09915095562346068,
+     "status": "ok"
+    },
+    "sgemm/M=2048_K=2048_N=2048": {
+     "cut_ms": 1.3532770490365302,
+     "ref": "cuBLAS",
+     "ref_ms": 0.7456217046385135,
+     "status": "ok"
+    },
+    "sgemm/M=4096_K=4096_N=4096": {
+     "cut_ms": 8.976650250263702,
+     "ref": "cuBLAS",
+     "ref_ms": 5.396107189415036,
+     "status": "ok"
+    },
+    "sgemm/M=512_K=4096_N=4096": {
+     "cut_ms": 1.3844325458499742,
+     "ref": "cuBLAS",
+     "ref_ms": 0.7551894484027679,
+     "status": "ok"
+    },
+    "sgemm/M=512_K=512_N=512": {
+     "cut_ms": 0.05228694426066269,
+     "ref": "cuBLAS",
+     "ref_ms": 0.02292408640755326,
+     "status": "ok"
+    },
+    "sgemv/M=1_K=2048_N=2048": {
+     "cut_ms": 0.03491104919682939,
+     "ref": "cuBLAS",
+     "ref_ms": 0.023538319131699244,
+     "status": "ok"
+    },
+    "sgemv/M=1_K=4096_N=4096": {
+     "cut_ms": 0.12289162728481513,
+     "ref": "cuBLAS",
+     "ref_ms": 0.08571099120683984,
+     "status": "ok"
+    },
+    "sgemv/M=1_K=8192_N=8192": {
+     "cut_ms": 0.8653466076727113,
+     "ref": "cuBLAS",
+     "ref_ms": 0.30944643728928695,
+     "status": "ok"
+    },
+    "softmax/rows=1_cols=152064": {
+     "cut_ms": 5.2562667167548,
+     "ref": "cuDNN",
+     "ref_ms": 0.14341694049428852,
+     "status": "ok"
+    },
+    "softmax/rows=1_cols=32000": {
+     "cut_ms": 0.8196951266753231,
+     "ref": "cuDNN",
+     "ref_ms": 0.010438639489896618,
+     "status": "ok"
+    },
+    "softmax/rows=32768_cols=256": {
+     "cut_ms": 2.0963397325869813,
+     "ref": "cuDNN",
+     "ref_ms": 0.08290262843570692,
+     "status": "ok"
+    },
+    "softmax/rows=32_cols=4096": {
+     "cut_ms": 0.31160254492519346,
+     "ref": "cuDNN",
+     "ref_ms": 0.005924780892187353,
+     "status": "ok"
+    },
+    "softmax/rows=4096_cols=128": {
+     "cut_ms": 0.15952984797074116,
+     "ref": "cuDNN",
+     "ref_ms": 0.004757045757102496,
+     "status": "ok"
+    },
+    "softmax/rows=4096_cols=512": {
+     "cut_ms": 0.6077063607776303,
+     "ref": "cuDNN",
+     "ref_ms": 0.023631006742249033,
+     "status": "ok"
+    },
+    "softmax/rows=8192_cols=1024": {
+     "cut_ms": 2.146951552549023,
+     "ref": "cuDNN",
+     "ref_ms": 0.0854106710859392,
+     "status": "ok"
+    },
+    "softmax/rows=8_cols=32000": {
+     "cut_ms": 1.3547680232695494,
+     "ref": "cuDNN",
+     "ref_ms": 0.03437330487419481,
+     "status": "ok"
+    },
+    "softmax_large/flux-dit-attn_rows=110592_cols=4608": {
+     "cut_ms": 147.4405517578125,
+     "ref": "cuDNN",
+     "ref_ms": 12.628928184509276,
+     "status": "ok"
+    },
+    "softmax_large/llama3-8b-attn-4k_rows=131072_cols=4096": {
+     "cut_ms": 197.4908905029297,
+     "ref": "cuDNN",
+     "ref_ms": 12.927935918172203,
+     "status": "ok"
+    },
+    "softmax_large/llama3-8b-attn-8k-8h_rows=65536_cols=8192": {
+     "cut_ms": 139.00465393066403,
+     "ref": "cuDNN",
+     "ref_ms": 13.616394996643066,
+     "status": "ok"
+    },
+    "softmax_large/llama3-8b-logits-4k_rows=4096_cols=128256": {
+     "cut_ms": 150.5733642578125,
+     "ref": "cuDNN",
+     "ref_ms": 14.32094923655192,
+     "status": "ok"
+    },
+    "softmax_large/qwen2.5-14b-logits-2k_rows=2048_cols=152064": {
+     "cut_ms": 112.5057805379232,
+     "ref": "cuDNN",
+     "ref_ms": 8.377344131469725,
+     "status": "ok"
+    },
+    "softmax_large/sd35-large-attn_rows=155648_cols=4096": {
+     "cut_ms": 218.01597595214844,
+     "ref": "cuDNN",
+     "ref_ms": 15.360341707865397,
+     "status": "ok"
+    },
+    "sort_radix/N=1048576": {
+     "cut_ms": 784.8878845214844,
+     "ref": "CUB",
+     "ref_ms": 0.1408831998705864,
+     "status": "ok"
+    },
+    "sort_radix/N=65536": {
+     "cut_ms": 32.65787429809569,
+     "ref": "CUB",
+     "ref_ms": 0.06168639920651912,
+     "status": "ok"
+    },
+    "sort_radix_1pass/N=1048576": {
+     "cut_ms": 0.31460799872875206,
+     "ref": "CUB",
+     "ref_ms": 0.14067199975252154,
+     "status": "ok"
+    },
+    "sort_radix_1pass/N=16777216": {
+     "cut_ms": 4.068518400192262,
+     "ref": "CUB",
+     "ref_ms": 1.4754496097564698,
+     "status": "ok"
+    },
+    "sort_radix_1pass/N=4194304": {
+     "cut_ms": 1.069094407558441,
+     "ref": "CUB",
+     "ref_ms": 0.4176607996225357,
+     "status": "ok"
+    },
+    "sort_radix_1pass/N=65536": {
+     "cut_ms": 0.07145600169897079,
+     "ref": "CUB",
+     "ref_ms": 0.061446399241685844,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/N=1048576": {
+     "cut_ms": 0.3149920016527176,
+     "ref": "CUB",
+     "ref_ms": 0.14081599712371823,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/N=16777216": {
+     "cut_ms": 4.067734432220459,
+     "ref": "CUB",
+     "ref_ms": 1.4745216131210328,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/N=4194304": {
+     "cut_ms": 1.068931210041046,
+     "ref": "CUB",
+     "ref_ms": 0.41878080666065215,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/N=65536": {
+     "cut_ms": 0.07165760174393654,
+     "ref": "CUB",
+     "ref_ms": 0.06155839860439301,
+     "status": "ok"
+    },
+    "transpose/M=1024_N=1024": {
+     "cut_ms": 0.017898635845722898,
+     "ref": "cuBLAS",
+     "ref_ms": 0.011409972017433644,
+     "status": "ok"
+    },
+    "transpose/M=1024_N=8192": {
+     "cut_ms": 0.10638063485559204,
+     "ref": "cuBLAS",
+     "ref_ms": 0.08319777653601718,
+     "status": "ok"
+    },
+    "transpose/M=4096_N=4096": {
+     "cut_ms": 0.2059885060432191,
+     "ref": "cuBLAS",
+     "ref_ms": 0.1652696736410239,
+     "status": "ok"
+    },
+    "transpose/M=8192_N=1024": {
+     "cut_ms": 0.10589318391848224,
+     "ref": "cuBLAS",
+     "ref_ms": 0.08305175829931306,
+     "status": "ok"
+    },
+    "transpose/M=8192_N=8192": {
+     "cut_ms": 0.8137123830985151,
+     "ref": "cuBLAS",
+     "ref_ms": 0.6431299160946844,
+     "status": "ok"
+    },
+    "transpose_large/act-16k_M=16384_N=16384": {
+     "cut_ms": 3.1939775943756104,
+     "ref": "cuBLAS",
+     "ref_ms": 2.7179007530212402,
+     "status": "ok"
+    },
+    "transpose_large/act-32k-x-16k_M=32768_N=16384": {
+     "cut_ms": 6.421068859100343,
+     "ref": "cuBLAS",
+     "ref_ms": 5.433996772766112,
+     "status": "ok"
+    },
+    "transpose_large/act-32k_M=32768_N=32768": {
+     "cut_ms": 12.580985832214356,
+     "ref": "cuBLAS",
+     "ref_ms": 10.450739288330077,
+     "status": "ok"
+    },
+    "transpose_large/act-8k_M=8192_N=8192": {
+     "cut_ms": 0.7978879928588867,
+     "ref": "cuBLAS",
+     "ref_ms": 0.6809535980224608,
+     "status": "ok"
+    }
+   },
+   "commit": "903e7f3",
+   "date": "2026-07-23",
+   "gpu": "NVIDIA GeForce RTX 3090",
+   "measured": "2026-08-01",
+   "note": "operator code as of this commit, measured today on the same GPU with today's harness (hybrid tree: old operators, new benchmarks). MatMul tuning rules only \u2014 the Transpose and Scan variant tables have been renumbered since, so those ran on their built-in defaults.",
+   "timestamp": "2026-08-01T22:05:46-05:00"
+  },
+  {
+   "cases": {
+    "conv2d/resnet50-stage1-1x1_N=256_C=256_HW=56_Cout=64_k=1_s=1": {
+     "cut_ms": 41.85088094075521,
+     "ref": "cuDNN",
+     "ref_ms": 1.3419520060221355,
+     "status": "ok"
+    },
+    "conv2d/resnet50-stage1-3x3_N=256_C=64_HW=56_Cout=64_k=3_s=1": {
+     "cut_ms": 51.697322845458984,
+     "ref": "cuDNN",
+     "ref_ms": 2.1970240275065103,
+     "status": "ok"
+    },
+    "conv2d/resnet50-stage2-3x3_N=256_C=128_HW=28_Cout=128_k=3_s=1": {
+     "cut_ms": 51.13036855061849,
+     "ref": "cuDNN",
+     "ref_ms": 1.4312106768290203,
+     "status": "ok"
+    },
+    "conv2d/sam-vit-h-patch-embed_N=8_C=3_HW=1024_Cout=1280_k=16_s=16": {
+     "cut_ms": 112.39799499511719,
+     "ref": "cuDNN",
+     "ref_ms": 3.227285305658976,
+     "status": "ok"
+    },
+    "conv2d/sd-vae-decoder-128ch-1024px_N=6_C=128_HW=1024_Cout=128_k=3_s=1": {
+     "cut_ms": 1790.2900390625002,
+     "ref": "cuDNN",
+     "ref_ms": 58.41686503092448,
+     "status": "ok"
+    },
+    "conv2d/sd-vae-decoder-128ch-2048px_N=2_C=128_HW=2048_Cout=128_k=3_s=1": {
+     "cut_ms": 2499.7386067708335,
+     "ref": "cuDNN",
+     "ref_ms": 77.99057006835938,
+     "status": "ok"
+    },
+    "conv2d/sd-vae-decoder-512ch_N=6_C=512_HW=256_Cout=512_k=3_s=1": {
+     "cut_ms": 1842.8020019531252,
+     "ref": "cuDNN",
+     "ref_ms": 53.34899139404297,
+     "status": "ok"
+    },
+    "conv2d/sdxl-unet-1280ch_N=24_C=1280_HW=32_Cout=1280_k=3_s=1": {
+     "cut_ms": 553.2610677083334,
+     "ref": "cuDNN",
+     "ref_ms": 21.06333859761556,
+     "status": "ok"
+    },
+    "conv2d/sdxl-unet-320ch_N=16_C=320_HW=128_Cout=320_k=3_s=1": {
+     "cut_ms": 431.7340799967448,
+     "ref": "cuDNN",
+     "ref_ms": 14.28714656829834,
+     "status": "ok"
+    },
+    "conv2d/vit-g14-patch-embed_N=24_C=3_HW=336_Cout=1664_k=14_s=14": {
+     "cut_ms": 36.36116154988607,
+     "ref": "cuDNN",
+     "ref_ms": 1.3399360179901125,
+     "status": "ok"
+    },
+    "conv2d/vit-l14-patch-embed_N=32_C=3_HW=224_Cout=1024_k=14_s=14": {
+     "cut_ms": 12.585301399230957,
+     "ref": "cuDNN",
+     "ref_ms": 0.5207680066426594,
+     "status": "ok"
+    },
+    "hgemm/M=1024_K=1024_N=1024": {
+     "cut_ms": 0.12474696980587685,
+     "ref": "cuBLAS",
+     "ref_ms": 0.04055895628715695,
+     "status": "ok"
+    },
+    "hgemm/M=16_K=4096_N=4096": {
+     "cut_ms": 0.11260232930638829,
+     "ref": "cuBLAS",
+     "ref_ms": 0.04591080909496765,
+     "status": "ok"
+    },
+    "hgemm/M=1_K=4096_N=4096": {
+     "cut_ms": 0.15252618542507765,
+     "ref": "cuBLAS",
+     "ref_ms": 0.04516883848848514,
+     "status": "ok"
+    },
+    "hgemm/M=1_K=8192_N=8192": {
+     "cut_ms": 1.2328478579378204,
+     "ref": "cuBLAS",
+     "ref_ms": 0.1572367787454817,
+     "status": "ok"
+    },
+    "hgemm/M=2048_K=2048_N=2048": {
+     "cut_ms": 0.7231341674004048,
+     "ref": "cuBLAS",
+     "ref_ms": 0.260985163701714,
+     "status": "ok"
+    },
+    "hgemm/M=4096_K=4096_N=4096": {
+     "cut_ms": 5.195998566992142,
+     "ref": "cuBLAS",
+     "ref_ms": 1.9568979683056744,
+     "status": "ok"
+    },
+    "hgemm/M=512_K=4096_N=4096": {
+     "cut_ms": 0.9004572670585607,
+     "ref": "cuBLAS",
+     "ref_ms": 0.2827829566628011,
+     "status": "ok"
+    },
+    "hgemm_large/flux-dit-mlp_M=18432_K=3072_N=12288": {
+     "cut_ms": 53.256202697753906,
+     "ref": "cuBLAS",
+     "ref_ms": 17.94498125712077,
+     "status": "ok"
+    },
+    "hgemm_large/gemma2-27b-ffn-up_M=8192_K=4608_N=73728": {
+     "cut_ms": 219.65579732259116,
+     "ref": "cuBLAS",
+     "ref_ms": 70.68656921386719,
+     "status": "ok"
+    },
+    "hgemm_large/internvit-6b-mlp_M=16384_K=3200_N=12800": {
+     "cut_ms": 50.935465494791664,
+     "ref": "cuBLAS",
+     "ref_ms": 17.31878407796224,
+     "status": "ok"
+    },
+    "hgemm_large/llama2-13b-attn-out_M=16384_K=5120_N=5120": {
+     "cut_ms": 32.399019877115876,
+     "ref": "cuBLAS",
+     "ref_ms": 11.251274426778158,
+     "status": "ok"
+    },
+    "hgemm_large/llama2-13b-ffn-up_M=16384_K=5120_N=27648": {
+     "cut_ms": 182.69180297851562,
+     "ref": "cuBLAS",
+     "ref_ms": 59.35883585611978,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-70b-ffn-down_M=8192_K=28672_N=8192": {
+     "cut_ms": 143.7149861653646,
+     "ref": "cuBLAS",
+     "ref_ms": 48.35532887776693,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-70b-ffn-up_M=8192_K=8192_N=57344": {
+     "cut_ms": 299.0219930013021,
+     "ref": "cuBLAS",
+     "ref_ms": 97.8657709757487,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-70b-lm-head_M=2048_K=8192_N=128256": {
+     "cut_ms": 169.78011576334634,
+     "ref": "cuBLAS",
+     "ref_ms": 54.41943486531576,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-70b-qkv_M=8192_K=8192_N=10240": {
+     "cut_ms": 51.09598922729492,
+     "ref": "cuBLAS",
+     "ref_ms": 17.62713623046875,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-ffn-down_M=32768_K=14336_N=4096": {
+     "cut_ms": 141.14876302083334,
+     "ref": "cuBLAS",
+     "ref_ms": 48.818782806396484,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-ffn-up-xl_M=65536_K=4096_N=28672": {
+     "cut_ms": 608.1334635416667,
+     "ref": "cuBLAS",
+     "ref_ms": 199.23311360677084,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-ffn-up_M=32768_K=4096_N=28672": {
+     "cut_ms": 304.59870402018225,
+     "ref": "cuBLAS",
+     "ref_ms": 99.38222757975261,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-lm-head_M=4096_K=4096_N=128256": {
+     "cut_ms": 173.78092956542966,
+     "ref": "cuBLAS",
+     "ref_ms": 55.19766362508137,
+     "status": "ok"
+    },
+    "hgemm_large/llama3-8b-qkv_M=32768_K=4096_N=6144": {
+     "cut_ms": 61.783721923828125,
+     "ref": "cuBLAS",
+     "ref_ms": 21.248053868611652,
+     "status": "ok"
+    },
+    "hgemm_large/qwen2.5-14b-lm-head_M=2048_K=5120_N=152064": {
+     "cut_ms": 126.85649108886719,
+     "ref": "cuBLAS",
+     "ref_ms": 40.66842778523763,
+     "status": "ok"
+    },
+    "hgemm_large/sd35-large-mlp_M=16384_K=2432_N=9728": {
+     "cut_ms": 29.113695780436203,
+     "ref": "cuBLAS",
+     "ref_ms": 10.171616236368816,
+     "status": "ok"
+    },
+    "hgemm_large/vit-g14-mlp_M=65792_K=1408_N=6144": {
+     "cut_ms": 43.79334259033203,
+     "ref": "cuBLAS",
+     "ref_ms": 15.043573379516602,
+     "status": "ok"
+    },
+    "scan_exclusive/N=1048576": {
+     "cut_ms": 0.015681124629830852,
+     "ref": "CUB",
+     "ref_ms": 0.015248337731529959,
+     "status": "ok"
+    },
+    "scan_exclusive/N=16777216": {
+     "cut_ms": 0.16643914997237347,
+     "ref": "CUB",
+     "ref_ms": 0.16437534363399997,
+     "status": "ok"
+    },
+    "scan_exclusive/N=4194304": {
+     "cut_ms": 0.047313153361800746,
+     "ref": "CUB",
+     "ref_ms": 0.044632869619005706,
+     "status": "ok"
+    },
+    "scan_exclusive/N=65536": {
+     "cut_ms": 0.006740118750788384,
+     "ref": "CUB",
+     "ref_ms": 0.00686561764506593,
+     "status": "ok"
+    },
+    "scan_exclusive/gemma2-9b-vocab_N=256000": {
+     "cut_ms": 0.007979793682301615,
+     "ref": "CUB",
+     "ref_ms": 0.008780193038880465,
+     "status": "ok"
+    },
+    "scan_exclusive/llama2-7b-vocab_N=32000": {
+     "cut_ms": 0.006710364472251443,
+     "ref": "CUB",
+     "ref_ms": 0.0062649049188281,
+     "status": "ok"
+    },
+    "scan_exclusive/llama3-8b-batch16-logits_N=2052096": {
+     "cut_ms": 0.02780023866607877,
+     "ref": "CUB",
+     "ref_ms": 0.023820685782147563,
+     "status": "ok"
+    },
+    "scan_exclusive/llama3-8b-batch64-logits_N=8208384": {
+     "cut_ms": 0.08509717937200777,
+     "ref": "CUB",
+     "ref_ms": 0.08258239649152556,
+     "status": "ok"
+    },
+    "scan_exclusive/llama3-8b-vocab_N=128256": {
+     "cut_ms": 0.007326453659407691,
+     "ref": "CUB",
+     "ref_ms": 0.007332368998411993,
+     "status": "ok"
+    },
+    "scan_exclusive/mixtral-8x7b-moe-32k_N=262144": {
+     "cut_ms": 0.007946339409089958,
+     "ref": "CUB",
+     "ref_ms": 0.008584858079407736,
+     "status": "ok"
+    },
+    "scan_exclusive/mixtral-8x7b-moe-4k_N=32768": {
+     "cut_ms": 0.006698261403502898,
+     "ref": "CUB",
+     "ref_ms": 0.006318824406587438,
+     "status": "ok"
+    },
+    "scan_exclusive/qwen2.5-14b-batch32-logits_N=4866048": {
+     "cut_ms": 0.053439527580874294,
+     "ref": "CUB",
+     "ref_ms": 0.05078830148476411,
+     "status": "ok"
+    },
+    "scan_exclusive/qwen2.5-14b-vocab_N=152064": {
+     "cut_ms": 0.007486394134910248,
+     "ref": "CUB",
+     "ref_ms": 0.007597049466418224,
+     "status": "ok"
+    },
+    "scan_exclusive/yolov8-nms-640_N=8400": {
+     "cut_ms": 0.00659040403571916,
+     "ref": "CUB",
+     "ref_ms": 0.006091974952030241,
+     "status": "ok"
+    },
+    "scan_inclusive/N=1048576": {
+     "cut_ms": 0.01569438079512488,
+     "ref": "CUB",
+     "ref_ms": 0.015418664287687522,
+     "status": "ok"
+    },
+    "scan_inclusive/N=16777216": {
+     "cut_ms": 0.1664210542600767,
+     "ref": "CUB",
+     "ref_ms": 0.16458182298951965,
+     "status": "ok"
+    },
+    "scan_inclusive/N=4194304": {
+     "cut_ms": 0.04727572985126943,
+     "ref": "CUB",
+     "ref_ms": 0.04450397707503439,
+     "status": "ok"
+    },
+    "scan_inclusive/N=65536": {
+     "cut_ms": 0.00677548191128772,
+     "ref": "CUB",
+     "ref_ms": 0.006784561455029347,
+     "status": "ok"
+    },
+    "scan_inclusive/gemma2-9b-vocab_N=256000": {
+     "cut_ms": 0.007889548136304356,
+     "ref": "CUB",
+     "ref_ms": 0.008165050945167958,
+     "status": "ok"
+    },
+    "scan_inclusive/llama2-7b-vocab_N=32000": {
+     "cut_ms": 0.006708152256152942,
+     "ref": "CUB",
+     "ref_ms": 0.006206623602502319,
+     "status": "ok"
+    },
+    "scan_inclusive/llama3-8b-batch16-logits_N=2052096": {
+     "cut_ms": 0.027964695183103256,
+     "ref": "CUB",
+     "ref_ms": 0.023964826693648793,
+     "status": "ok"
+    },
+    "scan_inclusive/llama3-8b-batch64-logits_N=8208384": {
+     "cut_ms": 0.08510778379170406,
+     "ref": "CUB",
+     "ref_ms": 0.08272730391919218,
+     "status": "ok"
+    },
+    "scan_inclusive/llama3-8b-vocab_N=128256": {
+     "cut_ms": 0.007336244582855044,
+     "ref": "CUB",
+     "ref_ms": 0.007354693052510616,
+     "status": "ok"
+    },
+    "scan_inclusive/mixtral-8x7b-moe-32k_N=262144": {
+     "cut_ms": 0.008218032178583346,
+     "ref": "CUB",
+     "ref_ms": 0.008413797853464702,
+     "status": "ok"
+    },
+    "scan_inclusive/mixtral-8x7b-moe-4k_N=32768": {
+     "cut_ms": 0.006697875265801485,
+     "ref": "CUB",
+     "ref_ms": 0.006281301382136601,
+     "status": "ok"
+    },
+    "scan_inclusive/qwen2.5-14b-batch32-logits_N=4866048": {
+     "cut_ms": 0.053366640367860194,
+     "ref": "CUB",
+     "ref_ms": 0.050954245859567614,
+     "status": "ok"
+    },
+    "scan_inclusive/qwen2.5-14b-vocab_N=152064": {
+     "cut_ms": 0.007480651691521982,
+     "ref": "CUB",
+     "ref_ms": 0.007478961501437514,
+     "status": "ok"
+    },
+    "scan_inclusive/yolov8-nms-640_N=8400": {
+     "cut_ms": 0.006567253185531473,
+     "ref": "CUB",
+     "ref_ms": 0.006134362286601914,
+     "status": "ok"
+    },
+    "sgemm/M=1024_K=1024_N=1024": {
+     "cut_ms": 0.19778514321933235,
+     "ref": "cuBLAS",
+     "ref_ms": 0.11679629847604472,
+     "status": "ok"
+    },
+    "sgemm/M=128_K=128_N=128": {
+     "cut_ms": 0.00619927822502149,
+     "ref": "cuBLAS",
+     "ref_ms": 0.007106430361288968,
+     "status": "ok"
+    },
+    "sgemm/M=16_K=4096_N=4096": {
+     "cut_ms": 0.2861105203384638,
+     "ref": "cuBLAS",
+     "ref_ms": 0.09921106325017343,
+     "status": "ok"
+    },
+    "sgemm/M=2048_K=2048_N=2048": {
+     "cut_ms": 1.354613602865398,
+     "ref": "cuBLAS",
+     "ref_ms": 0.7444667830532145,
+     "status": "ok"
+    },
+    "sgemm/M=4096_K=4096_N=4096": {
+     "cut_ms": 8.929940076974718,
+     "ref": "cuBLAS",
+     "ref_ms": 5.375867047676672,
+     "status": "ok"
+    },
+    "sgemm/M=512_K=4096_N=4096": {
+     "cut_ms": 1.3829948589175853,
+     "ref": "cuBLAS",
+     "ref_ms": 0.753600102798061,
+     "status": "ok"
+    },
+    "sgemm/M=512_K=512_N=512": {
+     "cut_ms": 0.05224008480479673,
+     "ref": "cuBLAS",
+     "ref_ms": 0.023115888855256346,
+     "status": "ok"
+    },
+    "sgemv/M=1_K=2048_N=2048": {
+     "cut_ms": 0.0349467647875666,
+     "ref": "cuBLAS",
+     "ref_ms": 0.023564830946320114,
+     "status": "ok"
+    },
+    "sgemv/M=1_K=4096_N=4096": {
+     "cut_ms": 0.12305727814112065,
+     "ref": "cuBLAS",
+     "ref_ms": 0.08527353347516073,
+     "status": "ok"
+    },
+    "sgemv/M=1_K=8192_N=8192": {
+     "cut_ms": 0.8661850213561902,
+     "ref": "cuBLAS",
+     "ref_ms": 0.31085027213047456,
+     "status": "ok"
+    },
+    "softmax/rows=1_cols=152064": {
+     "cut_ms": 5.274802032269928,
+     "ref": "cuDNN",
+     "ref_ms": 0.14401743814695792,
+     "status": "ok"
+    },
+    "softmax/rows=1_cols=32000": {
+     "cut_ms": 0.8170010137307664,
+     "ref": "cuDNN",
+     "ref_ms": 0.01034233451524805,
+     "status": "ok"
+    },
+    "softmax/rows=32768_cols=256": {
+     "cut_ms": 1.9357227857600265,
+     "ref": "cuDNN",
+     "ref_ms": 0.08281818567533343,
+     "status": "ok"
+    },
+    "softmax/rows=32_cols=4096": {
+     "cut_ms": 0.311969706320503,
+     "ref": "cuDNN",
+     "ref_ms": 0.005925653012734722,
+     "status": "ok"
+    },
+    "softmax/rows=4096_cols=128": {
+     "cut_ms": 0.1528687344863161,
+     "ref": "cuDNN",
+     "ref_ms": 0.004760551532520392,
+     "status": "ok"
+    },
+    "softmax/rows=4096_cols=512": {
+     "cut_ms": 0.5720104670680557,
+     "ref": "cuDNN",
+     "ref_ms": 0.023624204133051944,
+     "status": "ok"
+    },
+    "softmax/rows=8192_cols=1024": {
+     "cut_ms": 1.9793378559209514,
+     "ref": "cuDNN",
+     "ref_ms": 0.08541804946348702,
+     "status": "ok"
+    },
+    "softmax/rows=8_cols=32000": {
+     "cut_ms": 1.3510289017298007,
+     "ref": "cuDNN",
+     "ref_ms": 0.03422045849077933,
+     "status": "ok"
+    },
+    "softmax_large/flux-dit-attn_rows=110592_cols=4608": {
+     "cut_ms": 138.4475351969401,
+     "ref": "cuDNN",
+     "ref_ms": 12.624202728271484,
+     "status": "ok"
+    },
+    "softmax_large/gemma2-27b-logits-1k_rows=1024_cols=256000": {
+     "cut_ms": 122.70630645751953,
+     "ref": "cuDNN",
+     "ref_ms": 7.264245351155599,
+     "status": "ok"
+    },
+    "softmax_large/llama3-8b-attn-16k-1h_rows=16384_cols=16384": {
+     "cut_ms": 63.15272649129233,
+     "ref": "cuDNN",
+     "ref_ms": 6.831114610036214,
+     "status": "ok"
+    },
+    "softmax_large/llama3-8b-attn-4k_rows=131072_cols=4096": {
+     "cut_ms": 177.73698933919266,
+     "ref": "cuDNN",
+     "ref_ms": 12.882272084554037,
+     "status": "ok"
+    },
+    "softmax_large/llama3-8b-attn-8k-8h_rows=65536_cols=8192": {
+     "cut_ms": 129.1184997558594,
+     "ref": "cuDNN",
+     "ref_ms": 13.619200070699057,
+     "status": "ok"
+    },
+    "softmax_large/llama3-8b-logits-4k_rows=4096_cols=128256": {
+     "cut_ms": 140.93937174479166,
+     "ref": "cuDNN",
+     "ref_ms": 14.30567487080892,
+     "status": "ok"
+    },
+    "softmax_large/qwen2.5-14b-logits-2k_rows=2048_cols=152064": {
+     "cut_ms": 106.64491780598958,
+     "ref": "cuDNN",
+     "ref_ms": 8.354784011840819,
+     "status": "ok"
+    },
+    "softmax_large/sd35-large-attn_rows=155648_cols=4096": {
+     "cut_ms": 206.1396687825521,
+     "ref": "cuDNN",
+     "ref_ms": 15.329248110453287,
+     "status": "ok"
+    },
+    "sort_radix/N=1048576": {
+     "cut_ms": 786.5697814941407,
+     "ref": "CUB",
+     "ref_ms": 0.14092160016298294,
+     "status": "ok"
+    },
+    "sort_radix/N=65536": {
+     "cut_ms": 32.7183292388916,
+     "ref": "CUB",
+     "ref_ms": 0.0613599993288517,
+     "status": "ok"
+    },
+    "sort_radix/gemma2-9b-vocab_N=256000": {
+     "cut_ms": 129.40685119628904,
+     "ref": "CUB",
+     "ref_ms": 0.0664191998541355,
+     "status": "ok"
+    },
+    "sort_radix/llama2-7b-vocab_N=32000": {
+     "cut_ms": 15.843030548095703,
+     "ref": "CUB",
+     "ref_ms": 0.059788800776004784,
+     "status": "ok"
+    },
+    "sort_radix/llama3-8b-vocab_N=128256": {
+     "cut_ms": 63.473458862304696,
+     "ref": "CUB",
+     "ref_ms": 0.06366399899125098,
+     "status": "ok"
+    },
+    "sort_radix/mixtral-8x7b-moe-32k_N=262144": {
+     "cut_ms": 132.68674316406248,
+     "ref": "CUB",
+     "ref_ms": 0.06673600003123285,
+     "status": "ok"
+    },
+    "sort_radix/mixtral-8x7b-moe-4k_N=32768": {
+     "cut_ms": 16.221014404296874,
+     "ref": "CUB",
+     "ref_ms": 0.05943680033087728,
+     "status": "ok"
+    },
+    "sort_radix/qwen2.5-14b-vocab_N=152064": {
+     "cut_ms": 75.74246978759766,
+     "ref": "CUB",
+     "ref_ms": 0.06382399946451187,
+     "status": "ok"
+    },
+    "sort_radix/yolov8-nms-640_N=8400": {
+     "cut_ms": 4.189020824432372,
+     "ref": "CUB",
+     "ref_ms": 0.05444479957222939,
+     "status": "ok"
+    },
+    "sort_radix_1pass/N=1048576": {
+     "cut_ms": 0.3141568064689636,
+     "ref": "CUB",
+     "ref_ms": 0.1410528004169464,
+     "status": "ok"
+    },
+    "sort_radix_1pass/N=16777216": {
+     "cut_ms": 4.0652192592620855,
+     "ref": "CUB",
+     "ref_ms": 1.4782976150512694,
+     "status": "ok"
+    },
+    "sort_radix_1pass/N=4194304": {
+     "cut_ms": 1.0673696160316466,
+     "ref": "CUB",
+     "ref_ms": 0.41764160394668587,
+     "status": "ok"
+    },
+    "sort_radix_1pass/N=65536": {
+     "cut_ms": 0.07194560170173643,
+     "ref": "CUB",
+     "ref_ms": 0.06144639998674392,
+     "status": "ok"
+    },
+    "sort_radix_1pass/gemma2-9b-vocab_N=256000": {
+     "cut_ms": 0.11254080086946487,
+     "ref": "CUB",
+     "ref_ms": 0.06649599969387053,
+     "status": "ok"
+    },
+    "sort_radix_1pass/llama2-7b-vocab_N=32000": {
+     "cut_ms": 0.062332799285650234,
+     "ref": "CUB",
+     "ref_ms": 0.059622401371598244,
+     "status": "ok"
+    },
+    "sort_radix_1pass/llama3-8b-vocab_N=128256": {
+     "cut_ms": 0.08583999946713447,
+     "ref": "CUB",
+     "ref_ms": 0.06356799900531768,
+     "status": "ok"
+    },
+    "sort_radix_1pass/mixtral-8x7b-moe-32k_N=262144": {
+     "cut_ms": 0.11509440168738364,
+     "ref": "CUB",
+     "ref_ms": 0.0666815996170044,
+     "status": "ok"
+    },
+    "sort_radix_1pass/mixtral-8x7b-moe-4k_N=32768": {
+     "cut_ms": 0.06259199865162372,
+     "ref": "CUB",
+     "ref_ms": 0.059363201260566704,
+     "status": "ok"
+    },
+    "sort_radix_1pass/qwen2.5-14b-vocab_N=152064": {
+     "cut_ms": 0.09142080098390577,
+     "ref": "CUB",
+     "ref_ms": 0.063663998991251,
+     "status": "ok"
+    },
+    "sort_radix_1pass/yolov8-nms-640_N=8400": {
+     "cut_ms": 0.05670400038361549,
+     "ref": "CUB",
+     "ref_ms": 0.054435199871659276,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/N=1048576": {
+     "cut_ms": 0.31453120410442353,
+     "ref": "CUB",
+     "ref_ms": 0.14073599874973294,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/N=16777216": {
+     "cut_ms": 4.064988803863526,
+     "ref": "CUB",
+     "ref_ms": 1.47843199968338,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/N=4194304": {
+     "cut_ms": 1.066649603843689,
+     "ref": "CUB",
+     "ref_ms": 0.4169344007968901,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/N=65536": {
+     "cut_ms": 0.07156800180673598,
+     "ref": "CUB",
+     "ref_ms": 0.06129919923841953,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/gemma2-9b-vocab_N=256000": {
+     "cut_ms": 0.11358720064163208,
+     "ref": "CUB",
+     "ref_ms": 0.06631679981946945,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/llama2-7b-vocab_N=32000": {
+     "cut_ms": 0.062419199571013446,
+     "ref": "CUB",
+     "ref_ms": 0.05974400117993354,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/llama3-8b-vocab_N=128256": {
+     "cut_ms": 0.08614719957113268,
+     "ref": "CUB",
+     "ref_ms": 0.06347519904375075,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/mixtral-8x7b-moe-32k_N=262144": {
+     "cut_ms": 0.1150432012975216,
+     "ref": "CUB",
+     "ref_ms": 0.06692159920930864,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/mixtral-8x7b-moe-4k_N=32768": {
+     "cut_ms": 0.06242879927158355,
+     "ref": "CUB",
+     "ref_ms": 0.05928320139646529,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/qwen2.5-14b-vocab_N=152064": {
+     "cut_ms": 0.09153920114040373,
+     "ref": "CUB",
+     "ref_ms": 0.06367679908871651,
+     "status": "ok"
+    },
+    "sort_radix_1sweep/yolov8-nms-640_N=8400": {
+     "cut_ms": 0.05688960030674935,
+     "ref": "CUB",
+     "ref_ms": 0.05445439964532852,
+     "status": "ok"
+    },
+    "transpose/M=1024_N=1024": {
+     "cut_ms": 0.011451947286226515,
+     "ref": "cuBLAS",
+     "ref_ms": 0.01128478523522576,
+     "status": "ok"
+    },
+    "transpose/M=1024_N=8192": {
+     "cut_ms": 0.08459515912014731,
+     "ref": "cuBLAS",
+     "ref_ms": 0.08325186664280768,
+     "status": "ok"
+    },
+    "transpose/M=4096_N=4096": {
+     "cut_ms": 0.16539047688717629,
+     "ref": "cuBLAS",
+     "ref_ms": 0.16491309712225355,
+     "status": "ok"
+    },
+    "transpose/M=8192_N=1024": {
+     "cut_ms": 0.0843862789837709,
+     "ref": "cuBLAS",
+     "ref_ms": 0.08301986793433774,
+     "status": "ok"
+    },
+    "transpose/M=8192_N=8192": {
+     "cut_ms": 0.6508623986993133,
+     "ref": "cuBLAS",
+     "ref_ms": 0.6425886807144006,
+     "status": "ok"
+    },
+    "transpose_large/act-16k_M=16384_N=16384": {
+     "cut_ms": 2.7847744464874267,
+     "ref": "cuBLAS",
+     "ref_ms": 2.7180095672607423,
+     "status": "ok"
+    },
+    "transpose_large/act-32k-x-16k_M=32768_N=16384": {
+     "cut_ms": 5.5549952507019045,
+     "ref": "cuBLAS",
+     "ref_ms": 5.430624008178711,
+     "status": "ok"
+    },
+    "transpose_large/act-32k_M=32768_N=32768": {
+     "cut_ms": 10.477216148376463,
+     "ref": "cuBLAS",
+     "ref_ms": 10.469152069091795,
+     "status": "ok"
+    },
+    "transpose_large/act-8k_M=8192_N=8192": {
+     "cut_ms": 0.6935359954833984,
+     "ref": "cuBLAS",
+     "ref_ms": 0.680729603767395,
+     "status": "ok"
+    },
+    "transpose_large/flux-dit-act_M=18432_N=3072": {
+     "cut_ms": 0.6055296063423156,
+     "ref": "cuBLAS",
+     "ref_ms": 0.5830400109291075,
+     "status": "ok"
+    },
+    "transpose_large/llama3-70b-qkv-act_M=32768_N=8192": {
+     "cut_ms": 2.7719680309295653,
+     "ref": "cuBLAS",
+     "ref_ms": 2.720844793319702,
+     "status": "ok"
+    },
+    "transpose_large/llama3-8b-lm-head-w_M=128256_N=4096": {
+     "cut_ms": 5.567039966583252,
+     "ref": "cuBLAS",
+     "ref_ms": 5.713459205627442,
+     "status": "ok"
+    },
+    "transpose_large/llama3-8b-qkv-act_M=32768_N=4096": {
+     "cut_ms": 1.3701119899749756,
+     "ref": "cuBLAS",
+     "ref_ms": 1.3636863946914672,
+     "status": "ok"
+    },
+    "transpose_large/qwen2.5-14b-lm-head-w_M=152064_N=5120": {
+     "cut_ms": 8.032351875305176,
+     "ref": "cuBLAS",
+     "ref_ms": 8.097536087036133,
+     "status": "ok"
+    },
+    "transpose_large/vit-g14-tokens_M=65792_N=1408": {
+     "cut_ms": 0.9416704177856444,
+     "ref": "cuBLAS",
+     "ref_ms": 0.9469184041023254,
+     "status": "ok"
+    }
+   },
+   "commit": "7ba7c38",
+   "date": "2026-07-31",
+   "gpu": "NVIDIA GeForce RTX 3090",
+   "timestamp": "2026-07-31T21:56:10-05:00"
+  }
+ ]
+}
