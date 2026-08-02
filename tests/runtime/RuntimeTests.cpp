@@ -5618,92 +5618,37 @@ TEST_F(VulkanBackendTest, SinglePassReductions_Timing) {
 // Fused Softmax / LogSoftmax Tests
 // ===========================================================================
 
-TEST_F(RuntimeOperatorTest, SoftmaxFused_MatchesComposite_Dim1) {
+// Registry-driven family drivers. Every softmax shape in the registry is
+// checked against a host reference here — including the ones that sit on the
+// native CUDA kernel's warp/block, register/streaming, and ragged-tail
+// boundaries — so adding a shape to the registry extends the sweep without
+// touching this file.
+TEST_F(RuntimeOperatorTest, SoftmaxFused_MatchesReference) {
+  int ran = 0;
   for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "softmax/composite_dim1")
+    if (c.family != "softmax")
       continue;
     SCOPED_TRACE(c.name);
     Tensor out = c.run(*runtime_, -1);
     opregistry::VerifyResult vr = c.verify(*runtime_, out);
     EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
+  EXPECT_GT(ran, 0) << "no softmax cases found in registry";
 }
 
-TEST_F(RuntimeOperatorTest, SoftmaxFused_MatchesComposite_Dim0) {
+TEST_F(RuntimeOperatorTest, LogSoftmaxFused_MatchesReference) {
+  int ran = 0;
   for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "softmax/composite_dim0")
+    if (c.family != "logsoftmax")
       continue;
     SCOPED_TRACE(c.name);
     Tensor out = c.run(*runtime_, -1);
     opregistry::VerifyResult vr = c.verify(*runtime_, out);
     EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
+    ++ran;
   }
-}
-
-TEST_F(RuntimeOperatorTest, SoftmaxFused_KnownValues) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "softmax/known")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-TEST_F(RuntimeOperatorTest, SoftmaxFused_LargerArray) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "softmax/larger")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-TEST_F(RuntimeOperatorTest, SoftmaxFused_3D) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "softmax/3d")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-TEST_F(RuntimeOperatorTest, LogSoftmaxFused_MatchesComposite) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "logsoftmax/composite")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-TEST_F(RuntimeOperatorTest, LogSoftmaxFused_KnownValues) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "logsoftmax/known")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-TEST_F(RuntimeOperatorTest, LogSoftmaxFused_LargerArray) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "logsoftmax/larger")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
+  EXPECT_GT(ran, 0) << "no logsoftmax cases found in registry";
 }
 
 // ===========================================================================

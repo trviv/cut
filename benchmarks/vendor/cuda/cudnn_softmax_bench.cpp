@@ -69,11 +69,24 @@ static cudnnTensorDescriptor_t makeRowDescriptor(uint32_t rows, uint32_t cols) {
 /// ACCURATE is the max-subtracting numerically stable form, which is what CUT
 /// computes. CUDNN_SOFTMAX_FAST skips that pass, so timing against it would
 /// compare different algorithms rather than two implementations of one.
+///
+/// MODE_INSTANCE (reduce C*H*W per sample) and MODE_CHANNEL (reduce C per
+/// (n,h,w)) name the same axis over the same bytes in this degenerate H=W=1
+/// layout, and both were measured bit-identical against a double-precision CPU
+/// reference. They are NOT the same speed. MODE_CHANNEL's kernel loses its row
+/// reuse once a row stops fitting in L2: at a fixed 1 GiB it holds ~845 GB/s at
+/// 256 columns and ~787 at 1024, then falls off a cliff to ~357 at 4096 and
+/// ~330 from 8192 columns up. MODE_INSTANCE holds ~840 GB/s at every width from
+/// 256 to 65536 columns. Wide rows are exactly what the softmax_large tier
+/// exists to measure, so timing against MODE_CHANNEL would hand CUT a 2.4x head
+/// start on every model-scale shape and report it as a win. A baseline has to be
+/// the fastest way the vendor can be asked for the function, not the most
+/// idiomatic way — hence MODE_INSTANCE.
 static void launchSoftmax(cudnnHandle_t handle, cudnnTensorDescriptor_t desc,
                           const float *dIn, float *dOut) {
   const float alpha = 1.0f, beta = 0.0f;
   CUDNN_CHECK(cudnnSoftmaxForward(handle, CUDNN_SOFTMAX_ACCURATE,
-                                  CUDNN_SOFTMAX_MODE_CHANNEL, &alpha, desc,
+                                  CUDNN_SOFTMAX_MODE_INSTANCE, &alpha, desc,
                                   dIn, &beta, desc, dOut));
 }
 

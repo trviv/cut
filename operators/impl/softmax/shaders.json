@@ -6,6 +6,7 @@
     {
       "name": "Softmax",
       "template": "Softmax",
+      "defines": {"WG_SIZE": 256},
       "wg": [256, 1],
       "eff_tile": [1, 1],
       "description": "Fused single-pass softmax",
@@ -19,9 +20,38 @@
     {
       "name": "LogSoftmax",
       "template": "LogSoftmax",
+      "defines": {"WG_SIZE": 256},
       "wg": [256, 1],
       "eff_tile": [1, 1],
       "description": "Fused single-pass log-softmax",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "SoftmaxWide",
+      "template": "Softmax",
+      "defines": {"WG_SIZE": 512},
+      "wg": [512, 1],
+      "eff_tile": [1, 1],
+      "description": "Fused softmax, 512-thread block (wide rows)",
+      "dtype_slots": {
+        "combos": [
+          {"input": "Float32", "output": "Float32"},
+          {"input": "Float16", "output": "Float16"}
+        ]
+      }
+    },
+    {
+      "name": "LogSoftmaxWide",
+      "template": "LogSoftmax",
+      "defines": {"WG_SIZE": 512},
+      "wg": [512, 1],
+      "eff_tile": [1, 1],
+      "description": "Fused log-softmax, 512-thread block (wide rows)",
       "dtype_slots": {
         "combos": [
           {"input": "Float32", "output": "Float32"},

@@ -17,23 +17,29 @@ struct SoftmaxVariantInfo {
     const char* description;
 };
 
-inline constexpr int kSoftmaxVariantCount = 2;
+inline constexpr int kSoftmaxVariantCount = 4;
 inline constexpr int kSoftmaxDefaultVariant = 0;
 
 inline constexpr SoftmaxVariantInfo kSoftmaxVariants[kSoftmaxVariantCount] = {
     {"SoftmaxSoftmax", 256, 1, 1, 1, "Fused single-pass softmax"},
     {"SoftmaxLogSoftmax", 256, 1, 1, 1, "Fused single-pass log-softmax"},
+    {"SoftmaxSoftmaxWide", 512, 1, 1, 1, "Fused softmax, 512-thread block (wide rows)"},
+    {"SoftmaxLogSoftmaxWide", 512, 1, 1, 1, "Fused log-softmax, 512-thread block (wide rows)"},
 };
 
 // Forward declarations (defined in CompiledShaders.cpp)
 std::optional<std::vector<uint32_t>> compiledSoftmaxSoftmax(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledSoftmaxLogSoftmax(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledSoftmaxSoftmaxWide(DataType input, DataType output);
+std::optional<std::vector<uint32_t>> compiledSoftmaxLogSoftmaxWide(DataType input, DataType output);
 
 using CompiledSoftmaxFn = std::optional<std::vector<uint32_t>> (*)(DataType, DataType);
 
 inline const CompiledSoftmaxFn kSoftmaxCompiledFns[kSoftmaxVariantCount] = {
     compiledSoftmaxSoftmax,
     compiledSoftmaxLogSoftmax,
+    compiledSoftmaxSoftmaxWide,
+    compiledSoftmaxLogSoftmaxWide,
 };
 
 /// Returns compiled SPIR-V for a softmax variant by index.

@@ -12,9 +12,11 @@
 #include <ComputeOps.h>
 #include <Operations.h>
 #include <Runtime.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -1583,38 +1585,85 @@ inline Tensor batchNormRun(Runtime& rt) {
 }
 
 // ===========================================================================
-// Softmax / LogSoftmax families (2D+; fused compared vs composite reference)
+// Softmax / LogSoftmax families (2D+; checked against a CPU reference)
+//
+// These used to compare ops().softmax() against ops().softmaxFused(). That
+// stopped being a test the moment softmax() started routing to the fused node:
+// both sides became the same dispatch, so the comparison passed unconditionally.
+// The reference below is computed on the host in double precision instead, which
+// is what the composite was standing in for anyway.
 // ===========================================================================
-inline VerifyResult softmaxCompositeVsFusedVerify(Runtime& rt,
-    const std::vector<float>& data, const std::vector<uint32_t>& shape, int dim) {
+
+/// Host softmax (or log-softmax) over `dim` of a densely packed row-major
+/// tensor. Accumulates in double so the reference is tighter than either
+/// backend, and subtracts the row max so it is the same numerically stable form.
+inline std::vector<float> softmaxReference(const std::vector<float>& data,
+    const std::vector<uint32_t>& shape, int dim, bool isLog) {
+  size_t outer = 1, reduce = shape[dim], inner = 1;
+  for (int i = 0; i < dim; ++i) outer *= shape[i];
+  for (size_t i = dim + 1; i < shape.size(); ++i) inner *= shape[i];
+  std::vector<float> out(data.size());
+  for (size_t o = 0; o < outer; ++o)
+    for (size_t in = 0; in < inner; ++in) {
+      const size_t base = o * reduce * inner + in;
+      float m = -std::numeric_limits<float>::infinity();
+      for (size_t r = 0; r < reduce; ++r)
+        m = std::max(m, data[base + r * inner]);
+      double sum = 0.0;
+      for (size_t r = 0; r < reduce; ++r)
+        sum += std::exp(static_cast<double>(data[base + r * inner]) - m);
+      for (size_t r = 0; r < reduce; ++r) {
+        const size_t i2 = base + r * inner;
+        out[i2] = isLog
+            ? static_cast<float>(static_cast<double>(data[i2]) - m - std::log(sum))
+            : static_cast<float>(std::exp(static_cast<double>(data[i2]) - m) / sum);
+      }
+    }
+  return out;
+}
+
+/// Checks BOTH entry points against the host reference: the fused node directly,
+/// and ops().softmax(), whose routing decides which node actually runs.
+inline VerifyResult softmaxReferenceVerify(Runtime& rt,
+    const std::vector<float>& data, const std::vector<uint32_t>& shape, int dim,
+    bool isLog, float tol = 1e-5f) {
+  const std::vector<float> ref = softmaxReference(data, shape, dim, isLog);
   auto a = rt.createTensor(shape, DataType::Float32, data.data());
-  auto composite = rt.ops().softmax(a, dim);
-  auto fused = rt.ops().softmaxFused(a, dim);
+  auto fused = isLog ? rt.ops().logSoftmaxFused(a, dim) : rt.ops().softmaxFused(a, dim);
+  auto routed = isLog ? rt.ops().logSoftmax(a, dim) : rt.ops().softmax(a, dim);
   rt.flush();
-  size_t n = data.size();
-  std::vector<float> cOut(n), fOut(n);
-  rt.copyFromTensor(composite, cOut.data(), n * sizeof(float));
+  const size_t n = data.size();
+  std::vector<float> fOut(n), rOut(n);
   rt.copyFromTensor(fused, fOut.data(), n * sizeof(float));
-  for (size_t i = 0; i < n; ++i)
-    if (std::abs(cOut[i] - fOut[i]) > 1e-5f)
-      return {false, "softmax fused!=composite at " + std::to_string(i)};
+  rt.copyFromTensor(routed, rOut.data(), n * sizeof(float));
+  const char* what = isLog ? "logsoftmax" : "softmax";
+  for (size_t i = 0; i < n; ++i) {
+    if (!(std::abs(fOut[i] - ref[i]) <= tol))
+      return {false, std::string(what) + " fused != reference at " +
+                         std::to_string(i) + ": got " + std::to_string(fOut[i]) +
+                         " want " + std::to_string(ref[i])};
+    if (!(std::abs(rOut[i] - ref[i]) <= tol))
+      return {false, std::string(what) + " routed != reference at " +
+                         std::to_string(i) + ": got " + std::to_string(rOut[i]) +
+                         " want " + std::to_string(ref[i])};
+  }
   return {true, ""};
 }
 
-inline VerifyResult logSoftmaxCompositeVsFusedVerify(Runtime& rt,
-    const std::vector<float>& data, const std::vector<uint32_t>& shape, int dim) {
-  auto a = rt.createTensor(shape, DataType::Float32, data.data());
-  auto composite = rt.ops().logSoftmax(a, dim);
-  auto fused = rt.ops().logSoftmaxFused(a, dim);
-  rt.flush();
-  size_t n = data.size();
-  std::vector<float> cOut(n), fOut(n);
-  rt.copyFromTensor(composite, cOut.data(), n * sizeof(float));
-  rt.copyFromTensor(fused, fOut.data(), n * sizeof(float));
-  for (size_t i = 0; i < n; ++i)
-    if (std::abs(cOut[i] - fOut[i]) > 1e-5f)
-      return {false, "logsoftmax fused!=composite at " + std::to_string(i)};
-  return {true, ""};
+/// Test input for the softmax sweep: a sinusoid over the FLAT element index,
+/// spanning roughly +-6 so the exponentials cover a wide dynamic range and a
+/// dropped max would show up.
+///
+/// The period (2*pi/0.017 ~ 370 elements) deliberately divides none of the row
+/// lengths in the sweep, so successive rows carve out different parts of the
+/// wave and no two rows share a max position. A kernel that mapped rows to the
+/// wrong blocks, or reduced one row's max against another's, cannot land on the
+/// right answer by symmetry.
+inline std::vector<float> softmaxTestData(size_t elems) {
+  std::vector<float> data(elems);
+  for (size_t i = 0; i < elems; ++i)
+    data[i] = std::sin(0.017f * static_cast<float>(i)) * 6.0f;
+  return data;
 }
 
 inline VerifyResult softmaxKnownVerify(Runtime& rt) {
@@ -3198,28 +3247,79 @@ cases.push_back(std::move(c));
     cases.push_back(std::move(c));
   }
 
-  // Softmax family
-  {
-    OpCase c;
-    c.name = "softmax/composite_dim1";
-    c.family = "softmax";
-    c.run = [](Runtime &rt, int) { return softmaxRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      std::vector<float> data = {1, 2, 3, 4, 5, 6};
-      return softmaxCompositeVsFusedVerify(rt, data, {2u, 3u}, 1);
-    };
-    cases.push_back(std::move(c));
-  }
-  {
-    OpCase c;
-    c.name = "softmax/composite_dim0";
-    c.family = "softmax";
-    c.run = [](Runtime &rt, int) { return softmaxRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      std::vector<float> data = {1, 2, 3, 4, 5, 6};
-      return softmaxCompositeVsFusedVerify(rt, data, {2u, 3u}, 0);
-    };
-    cases.push_back(std::move(c));
+  // Softmax / LogSoftmax families.
+  //
+  // The shapes are chosen to land on each side of every branch in the native
+  // CUDA kernel (SoftmaxCommon.cuh), because those boundaries are where a row
+  // mapping or a tail mask goes wrong silently:
+  //
+  //   cols <= 512      one warp per row          | cols > 512  whole block per row
+  //   cols <= 8192     row held in registers      | cols > 8192 streamed, two reads
+  //   cols % 4 == 0    whole-vector loads/stores  | else        masked tail vector
+  //   innermost dim    contiguous, vectorized     | else        scalar strided path
+  //
+  // Row counts are deliberately not multiples of the 8 rows a block covers on
+  // the warp path, so the overhanging last block is always exercised.
+  struct SoftmaxShape {
+    const char *tag;
+    std::vector<uint32_t> shape;
+    int dim;
+  };
+  const std::vector<SoftmaxShape> softmaxShapes = {
+      // Warp-per-row, register-resident, whole vectors.
+      {"warp_128", {13u, 128u}, 1},
+      // Warp path with a ragged tail: 130 % 4 == 2, so the last vector of every
+      // row is half padding and must not reach the max, the sum, or the store.
+      {"warp_ragged_130", {13u, 130u}, 1},
+      // Last row length that still gets a warp, and the first that does not.
+      // The row counts here matter as much as the column counts: a warp-path
+      // block covers 8 rows, so a shape with <= 8 rows is still fully covered by
+      // block 0 even if the host and the kernel disagree about the mapping. Only
+      // a shape needing MORE than one block can catch that, and it is the
+      // failure mode that produces silently unwritten rows rather than a crash.
+      {"warp_boundary_512", {21u, 512u}, 1},
+      {"block_boundary_513", {21u, 513u}, 1},
+      // Block-per-row, still register-resident (256 threads x 8 vectors = 8192).
+      {"block_1024", {7u, 1024u}, 1},
+      {"block_regmax_8192", {3u, 8192u}, 1},
+      // One column past what a 256-thread block holds. This is where the wide
+      // variant takes over: a 512-thread block, so the row is register-resident
+      // again and the grid is sized off a different block size. A host/kernel
+      // disagreement about WHICH block size is in play lands here.
+      {"wide_variant_8193", {3u, 8193u}, 1},
+      {"wide_variant_12288", {3u, 12288u}, 1},
+      {"wide_ragged_12289", {3u, 12289u}, 1},
+      {"wide_boundary_16384", {2u, 16384u}, 1},
+      // One column past what even a 512-thread block holds: back to the default
+      // variant, streaming, two reads.
+      {"stream_16385", {2u, 16385u}, 1},
+      // Reducing a non-innermost dim leaves the row strided, which disables
+      // vectorization entirely and takes the scalar path.
+      {"strided_dim0", {37u, 5u}, 0},
+      {"strided_3d_mid", {3u, 33u, 7u}, 1},
+      // 3D reducing the innermost dim: contiguous again, but many short slices.
+      {"contig_3d_inner", {3u, 5u, 300u}, 2},
+  };
+  for (const auto &s : softmaxShapes) {
+    uint32_t elems = 1;
+    for (uint32_t d : s.shape) elems *= d;
+    for (bool isLog : {false, true}) {
+      OpCase c;
+      c.name = std::string(isLog ? "logsoftmax/" : "softmax/") + s.tag;
+      c.family = isLog ? "logsoftmax" : "softmax";
+      const auto shape = s.shape;
+      const int dim = s.dim;
+      c.run = [shape, elems, dim, isLog](Runtime &rt, int) {
+        const std::vector<float> data = softmaxTestData(elems);
+        auto a = rt.createTensor(shape, DataType::Float32, data.data());
+        return isLog ? rt.ops().logSoftmaxFused(a, dim) : rt.ops().softmaxFused(a, dim);
+      };
+      c.verify = [shape, elems, dim, isLog](Runtime &rt, const Tensor &) {
+        const std::vector<float> data = softmaxTestData(elems);
+        return softmaxReferenceVerify(rt, data, shape, dim, isLog);
+      };
+      cases.push_back(std::move(c));
+    }
   }
   {
     OpCase c;
@@ -3231,59 +3331,10 @@ cases.push_back(std::move(c));
   }
   {
     OpCase c;
-    c.name = "softmax/larger";
-    c.family = "softmax";
-    c.run = [](Runtime &rt, int) { return softmaxRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      std::vector<float> data(8 * 128);
-      for (uint32_t i = 0; i < 8 * 128; ++i) data[i] = static_cast<float>(i) * 0.01f - 5.0f;
-      return softmaxCompositeVsFusedVerify(rt, data, {8u, 128u}, 1);
-    };
-    cases.push_back(std::move(c));
-  }
-  {
-    OpCase c;
-    c.name = "softmax/3d";
-    c.family = "softmax";
-    c.run = [](Runtime &rt, int) { return softmaxRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      std::vector<float> data(2 * 4 * 4);
-      for (uint32_t i = 0; i < 2 * 4 * 4; ++i) data[i] = static_cast<float>(i) * 0.1f - 1.0f;
-      return softmaxCompositeVsFusedVerify(rt, data, {2u, 4u, 4u}, 1);
-    };
-    cases.push_back(std::move(c));
-  }
-
-  // LogSoftmax family
-  {
-    OpCase c;
-    c.name = "logsoftmax/composite";
-    c.family = "logsoftmax";
-    c.run = [](Runtime &rt, int) { return logSoftmaxRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      std::vector<float> data = {1, 2, 3, 4, 5, 6};
-      return logSoftmaxCompositeVsFusedVerify(rt, data, {2u, 3u}, 1);
-    };
-    cases.push_back(std::move(c));
-  }
-  {
-    OpCase c;
     c.name = "logsoftmax/known";
     c.family = "logsoftmax";
     c.run = [](Runtime &rt, int) { return logSoftmaxRun(rt); };
     c.verify = [](Runtime &rt, const Tensor &) { return logSoftmaxKnownVerify(rt); };
-    cases.push_back(std::move(c));
-  }
-  {
-    OpCase c;
-    c.name = "logsoftmax/larger";
-    c.family = "logsoftmax";
-    c.run = [](Runtime &rt, int) { return logSoftmaxRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      std::vector<float> data(8 * 128);
-      for (uint32_t i = 0; i < 8 * 128; ++i) data[i] = static_cast<float>(i) * 0.01f - 5.0f;
-      return logSoftmaxCompositeVsFusedVerify(rt, data, {8u, 128u}, 1);
-    };
     cases.push_back(std::move(c));
   }
 

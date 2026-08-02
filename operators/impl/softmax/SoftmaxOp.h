@@ -4,18 +4,38 @@
 
 namespace cut {
 
-/// Threads that cooperate on one softmax row in the native CUDA kernel: a warp
-/// for short rows, the whole 256-thread block for long ones.
-///
-/// MUST stay identical to cut_softmax_threads_per_row() in SoftmaxCommon.cuh.
-/// The host sizes the grid with this and the kernel derives its row mapping
-/// with that, from the same pc.reduceSize; if the two rules disagree, blocks
-/// and rows stop lining up and the result is silently wrong, not a crash.
-inline constexpr uint32_t kSoftmaxWgSize = 256;
-inline constexpr uint32_t kSoftmaxWarpRowMaxCols = 512;
+/// Variant indices, in the order shaders.json declares them. Append only: an
+/// insert would renumber the rest, and the index is what selects the shader.
+enum SoftmaxVariant : uint32_t {
+  kSoftmaxVariantSoftmax = 0,
+  kSoftmaxVariantLogSoftmax = 1,
+  kSoftmaxVariantSoftmaxWide = 2,
+  kSoftmaxVariantLogSoftmaxWide = 3,
+};
 
-inline constexpr uint32_t softmaxThreadsPerRow(uint32_t reduceSize) {
-  return reduceSize <= kSoftmaxWarpRowMaxCols ? 32u : kSoftmaxWgSize;
+/// The two knobs the native CUDA kernel's row mapping depends on. Both MUST
+/// stay identical to their counterparts in SoftmaxCommon.cuh
+/// (CUT_SOFTMAX_WARP_ROW_MAX and CUT_SOFTMAX_NVEC): the host sizes the grid from
+/// these and the kernel derives its row mapping from those, both off the same
+/// pc.reduceSize. If the two disagree the blocks and the rows stop lining up and
+/// the output is silently wrong — rows are left unwritten rather than the
+/// dispatch failing. The softmax test sweep pins the boundaries on both sides.
+inline constexpr uint32_t kSoftmaxWarpRowMaxCols = 512;
+inline constexpr uint32_t kSoftmaxNVec = 8;
+
+/// Threads that cooperate on one row: a warp for short rows, the whole block
+/// for long ones. wgSize is the variant's block size, not a constant.
+inline constexpr uint32_t softmaxThreadsPerRow(uint32_t reduceSize,
+                                               uint32_t wgSize) {
+  return reduceSize <= kSoftmaxWarpRowMaxCols ? 32u : wgSize;
+}
+
+/// Longest row a wgSize-thread block can hold in registers, and therefore read
+/// exactly once. Past this the kernel streams, which costs a second read of the
+/// whole row — 3 passes over DRAM instead of 2, measured at almost exactly the
+/// 1.5x that implies.
+inline constexpr uint32_t softmaxRegisterResidentCols(uint32_t wgSize) {
+  return wgSize * 4u * kSoftmaxNVec;
 }
 
 class SoftmaxOpNode : public OpNode {
@@ -44,6 +64,8 @@ private:
   uint32_t inReduceStride_;
   uint32_t bufInnerDim_;
   uint32_t alignedBufInner_;
+  uint32_t variant_ = kSoftmaxVariantSoftmax;
+  uint32_t wgSize_ = 256;
   bool cudaRowMapping_ = false;
   std::vector<uint32_t> outShape_;
 };

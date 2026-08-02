@@ -7,7 +7,7 @@
 
 %DTYPE_DEFINES_INPUT%
 
-#define WG_SIZE 256
+#define WG_SIZE %WG_SIZE%
 
 struct PushConstants {
     uint outerSize;
