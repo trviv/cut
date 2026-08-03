@@ -12,7 +12,7 @@ snapshot rather than a number someone typed in.
 ## Results — CUT vs vendor libraries
 
 <!-- BENCH:BEGIN -->
-*135 comparisons — 15 at or above the vendor, 23 at parity, 46 within 2x, 36 within 5x, 15 beyond; no correctness failures.*
+*135 comparisons — 15 at or above the vendor, 23 at parity, 48 within 2x, 34 within 5x, 15 beyond; no correctness failures.*
 
 <p><img src="assets/scorecard.svg" alt="CUT vs vendor, by band" width="620"></p>
 
@@ -20,33 +20,33 @@ snapshot rather than a number someone typed in.
 <summary>🟡 <b>Scan</b> — vs CUB · 0.95x avg (28 cases)</summary>
 
 <table>
-<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>f27f86c</sub></th><th>2026-07-31<br><sub>7ba7c38</sub></th><th>2026-07-23<br><sub>903e7f3</sub></th></tr>
-<tr><td align="left"><code>scan_exclusive</code> mixtral-8x7b-moe-32k N=262144</td><td align="center">🔵 <b>1.03x</b> ▼<sub>5%</sub></td><td align="center">🔵 1.08x</td><td align="center">—</td></tr>
+<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>8385ec4</sub></th><th>2026-07-31<br><sub>9bf5e74</sub></th><th>2026-07-23<br><sub>29fb17d</sub></th></tr>
+<tr><td align="left"><code>scan_exclusive</code> mixtral-8x7b-moe-32k N=262144</td><td align="center">🔵 <b>1.03x</b> ▼<sub>4%</sub></td><td align="center">🔵 1.08x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_inclusive</code> mixtral-8x7b-moe-32k N=262144</td><td align="center">🔵 <b>1.02x</b></td><td align="center">🔵 1.02x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>scan_exclusive</code> gemma2-9b-vocab N=256000</td><td align="center">🔵 <b>1.00x</b> ▼<sub>9%</sub></td><td align="center">🔵 1.10x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>scan_inclusive</code> gemma2-9b-vocab N=256000</td><td align="center">🟢 <b>0.99x</b> ▼<sub>4%</sub></td><td align="center">🔵 1.03x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>scan_exclusive</code> gemma2-9b-vocab N=256000</td><td align="center">🔵 <b>1.01x</b> ▼<sub>8%</sub></td><td align="center">🔵 1.10x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>scan_inclusive</code> gemma2-9b-vocab N=256000</td><td align="center">🟢 <b>1.00x</b> ▼<sub>4%</sub></td><td align="center">🔵 1.03x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_inclusive</code> N=16777216</td><td align="center">🟢 <b>0.99x</b></td><td align="center">🟢 0.99x</td><td align="center">🔴 0.043x</td></tr>
 <tr><td align="left"><code>scan_exclusive</code> N=16777216</td><td align="center">🟢 <b>0.99x</b></td><td align="center">🟢 0.99x</td><td align="center">🔴 0.043x</td></tr>
-<tr><td align="left"><code>scan_exclusive</code> qwen2.5-14b-vocab N=152064</td><td align="center">🟢 <b>0.97x</b> ▼<sub>4%</sub></td><td align="center">🔵 1.01x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>scan_exclusive</code> N=65536</td><td align="center">🟢 <b>0.97x</b> ▼<sub>4%</sub></td><td align="center">🔵 1.02x</td><td align="center">🟠 0.42x</td></tr>
+<tr><td align="left"><code>scan_exclusive</code> N=65536</td><td align="center">🟢 <b>0.98x</b> ▼<sub>4%</sub></td><td align="center">🔵 1.02x</td><td align="center">🟠 0.42x</td></tr>
+<tr><td align="left"><code>scan_exclusive</code> qwen2.5-14b-vocab N=152064</td><td align="center">🟢 <b>0.98x</b> ▼<sub>4%</sub></td><td align="center">🔵 1.01x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_inclusive</code> N=65536</td><td align="center">🟢 <b>0.97x</b> ▼<sub>3%</sub></td><td align="center">🔵 1.00x</td><td align="center">🟠 0.42x</td></tr>
 <tr><td align="left"><code>scan_exclusive</code> llama3-8b-vocab N=128256</td><td align="center">🟢 <b>0.97x</b> ▼<sub>3%</sub></td><td align="center">🔵 1.00x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_exclusive</code> llama3-8b-batch64-logits N=8208384</td><td align="center">🟢 <b>0.97x</b></td><td align="center">🟢 0.97x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_inclusive</code> llama3-8b-batch64-logits N=8208384</td><td align="center">🟢 <b>0.97x</b></td><td align="center">🟢 0.97x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_exclusive</code> N=1048576</td><td align="center">🟢 <b>0.96x</b></td><td align="center">🟢 0.97x</td><td align="center">🔴 0.085x</td></tr>
 <tr><td align="left"><code>scan_inclusive</code> qwen2.5-14b-vocab N=152064</td><td align="center">🟢 <b>0.96x</b> ▼<sub>4%</sub></td><td align="center">🟢 1.00x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>scan_inclusive</code> llama3-8b-vocab N=128256</td><td align="center">🟢 <b>0.96x</b> ▼<sub>5%</sub></td><td align="center">🔵 1.00x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>scan_inclusive</code> N=1048576</td><td align="center">🟢 <b>0.95x</b> ▼<sub>3%</sub></td><td align="center">🟢 0.98x</td><td align="center">🔴 0.083x</td></tr>
+<tr><td align="left"><code>scan_inclusive</code> llama3-8b-vocab N=128256</td><td align="center">🟢 <b>0.96x</b> ▼<sub>4%</sub></td><td align="center">🔵 1.00x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>scan_inclusive</code> N=1048576</td><td align="center">🟢 <b>0.96x</b> ▼<sub>3%</sub></td><td align="center">🟢 0.98x</td><td align="center">🔴 0.083x</td></tr>
 <tr><td align="left"><code>scan_exclusive</code> qwen2.5-14b-batch32-logits N=4866048</td><td align="center">🟡 <b>0.95x</b></td><td align="center">🟢 0.95x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_inclusive</code> qwen2.5-14b-batch32-logits N=4866048</td><td align="center">🟡 <b>0.95x</b></td><td align="center">🟢 0.95x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_exclusive</code> N=4194304</td><td align="center">🟡 <b>0.94x</b></td><td align="center">🟡 0.94x</td><td align="center">🔴 0.049x</td></tr>
-<tr><td align="left"><code>scan_inclusive</code> N=4194304</td><td align="center">🟡 <b>0.93x</b></td><td align="center">🟡 0.94x</td><td align="center">🔴 0.048x</td></tr>
-<tr><td align="left"><code>scan_inclusive</code> yolov8-nms-640 N=8400</td><td align="center">🟡 <b>0.90x</b> ▼<sub>4%</sub></td><td align="center">🟡 0.93x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>scan_exclusive</code> mixtral-8x7b-moe-4k N=32768</td><td align="center">🟡 <b>0.90x</b> ▼<sub>5%</sub></td><td align="center">🟡 0.94x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>scan_exclusive</code> llama2-7b-vocab N=32000</td><td align="center">🟡 <b>0.90x</b> ▼<sub>4%</sub></td><td align="center">🟡 0.93x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>scan_inclusive</code> N=4194304</td><td align="center">🟡 <b>0.94x</b></td><td align="center">🟡 0.94x</td><td align="center">🔴 0.048x</td></tr>
+<tr><td align="left"><code>scan_exclusive</code> llama2-7b-vocab N=32000</td><td align="center">🟡 <b>0.90x</b> ▼<sub>3%</sub></td><td align="center">🟡 0.93x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>scan_exclusive</code> mixtral-8x7b-moe-4k N=32768</td><td align="center">🟡 <b>0.90x</b> ▼<sub>4%</sub></td><td align="center">🟡 0.94x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>scan_inclusive</code> yolov8-nms-640 N=8400</td><td align="center">🟡 <b>0.90x</b> ▼<sub>3%</sub></td><td align="center">🟡 0.93x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>scan_inclusive</code> mixtral-8x7b-moe-4k N=32768</td><td align="center">🟡 <b>0.90x</b> ▼<sub>4%</sub></td><td align="center">🟡 0.94x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>scan_exclusive</code> yolov8-nms-640 N=8400</td><td align="center">🟡 <b>0.90x</b> ▼<sub>3%</sub></td><td align="center">🟡 0.92x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_inclusive</code> llama2-7b-vocab N=32000</td><td align="center">🟡 <b>0.89x</b> ▼<sub>3%</sub></td><td align="center">🟡 0.93x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>scan_inclusive</code> mixtral-8x7b-moe-4k N=32768</td><td align="center">🟡 <b>0.89x</b> ▼<sub>5%</sub></td><td align="center">🟡 0.94x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>scan_exclusive</code> yolov8-nms-640 N=8400</td><td align="center">🟡 <b>0.89x</b> ▼<sub>3%</sub></td><td align="center">🟡 0.92x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_exclusive</code> llama3-8b-batch16-logits N=2052096</td><td align="center">🟡 <b>0.85x</b></td><td align="center">🟡 0.86x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>scan_inclusive</code> llama3-8b-batch16-logits N=2052096</td><td align="center">🟡 <b>0.84x</b></td><td align="center">🟡 0.86x</td><td align="center">—</td></tr>
 </table>
@@ -56,58 +56,58 @@ snapshot rather than a number someone typed in.
 <summary>🟡 <b>Softmax</b> — vs cuDNN · 0.80x avg (16 cases)</summary>
 
 <table>
-<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>f27f86c</sub></th><th>2026-07-31<br><sub>7ba7c38</sub></th><th>2026-07-23<br><sub>903e7f3</sub></th></tr>
-<tr><td align="left"><code>softmax</code> rows=1 cols=152064</td><td align="center">🔵 <b>2.72x</b> ▲<sub>9873%</sub></td><td align="center">🔴 0.027x</td><td align="center">🔴 0.027x</td></tr>
-<tr><td align="left"><code>softmax_large</code> qwen2.5-14b-logits-2k rows=2048 cols=152064</td><td align="center">🔵 <b>1.31x</b> ▲<sub>1570%</sub></td><td align="center">🔴 0.078x</td><td align="center">🔴 0.074x</td></tr>
+<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>8385ec4</sub></th><th>2026-07-31<br><sub>9bf5e74</sub></th><th>2026-07-23<br><sub>29fb17d</sub></th></tr>
+<tr><td align="left"><code>softmax</code> rows=1 cols=152064</td><td align="center">🔵 <b>2.73x</b> ▲<sub>9885%</sub></td><td align="center">🔴 0.027x</td><td align="center">🔴 0.027x</td></tr>
+<tr><td align="left"><code>softmax_large</code> qwen2.5-14b-logits-2k rows=2048 cols=152064</td><td align="center">🔵 <b>1.31x</b> ▲<sub>1567%</sub></td><td align="center">🔴 0.078x</td><td align="center">🔴 0.074x</td></tr>
 <tr><td align="left"><code>softmax_large</code> gemma2-27b-logits-1k rows=1024 cols=256000</td><td align="center">🔵 <b>1.27x</b> ▲<sub>2040%</sub></td><td align="center">🔴 0.059x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>softmax</code> rows=8192 cols=1024</td><td align="center">🟢 <b>0.99x</b> ▲<sub>2193%</sub></td><td align="center">🔴 0.043x</td><td align="center">🔴 0.040x</td></tr>
-<tr><td align="left"><code>softmax</code> rows=4096 cols=512</td><td align="center">🟢 <b>0.98x</b> ▲<sub>2271%</sub></td><td align="center">🔴 0.041x</td><td align="center">🔴 0.039x</td></tr>
+<tr><td align="left"><code>softmax</code> rows=8192 cols=1024</td><td align="center">🟢 <b>0.99x</b> ▲<sub>2192%</sub></td><td align="center">🔴 0.043x</td><td align="center">🔴 0.040x</td></tr>
 <tr><td align="left"><code>softmax</code> rows=32768 cols=256</td><td align="center">🟢 <b>0.98x</b> ▲<sub>2187%</sub></td><td align="center">🔴 0.043x</td><td align="center">🔴 0.040x</td></tr>
-<tr><td align="left"><code>softmax</code> rows=32 cols=4096</td><td align="center">🟡 <b>0.91x</b> ▲<sub>4693%</sub></td><td align="center">🔴 0.019x</td><td align="center">🔴 0.019x</td></tr>
-<tr><td align="left"><code>softmax_large</code> llama3-8b-attn-4k rows=131072 cols=4096</td><td align="center">🟡 <b>0.78x</b> ▲<sub>982%</sub></td><td align="center">🔴 0.072x</td><td align="center">🔴 0.065x</td></tr>
-<tr><td align="left"><code>softmax_large</code> llama3-8b-attn-8k-8h rows=65536 cols=8192</td><td align="center">🟡 <b>0.78x</b> ▲<sub>641%</sub></td><td align="center">🔴 0.11x</td><td align="center">🔴 0.098x</td></tr>
-<tr><td align="left"><code>softmax_large</code> flux-dit-attn rows=110592 cols=4608</td><td align="center">🟡 <b>0.77x</b> ▲<sub>747%</sub></td><td align="center">🔴 0.091x</td><td align="center">🔴 0.086x</td></tr>
-<tr><td align="left"><code>softmax</code> rows=8 cols=32000</td><td align="center">🟡 <b>0.68x</b> ▲<sub>2577%</sub></td><td align="center">🔴 0.025x</td><td align="center">🔴 0.025x</td></tr>
-<tr><td align="left"><code>softmax</code> rows=1 cols=32000</td><td align="center">🟡 <b>0.67x</b> ▲<sub>5224%</sub></td><td align="center">🔴 0.013x</td><td align="center">🔴 0.013x</td></tr>
-<tr><td align="left"><code>softmax</code> rows=4096 cols=128</td><td align="center">🟡 <b>0.67x</b> ▲<sub>2052%</sub></td><td align="center">🔴 0.031x</td><td align="center">🔴 0.030x</td></tr>
-<tr><td align="left"><code>softmax_large</code> llama3-8b-attn-16k-1h rows=16384 cols=16384</td><td align="center">🟡 <b>0.60x</b> ▲<sub>456%</sub></td><td align="center">🔴 0.11x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>softmax_large</code> llama3-8b-logits-4k rows=4096 cols=128256</td><td align="center">🟠 <b>0.49x</b> ▲<sub>381%</sub></td><td align="center">🔴 0.10x</td><td align="center">🔴 0.095x</td></tr>
+<tr><td align="left"><code>softmax</code> rows=4096 cols=512</td><td align="center">🟢 <b>0.98x</b> ▲<sub>2269%</sub></td><td align="center">🔴 0.041x</td><td align="center">🔴 0.039x</td></tr>
+<tr><td align="left"><code>softmax</code> rows=32 cols=4096</td><td align="center">🟡 <b>0.91x</b> ▲<sub>4680%</sub></td><td align="center">🔴 0.019x</td><td align="center">🔴 0.019x</td></tr>
+<tr><td align="left"><code>softmax_large</code> llama3-8b-attn-4k rows=131072 cols=4096</td><td align="center">🟡 <b>0.78x</b> ▲<sub>983%</sub></td><td align="center">🔴 0.072x</td><td align="center">🔴 0.065x</td></tr>
+<tr><td align="left"><code>softmax_large</code> llama3-8b-attn-8k-8h rows=65536 cols=8192</td><td align="center">🟡 <b>0.78x</b> ▲<sub>642%</sub></td><td align="center">🔴 0.11x</td><td align="center">🔴 0.098x</td></tr>
+<tr><td align="left"><code>softmax_large</code> flux-dit-attn rows=110592 cols=4608</td><td align="center">🟡 <b>0.77x</b> ▲<sub>745%</sub></td><td align="center">🔴 0.091x</td><td align="center">🔴 0.086x</td></tr>
+<tr><td align="left"><code>softmax</code> rows=8 cols=32000</td><td align="center">🟡 <b>0.68x</b> ▲<sub>2579%</sub></td><td align="center">🔴 0.025x</td><td align="center">🔴 0.025x</td></tr>
+<tr><td align="left"><code>softmax</code> rows=1 cols=32000</td><td align="center">🟡 <b>0.68x</b> ▲<sub>5248%</sub></td><td align="center">🔴 0.013x</td><td align="center">🔴 0.013x</td></tr>
+<tr><td align="left"><code>softmax</code> rows=4096 cols=128</td><td align="center">🟡 <b>0.67x</b> ▲<sub>2058%</sub></td><td align="center">🔴 0.031x</td><td align="center">🔴 0.030x</td></tr>
+<tr><td align="left"><code>softmax_large</code> llama3-8b-attn-16k-1h rows=16384 cols=16384</td><td align="center">🟡 <b>0.60x</b> ▲<sub>457%</sub></td><td align="center">🔴 0.11x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>softmax_large</code> llama3-8b-logits-4k rows=4096 cols=128256</td><td align="center">🟡 <b>0.50x</b> ▲<sub>395%</sub></td><td align="center">🔴 0.10x</td><td align="center">🔴 0.095x</td></tr>
 <tr><td align="left"><code>softmax_large</code> sd35-large-attn rows=155648 cols=4096</td><td align="center">🔴 <b>0.17x</b> ▲<sub>130%</sub><br><sub>6x slower</sub></td><td align="center">🔴 0.074x</td><td align="center">🔴 0.070x</td></tr>
 </table>
 </details>
 
 <details>
-<summary>🟡 <b>Convolution</b> — vs cuDNN · 0.52x avg (11 cases)</summary>
+<summary>🟡 <b>Convolution</b> — vs cuDNN · 0.51x avg (11 cases)</summary>
 
 <table>
-<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>f27f86c</sub></th><th>2026-07-31<br><sub>7ba7c38</sub></th><th>2026-07-23<br><sub>903e7f3</sub></th></tr>
-<tr><td align="left"><code>conv2d</code> sam-vit-h-patch-embed N=8 C=3 HW=1024 Cout=1280 k=16 s=16</td><td align="center">🟡 <b>0.85x</b> ▲<sub>2866%</sub></td><td align="center">🔴 0.029x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>conv2d</code> vit-g14-patch-embed N=24 C=3 HW=336 Cout=1664 k=14 s=14</td><td align="center">🟡 <b>0.79x</b> ▲<sub>2040%</sub></td><td align="center">🔴 0.037x</td><td align="center">🔴 0.037x</td></tr>
-<tr><td align="left"><code>conv2d</code> vit-l14-patch-embed N=32 C=3 HW=224 Cout=1024 k=14 s=14</td><td align="center">🟡 <b>0.76x</b> ▲<sub>1742%</sub></td><td align="center">🔴 0.041x</td><td align="center">🔴 0.042x</td></tr>
-<tr><td align="left"><code>conv2d</code> sd-vae-decoder-128ch-1024px N=6 C=128 HW=1024 Cout=128 k=3 s=1</td><td align="center">🟡 <b>0.57x</b> ▲<sub>1646%</sub></td><td align="center">🔴 0.033x</td><td align="center">🔴 0.033x</td></tr>
-<tr><td align="left"><code>conv2d</code> sd-vae-decoder-512ch N=6 C=512 HW=256 Cout=512 k=3 s=1</td><td align="center">🟡 <b>0.54x</b> ▲<sub>1764%</sub></td><td align="center">🔴 0.029x</td><td align="center">🔴 0.029x</td></tr>
-<tr><td align="left"><code>conv2d</code> sdxl-unet-1280ch N=24 C=1280 HW=32 Cout=1280 k=3 s=1</td><td align="center">🟡 <b>0.53x</b> ▲<sub>1282%</sub></td><td align="center">🔴 0.038x</td><td align="center">🔴 0.038x</td></tr>
-<tr><td align="left"><code>conv2d</code> resnet50-stage1-1x1 N=256 C=256 HW=56 Cout=64 k=1 s=1</td><td align="center">🟠 <b>0.50x</b> ▲<sub>1444%</sub></td><td align="center">🔴 0.032x</td><td align="center">🔴 0.032x</td></tr>
-<tr><td align="left"><code>conv2d</code> sdxl-unet-320ch N=16 C=320 HW=128 Cout=320 k=3 s=1</td><td align="center">🟠 <b>0.46x</b> ▲<sub>1283%</sub></td><td align="center">🔴 0.033x</td><td align="center">🔴 0.033x</td></tr>
-<tr><td align="left"><code>conv2d</code> resnet50-stage1-3x3 N=256 C=64 HW=56 Cout=64 k=3 s=1</td><td align="center">🟠 <b>0.38x</b> ▲<sub>802%</sub></td><td align="center">🔴 0.042x</td><td align="center">🔴 0.043x</td></tr>
-<tr><td align="left"><code>conv2d</code> sd-vae-decoder-128ch-2048px N=2 C=128 HW=2048 Cout=128 k=3 s=1</td><td align="center">🟠 <b>0.33x</b> ▲<sub>974%</sub></td><td align="center">🔴 0.031x</td><td align="center">🔴 0.031x</td></tr>
-<tr><td align="left"><code>conv2d</code> resnet50-stage2-3x3 N=256 C=128 HW=28 Cout=128 k=3 s=1</td><td align="center">🟠 <b>0.31x</b> ▲<sub>1023%</sub></td><td align="center">🔴 0.028x</td><td align="center">🔴 0.028x</td></tr>
+<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>8385ec4</sub></th><th>2026-07-31<br><sub>9bf5e74</sub></th><th>2026-07-23<br><sub>29fb17d</sub></th></tr>
+<tr><td align="left"><code>conv2d</code> sam-vit-h-patch-embed N=8 C=3 HW=1024 Cout=1280 k=16 s=16</td><td align="center">🟡 <b>0.86x</b> ▲<sub>2880%</sub></td><td align="center">🔴 0.029x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>conv2d</code> vit-g14-patch-embed N=24 C=3 HW=336 Cout=1664 k=14 s=14</td><td align="center">🟡 <b>0.78x</b> ▲<sub>2030%</sub></td><td align="center">🔴 0.037x</td><td align="center">🔴 0.037x</td></tr>
+<tr><td align="left"><code>conv2d</code> vit-l14-patch-embed N=32 C=3 HW=224 Cout=1024 k=14 s=14</td><td align="center">🟡 <b>0.77x</b> ▲<sub>1752%</sub></td><td align="center">🔴 0.041x</td><td align="center">🔴 0.042x</td></tr>
+<tr><td align="left"><code>conv2d</code> sd-vae-decoder-128ch-1024px N=6 C=128 HW=1024 Cout=128 k=3 s=1</td><td align="center">🟡 <b>0.57x</b> ▲<sub>1645%</sub></td><td align="center">🔴 0.033x</td><td align="center">🔴 0.033x</td></tr>
+<tr><td align="left"><code>conv2d</code> sd-vae-decoder-512ch N=6 C=512 HW=256 Cout=512 k=3 s=1</td><td align="center">🟡 <b>0.54x</b> ▲<sub>1780%</sub></td><td align="center">🔴 0.029x</td><td align="center">🔴 0.029x</td></tr>
+<tr><td align="left"><code>conv2d</code> sdxl-unet-1280ch N=24 C=1280 HW=32 Cout=1280 k=3 s=1</td><td align="center">🟡 <b>0.53x</b> ▲<sub>1280%</sub></td><td align="center">🔴 0.038x</td><td align="center">🔴 0.038x</td></tr>
+<tr><td align="left"><code>conv2d</code> resnet50-stage1-3x3 N=256 C=64 HW=56 Cout=64 k=3 s=1</td><td align="center">🟠 <b>0.46x</b> ▲<sub>991%</sub></td><td align="center">🔴 0.042x</td><td align="center">🔴 0.043x</td></tr>
+<tr><td align="left"><code>conv2d</code> sdxl-unet-320ch N=16 C=320 HW=128 Cout=320 k=3 s=1</td><td align="center">🟠 <b>0.46x</b> ▲<sub>1282%</sub></td><td align="center">🔴 0.033x</td><td align="center">🔴 0.033x</td></tr>
+<tr><td align="left"><code>conv2d</code> resnet50-stage1-1x1 N=256 C=256 HW=56 Cout=64 k=1 s=1</td><td align="center">🟠 <b>0.34x</b> ▲<sub>959%</sub></td><td align="center">🔴 0.032x</td><td align="center">🔴 0.032x</td></tr>
+<tr><td align="left"><code>conv2d</code> sd-vae-decoder-128ch-2048px N=2 C=128 HW=2048 Cout=128 k=3 s=1</td><td align="center">🟠 <b>0.33x</b> ▲<sub>972%</sub></td><td align="center">🔴 0.031x</td><td align="center">🔴 0.031x</td></tr>
+<tr><td align="left"><code>conv2d</code> resnet50-stage2-3x3 N=256 C=128 HW=28 Cout=128 k=3 s=1</td><td align="center">🟠 <b>0.32x</b> ▲<sub>1026%</sub></td><td align="center">🔴 0.028x</td><td align="center">🔴 0.028x</td></tr>
 </table>
 </details>
 
 <details>
-<summary>🟠 <b>Transpose</b> — vs cuBLAS · 0.41x avg (15 cases)</summary>
+<summary>🟠 <b>Transpose</b> — vs cuBLAS · 0.42x avg (15 cases)</summary>
 
 <table>
-<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>f27f86c</sub></th><th>2026-07-31<br><sub>7ba7c38</sub></th><th>2026-07-23<br><sub>903e7f3</sub></th></tr>
-<tr><td align="left"><code>transpose</code> M=8192 N=1024</td><td align="center">🟢 <b>0.99x</b></td><td align="center">🟢 0.98x</td><td align="center">🟡 0.78x</td></tr>
-<tr><td align="left"><code>transpose</code> M=1024 N=8192</td><td align="center">🟢 <b>0.99x</b></td><td align="center">🟢 0.98x</td><td align="center">🟡 0.78x</td></tr>
-<tr><td align="left"><code>transpose</code> M=1024 N=1024</td><td align="center">🟢 <b>0.99x</b></td><td align="center">🟢 0.99x</td><td align="center">🟡 0.64x</td></tr>
+<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>8385ec4</sub></th><th>2026-07-31<br><sub>9bf5e74</sub></th><th>2026-07-23<br><sub>29fb17d</sub></th></tr>
 <tr><td align="left"><code>transpose</code> M=4096 N=4096</td><td align="center">🟢 <b>0.99x</b></td><td align="center">🟢 1.00x</td><td align="center">🟡 0.80x</td></tr>
 <tr><td align="left"><code>transpose</code> M=8192 N=8192</td><td align="center">🟢 <b>0.98x</b></td><td align="center">🟢 0.99x</td><td align="center">🟡 0.79x</td></tr>
+<tr><td align="left"><code>transpose</code> M=1024 N=8192</td><td align="center">🟢 <b>0.98x</b></td><td align="center">🟢 0.98x</td><td align="center">🟡 0.78x</td></tr>
+<tr><td align="left"><code>transpose</code> M=8192 N=1024</td><td align="center">🟢 <b>0.98x</b></td><td align="center">🟢 0.98x</td><td align="center">🟡 0.78x</td></tr>
+<tr><td align="left"><code>transpose</code> M=1024 N=1024</td><td align="center">🟢 <b>0.97x</b></td><td align="center">🟢 0.99x</td><td align="center">🟡 0.64x</td></tr>
+<tr><td align="left"><code>transpose_large</code> llama3-8b-qkv-act M=32768 N=4096</td><td align="center">🟡 <b>0.61x</b> ▼<sub>39%</sub></td><td align="center">🟢 1.00x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>transpose_large</code> llama3-70b-qkv-act M=32768 N=8192</td><td align="center">🟡 <b>0.60x</b> ▼<sub>39%</sub></td><td align="center">🟢 0.98x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>transpose_large</code> act-16k M=16384 N=16384</td><td align="center">🟡 <b>0.60x</b> ▼<sub>39%</sub></td><td align="center">🟢 0.98x</td><td align="center">🟡 0.85x</td></tr>
-<tr><td align="left"><code>transpose_large</code> llama3-8b-qkv-act M=32768 N=4096</td><td align="center">🟠 <b>0.42x</b> ▼<sub>58%</sub></td><td align="center">🟢 1.00x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>transpose_large</code> act-8k M=8192 N=8192</td><td align="center">🟠 <b>0.41x</b> ▼<sub>58%</sub></td><td align="center">🟢 0.98x</td><td align="center">🟡 0.85x</td></tr>
 <tr><td align="left"><code>transpose_large</code> flux-dit-act M=18432 N=3072</td><td align="center">🟠 <b>0.37x</b> ▼<sub>61%</sub></td><td align="center">🟢 0.96x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>transpose_large</code> vit-g14-tokens M=65792 N=1408</td><td align="center">🟠 <b>0.32x</b> ▼<sub>68%</sub></td><td align="center">🔵 1.01x</td><td align="center">—</td></tr>
@@ -122,38 +122,38 @@ snapshot rather than a number someone typed in.
 <summary>🟠 <b>GEMM / GEMV</b> — vs cuBLAS · 0.37x avg (34 cases)</summary>
 
 <table>
-<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>f27f86c</sub></th><th>2026-07-31<br><sub>7ba7c38</sub></th><th>2026-07-23<br><sub>903e7f3</sub></th></tr>
-<tr><td align="left"><code>sgemm</code> M=128 K=128 N=128</td><td align="center">🔵 <b>1.00x</b> ▼<sub>13%</sub></td><td align="center">🔵 1.15x</td><td align="center">🔵 1.14x</td></tr>
-<tr><td align="left"><code>sgemv</code> M=1 K=4096 N=4096</td><td align="center">🟡 <b>0.68x</b></td><td align="center">🟡 0.69x</td><td align="center">🟡 0.70x</td></tr>
-<tr><td align="left"><code>sgemv</code> M=1 K=2048 N=2048</td><td align="center">🟡 <b>0.65x</b> ▼<sub>3%</sub></td><td align="center">🟡 0.67x</td><td align="center">🟡 0.67x</td></tr>
+<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>8385ec4</sub></th><th>2026-07-31<br><sub>9bf5e74</sub></th><th>2026-07-23<br><sub>29fb17d</sub></th></tr>
+<tr><td align="left"><code>sgemm</code> M=128 K=128 N=128</td><td align="center">🔵 <b>1.01x</b> ▼<sub>12%</sub></td><td align="center">🔵 1.15x</td><td align="center">🔵 1.14x</td></tr>
+<tr><td align="left"><code>sgemv</code> M=1 K=4096 N=4096</td><td align="center">🟡 <b>0.69x</b></td><td align="center">🟡 0.69x</td><td align="center">🟡 0.70x</td></tr>
+<tr><td align="left"><code>sgemv</code> M=1 K=2048 N=2048</td><td align="center">🟡 <b>0.66x</b> ▼<sub>3%</sub></td><td align="center">🟡 0.67x</td><td align="center">🟡 0.67x</td></tr>
 <tr><td align="left"><code>sgemm</code> M=4096 K=4096 N=4096</td><td align="center">🟡 <b>0.60x</b></td><td align="center">🟡 0.60x</td><td align="center">🟡 0.60x</td></tr>
-<tr><td align="left"><code>sgemm</code> M=2048 K=2048 N=2048</td><td align="center">🟡 <b>0.54x</b></td><td align="center">🟡 0.55x</td><td align="center">🟡 0.55x</td></tr>
+<tr><td align="left"><code>sgemm</code> M=2048 K=2048 N=2048</td><td align="center">🟡 <b>0.54x</b> ▼<sub>2%</sub></td><td align="center">🟡 0.55x</td><td align="center">🟡 0.55x</td></tr>
 <tr><td align="left"><code>sgemm</code> M=512 K=4096 N=4096</td><td align="center">🟡 <b>0.53x</b> ▼<sub>2%</sub></td><td align="center">🟡 0.54x</td><td align="center">🟡 0.55x</td></tr>
 <tr><td align="left"><code>sgemm</code> M=1024 K=1024 N=1024</td><td align="center">🟡 <b>0.52x</b> ▼<sub>12%</sub></td><td align="center">🟡 0.59x</td><td align="center">🟡 0.60x</td></tr>
 <tr><td align="left"><code>hgemm</code> M=16 K=4096 N=4096</td><td align="center">🟠 <b>0.41x</b></td><td align="center">🟠 0.41x</td><td align="center">🟠 0.41x</td></tr>
-<tr><td align="left"><code>sgemm</code> M=512 K=512 N=512</td><td align="center">🟠 <b>0.40x</b> ▼<sub>10%</sub></td><td align="center">🟠 0.44x</td><td align="center">🟠 0.44x</td></tr>
+<tr><td align="left"><code>sgemm</code> M=512 K=512 N=512</td><td align="center">🟠 <b>0.39x</b> ▼<sub>12%</sub></td><td align="center">🟠 0.44x</td><td align="center">🟠 0.44x</td></tr>
 <tr><td align="left"><code>hgemm</code> M=4096 K=4096 N=4096</td><td align="center">🟠 <b>0.38x</b></td><td align="center">🟠 0.38x</td><td align="center">🟠 0.38x</td></tr>
 <tr><td align="left"><code>hgemm</code> M=2048 K=2048 N=2048</td><td align="center">🟠 <b>0.37x</b> ▲<sub>3%</sub></td><td align="center">🟠 0.36x</td><td align="center">🟠 0.36x</td></tr>
 <tr><td align="left"><code>sgemv</code> M=1 K=8192 N=8192</td><td align="center">🟠 <b>0.36x</b></td><td align="center">🟠 0.36x</td><td align="center">🟠 0.36x</td></tr>
+<tr><td align="left"><code>sgemm</code> M=16 K=4096 N=4096</td><td align="center">🟠 <b>0.35x</b></td><td align="center">🟠 0.35x</td><td align="center">🟠 0.35x</td></tr>
 <tr><td align="left"><code>hgemm_large</code> llama3-8b-ffn-down M=32768 K=14336 N=4096</td><td align="center">🟠 <b>0.34x</b></td><td align="center">🟠 0.35x</td><td align="center">🟠 0.35x</td></tr>
-<tr><td align="left"><code>sgemm</code> M=16 K=4096 N=4096</td><td align="center">🟠 <b>0.34x</b></td><td align="center">🟠 0.35x</td><td align="center">🟠 0.35x</td></tr>
+<tr><td align="left"><code>hgemm_large</code> llama3-70b-qkv M=8192 K=8192 N=10240</td><td align="center">🟠 <b>0.34x</b></td><td align="center">🟠 0.34x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>hgemm_large</code> llama2-13b-attn-out M=16384 K=5120 N=5120</td><td align="center">🟠 <b>0.34x</b> ▼<sub>3%</sub></td><td align="center">🟠 0.35x</td><td align="center">🟠 0.35x</td></tr>
 <tr><td align="left"><code>hgemm_large</code> llama3-8b-qkv M=32768 K=4096 N=6144</td><td align="center">🟠 <b>0.34x</b></td><td align="center">🟠 0.34x</td><td align="center">🟠 0.35x</td></tr>
 <tr><td align="left"><code>hgemm_large</code> vit-g14-mlp M=65792 K=1408 N=6144</td><td align="center">🟠 <b>0.34x</b> ▼<sub>2%</sub></td><td align="center">🟠 0.34x</td><td align="center">🟠 0.34x</td></tr>
-<tr><td align="left"><code>hgemm_large</code> llama3-70b-qkv M=8192 K=8192 N=10240</td><td align="center">🟠 <b>0.33x</b> ▼<sub>3%</sub></td><td align="center">🟠 0.34x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>hgemm_large</code> llama3-70b-ffn-down M=8192 K=28672 N=8192</td><td align="center">🟠 <b>0.33x</b></td><td align="center">🟠 0.34x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>hgemm</code> M=1024 K=1024 N=1024</td><td align="center">🟠 <b>0.33x</b> ▲<sub>2%</sub></td><td align="center">🟠 0.33x</td><td align="center">🟠 0.32x</td></tr>
+<tr><td align="left"><code>hgemm_large</code> llama3-70b-ffn-down M=8192 K=28672 N=8192</td><td align="center">🟠 <b>0.34x</b></td><td align="center">🟠 0.34x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>hgemm_large</code> llama3-70b-ffn-up M=8192 K=8192 N=57344</td><td align="center">🟠 <b>0.33x</b></td><td align="center">🟠 0.33x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>hgemm_large</code> internvit-6b-mlp M=16384 K=3200 N=12800</td><td align="center">🟠 <b>0.33x</b> ▼<sub>2%</sub></td><td align="center">🟠 0.34x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>hgemm</code> M=1024 K=1024 N=1024</td><td align="center">🟠 <b>0.33x</b></td><td align="center">🟠 0.33x</td><td align="center">🟠 0.32x</td></tr>
+<tr><td align="left"><code>hgemm_large</code> flux-dit-mlp M=18432 K=3072 N=12288</td><td align="center">🟠 <b>0.33x</b> ▼<sub>2%</sub></td><td align="center">🟠 0.34x</td><td align="center">🟠 0.34x</td></tr>
 <tr><td align="left"><code>hgemm_large</code> llama3-8b-ffn-up M=32768 K=4096 N=28672</td><td align="center">🟠 <b>0.33x</b></td><td align="center">🟠 0.33x</td><td align="center">🟠 0.33x</td></tr>
-<tr><td align="left"><code>hgemm_large</code> sd35-large-mlp M=16384 K=2432 N=9728</td><td align="center">🟠 <b>0.33x</b> ▼<sub>6%</sub></td><td align="center">🟠 0.35x</td><td align="center">🟠 0.35x</td></tr>
-<tr><td align="left"><code>hgemm_large</code> flux-dit-mlp M=18432 K=3072 N=12288</td><td align="center">🟠 <b>0.33x</b> ▼<sub>3%</sub></td><td align="center">🟠 0.34x</td><td align="center">🟠 0.34x</td></tr>
-<tr><td align="left"><code>hgemm_large</code> internvit-6b-mlp M=16384 K=3200 N=12800</td><td align="center">🟠 <b>0.33x</b> ▼<sub>4%</sub></td><td align="center">🟠 0.34x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>hgemm_large</code> llama2-13b-attn-out M=16384 K=5120 N=5120</td><td align="center">🟠 <b>0.33x</b> ▼<sub>6%</sub></td><td align="center">🟠 0.35x</td><td align="center">🟠 0.35x</td></tr>
 <tr><td align="left"><code>hgemm_large</code> llama2-13b-ffn-up M=16384 K=5120 N=27648</td><td align="center">🟠 <b>0.33x</b></td><td align="center">🟠 0.32x</td><td align="center">🟠 0.33x</td></tr>
-<tr><td align="left"><code>hgemm_large</code> gemma2-27b-ffn-up M=8192 K=4608 N=73728</td><td align="center">🟠 <b>0.32x</b></td><td align="center">🟠 0.32x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>hgemm_large</code> qwen2.5-14b-lm-head M=2048 K=5120 N=152064</td><td align="center">🟠 <b>0.32x</b></td><td align="center">🟠 0.32x</td><td align="center">🟠 0.32x</td></tr>
+<tr><td align="left"><code>hgemm_large</code> sd35-large-mlp M=16384 K=2432 N=9728</td><td align="center">🟠 <b>0.33x</b> ▼<sub>6%</sub></td><td align="center">🟠 0.35x</td><td align="center">🟠 0.35x</td></tr>
+<tr><td align="left"><code>hgemm_large</code> gemma2-27b-ffn-up M=8192 K=4608 N=73728</td><td align="center">🟠 <b>0.33x</b></td><td align="center">🟠 0.32x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>hgemm_large</code> llama3-70b-lm-head M=2048 K=8192 N=128256</td><td align="center">🟠 <b>0.32x</b></td><td align="center">🟠 0.32x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>hgemm</code> M=512 K=4096 N=4096</td><td align="center">🟠 <b>0.32x</b></td><td align="center">🟠 0.31x</td><td align="center">🟠 0.31x</td></tr>
+<tr><td align="left"><code>hgemm_large</code> qwen2.5-14b-lm-head M=2048 K=5120 N=152064</td><td align="center">🟠 <b>0.32x</b></td><td align="center">🟠 0.32x</td><td align="center">🟠 0.32x</td></tr>
 <tr><td align="left"><code>hgemm_large</code> llama3-8b-lm-head M=4096 K=4096 N=128256</td><td align="center">🟠 <b>0.32x</b></td><td align="center">🟠 0.32x</td><td align="center">🟠 0.32x</td></tr>
+<tr><td align="left"><code>hgemm</code> M=512 K=4096 N=4096</td><td align="center">🟠 <b>0.32x</b></td><td align="center">🟠 0.31x</td><td align="center">🟠 0.31x</td></tr>
 <tr><td align="left"><code>hgemm</code> M=1 K=4096 N=4096</td><td align="center">🟠 <b>0.29x</b> ▼<sub>4%</sub></td><td align="center">🟠 0.30x</td><td align="center">⚠️<br><sub>mismatch</sub></td></tr>
 <tr><td align="left"><code>hgemm_large</code> llama3-8b-ffn-up-xl M=65536 K=4096 N=28672</td><td align="center">🟠 <b>0.26x</b> ▼<sub>20%</sub></td><td align="center">🟠 0.33x</td><td align="center">🟠 0.33x</td></tr>
 <tr><td align="left"><code>hgemm</code> M=1 K=8192 N=8192</td><td align="center">🔴 <b>0.13x</b><br><sub>8x slower</sub></td><td align="center">🔴 0.13x</td><td align="center">⚠️<br><sub>mismatch</sub></td></tr>
@@ -164,42 +164,42 @@ snapshot rather than a number someone typed in.
 <summary>🔴 <b>Sort</b> — vs CUB · 0.14x avg (31 cases)</summary>
 
 <table>
-<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>f27f86c</sub></th><th>2026-07-31<br><sub>7ba7c38</sub></th><th>2026-07-23<br><sub>903e7f3</sub></th></tr>
-<tr><td align="left"><code>sort_radix_1pass</code> yolov8-nms-640 N=8400</td><td align="center">🔵 <b>1.19x</b> ▲<sub>24%</sub></td><td align="center">🟢 0.96x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> yolov8-nms-640 N=8400</td><td align="center">🔵 <b>1.18x</b> ▲<sub>24%</sub></td><td align="center">🟢 0.96x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> llama2-7b-vocab N=32000</td><td align="center">🔵 <b>1.17x</b> ▲<sub>22%</sub></td><td align="center">🟢 0.96x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1pass</code> llama2-7b-vocab N=32000</td><td align="center">🔵 <b>1.16x</b> ▲<sub>21%</sub></td><td align="center">🟢 0.96x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> mixtral-8x7b-moe-4k N=32768</td><td align="center">🔵 <b>1.16x</b> ▲<sub>22%</sub></td><td align="center">🟡 0.95x</td><td align="center">—</td></tr>
+<tr><th align="left">benchmark</th><th>2026-08-02<br><sub>8385ec4</sub></th><th>2026-07-31<br><sub>9bf5e74</sub></th><th>2026-07-23<br><sub>29fb17d</sub></th></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> yolov8-nms-640 N=8400</td><td align="center">🔵 <b>1.18x</b> ▲<sub>23%</sub></td><td align="center">🟢 0.96x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix_1pass</code> yolov8-nms-640 N=8400</td><td align="center">🔵 <b>1.18x</b> ▲<sub>23%</sub></td><td align="center">🟢 0.96x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix_1pass</code> llama2-7b-vocab N=32000</td><td align="center">🔵 <b>1.17x</b> ▲<sub>22%</sub></td><td align="center">🟢 0.96x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> llama2-7b-vocab N=32000</td><td align="center">🔵 <b>1.16x</b> ▲<sub>22%</sub></td><td align="center">🟢 0.96x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>sort_radix_1pass</code> mixtral-8x7b-moe-4k N=32768</td><td align="center">🔵 <b>1.15x</b> ▲<sub>22%</sub></td><td align="center">🟡 0.95x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> N=65536</td><td align="center">🔵 <b>1.06x</b> ▲<sub>24%</sub></td><td align="center">🟡 0.86x</td><td align="center">🟡 0.86x</td></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> mixtral-8x7b-moe-4k N=32768</td><td align="center">🔵 <b>1.15x</b> ▲<sub>22%</sub></td><td align="center">🟡 0.95x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>sort_radix_1pass</code> N=65536</td><td align="center">🔵 <b>1.06x</b> ▲<sub>24%</sub></td><td align="center">🟡 0.85x</td><td align="center">🟡 0.86x</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> llama3-8b-vocab N=128256</td><td align="center">🟢 <b>0.98x</b> ▲<sub>34%</sub></td><td align="center">🟡 0.74x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1pass</code> llama3-8b-vocab N=128256</td><td align="center">🟢 <b>0.98x</b> ▲<sub>33%</sub></td><td align="center">🟡 0.74x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> qwen2.5-14b-vocab N=152064</td><td align="center">🟡 <b>0.94x</b> ▲<sub>35%</sub></td><td align="center">🟡 0.70x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> N=65536</td><td align="center">🔵 <b>1.06x</b> ▲<sub>24%</sub></td><td align="center">🟡 0.86x</td><td align="center">🟡 0.86x</td></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> llama3-8b-vocab N=128256</td><td align="center">🟢 <b>0.97x</b> ▲<sub>32%</sub></td><td align="center">🟡 0.74x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix_1pass</code> llama3-8b-vocab N=128256</td><td align="center">🟢 <b>0.96x</b> ▲<sub>30%</sub></td><td align="center">🟡 0.74x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>sort_radix_1pass</code> qwen2.5-14b-vocab N=152064</td><td align="center">🟡 <b>0.94x</b> ▲<sub>35%</sub></td><td align="center">🟡 0.70x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> N=16777216</td><td align="center">🟡 <b>0.87x</b> ▲<sub>138%</sub></td><td align="center">🟠 0.36x</td><td align="center">🟠 0.36x</td></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> qwen2.5-14b-vocab N=152064</td><td align="center">🟡 <b>0.94x</b> ▲<sub>35%</sub></td><td align="center">🟡 0.70x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>sort_radix_1pass</code> N=16777216</td><td align="center">🟡 <b>0.87x</b> ▲<sub>138%</sub></td><td align="center">🟠 0.36x</td><td align="center">🟠 0.36x</td></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> N=16777216</td><td align="center">🟡 <b>0.84x</b> ▲<sub>132%</sub></td><td align="center">🟠 0.36x</td><td align="center">🟠 0.36x</td></tr>
 <tr><td align="left"><code>sort_radix_1pass</code> gemma2-9b-vocab N=256000</td><td align="center">🟡 <b>0.82x</b> ▲<sub>39%</sub></td><td align="center">🟡 0.59x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1pass</code> N=1048576</td><td align="center">🟡 <b>0.82x</b> ▲<sub>83%</sub></td><td align="center">🟠 0.45x</td><td align="center">🟠 0.45x</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> gemma2-9b-vocab N=256000</td><td align="center">🟡 <b>0.82x</b> ▲<sub>40%</sub></td><td align="center">🟡 0.58x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> gemma2-9b-vocab N=256000</td><td align="center">🟡 <b>0.82x</b> ▲<sub>41%</sub></td><td align="center">🟡 0.58x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>sort_radix_1sweep</code> N=1048576</td><td align="center">🟡 <b>0.82x</b> ▲<sub>83%</sub></td><td align="center">🟠 0.45x</td><td align="center">🟠 0.45x</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> mixtral-8x7b-moe-32k N=262144</td><td align="center">🟡 <b>0.80x</b> ▲<sub>37%</sub></td><td align="center">🟡 0.58x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1pass</code> mixtral-8x7b-moe-32k N=262144</td><td align="center">🟡 <b>0.80x</b> ▲<sub>38%</sub></td><td align="center">🟡 0.58x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix_1pass</code> N=4194304</td><td align="center">🟡 <b>0.79x</b> ▲<sub>102%</sub></td><td align="center">🟠 0.39x</td><td align="center">🟠 0.39x</td></tr>
-<tr><td align="left"><code>sort_radix_1sweep</code> N=4194304</td><td align="center">🟡 <b>0.79x</b> ▲<sub>101%</sub></td><td align="center">🟠 0.39x</td><td align="center">🟠 0.39x</td></tr>
-<tr><td align="left"><code>sort_radix</code> yolov8-nms-640 N=8400</td><td align="center">🔴 <b>0.013x</b><br><sub>77x slower</sub></td><td align="center">🔴 0.013x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix_1pass</code> N=1048576</td><td align="center">🟡 <b>0.82x</b> ▲<sub>82%</sub></td><td align="center">🟠 0.45x</td><td align="center">🟠 0.45x</td></tr>
+<tr><td align="left"><code>sort_radix_1pass</code> N=4194304</td><td align="center">🟡 <b>0.80x</b> ▲<sub>103%</sub></td><td align="center">🟠 0.39x</td><td align="center">🟠 0.39x</td></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> mixtral-8x7b-moe-32k N=262144</td><td align="center">🟡 <b>0.79x</b> ▲<sub>36%</sub></td><td align="center">🟡 0.58x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix_1pass</code> mixtral-8x7b-moe-32k N=262144</td><td align="center">🟡 <b>0.79x</b> ▲<sub>37%</sub></td><td align="center">🟡 0.58x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix_1sweep</code> N=4194304</td><td align="center">🟡 <b>0.79x</b> ▲<sub>102%</sub></td><td align="center">🟠 0.39x</td><td align="center">🟠 0.39x</td></tr>
+<tr><td align="left"><code>sort_radix</code> yolov8-nms-640 N=8400</td><td align="center">🔴 <b>0.012x</b> ▼<sub>7%</sub><br><sub>83x slower</sub></td><td align="center">🔴 0.013x</td><td align="center">—</td></tr>
 <tr><td align="left"><code>sort_radix</code> llama2-7b-vocab N=32000</td><td align="center">🔴 <b>0.00377x</b><br><sub>265x slower</sub></td><td align="center">🔴 0.00377x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix</code> mixtral-8x7b-moe-4k N=32768</td><td align="center">🔴 <b>0.00366x</b><br><sub>273x slower</sub></td><td align="center">🔴 0.00366x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix</code> N=65536</td><td align="center">🔴 <b>0.00188x</b><br><sub>532x slower</sub></td><td align="center">🔴 0.00188x</td><td align="center">🔴 0.00189x</td></tr>
-<tr><td align="left"><code>sort_radix</code> llama3-8b-vocab N=128256</td><td align="center">🔴 <b>0.00100x</b><br><sub>995x slower</sub></td><td align="center">🔴 0.00100x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix</code> qwen2.5-14b-vocab N=152064</td><td align="center">🔴 <b>0.00084x</b><br><sub>1,185x slower</sub></td><td align="center">🔴 0.00084x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix</code> gemma2-9b-vocab N=256000</td><td align="center">🔴 <b>0.00051x</b><br><sub>1,943x slower</sub></td><td align="center">🔴 0.00051x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix</code> mixtral-8x7b-moe-32k N=262144</td><td align="center">🔴 <b>0.00050x</b><br><sub>1,981x slower</sub></td><td align="center">🔴 0.00050x</td><td align="center">—</td></tr>
-<tr><td align="left"><code>sort_radix</code> N=1048576</td><td align="center">🔴 <b>0.00018x</b><br><sub>5,600x slower</sub></td><td align="center">🔴 0.00018x</td><td align="center">🔴 0.00018x</td></tr>
+<tr><td align="left"><code>sort_radix</code> mixtral-8x7b-moe-4k N=32768</td><td align="center">🔴 <b>0.00365x</b><br><sub>274x slower</sub></td><td align="center">🔴 0.00366x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix</code> N=65536</td><td align="center">🔴 <b>0.00188x</b><br><sub>533x slower</sub></td><td align="center">🔴 0.00188x</td><td align="center">🔴 0.00189x</td></tr>
+<tr><td align="left"><code>sort_radix</code> llama3-8b-vocab N=128256</td><td align="center">🔴 <b>0.00100x</b><br><sub>1,001x slower</sub></td><td align="center">🔴 0.00100x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix</code> qwen2.5-14b-vocab N=152064</td><td align="center">🔴 <b>0.00084x</b><br><sub>1,188x slower</sub></td><td align="center">🔴 0.00084x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix</code> gemma2-9b-vocab N=256000</td><td align="center">🔴 <b>0.00051x</b><br><sub>1,954x slower</sub></td><td align="center">🔴 0.00051x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix</code> mixtral-8x7b-moe-32k N=262144</td><td align="center">🔴 <b>0.00050x</b><br><sub>1,993x slower</sub></td><td align="center">🔴 0.00050x</td><td align="center">—</td></tr>
+<tr><td align="left"><code>sort_radix</code> N=1048576</td><td align="center">🔴 <b>0.00018x</b><br><sub>5,613x slower</sub></td><td align="center">🔴 0.00018x</td><td align="center">🔴 0.00018x</td></tr>
 </table>
 </details>
 
-<sub>Measured on <b>NVIDIA GeForce RTX 3090</b> · newest column 2026-08-02 (<code>f27f86c</code>) · absolute timings for every case are in <a href="results/history.json">results/history.json</a></sub>
+<sub>Measured on <b>NVIDIA GeForce RTX 3090</b> · newest column 2026-08-02 (<code>8385ec4</code>) · absolute timings for every case are in <a href="results/history.json">results/history.json</a></sub>
 
 <!-- BENCH:END -->
 **Cells are speedup — vendor time ÷ CUT time — so bigger is better.** `2.00x` is

@@ -120,7 +120,7 @@ Then a full `bash scripts/build/run_tests_both_backends.sh` before committing.
 
 ## Findings from session 1 (7 families done: refs extract, binary vec-vec,
 ## binary vec-scalar, unary, ternary, global reduce, dim-reduce, normdim —
-## commits dd15d16..bb194b3). Bake these into your approach:
+## commits 21676c8..71b2bbf). Bake these into your approach:
 - **Ollama (`devstral-small-2:24b`) pitfalls, recurring:** it emits C++20
   designated initializers (`.name=…`) and `const char* + const char*` name
   concatenation, and sometimes omits a referenced struct def. WRITE PLANS THAT
@@ -154,23 +154,23 @@ Then a full `bash scripts/build/run_tests_both_backends.sh` before committing.
   --gtest_filter='...'` (Vulkan) ; add `CUT_TEST_BACKEND=cuda` +
   `build-cuda-rel/tests/tests` for CUDA.
 
-## Session 2 progress (commits `0359c51`..`495677e`). Bake these into your approach:
-- **Double-execution FIXED first** (commit `0359c51`): `OpRegistry.AllBuiltinCasesMatchReference`
+## Session 2 progress (commits `6e63e33`..`0e63d6f`). Bake these into your approach:
+- **Double-execution FIXED first** (commit `6e63e33`): `OpRegistry.AllBuiltinCasesMatchReference`
   is now RUN-ONLY (calls `c.run` for perf-path coverage, no `verify` loop). Per-family
   drivers in `RuntimeTests.cpp` are the single correctness path.
 - **Families migrated this session (one family-group per commit):**
-  - `f67e983` matmul (default + variant sweeps), transpose (default + variants), dot.
-  - `3aa2b00` conv1d, conv2d (default + variants).
-  - `e1f354b` maxpool, avgpool, adaptive avgpool.
-  - `0368bae` global norm, rms (global+dim), logsumexp (global+dim).
-  - `d028e48` embedding, pad.
-  - `912186d` layernorm, batchnorm.
-  - `2c05135` softmax, logsoftmax (fused cross-checked vs composite; 2D+).
-  - `1c59290` cumsum/cumprod ("cumulative" family, 1D/2D/3D + large multipass).
-  - `495677e` prefix scan (exclusive/inclusive), sort (bitonic float + radix uint32).
-  - `528c144` dequant (BF16 round-trip + Q4_K/Q6_K super-block dequant); removed the
+  - `443a9f4` matmul (default + variant sweeps), transpose (default + variants), dot.
+  - `ccd7744` conv1d, conv2d (default + variants).
+  - `28e3ee7` maxpool, avgpool, adaptive avgpool.
+  - `6d9f07f` global norm, rms (global+dim), logsumexp (global+dim).
+  - `31b7afe` embedding, pad.
+  - `b44a281` layernorm, batchnorm.
+  - `e3e8058` softmax, logsoftmax (fused cross-checked vs composite; 2D+).
+  - `e310f50` cumsum/cumprod ("cumulative" family, 1D/2D/3D + large multipass).
+  - `0e63d6f` prefix scan (exclusive/inclusive), sort (bitonic float + radix uint32).
+  - `e508951` dequant (BF16 round-trip + Q4_K/Q6_K super-block dequant); removed the
     now-unused `f16_bits_to_f32` static helper from RuntimeTests.
-  - `6485e25` quantized matmul (Q8/Q4: simple/withscales/vs-reference + gated all-variant
+  - `bec68bf` quantized matmul (Q8/Q4: simple/withscales/vs-reference + gated all-variant
     sweeps). Gates on `getCompiledMatMulQ8/Q4(vi, Float32, Float16, Float32)` and skips
     "Dot"/"CoopMat" variant names (need pre-packed operands). The batched-vs-per-row
     Mistral-geometry Q8 tests and the DISABLED_ test were left as-is (intricate).

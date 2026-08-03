@@ -4,6 +4,7 @@
 #include <ComputeContainers.h>
 #include <CudaStructs.h>
 
+#include <list>
 #include <map>
 #include <optional>
 #include <vector>
@@ -25,8 +26,16 @@ private:
 };
 
 /// Container managing device buffer allocations and their lifecycle.
-/// Includes a size-keyed cache that recycles freed device allocations to avoid
+/// Includes a size-keyed pool that recycles freed device allocations to avoid
 /// repeated cuMemAlloc / cuMemFree calls (mirrors the Vulkan buffer cache).
+///
+/// The pool is LRU-evicting rather than insert-refusing, which matters as soon
+/// as buffers vary in size: a fixed cap that simply declines anything that does
+/// not fit lets a few hundred MB of small stale blocks lock out every large
+/// one, so an operator whose output is bigger than the cap re-allocates it on
+/// every single call. That is not a small tax at scale — cuMemAlloc runs ~1.8 ms
+/// for 1 GB and, once the device is most of the way full, up to ~174 ms for
+/// 4 GB, which cost a 32768^2 f32 transpose 10x its own kernel time.
 class CudaBufferContainer final : public CudaContainerBase,
                                   public ComputeDataContainer<CudaBufferStruct> {
 public:
@@ -58,11 +67,39 @@ private:
   size_t activeMemoryBytes_ = 0;
 
   static constexpr size_t kMaxCachedBuffers = 4096;
-  // Cap total pooled (freed-but-retained) transient buffer memory. Small
-  // models pool their whole prefill working set; large models self-limit.
-  static constexpr size_t kMaxCachedBytes = 512ULL * 1024 * 1024; // 512 MB
-  std::multimap<size_t, CudaBufferStruct> bufferCache_;
-  size_t cachedBytes_ = 0; ///< Sum of byte sizes currently in bufferCache_.
+  /// Floor for the pool's byte cap, used when the device size is unknown.
+  static constexpr size_t kMinCachedBytes = 512ULL * 1024 * 1024; // 512 MB
+  /// The pool may retain at most this fraction of device memory. Cached bytes
+  /// are reclaimable — an allocation that would otherwise fail drains the pool
+  /// and retries — so the cap is about not sitting on memory another process
+  /// could use, not about staying inside our own budget.
+  static constexpr size_t kCachedBytesVramDivisor = 4; // 25% of VRAM
+
+  /// A pooled allocation. Device-only and never a view by construction, so the
+  /// pointer and its size are the whole of it — shape and dtype belong to
+  /// whatever buffer next claims the block.
+  struct CachedBlock {
+    size_t sizeBytes = 0;
+    CUdeviceptr devPtr = 0;
+  };
+
+  /// Least-recently-released first: eviction takes from the front.
+  std::list<CachedBlock> cacheLru_;
+  /// Aligned byte size -> entries in cacheLru_ of exactly that size.
+  std::multimap<size_t, std::list<CachedBlock>::iterator> cacheIndex_;
+  size_t cachedBytes_ = 0; ///< Sum of byte sizes currently pooled.
+  size_t cacheCapacityBytes_ = 0; ///< 0 until first queried from the device.
+
+  /// Byte cap for the pool, queried from the device on first use.
+  size_t cacheCapacityBytes();
+
+  /// Drops least-recently-released entries until one more buffer of `sizeBytes`
+  /// fits under both caps. Returns false if it cannot fit even when empty.
+  bool evictForInsert(size_t sizeBytes);
+
+  /// Unlinks one pooled block and frees its device memory. Caller holds a
+  /// context guard.
+  void eraseCacheEntry(std::list<CachedBlock>::iterator it);
 
   /// Frees a single allocation's device/pinned memory.
   void destroyBufferGPU(CudaBufferStruct &buffer);

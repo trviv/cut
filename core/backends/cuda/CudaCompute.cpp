@@ -162,7 +162,16 @@ ComputeHandle CudaCompute::createBuffer(const std::vector<uint32_t> &shape,
   bufferStruct.setDtype(dtype);
   bufferStruct.setShape(shape);
 
-  CU_CHECK(cuMemAlloc(&bufferStruct.devPtr, alignedSize));
+  // Pooled blocks are reclaimable memory, not a reservation: hand them back and
+  // retry before reporting failure. Without this the pool's byte cap would have
+  // to be small enough to never matter, which is exactly what made it useless
+  // for buffers in the GB range.
+  CUresult allocResult = cuMemAlloc(&bufferStruct.devPtr, alignedSize);
+  if (allocResult == CUDA_ERROR_OUT_OF_MEMORY) {
+    containers_->bufferContainer.drainCache();
+    allocResult = cuMemAlloc(&bufferStruct.devPtr, alignedSize);
+  }
+  CU_CHECK(allocResult);
 
   auto handle = containers_->bufferContainer.create(std::move(bufferStruct));
 

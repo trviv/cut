@@ -4,6 +4,7 @@
 #include <ComputeCommon.h>
 #include <CudaKernelRegistry.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -247,27 +248,94 @@ CudaBufferContainer::~CudaBufferContainer() {
   drainCache();
 }
 
+size_t CudaBufferContainer::cacheCapacityBytes() {
+  if (cacheCapacityBytes_ != 0) {
+    return cacheCapacityBytes_;
+  }
+  size_t freeBytes = 0;
+  size_t totalBytes = 0;
+  {
+    CudaContextGuard guard(getContext());
+    if (cuMemGetInfo(&freeBytes, &totalBytes) != CUDA_SUCCESS) {
+      totalBytes = 0;
+    }
+  }
+  cacheCapacityBytes_ =
+      std::max(kMinCachedBytes, totalBytes / kCachedBytesVramDivisor);
+  return cacheCapacityBytes_;
+}
+
+void CudaBufferContainer::eraseCacheEntry(
+    std::list<CachedBlock>::iterator it) {
+  auto range = cacheIndex_.equal_range(it->sizeBytes);
+  for (auto i = range.first; i != range.second; ++i) {
+    if (i->second == it) {
+      cacheIndex_.erase(i);
+      break;
+    }
+  }
+  if (it->devPtr != 0) {
+    cuMemFree(it->devPtr);
+  }
+  cachedBytes_ -= it->sizeBytes;
+  cacheLru_.erase(it);
+}
+
+bool CudaBufferContainer::evictForInsert(size_t sizeBytes) {
+  const size_t capacity = cacheCapacityBytes();
+  // Bigger than the pool will ever hold: keeping it would mean evicting
+  // everything else for a block that still does not fit.
+  if (sizeBytes > capacity) {
+    return false;
+  }
+  const auto fits = [&]() {
+    return cachedBytes_ + sizeBytes <= capacity &&
+           cacheLru_.size() < kMaxCachedBuffers;
+  };
+  if (fits()) {
+    return true;
+  }
+  CudaContextGuard guard(getContext());
+  while (!cacheLru_.empty() && !fits()) {
+    eraseCacheEntry(cacheLru_.begin());
+  }
+  return fits();
+}
+
 std::optional<CudaBufferStruct>
 CudaBufferContainer::tryAcquireCached(size_t alignedSize) {
-  auto it = bufferCache_.find(alignedSize);
-  if (it != bufferCache_.end()) {
-    cachedBytes_ -= it->first;
-    CudaBufferStruct cached = std::move(it->second);
-    bufferCache_.erase(it);
-    return cached;
+  auto it = cacheIndex_.find(alignedSize);
+  if (it == cacheIndex_.end()) {
+    return std::nullopt;
   }
-  return std::nullopt;
+  const auto blockIt = it->second;
+
+  CudaBufferStruct cached;
+  cached.devPtr = blockIt->devPtr;
+  cached.isPinned = false;
+  // Placeholder geometry covering the same bytes; the caller overwrites both
+  // with the shape it actually asked for.
+  cached.setDtype(DataType::Float32);
+  cached.setShape({static_cast<uint32_t>((alignedSize + 3) / 4)});
+
+  cachedBytes_ -= blockIt->sizeBytes;
+  cacheLru_.erase(blockIt);
+  cacheIndex_.erase(it);
+  return cached;
 }
 
 void CudaBufferContainer::drainCache() {
-  if (bufferCache_.empty()) {
+  if (cacheLru_.empty()) {
     return;
   }
   CudaContextGuard guard(getContext());
-  for (auto &[size, buffer] : bufferCache_) {
-    destroyBufferGPU(buffer);
+  for (auto &block : cacheLru_) {
+    if (block.devPtr != 0) {
+      cuMemFree(block.devPtr);
+    }
   }
-  bufferCache_.clear();
+  cacheLru_.clear();
+  cacheIndex_.clear();
   cachedBytes_ = 0;
 }
 
@@ -293,28 +361,24 @@ void CudaBufferContainer::destroyAPIObject(const ComputeHandle &handle) {
 
   activeMemoryBytes_ -= buffer.size();
 
-  // Cache only device-only allocations (pinned host buffers are rare and
-  // cheap to keep distinct). Keyed by aligned byte size for reuse.
+  // Pool only device-only allocations (pinned host buffers are rare and cheap
+  // to keep distinct). Keyed by aligned byte size for reuse; making room for
+  // this block is what keeps a run of small ones from locking out a large one.
   const size_t sz = buffer.size();
-  if (buffer.devPtr != 0 && !buffer.isPinned &&
-      bufferCache_.size() < kMaxCachedBuffers &&
-      cachedBytes_ + sz <= kMaxCachedBytes) {
-    CudaBufferStruct cached;
-    cached.devPtr = buffer.devPtr;
-    cached.isPinned = false;
-    cached.setDtype(DataType::Float32);
-    cached.setShape({static_cast<uint32_t>((sz + 3) / 4)});
+  if (buffer.devPtr != 0 && !buffer.isPinned && evictForInsert(sz)) {
+    const CachedBlock block{sz, buffer.devPtr};
 
     // Detach from the original so slot recycling does not free it.
     buffer.devPtr = 0;
     buffer.data = nullptr;
 
-    bufferCache_.emplace(sz, std::move(cached));
+    const auto it = cacheLru_.insert(cacheLru_.end(), block);
+    cacheIndex_.emplace(sz, it);
     cachedBytes_ += sz;
     return;
   }
 
-  // Cache full or pinned allocation — free immediately.
+  // Larger than the pool's whole budget, or pinned — free immediately.
   CudaContextGuard guard(getContext());
   destroyBufferGPU(buffer);
 }

@@ -191,14 +191,15 @@ def collect_snapshot(results_dir):
                 "status": status,
             }
 
-    gpu = sh("nvidia-smi", "--query-gpu=name,driver_version",
+    # Only the GPU model is recorded. The driver version is deliberately not
+    # collected: it identifies the machine more than it qualifies the numbers.
+    gpu = sh("nvidia-smi", "--query-gpu=name",
              "--format=csv,noheader").split(", ")
     return {
         "date": (when or "")[:10],
         "timestamp": when,
         "commit": sh("git", "-C", PROJECT_DIR, "rev-parse", "--short", "HEAD"),
         "gpu": gpu[0] if gpu and gpu[0] else "unknown GPU",
-        "driver": gpu[1] if len(gpu) > 1 else "",
         "cases": cases,
     }, skipped
 
@@ -416,10 +417,9 @@ def render(hist):
         # Hardware belongs under the numbers, not above them: it qualifies every
         # column, and a reader who has just read a ratio is exactly the reader who
         # needs to know what it ran on.
-        driver = f', driver {newest["driver"]}' if newest.get("driver") else ""
         # Plain HTML rather than markdown inside the <sub>: nothing here should
         # depend on how a renderer treats inline markup inside an inline tag.
-        out.append(f'<sub>Measured on <b>{gpu}</b>{driver} · newest column '
+        out.append(f'<sub>Measured on <b>{gpu}</b> · newest column '
                    f'{newest["date"]} (<code>{newest["commit"]}</code>) · absolute '
                    f'timings for every case are in '
                    f'<a href="results/history.json">results/history.json</a></sub>\n')

@@ -136,7 +136,7 @@ extern "C" __global__ void cut_main(const scalar_t* __restrict__ dataIn,
     // that indexes v[] is #pragma unroll'd — the index has to be a compile-time
     // constant or ptxas puts the array in local memory (check: 0 spill bytes).
     //
-    // These pragmas were silently LOST in the warp-cooperative rewrite (c2df822),
+    // These pragmas were silently LOST in the warp-cooperative rewrite (05a01f9),
     // leaving only the comment above claiming they were there. ptxas still
     // unrolled IPT<=48 on its own so nothing looked broken, but at IPT=64 it left
     // the scan loop rolled — 7 SHFL for the whole kernel instead of ~390 — and
