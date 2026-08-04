@@ -483,21 +483,20 @@ public:
                    const Tensor &vals,
                    std::optional<uint32_t> spec = {});
 
+  /// Radix sort over raw uint32 keys with a stable uint32 payload, in place.
+  /// Single-pass in both cases, backend-specialized: OneSweep decoupled
+  /// look-back on CUDA, fused per-digit tile radix on Vulkan. This is the one to
+  /// call unless you have a reason to pin a strategy.
   void sortRadix(const Tensor &keys,
                  const Tensor &vals,
                  std::optional<uint32_t> spec = {});
 
-  /// Single-pass radix sort: OneSweep decoupled look-back on CUDA, fused
-  /// per-digit tile radix on Vulkan. Same contract as sortRadix (raw-uint32
-  /// keys, stable payload vals); kept separate for benchmarking comparison.
-  void sortRadixSinglePass(const Tensor &keys,
-                           const Tensor &vals,
-                           std::optional<uint32_t> spec = {});
-
-  /// OneSweep decoupled-look-back radix sort on both backends (native CUDA
-  /// kernels on CUDA, HLSL on Vulkan). Same contract as sortRadix; kept
-  /// alongside sortRadixSinglePass (fused per-digit on Vulkan) to benchmark the
-  /// two single-pass strategies against each other on Vulkan.
+  /// Pins the OneSweep decoupled-look-back strategy on both backends (native
+  /// CUDA kernels on CUDA, HLSL on Vulkan). Same contract as sortRadix, and the
+  /// same graph as sortRadix on CUDA — it exists for Vulkan, where sortRadix
+  /// picks the fused per-digit path instead and this is the only way to select
+  /// look-back. Vulkan gives no formal forward-progress guarantee for it, so it
+  /// is validated on the target GPU rather than assumed portable.
   void sortRadixOneSweep(const Tensor &keys,
                          const Tensor &vals,
                          std::optional<uint32_t> spec = {});

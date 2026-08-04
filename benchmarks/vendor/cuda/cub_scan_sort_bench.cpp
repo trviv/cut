@@ -56,11 +56,6 @@ static const std::vector<int> kCounts = {1 << 16, 1 << 20, 1 << 22, 1 << 24};
 struct ModelCount {
   const char *model;
   int n;
-  /// Skip the sort registrations. Set on the batched-sampling shapes: CUT's
-  /// multi-pass sortRadix runs ~2000x slower than CUB, so an 8M entry would cost
-  /// more wall time than the rest of the suite combined while telling us nothing
-  /// the 256000-entry case does not.
-  bool scanOnly = false;
 };
 
 static const std::vector<ModelCount> kModelCounts = {
@@ -74,41 +69,20 @@ static const std::vector<ModelCount> kModelCounts = {
     // Batched sampling in a server: one top-k/top-p step across a whole
     // continuous batch is a single scan over batch x vocab, which is where this
     // operator stops being a microbenchmark and starts being on the critical
-    // path of every decoded token.
-    {"llama3-8b-batch16-logits", 2052096, true},   // 16 x 128256
-    {"qwen2.5-14b-batch32-logits", 4866048, true}, // 32 x 152064
-    {"llama3-8b-batch64-logits", 8208384, true},   // 64 x 128256
+    // path of every decoded token. These used to be scan-only, because the
+    // multi-pass sortRadix took seconds per call at this size; it is gone, so
+    // they now carry a sort too.
+    {"llama3-8b-batch16-logits", 2052096},   // 16 x 128256
+    {"qwen2.5-14b-batch32-logits", 4866048}, // 32 x 152064
+    {"llama3-8b-batch64-logits", 8208384},   // 64 x 128256
 };
 
-/// All three sort the same data with the same contract; comparing them against
-/// one CUB reference shows which CUT strategy comes closest.
-enum class SortVariant { Radix, SinglePass, OneSweep };
-
-static const char *sortVariantName(SortVariant v) {
-  switch (v) {
-  case SortVariant::Radix:
-    return "sort_radix";
-  case SortVariant::SinglePass:
-    return "sort_radix_1pass";
-  case SortVariant::OneSweep:
-    return "sort_radix_1sweep";
-  }
-  return "sort_unknown";
-}
-
-static void runSort(Runtime &rt, SortVariant v, const Tensor &keys,
-                    const Tensor &vals) {
-  switch (v) {
-  case SortVariant::Radix:
-    rt.ops().sortRadix(keys, vals);
-    break;
-  case SortVariant::SinglePass:
-    rt.ops().sortRadixSinglePass(keys, vals);
-    break;
-  case SortVariant::OneSweep:
-    rt.ops().sortRadixOneSweep(keys, vals);
-    break;
-  }
+/// ONE CUT sort is registered, not a menu of them. sortRadix() is the default
+/// entry point and on CUDA it builds the OneSweep decoupled-look-back graph;
+/// sortRadixOneSweep() pins that same graph and differs only on Vulkan, so
+/// registering it here would publish a second row measuring identical work.
+static void runSort(Runtime &rt, const Tensor &keys, const Tensor &vals) {
+  rt.ops().sortRadix(keys, vals);
 }
 
 struct ScanCase {
@@ -180,7 +154,7 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n,
   cutbench::registerPair(rt, spec, cutIssue, refTimed);
 }
 
-static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
+static void registerSortCase(cut::Runtime &rt, int n,
                              const std::vector<uint32_t> &hostKeys,
                              const std::vector<uint32_t> &hostVals,
                              const std::vector<uint32_t> &refKeys,
@@ -215,12 +189,11 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
     rt.copyToTensor(keys, hostKeys.data(), bytes);
     rt.copyToTensor(vals, hostVals.data(), bytes);
   };
-  auto cutIssue = [&rt, keys, vals, v]() { runSort(rt, v, keys, vals); };
+  auto cutIssue = [&rt, keys, vals]() { runSort(rt, keys, vals); };
 
   cutbench::CaseSpec spec;
   // Pinned, not adaptive: the refill is host-side cost the manual-time loop
-  // cannot see, so the adaptive count would run unbounded. CUT's multi-pass
-  // sortRadix also takes seconds per call at N=16M.
+  // cannot see, so the adaptive count would run unbounded.
   spec.iterations = 10;
 
   cutbench::CheckResult check;
@@ -240,7 +213,7 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
     check.refMeanAbs = 1.0;
   }
 
-  spec.op = sortVariantName(v);
+  spec.op = "sort_radix";
   spec.vendor = "CUB";
   spec.shape = (model ? std::string(model) + " " : std::string()) +
                "N=" + std::to_string(n);
@@ -294,8 +267,7 @@ static void registerAll(cut::Runtime &runtime) {
   for (int n : kCounts)
     sortSizes.push_back({nullptr, n});
   for (const auto &m : kModelCounts)
-    if (!m.scanOnly)
-      sortSizes.push_back(m);
+    sortSizes.push_back(m);
 
   for (const auto &sz : sortSizes) {
     const int n = sz.n;
@@ -345,11 +317,8 @@ static void registerAll(cut::Runtime &runtime) {
     valStore.push_back(hostVals);
     refStore.push_back(refKeys);
 
-    for (SortVariant v : {SortVariant::Radix, SortVariant::SinglePass,
-                          SortVariant::OneSweep}) {
-      registerSortCase(runtime, v, n, keyStore.back(), valStore.back(),
-                       refStore.back(), refTimed, sz.model);
-    }
+    registerSortCase(runtime, n, keyStore.back(), valStore.back(),
+                     refStore.back(), refTimed, sz.model);
 
     // The reference device buffers are NOT freed: refTimed captured them and is
     // invoked later, during runAll.

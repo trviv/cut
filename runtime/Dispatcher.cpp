@@ -22,8 +22,7 @@ bool Dispatcher::encode(OpNode &node) {
 
   // Sort with 0 or 1 elements is a no-op (nothing to reorder)
   OperatorEnum op = node.op();
-  if ((op == SortBitonic || op == SortRadix || op == SortRadixSinglePass ||
-       op == SortRadixOneSweep) &&
+  if ((op == SortBitonic || op == SortRadix || op == SortRadixOneSweep) &&
       node.executionSize() <= 1) {
     return false;
   }

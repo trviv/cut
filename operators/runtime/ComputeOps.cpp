@@ -287,8 +287,6 @@ const char *operatorName(OperatorEnum op) {
     return "SortBitonic";
   case SortRadix:
     return "SortRadix";
-  case SortRadixSinglePass:
-    return "SortRadixSinglePass";
   case SortRadixOneSweep:
     return "SortRadixOneSweep";
 
@@ -305,10 +303,6 @@ const char *operatorName(OperatorEnum op) {
     return "InternalBitonicPadInit";
   case InternalBitonicCopyBack:
     return "InternalBitonicCopyBack";
-  case InternalRadixHistogram:
-    return "InternalRadixHistogram";
-  case InternalRadixScatter:
-    return "InternalRadixScatter";
   case InternalOneSweepGlobalHist:
     return "InternalOneSweepGlobalHist";
   case InternalOneSweepGlobalScan:

@@ -131,12 +131,6 @@ std::vector<uint32_t> getShader(const OperatorEnum shader,
     case InternalBitonicCopyBack:
       compiled = compiledBitonicCopyBack(datatype, datatype);
       break;
-    case InternalRadixHistogram:
-      compiled = compiledRadixHistogram(datatype, datatype);
-      break;
-    case InternalRadixScatter:
-      compiled = compiledRadixScatter(datatype, datatype);
-      break;
     case InternalOneSweepGlobalHist:
       compiled = compiledOneSweepGlobalHist(datatype, datatype);
       break;

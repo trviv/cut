@@ -13,13 +13,13 @@ A Vulkan-based GPU compute toolkit: cross-vendor, from-scratch shader pipeline, 
 ## Performance
 
 <!-- BENCH:BADGES -->
-[![sort_radix_1pass vs CUB](https://img.shields.io/badge/sort__radix__1pass_vs_CUB-0.95x-d29922)](benchmarks/)
-[![scan vs CUB](https://img.shields.io/badge/scan_vs_CUB-0.95x-d29922)](benchmarks/)
-[![sort_radix_1sweep vs CUB](https://img.shields.io/badge/sort__radix__1sweep_vs_CUB-0.95x-d29922)](benchmarks/)
-[![softmax vs cuDNN](https://img.shields.io/badge/softmax_vs_cuDNN-0.80x-d29922)](benchmarks/)
-[![sgemv vs cuBLAS](https://img.shields.io/badge/sgemv_vs_cuBLAS-0.54x-d29922)](benchmarks/)
-[![sgemm vs cuBLAS](https://img.shields.io/badge/sgemm_vs_cuBLAS-0.53x-d29922)](benchmarks/)
-[![conv2d vs cuDNN](https://img.shields.io/badge/conv2d_vs_cuDNN-0.51x-d29922)](benchmarks/)
+[![softmax vs cuDNN](https://img.shields.io/badge/softmax_vs_cuDNN-1.08x-58a6ff)](benchmarks/)
+[![transpose vs cuBLAS](https://img.shields.io/badge/transpose_vs_cuBLAS-0.98x-3fb950)](benchmarks/)
+[![scan vs CUB](https://img.shields.io/badge/scan_vs_CUB-0.94x-d29922)](benchmarks/)
+[![sort_radix vs CUB](https://img.shields.io/badge/sort__radix_vs_CUB-0.94x-d29922)](benchmarks/)
+[![conv2d vs cuDNN](https://img.shields.io/badge/conv2d_vs_cuDNN-0.61x-d29922)](benchmarks/)
+[![sgemv vs cuBLAS](https://img.shields.io/badge/sgemv_vs_cuBLAS-0.55x-d29922)](benchmarks/)
+[![sgemm vs cuBLAS](https://img.shields.io/badge/sgemm_vs_cuBLAS-0.54x-d29922)](benchmarks/)
 <!-- /BENCH:BADGES -->
 
 **Per-shape tables, history and methodology: [benchmarks/](benchmarks/)**

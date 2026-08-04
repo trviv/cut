@@ -78,33 +78,14 @@ static const std::vector<int> kCounts = {1 << 16, 1 << 20, 1 << 22, 1 << 24};
 /// Which CUT radix entry point to exercise. All three sort the same data with
 /// the same contract; comparing them against one rocPRIM reference shows which
 /// CUT strategy comes closest.
-enum class SortVariant { Radix, SinglePass, OneSweep };
-
-static const char *sortVariantName(SortVariant v) {
-  switch (v) {
-  case SortVariant::Radix:
-    return "sort_radix";
-  case SortVariant::SinglePass:
-    return "sort_radix_1pass";
-  case SortVariant::OneSweep:
-    return "sort_radix_1sweep";
-  }
-  return "sort_unknown";
-}
-
-static void runSort(Runtime &rt, SortVariant v, const Tensor &keys,
-                    const Tensor &vals) {
-  switch (v) {
-  case SortVariant::Radix:
-    rt.ops().sortRadix(keys, vals);
-    break;
-  case SortVariant::SinglePass:
-    rt.ops().sortRadixSinglePass(keys, vals);
-    break;
-  case SortVariant::OneSweep:
-    rt.ops().sortRadixOneSweep(keys, vals);
-    break;
-  }
+/// ONE CUT sort is registered, not a menu of them. This bench answers "how does
+/// CUT compare to the vendor library", so it runs what a caller actually gets
+/// from sortRadix(): the fused per-digit tile radix on Vulkan. sortRadixOneSweep()
+/// pins decoupled look-back instead, and that strategy A/B belongs in
+/// benchmarks/benchmark.cpp, which times the two against each other directly
+/// rather than against rocPRIM.
+static void runSort(Runtime &rt, const Tensor &keys, const Tensor &vals) {
+  rt.ops().sortRadix(keys, vals);
 }
 
 struct ScanCase {
@@ -169,7 +150,7 @@ static void registerScanCase(cut::Runtime &rt, const ScanCase &c, int n) {
   cutbench::registerPair(rt, spec, cutIssue, refTimed);
 }
 
-static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
+static void registerSortCase(cut::Runtime &rt, int n,
                              const std::vector<uint32_t> &hostKeys,
                              const std::vector<uint32_t> &hostVals,
                              const std::vector<uint32_t> &refKeys,
@@ -189,11 +170,10 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
     rt.copyToTensor(keys, hostKeys.data(), bytes);
     rt.copyToTensor(vals, hostVals.data(), bytes);
   };
-  auto cutIssue = [&rt, keys, vals, v]() { runSort(rt, v, keys, vals); };
+  auto cutIssue = [&rt, keys, vals]() { runSort(rt, keys, vals); };
 
   // Pinned, not adaptive: the refill is host-side cost the manual-time loop
-  // cannot see, so the adaptive count would run unbounded. CUT's multi-pass
-  // sortRadix also takes seconds per call at N=16M.
+  // cannot see, so the adaptive count would run unbounded.
   cutbench::CaseSpec spec;
   spec.iterations = 10;
 
@@ -214,7 +194,7 @@ static void registerSortCase(cut::Runtime &rt, SortVariant v, int n,
     check.refMeanAbs = 1.0;
   }
 
-  spec.op = sortVariantName(v);
+  spec.op = "sort_radix";
   spec.vendor = "rocPRIM";
   spec.shape = "N=" + std::to_string(n);
   spec.bytes = 2.0 * n * 2 * sizeof(uint32_t);
@@ -295,11 +275,8 @@ static void registerAll(cut::Runtime &runtime) {
     valStore.push_back(hostVals);
     refStore.push_back(refKeys);
 
-    for (SortVariant v : {SortVariant::Radix, SortVariant::SinglePass,
-                          SortVariant::OneSweep}) {
-      registerSortCase(runtime, v, n, keyStore.back(), valStore.back(),
-                       refStore.back(), refTimed);
-    }
+    registerSortCase(runtime, n, keyStore.back(), valStore.back(),
+                     refStore.back(), refTimed);
 
     // The reference device buffers are NOT freed: refTimed captured them and is
     // invoked later, during runAll.

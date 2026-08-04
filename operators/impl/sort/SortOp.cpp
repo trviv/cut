@@ -20,8 +20,8 @@ uint32_t nextPowerOf2(uint32_t n) {
 // Builds the OneSweep radix-sort dispatch graph (one global-histogram pass over
 // all 4 digit-places + per-pass exclusive scan + 4 decoupled-look-back scatter
 // passes). Backend-agnostic: the internal ops resolve to native CUDA kernels on
-// CUDA and to HLSL kernels on Vulkan. Used by both RadixSinglePassSortOpNode
-// (CUDA branch) and RadixOneSweepSortOpNode (both backends).
+// CUDA and to HLSL kernels on Vulkan. Used by both RadixSortOpNode (CUDA
+// branch) and RadixOneSweepSortOpNode (both backends).
 void buildOneSweepGraph(TensorStore *store,
                         const Tensor &keysHandle,
                         const Tensor &valsHandle,
@@ -32,8 +32,8 @@ void buildOneSweepGraph(TensorStore *store,
   constexpr uint32_t BLOCK = 256;
 
   // Scatter tile size is backend-specific and MUST match the scatter kernel's
-  // compile-time TILE: the CUDA kernel (OneSweepScatter.cu) uses KPT=8 elements
-  // per thread (TILE = BLOCK*8 = 2048) for fewer/shorter look-back chains, a
+  // compile-time TILE: the CUDA kernel (OneSweepScatter.cu) uses KPT=12 elements
+  // per thread (TILE = BLOCK*12 = 3072) for fewer/shorter look-back chains, a
   // smaller look-back state buffer to zero, and coalesced writes at scale; the
   // Vulkan kernel (OneSweepScatter.shader) uses one element per thread
   // (TILE = BLOCK).
@@ -255,93 +255,8 @@ std::vector<uint8_t> RadixSortOpNode::pushConstants() const {
 }
 
 void RadixSortOpNode::buildSubOperations() {
-  uint32_t numElements = static_cast<uint32_t>(executionSize_);
-
-  Tensor keysHandle = inputs_[0];
-  Tensor valsHandle = inputs_[1];
-
-  uint32_t groupCount = std::max((numElements + 255) / 256, 1u);
-  uint32_t histSize = 16 * groupCount;
-
-  Tensor histogram = store_->acquireTempBuffer(histSize, DataType::UInt32);
-  Tensor keysAlt = store_->acquireTempBuffer(numElements, DataType::UInt32);
-  Tensor valsAlt = store_->acquireTempBuffer(numElements, DataType::UInt32);
-
-  // 8 passes (4 bits each) for 32-bit keys
-  for (uint32_t pass = 0; pass < 8; pass++) {
-    uint32_t bitOffset = pass * 4;
-    bool evenPass = (pass % 2 == 0);
-
-    Tensor curKeys = evenPass ? keysHandle : keysAlt;
-    Tensor curVals = evenPass ? valsHandle : valsAlt;
-    Tensor dstKeys = evenPass ? keysAlt : keysHandle;
-    Tensor dstVals = evenPass ? valsAlt : valsHandle;
-
-    struct RadixPC {
-      uint32_t numElements;
-      uint32_t bitOffset;
-      uint32_t groupCount;
-    } pc{numElements, bitOffset, groupCount};
-
-    // Step 1: Histogram — reads curKeys, writes histogram
-    subOps_.push_back(std::make_unique<InternalOpNode>(
-        InternalRadixHistogram, DataType::Float32,
-        std::vector<Tensor>{curKeys, histogram}, histogram,
-        ThreadSize{256 * groupCount, 1, 1}, toBytes(pc), true));
-
-    // Step 2: Exclusive prefix scan on histogram (in-place)
-    subOps_.push_back(std::make_unique<InternalOpNode>(
-        InternalScanUint, DataType::Float32, std::vector<Tensor>{histogram},
-        histogram, ThreadSize{1, 1, 1}, toBytes(histSize), true));
-
-    // Step 3: Scatter — reads curKeys, curVals, histogram; writes dstKeys,
-    // dstVals
-    subOps_.push_back(std::make_unique<InternalOpNode>(
-        InternalRadixScatter, DataType::Float32,
-        std::vector<Tensor>{curKeys, curVals, dstKeys, dstVals, histogram},
-        dstKeys, ThreadSize{1, 1, 1}, toBytes(pc), true));
-  }
-}
-
-// --- RadixSinglePassSortOpNode ---
-
-RadixSinglePassSortOpNode::RadixSinglePassSortOpNode(
-    TensorStore &store,
-    const Tensor &keys,
-    const Tensor &vals,
-    std::optional<uint32_t> spec)
-    : OpNode(SortRadixSinglePass, store, spec) {
-  const auto &buf = store.getTensor(keys);
-  executionSize_ = actualElementCount(buf.getShape());
-  dtype_ = buf.getDtype();
-  inputs_ = {keys, vals};
-}
-
-DataType RadixSinglePassSortOpNode::outputDtype() const {
-  return dtype_;
-}
-
-std::vector<uint32_t> RadixSinglePassSortOpNode::outputShape() const {
-  return {};
-}
-
-bool RadixSinglePassSortOpNode::isMultiPass() const {
-  return true;
-}
-size_t RadixSinglePassSortOpNode::executionSize() const {
-  return executionSize_;
-}
-
-ThreadSize RadixSinglePassSortOpNode::dispatchSize() const {
-  return {0, 0, 0};
-}
-std::vector<uint8_t> RadixSinglePassSortOpNode::pushConstants() const {
-  return {};
-}
-
-void RadixSinglePassSortOpNode::buildSubOperations() {
-  // Same public op, backend-specialized dispatch graph: OneSweep decoupled
-  // look-back on CUDA, fused per-digit tile radix on Vulkan.
+  // Backend-specialized: OneSweep decoupled look-back on CUDA, fused per-digit
+  // tile radix on Vulkan.
   if (store_->caps().backend == ComputeBackend::CUDA) {
     buildOneSweepGraph(store_, inputs_[0], inputs_[1],
                        static_cast<uint32_t>(executionSize_), subOps_);
@@ -353,7 +268,7 @@ void RadixSinglePassSortOpNode::buildSubOperations() {
 // Vulkan fused per-digit: parallel tile histogram (digit-major) -> exclusive
 // spine scan -> per-tile local stable sort + parallel global scatter. 8-bit
 // digits, 4 passes.
-void RadixSinglePassSortOpNode::buildFusedVulkan() {
+void RadixSortOpNode::buildFusedVulkan() {
   constexpr uint32_t RADIX = 256;
   constexpr uint32_t NUM_PASSES = 4;
   constexpr uint32_t WG = 256;

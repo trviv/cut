@@ -1397,15 +1397,6 @@ void Operations::sortRadix(const Tensor &keys,
       std::make_unique<RadixSortOpNode>(*store_, keys, vals, spec), deviceId_);
 }
 
-void Operations::sortRadixSinglePass(const Tensor &keys,
-                                     const Tensor &vals,
-                                     std::optional<uint32_t> spec) {
-  flush();
-  runtime_->dispatch(
-      std::make_unique<RadixSinglePassSortOpNode>(*store_, keys, vals, spec),
-      deviceId_);
-}
-
 void Operations::sortRadixOneSweep(const Tensor &keys,
                                    const Tensor &vals,
                                    std::optional<uint32_t> spec) {

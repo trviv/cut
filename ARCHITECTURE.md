@@ -396,7 +396,7 @@ High-level tensor API consumed by the Python bindings:
 | Softmax | `softmax(a, dim)`, `logSoftmax(a, dim)` | Hybrid: GPU max per dim + CPU normalisation for numerical stability |
 | Creation | `arange()`, `linspace()`, `full()` | GPU-side tensor generation |
 | Shape | `reshape()`, `squeeze()`, `unsqueeze()`, `flatten()`, `unflatten()`, `concat()` | Via copy shader with layout metadata |
-| Sort | `sortBitonic()`, `sortRadix()` | Multi-pass GPU algorithms |
+| Sort | `sortBitonic()`, `sortRadix()` | Bitonic network; single-pass radix (OneSweep on CUDA, fused per-digit on Vulkan) |
 | Scan | `prefixScan(a, op)` | 1–3 pass parallel scan |
 
 Helper utilities: `getShape()`, `getDtype()`, `shapeProduct()`, `computeDimParams(shape, dim)` decomposing a dimension into `{outerSize, reduceSize, innerSize}`.

@@ -212,7 +212,6 @@ inline bool hasVulkanShaderSupport(OperatorEnum op) {
   // Sort operations
   case SortBitonic:
   case SortRadix:
-  case SortRadixSinglePass:
   case SortRadixOneSweep:
   // Dim-wise reductions
   case NormDim:
@@ -1863,73 +1862,6 @@ TEST_F(RadixSortTest, Sort_ReverseSorted_UInt32) {
 TEST_F(RadixSortTest, Sort_AllSameValues_UInt32) {
   for (const auto &c : opregistry::allOpCases()) {
     if (c.name != "sort/radix_allsame")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-// ============================================================================
-// Single-pass Radix Sort Tests (UInt32) — OneSweep (CUDA) / fused (Vulkan)
-// ============================================================================
-
-class RadixSinglePassSortTest : public RuntimeOperatorTest {
-protected:
-  void SetUp() override {
-    RuntimeOperatorTest::SetUp();
-    initBackend(BackendType::Vulkan);
-  }
-};
-
-TEST_F(RadixSinglePassSortTest, Sort_SmallArrays_UInt32) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "sort/radix_singlepass_small")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-TEST_F(RadixSinglePassSortTest, Sort_LargeArray_UInt32) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "sort/radix_singlepass_large")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-TEST_F(RadixSinglePassSortTest, Sort_AlreadySorted_UInt32) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "sort/radix_singlepass_alreadysorted")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-TEST_F(RadixSinglePassSortTest, Sort_ReverseSorted_UInt32) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "sort/radix_singlepass_reversesorted")
-      continue;
-    SCOPED_TRACE(c.name);
-    Tensor out = c.run(*runtime_, -1);
-    opregistry::VerifyResult vr = c.verify(*runtime_, out);
-    EXPECT_TRUE(vr.ok) << c.name << ": " << vr.detail;
-  }
-}
-
-TEST_F(RadixSinglePassSortTest, Sort_AllSameValues_UInt32) {
-  for (const auto &c : opregistry::allOpCases()) {
-    if (c.name != "sort/radix_singlepass_allsame")
       continue;
     SCOPED_TRACE(c.name);
     Tensor out = c.run(*runtime_, -1);

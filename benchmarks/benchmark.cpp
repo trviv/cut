@@ -948,19 +948,6 @@ static void benchmarkSort(Runtime &runtime, int warmup, int iterations) {
         warmup, iterations);
     printSingleRow(descRadix.c_str(), rRadix);
 
-    std::string descRadix1P = "RadixSinglePass N=" + std::to_string(sz);
-    auto rRadix1P = time_op(
-        [&]() {
-          auto bufKeys =
-              runtime.createTensor({sz}, DataType::Float32, hostKeys.data());
-          auto bufVals =
-              runtime.createTensor({sz}, DataType::UInt32, hostVals.data());
-          runtime.ops().sortRadixSinglePass(bufKeys, bufVals);
-          runtime.flush();
-        },
-        warmup, iterations);
-    printSingleRow(descRadix1P.c_str(), rRadix1P);
-
     std::string descRadixOS = "RadixOneSweep N=" + std::to_string(sz);
     auto rRadixOS = time_op(
         [&]() {

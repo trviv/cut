@@ -1837,31 +1837,6 @@ inline VerifyResult radixVerify(Runtime& rt, const std::vector<uint32_t>& data) 
   return {true, ""};
 }
 
-inline VerifyResult radixSinglePassVerify(Runtime& rt, const std::vector<uint32_t>& data) {
-  uint32_t elements = static_cast<uint32_t>(data.size());
-  std::vector<uint32_t> indices(elements);
-  for (uint32_t i = 0; i < elements; ++i) indices[i] = i;
-  auto bufKeys = rt.createTensor({elements}, DataType::UInt32, data.data());
-  auto bufVals = rt.createTensor({elements}, DataType::UInt32, indices.data());
-  rt.ops().sortRadixSinglePass(bufKeys, bufVals);
-  std::vector<uint32_t> sortedKeys(elements);
-  std::vector<uint32_t> sortedVals(elements);
-  rt.copyFromTensor(bufKeys, sortedKeys.data(), elements * sizeof(uint32_t));
-  rt.copyFromTensor(bufVals, sortedVals.data(), elements * sizeof(uint32_t));
-  for (uint32_t i = 1; i < elements; ++i)
-    if (sortedKeys[i - 1] > sortedKeys[i])
-      return {false, "radix1p not sorted at " + std::to_string(i)};
-  std::vector<uint32_t> perm(sortedVals.begin(), sortedVals.end());
-  std::sort(perm.begin(), perm.end());
-  for (uint32_t i = 0; i < elements; ++i)
-    if (perm[i] != i)
-      return {false, "radix1p bad permutation at " + std::to_string(i)};
-  for (uint32_t i = 0; i < elements; ++i)
-    if (sortedKeys[i] != data[sortedVals[i]])
-      return {false, "radix1p key-index mismatch at " + std::to_string(i)};
-  return {true, ""};
-}
-
 inline VerifyResult radixOneSweepVerify(Runtime& rt, const std::vector<uint32_t>& data) {
   uint32_t elements = static_cast<uint32_t>(data.size());
   std::vector<uint32_t> indices(elements);
@@ -1899,14 +1874,6 @@ inline VerifyResult radixSweep(Runtime& rt, const std::vector<uint32_t>& counts)
   for (uint32_t elements : counts) {
     auto data = generateTestData<uint32_t>(elements, 42);
     auto r = radixVerify(rt, data);
-    if (!r.ok) return r;
-  }
-  return {true, ""};
-}
-inline VerifyResult radixSinglePassSweep(Runtime& rt, const std::vector<uint32_t>& counts) {
-  for (uint32_t elements : counts) {
-    auto data = generateTestData<uint32_t>(elements, 42);
-    auto r = radixSinglePassVerify(rt, data);
     if (!r.ok) return r;
   }
   return {true, ""};
@@ -3609,61 +3576,6 @@ cases.push_back(std::move(c));
     c.verify = [](Runtime &rt, const Tensor &) {
       std::vector<uint32_t> data(100, 42u);
       return radixVerify(rt, data);
-    };
-    cases.push_back(std::move(c));
-  }
-  {
-    OpCase c;
-    c.name = "sort/radix_singlepass_small";
-    c.family = "sort";
-    c.run = [](Runtime &rt, int) { return sortRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      return radixSinglePassSweep(rt, {1u, 2u, 16u, 100u, 256u});
-    };
-    cases.push_back(std::move(c));
-  }
-  {
-    OpCase c;
-    c.name = "sort/radix_singlepass_large";
-    c.family = "sort";
-    c.run = [](Runtime &rt, int) { return sortRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      return radixSinglePassSweep(rt, {1000u, 10000u});
-    };
-    cases.push_back(std::move(c));
-  }
-  {
-    OpCase c;
-    c.name = "sort/radix_singlepass_alreadysorted";
-    c.family = "sort";
-    c.run = [](Runtime &rt, int) { return sortRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      std::vector<uint32_t> data(100);
-      for (uint32_t i = 0; i < 100; ++i) data[i] = i;
-      return radixSinglePassVerify(rt, data);
-    };
-    cases.push_back(std::move(c));
-  }
-  {
-    OpCase c;
-    c.name = "sort/radix_singlepass_reversesorted";
-    c.family = "sort";
-    c.run = [](Runtime &rt, int) { return sortRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      std::vector<uint32_t> data(100);
-      for (uint32_t i = 0; i < 100; ++i) data[i] = 99u - i;
-      return radixSinglePassVerify(rt, data);
-    };
-    cases.push_back(std::move(c));
-  }
-  {
-    OpCase c;
-    c.name = "sort/radix_singlepass_allsame";
-    c.family = "sort";
-    c.run = [](Runtime &rt, int) { return sortRun(rt); };
-    c.verify = [](Runtime &rt, const Tensor &) {
-      std::vector<uint32_t> data(100, 42u);
-      return radixSinglePassVerify(rt, data);
     };
     cases.push_back(std::move(c));
   }

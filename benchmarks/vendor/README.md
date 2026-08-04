@@ -102,10 +102,8 @@ bias; implies `--no-large`), `--repetitions N` (default 3), `--filter REGEX`,
 `--min-time T`, `--no-build`, `--build-dir DIR`, `--out-dir DIR`. Per-benchmark
 JSON lands in `--out-dir` (default `vendor_bench_results/`).
 
-**A full run is slow, and it is CUT's fault.** The multi-pass `sortRadix` takes
-hundreds of milliseconds per call at N=1M and seconds at N=16M, against CUB's
-sub-millisecond, so those two cases dominate everything else combined. `--quick`
-excludes them and brings a full sweep down to a couple of minutes.
+`--quick` skips the model-scale cases and brings a full sweep down to a couple
+of minutes.
 
 ### The model-scale cases
 
@@ -279,7 +277,7 @@ direct equivalent either; the comparison would be against dequant + SGEMM.
   | `sgemm` 128³ | 1 | 6.61 µs | 5.53 µs |
   | `transpose` 1024² | 1 | 11.29 µs | 5.67 µs |
   | `scan` N=65536 | 2 | 6.79 µs | 6.05 µs |
-  | `sort_radix_1sweep` N=65536 | ~8 | 55.40 µs | 20.95 µs |
+  | `sort_radix` N=65536 | ~8 | 55.40 µs | 20.95 µs |
 
   The ~5.5 µs floor is the wake-up and is symmetric. The rest scales with
   dispatch count and is not: nothing on a one-kernel GEMM, ~0.5 µs on the
@@ -296,7 +294,7 @@ direct equivalent either; the comparison would be against dequant + SGEMM.
   op                shape       speedup  wall_x
   scan_inclusive    N=65536      0.98x    0.84x
   scan_inclusive    N=16777216   0.99x    0.98x
-  sort_radix_1sweep N=65536      1.44x    1.10x
+  sort_radix        N=65536      1.44x    1.10x
   ```
 
   They converge once the problem is big enough to amortise the host — 0.99x and
@@ -326,9 +324,12 @@ direct equivalent either; the comparison would be against dequant + SGEMM.
   whose host-side cost the manual-time loop cannot see.
 - **Destructive operators pin their iteration count.** CUT's `sortRadix` family
   sorts in place, so each iteration must re-upload its input or it would re-sort
-  sorted data and report a misleadingly fast number. That refill is exactly the
-  hidden per-iteration cost the adaptive loop cannot see, so those cases set
-  `CaseSpec::iterations` and lean on `--benchmark_repetitions` for stability.
+  sorted data and report a misleadingly fast number. That refill is declared as
+  `registerPair`'s `cutSetup`, which runs untimed and settled before the clock
+  starts — the vendor side needs no counterpart, since its sort is out-of-place
+  and reads a pristine input every call. It is still host-side cost the adaptive
+  loop cannot see, so those cases set `CaseSpec::iterations` and lean on
+  `--benchmark_repetitions` for stability.
 
 ### Reading the rate columns
 

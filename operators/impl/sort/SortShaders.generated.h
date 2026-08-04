@@ -10,8 +10,6 @@ namespace cut {
 std::optional<std::vector<uint32_t>> compiledBitonicStep(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledBitonicPadInit(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledBitonicCopyBack(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledRadixHistogram(DataType input, DataType output);
-std::optional<std::vector<uint32_t>> compiledRadixScatter(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledOneSweepGlobalHist(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledOneSweepGlobalScan(DataType input, DataType output);
 std::optional<std::vector<uint32_t>> compiledOneSweepScatter(DataType input, DataType output);

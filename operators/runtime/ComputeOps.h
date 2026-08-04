@@ -200,7 +200,6 @@ enum OperatorEnum {
 
   SortBitonic = OP_SORT_BITONIC,
   SortRadix = OP_SORT_RADIX,
-  SortRadixSinglePass = OP_SORT_RADIX_SINGLEPASS,
   SortRadixOneSweep = OP_SORT_RADIX_ONESWEEP,
 
   // ===========================================================================
@@ -256,8 +255,6 @@ enum OperatorEnum {
   InternalBitonicCopyBack = OP_INTERNAL_BITONIC_COPY_BACK,
 
   // Radix sort
-  InternalRadixHistogram = OP_INTERNAL_RADIX_HISTOGRAM,
-  InternalRadixScatter = OP_INTERNAL_RADIX_SCATTER,
 
   // Single-pass radix sort — OneSweep (CUDA)
   InternalOneSweepGlobalHist = OP_INTERNAL_ONESWEEP_GLOBAL_HIST,

@@ -7,10 +7,22 @@
       "description": "Bitonic sort step",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          },
+          {
+            "input": "Int32",
+            "output": "Int32"
+          },
+          {
+            "input": "UInt32",
+            "output": "UInt32"
+          }
         ]
       }
     },
@@ -19,10 +31,22 @@
       "description": "Bitonic pad initialization",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          },
+          {
+            "input": "Int32",
+            "output": "Int32"
+          },
+          {
+            "input": "UInt32",
+            "output": "UInt32"
+          }
         ]
       }
     },
@@ -31,34 +55,22 @@
       "description": "Bitonic copy back",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "RadixHistogram",
-      "description": "Radix sort histogram",
-      "dtype_slots": {
-        "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
-        ]
-      }
-    },
-    {
-      "name": "RadixScatter",
-      "description": "Radix sort scatter",
-      "dtype_slots": {
-        "combos": [
-          {"input": "Float32", "output": "Float32"},
-          {"input": "Float16", "output": "Float16"},
-          {"input": "Int32", "output": "Int32"},
-          {"input": "UInt32", "output": "UInt32"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          },
+          {
+            "input": "Float16",
+            "output": "Float16"
+          },
+          {
+            "input": "Int32",
+            "output": "Int32"
+          },
+          {
+            "input": "UInt32",
+            "output": "UInt32"
+          }
         ]
       }
     },
@@ -67,7 +79,10 @@
       "description": "OneSweep (CUDA) global histogram over all digit-places",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          }
         ]
       }
     },
@@ -76,7 +91,10 @@
       "description": "OneSweep (CUDA) per-pass exclusive scan of global histogram",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          }
         ]
       }
     },
@@ -85,7 +103,10 @@
       "description": "OneSweep (CUDA) decoupled look-back scatter",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          }
         ]
       }
     },
@@ -94,7 +115,10 @@
       "description": "Fused per-digit radix (Vulkan) tile histogram",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          }
         ]
       }
     },
@@ -103,7 +127,10 @@
       "description": "Fused per-digit radix (Vulkan) local sort + scatter",
       "dtype_slots": {
         "combos": [
-          {"input": "Float32", "output": "Float32"}
+          {
+            "input": "Float32",
+            "output": "Float32"
+          }
         ]
       }
     }

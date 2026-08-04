@@ -228,7 +228,6 @@
 
 #define OP_SORT_BITONIC 270
 #define OP_SORT_RADIX 271
-#define OP_SORT_RADIX_SINGLEPASS 272
 #define OP_SORT_RADIX_ONESWEEP 273
 
 // =============================================================================
@@ -251,8 +250,6 @@
 #define OP_INTERNAL_BITONIC_COPY_BACK 287
 
 // Radix sort
-#define OP_INTERNAL_RADIX_HISTOGRAM 288
-#define OP_INTERNAL_RADIX_SCATTER 289
 
 // Utility
 #define OP_INTERNAL_FILL_UINT 290
