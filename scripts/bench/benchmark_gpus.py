@@ -333,8 +333,14 @@ def run_capturing_mem(cmd: List[str], env: Dict[str, str], timeout: int,
     Returns (stdout, stderr, peak_mib); peak_mib is None when no NVIDIA index
     was given or nvidia-smi is unavailable.
     """
+    # errors="replace" on both paths, because the child's stdout carries MODEL
+    # OUTPUT and that is arbitrary bytes: a token boundary lands mid-character,
+    # or a byte-fallback token is emitted raw, and strict UTF-8 decoding throws
+    # from inside communicate(). The caller's exception handler then reports a
+    # perfectly good run as "no result" — measured, on a synthetic prompt whose
+    # random tokens produce exactly that.
     if nvidia_idx is None:
-        r = subprocess.run(cmd, capture_output=True, text=True,
+        r = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
                            timeout=timeout, env=env)
         return r.stdout, r.stderr, None
 
@@ -342,7 +348,7 @@ def run_capturing_mem(cmd: List[str], env: Dict[str, str], timeout: int,
     peaks = {"proc": 0, "total": 0}
 
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True, env=env)
+                            text=True, errors="replace", env=env)
 
     def sample():
         # Each nvidia-smi call costs ~100ms, so keep the hot path to a single
@@ -382,8 +388,14 @@ def run_capturing_mem(cmd: List[str], env: Dict[str, str], timeout: int,
     return out, err, peak
 
 
-def run_cut(cut_binary: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5, warmup: int = 1, synthetic: bool = True, nvidia_idx: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    """Run CUT with specified backend and device index."""
+def run_cut(cut_binary: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5, warmup: int = 1, synthetic: bool = True, nvidia_idx: Optional[int] = None, prompt_tokens: Optional[int] = None, ctx_size: Optional[int] = None, timeout: int = 600) -> Optional[Dict[str, Any]]:
+    """Run CUT with specified backend and device index.
+
+    @p prompt_tokens replaces the text prompt with a synthetic one of exactly
+    that many tokens, which is what makes a prefill number comparable with
+    llama-bench's `-p N` (see benchmarks/model/README.md). @p ctx_size must then
+    cover prompt + generation, since the runner's default is 512.
+    """
     if not os.path.exists(cut_binary):
         return None
 
@@ -395,42 +407,54 @@ def run_cut(cut_binary: str, model: str, backend: str, dev_idx: int, max_tokens:
         env["CUT_BENCH_SYNTHETIC"] = "1"
 
     cmd = [cut_binary, model, str(max_tokens)]
+    if prompt_tokens is not None:
+        cmd += ["--bench-prompt-tokens", str(prompt_tokens)]
+    if ctx_size is not None:
+        cmd += ["--ctx-size", str(ctx_size)]
     if runs > 0:
         cmd += ["--bench-runs", str(runs), "--bench-warmup", str(warmup), "--no-stop"]
 
     try:
-        stdout, stderr, mem_mib = run_capturing_mem(cmd, env, 600, nvidia_idx)
+        stdout, stderr, mem_mib = run_capturing_mem(cmd, env, timeout, nvidia_idx)
         output = stdout + stderr
         info = {}
         if mem_mib is not None:
             info["mem_mib"] = mem_mib
 
-        for line in output.split("\n"):
-            if "Prefill:" in line:
+        # Split the stream where the RUNNER stops talking and the MODEL starts.
+        # Everything up to the token dump is the runner's own report; everything
+        # after it is generated text. Scanning the whole stream for "Total:" is
+        # not safe and the failure is silent: the synthetic bench prompt makes a
+        # model emit tokens from all over its vocabulary, one of those lines
+        # begins "Total:", the float parse throws, and the exception handler
+        # below turns a perfectly good run into "no result".
+        head, _, tail = output.partition("\nGenerated token IDs:")
+        for line in head.split("\n"):
+            if line.startswith("Prefill:"):
                 parts = line.split(",")
                 info["prefill_ms"] = float(parts[0].split(":")[1].strip().split()[0])
                 info["prefill_tokens"] = int(parts[1].strip().split()[0])
                 info["prefill_tps"] = float(parts[2].strip().split()[0])
-            elif "Decode:" in line:
+            elif line.startswith("Decode:"):
                 parts = line.split(",")
                 info["decode_ms"] = float(parts[0].split(":")[1].strip().split()[0])
                 info["decode_tokens"] = int(parts[1].strip().split()[0])
                 info["decode_tps"] = float(parts[2].strip().split()[0])
-            elif "Total:" in line and "ms" in line:
+            elif line.startswith("Total:") and "ms" in line:
                 parts = line.split(",")
                 info["total_ms"] = float(parts[0].split(":")[1].strip().split()[0])
                 info["total_tokens"] = int(parts[1].strip().split()[0])
-            elif "Decoded text:" in line:
-                idx = output.index("Decoded text:")
-                text = output[idx + len("Decoded text:"):].strip()
-                if "assistant\n" in text:
-                    text = text.split("assistant\n", 1)[-1]
-                clean_lines = []
-                for l in text.split("\n"):
-                    if l.startswith("WARNING:"):
-                        break
-                    clean_lines.append(l)
-                info["text"] = "\n".join(clean_lines).strip()
+
+        if "Decoded text:" in tail:
+            text = tail.split("Decoded text:", 1)[1].strip()
+            if "assistant\n" in text:
+                text = text.split("assistant\n", 1)[-1]
+            clean_lines = []
+            for l in text.split("\n"):
+                if l.startswith("WARNING:"):
+                    break
+                clean_lines.append(l)
+            info["text"] = "\n".join(clean_lines).strip()
 
         return info if info else None
     except (subprocess.TimeoutExpired, Exception):
@@ -508,16 +532,27 @@ def _parse_llama_bench_json(stdout: str) -> Optional[Dict[str, Any]]:
             info["total_ms"] = info["prefill_ms"] + info["decode_ms"]
             info["total_tokens"] = info.get("prefill_tokens", 0) + info.get("decode_tokens", 0)
 
-        return info if "decode_tps" in info else None
+        # Either phase alone is a usable result: llama-bench is asked for only
+        # one of them when a caller wants pp at depth 0 and tg at depth N, which
+        # cannot be the same invocation.
+        return info if ("decode_tps" in info or "prefill_tps" in info) else None
     except (json.JSONDecodeError, KeyError, ValueError, IndexError):
         return None
 
-def run_llama(llama_bench_exe: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5, nvidia_idx: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    """Run llama.cpp bench with specified backend and device index."""
+def run_llama(llama_bench_exe: str, model: str, backend: str, dev_idx: int, max_tokens: int, runs: int = 5, nvidia_idx: Optional[int] = None, n_prompt: int = 15, n_depth: int = 0, timeout: int = 600) -> Optional[Dict[str, Any]]:
+    """Run llama.cpp bench with specified backend and device index.
+
+    @p n_prompt is llama-bench's `-p` (0 runs no prompt-processing test) and
+    @p max_tokens its `-n` (0 runs no generation test), so one call can measure
+    either phase alone. @p n_depth is `-d`: KV tokens placed in the cache
+    untimed before the test, which is how a generation number is taken at the
+    same context depth CUT's decode runs at, after its prefill.
+    """
     if not os.path.exists(llama_bench_exe):
         return None
 
-    cmd = [llama_bench_exe, "-m", model, "-p", "15", "-n", str(max_tokens), "-r", str(runs), "-o", "json"]
+    cmd = [llama_bench_exe, "-m", model, "-p", str(n_prompt), "-n", str(max_tokens),
+           "-d", str(n_depth), "-r", str(runs), "-o", "json"]
 
     env = os.environ.copy()
     if backend == "vulkan":
@@ -528,7 +563,7 @@ def run_llama(llama_bench_exe: str, model: str, backend: str, dev_idx: int, max_
         cmd.extend(["-ngl", "99"])
 
     try:
-        stdout, stderr, mem_mib = run_capturing_mem(cmd, env, 600, nvidia_idx)
+        stdout, stderr, mem_mib = run_capturing_mem(cmd, env, timeout, nvidia_idx)
         info = _parse_llama_bench_json(stdout)
         if info is None:
             info = _parse_llama_bench(stdout + stderr)
@@ -540,13 +575,17 @@ def run_llama(llama_bench_exe: str, model: str, backend: str, dev_idx: int, max_
 
 def print_result(info: Dict[str, Any], has_split: bool = False):
     """Print benchmark result in consistent format."""
-    if has_split and "prefill_ms" in info:
-        print(f"  Prefill:  {info['prefill_ms']:.1f} ms "
-              f"({info.get('prefill_tokens', '?')} tokens, "
-              f"{info.get('prefill_tps', 0):.1f} tok/s)")
-        print(f"  Decode:   {info['decode_ms']:.1f} ms "
-              f"({info.get('decode_tokens', '?')} tokens, "
-              f"{info.get('decode_tps', 0):.1f} tok/s)")
+    if has_split and ("prefill_ms" in info or "decode_ms" in info):
+        # Either phase may be absent: a single-phase llama-bench call measures
+        # only the one it was asked for.
+        if "prefill_ms" in info:
+            print(f"  Prefill:  {info['prefill_ms']:.1f} ms "
+                  f"({info.get('prefill_tokens', '?')} tokens, "
+                  f"{info.get('prefill_tps', 0):.1f} tok/s)")
+        if "decode_ms" in info:
+            print(f"  Decode:   {info['decode_ms']:.1f} ms "
+                  f"({info.get('decode_tokens', '?')} tokens, "
+                  f"{info.get('decode_tps', 0):.1f} tok/s)")
         total = info.get("total_ms", info.get("prefill_ms", 0) + info.get("decode_ms", 0))
         total_tok = info.get("total_tokens",
                              info.get("prefill_tokens", 0) + info.get("decode_tokens", 0))

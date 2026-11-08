@@ -22,7 +22,12 @@ A Vulkan-based GPU compute toolkit: cross-vendor, from-scratch shader pipeline, 
 [![sgemm vs cuBLAS](https://img.shields.io/badge/sgemm_vs_cuBLAS-0.54x-d29922)](benchmarks/)
 <!-- /BENCH:BADGES -->
 
-**Per-shape tables, history and methodology: [benchmarks/](benchmarks/)**
+Badges are per-operator against the vendor libraries. Whole-model prefill and
+decode against llama.cpp, on the same prompt and generation lengths, are
+measured too and live on the same page.
+
+**Per-shape tables, model-level tables, history and methodology:
+[benchmarks/](benchmarks/)**
 
 ## Quick Start
 

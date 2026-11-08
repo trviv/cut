@@ -22,3 +22,4 @@ operators/runtime/cuda/CompiledCudaKernels.cpp
 tuning_data.json
 autotune_raw.json
 vendor_bench_results/
+model_bench_results/

@@ -11,6 +11,7 @@
  *   ./gguf_example [model.gguf] [max_tokens] [prompt] [repeat_penalty]
  *                  [--ctx-size N] [--no-chat] [--no-stop]
  *                  [--bench-runs N] [--bench-warmup W]
+ *                  [--bench-prompt-tokens N]
  */
 
 #include "Runtime.h"
@@ -31,6 +32,7 @@ int main(int argc, char *argv[]) {
   int benchRuns = 0;    // 0 = single run (default, unchanged behavior)
   int benchWarmup = 1;  // warmup generations discarded before timing
   bool noStop = false;  // force full-length decode (suppress EOS) for fair benchmarking
+  int benchPromptTokens = 0; // >0 = synthetic prompt of exactly this many tokens
   std::vector<std::string> positional;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--no-chat") == 0) {
@@ -43,6 +45,8 @@ int main(int argc, char *argv[]) {
       benchRuns = std::atoi(argv[++i]);
     } else if (std::strcmp(argv[i], "--bench-warmup") == 0 && i + 1 < argc) {
       benchWarmup = std::atoi(argv[++i]);
+    } else if (std::strcmp(argv[i], "--bench-prompt-tokens") == 0 && i + 1 < argc) {
+      benchPromptTokens = std::atoi(argv[++i]);
     } else {
       positional.push_back(argv[i]);
     }
@@ -125,29 +129,49 @@ int main(int argc, char *argv[]) {
       prompt_text = positional[2];
     }
 
-    // For instruct/chat models, wrap in ChatML template if special tokens
-    // exist. Skip if --no-chat flag is passed as any argument.
-    int im_start = model.tokenId("<|im_start|>");
-    int im_end = model.tokenId("<|im_end|>");
-    std::string tokenizer_input = prompt_text;
-    if (!noChat && im_start >= 0 && im_end >= 0) {
-      tokenizer_input = "<|im_start|>user\n" + prompt_text +
-                        "<|im_end|>\n<|im_start|>assistant\n";
-      model.addStopToken(im_end);
-      std::cout << "Using ChatML template (im_start=" << im_start
-                << " im_end=" << im_end << ").\n";
-    }
+    std::vector<int> prompt;
+    if (benchPromptTokens > 0) {
+      // A synthetic prompt of EXACTLY N tokens, for prompt-processing
+      // comparisons against llama-bench's `-p N`, whose pp test feeds N
+      // in-vocabulary tokens rather than real text. The two sides only measure
+      // the same workload if they process the same COUNT, and how many tokens
+      // a chat template expands to is a fact about the tokenizer rather than
+      // about the workload — so the template and the tokenizer are both
+      // bypassed here. The LCG is fixed-seed: two runs prefill the same tokens.
+      uint32_t rng = 20260804u;
+      const uint32_t vocab = static_cast<uint32_t>(cfg.vocab_size);
+      prompt.reserve(static_cast<size_t>(benchPromptTokens));
+      for (int i = 0; i < benchPromptTokens; ++i) {
+        rng = rng * 1664525u + 1013904223u;
+        prompt.push_back(static_cast<int>((rng >> 8) % vocab));
+      }
+      std::cout << "Synthetic prompt: " << prompt.size()
+                << " tokens (chat template and tokenizer bypassed)\n";
+    } else {
+      // For instruct/chat models, wrap in ChatML template if special tokens
+      // exist. Skip if --no-chat flag is passed as any argument.
+      int im_start = model.tokenId("<|im_start|>");
+      int im_end = model.tokenId("<|im_end|>");
+      std::string tokenizer_input = prompt_text;
+      if (!noChat && im_start >= 0 && im_end >= 0) {
+        tokenizer_input = "<|im_start|>user\n" + prompt_text +
+                          "<|im_end|>\n<|im_start|>assistant\n";
+        model.addStopToken(im_end);
+        std::cout << "Using ChatML template (im_start=" << im_start
+                  << " im_end=" << im_end << ").\n";
+      }
 
-    std::cout << "Prompt: \"" << prompt_text << "\"\n";
-    std::vector<int> prompt = model.tokenize(tokenizer_input);
+      std::cout << "Prompt: \"" << prompt_text << "\"\n";
+      prompt = model.tokenize(tokenizer_input);
 
-    std::cout << "Prompt token IDs: [";
-    for (size_t i = 0; i < prompt.size(); ++i) {
-      if (i > 0)
-        std::cout << ", ";
-      std::cout << prompt[i];
+      std::cout << "Prompt token IDs: [";
+      for (size_t i = 0; i < prompt.size(); ++i) {
+        if (i > 0)
+          std::cout << ", ";
+        std::cout << prompt[i];
+      }
+      std::cout << "]\n";
     }
-    std::cout << "]\n";
 
     float repeat_penalty = 1.05f;
     if (positional.size() >= 4) {

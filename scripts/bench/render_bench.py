@@ -260,11 +260,16 @@ def add_snapshot(hist, snap, merge_latest=False):
 
 # -------------------------------------------------------------------- rendering
 
-def scorecard(counts, total, path):
+def scorecard(counts, total, path,
+              title="CUT vs vendor libraries — {total} comparisons, "
+                    "by how far off vendor-peak"):
     """Distribution of the newest snapshot across the four bands.
 
     Transparent background and mid-tone labels, so one file serves GitHub's
     light and dark themes without a <picture> swap to keep in sync.
+
+    @p title is a format string taking {total}; the model page passes its own,
+    since "how far off vendor-peak" is the wrong question one level up.
     """
     w, row_h, label_w, pad = 620, 26, 108, 12
     h = pad * 2 + row_h * len(counts) + 22
@@ -273,7 +278,7 @@ def scorecard(counts, total, path):
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
              f'viewBox="0 0 {w} {h}" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">',
              f'<text x="{pad}" y="{pad + 10}" font-size="12" fill="#8b949e">'
-             f'CUT vs vendor libraries — {total} comparisons, by how far off vendor-peak</text>']
+             f'{html.escape(title.format(total=total))}</text>']
     for i, count in enumerate(counts):
         y = pad + 22 + i * row_h
         bar = bar_max * (count / widest)

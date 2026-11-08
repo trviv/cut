@@ -1,0 +1,1042 @@
+{
+ "schema": 1,
+ "snapshots": [
+  {
+   "cases": {
+    "decode/Llama-3.2-1B-Instruct-f16 vulkan tg128@512": {
+     "cut_ms": 1011.3060860084223,
+     "cut_tps": 126.569,
+     "ref": "llama.cpp",
+     "ref_ms": 665.8309101596433,
+     "ref_tps": 192.241,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Llama-3.2-1B-Instruct-f16 vulkan tg32@128": {
+     "cut_ms": 197.72248413586007,
+     "cut_tps": 161.843,
+     "ref": "llama.cpp",
+     "ref_ms": 162.42170766122894,
+     "ref_tps": 197.018,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Llama-3.2-3B-Instruct-Q4_K_M vulkan tg128@512": {
+     "cut_ms": 2010.6975392518007,
+     "cut_tps": 63.6595,
+     "ref": "llama.cpp",
+     "ref_ms": 769.9294431846207,
+     "ref_tps": 166.249,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Llama-3.2-3B-Instruct-Q4_K_M vulkan tg32@128": {
+     "cut_ms": 392.85495058621325,
+     "cut_tps": 81.455,
+     "ref": "llama.cpp",
+     "ref_ms": 181.56234396986065,
+     "ref_tps": 176.248,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Llama-3.2-3B-Instruct-Q8_0 vulkan tg128@512": {
+     "cut_ms": 1955.0103248982782,
+     "cut_tps": 65.4728,
+     "ref": "llama.cpp",
+     "ref_ms": 944.057233469779,
+     "ref_tps": 135.585,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Llama-3.2-3B-Instruct-Q8_0 vulkan tg32@128": {
+     "cut_ms": 381.5396795305154,
+     "cut_tps": 83.8707,
+     "ref": "llama.cpp",
+     "ref_ms": 228.32842189384155,
+     "ref_tps": 140.149,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Mistral-7B-Instruct-v0.3-Q8_0 vulkan tg128@512": {
+     "cut_ms": 3666.0776120086953,
+     "cut_tps": 34.9147,
+     "ref": "llama.cpp",
+     "ref_ms": 1714.555909926877,
+     "ref_tps": 74.6549,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Mistral-7B-Instruct-v0.3-Q8_0 vulkan tg32@128": {
+     "cut_ms": 816.4723292424668,
+     "cut_tps": 39.193,
+     "ref": "llama.cpp",
+     "ref_ms": 419.38227611866944,
+     "ref_tps": 76.3027,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Qwen2.5-1.5B-Instruct-Q6_K vulkan tg128@512": {
+     "cut_ms": 1325.3645788032786,
+     "cut_tps": 96.5772,
+     "ref": "llama.cpp",
+     "ref_ms": 619.5427000445296,
+     "ref_tps": 206.604,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Qwen2.5-1.5B-Instruct-Q6_K vulkan tg32@128": {
+     "cut_ms": 217.44448370525402,
+     "cut_tps": 147.164,
+     "ref": "llama.cpp",
+     "ref_ms": 146.5396046178293,
+     "ref_tps": 218.371,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/SmolLM2-135M-Instruct-Q8_0 vulkan tg128@512": {
+     "cut_ms": 876.7663760094799,
+     "cut_tps": 145.991,
+     "ref": "llama.cpp",
+     "ref_ms": 335.1022192668068,
+     "ref_tps": 381.973,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/SmolLM2-135M-Instruct-Q8_0 vulkan tg32@128": {
+     "cut_ms": 114.370675358838,
+     "cut_tps": 279.792,
+     "ref": "llama.cpp",
+     "ref_ms": 84.59565918523806,
+     "ref_tps": 378.27,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan tg128@512": {
+     "cut_ms": 855.2605203725728,
+     "cut_tps": 149.662,
+     "ref": "llama.cpp",
+     "ref_ms": 380.9183703835967,
+     "ref_tps": 336.03,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan tg32@128": {
+     "cut_ms": 142.2121093611121,
+     "cut_tps": 225.016,
+     "ref": "llama.cpp",
+     "ref_ms": 89.17399797686492,
+     "ref_tps": 358.849,
+     "status": "ok",
+     "tokens": 32
+    },
+    "prefill/Llama-3.2-1B-Instruct-f16 vulkan pp128": {
+     "cut_ms": 45.17811826078363,
+     "cut_tps": 2833.23,
+     "ref": "llama.cpp",
+     "ref_ms": 14.565846730877773,
+     "ref_tps": 8787.68,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Llama-3.2-1B-Instruct-f16 vulkan pp512": {
+     "cut_ms": 146.91703778522566,
+     "cut_tps": 3484.96,
+     "ref": "llama.cpp",
+     "ref_ms": 43.59116257290026,
+     "ref_tps": 11745.5,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q4_K_M vulkan pp128": {
+     "cut_ms": 77.1154019941561,
+     "cut_tps": 1659.85,
+     "ref": "llama.cpp",
+     "ref_ms": 36.6323429245202,
+     "ref_tps": 3494.18,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q4_K_M vulkan pp512": {
+     "cut_ms": 352.826053998925,
+     "cut_tps": 1451.14,
+     "ref": "llama.cpp",
+     "ref_ms": 104.43736409884018,
+     "ref_tps": 4902.46,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q8_0 vulkan pp128": {
+     "cut_ms": 76.96979536858309,
+     "cut_tps": 1662.99,
+     "ref": "llama.cpp",
+     "ref_ms": 37.086399721852004,
+     "ref_tps": 3451.4,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q8_0 vulkan pp512": {
+     "cut_ms": 350.99986974614205,
+     "cut_tps": 1458.69,
+     "ref": "llama.cpp",
+     "ref_ms": 98.98272055554052,
+     "ref_tps": 5172.62,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Mistral-7B-Instruct-v0.3-Q8_0 vulkan pp128": {
+     "cut_ms": 161.42111110690743,
+     "cut_tps": 792.957,
+     "ref": "llama.cpp",
+     "ref_ms": 70.35170355550915,
+     "ref_tps": 1819.43,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Mistral-7B-Instruct-v0.3-Q8_0 vulkan pp512": {
+     "cut_ms": 721.2354537937407,
+     "cut_tps": 709.893,
+     "ref": "llama.cpp",
+     "ref_ms": 190.61021328240466,
+     "ref_tps": 2686.11,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Qwen2.5-1.5B-Instruct-Q6_K vulkan pp128": {
+     "cut_ms": 47.97583217454207,
+     "cut_tps": 2668.01,
+     "ref": "llama.cpp",
+     "ref_ms": 33.94361117593398,
+     "ref_tps": 3770.96,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Qwen2.5-1.5B-Instruct-Q6_K vulkan pp512": {
+     "cut_ms": 154.94163965779688,
+     "cut_tps": 3304.47,
+     "ref": "llama.cpp",
+     "ref_ms": 67.78135218502192,
+     "ref_tps": 7553.7,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/SmolLM2-135M-Instruct-Q8_0 vulkan pp128": {
+     "cut_ms": 15.8867473498299,
+     "cut_tps": 8057.03,
+     "ref": "llama.cpp",
+     "ref_ms": 15.380918048546022,
+     "ref_tps": 8322,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/SmolLM2-135M-Instruct-Q8_0 vulkan pp512": {
+     "cut_ms": 36.81519777383101,
+     "cut_tps": 13907.3,
+     "ref": "llama.cpp",
+     "ref_ms": 21.30253342042963,
+     "ref_tps": 24034.7,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan pp128": {
+     "cut_ms": 36.40365970541476,
+     "cut_tps": 3516.13,
+     "ref": "llama.cpp",
+     "ref_ms": 16.116157203040917,
+     "ref_tps": 7942.34,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan pp512": {
+     "cut_ms": 137.10478608172195,
+     "cut_tps": 3734.37,
+     "ref": "llama.cpp",
+     "ref_ms": 49.84957501290052,
+     "ref_tps": 10270.9,
+     "status": "ok",
+     "tokens": 512
+    }
+   },
+   "checks": {
+    "Llama-3.2-1B-Instruct-f16 vulkan": {
+     "detail": null,
+     "distinct": 17,
+     "generated": 24,
+     "status": "ok",
+     "text": "What is the capital of France? The land of which is located in the 3rd? The 3rd The first 2nd? The"
+    },
+    "Llama-3.2-3B-Instruct-Q4_K_M vulkan": {
+     "detail": null,
+     "distinct": 13,
+     "generated": 24,
+     "status": "ok",
+     "text": "What is the capital of France? Paris? The answer is... (Paris The capital city of France The capital of France The capital of France"
+    },
+    "Llama-3.2-3B-Instruct-Q8_0 vulkan": {
+     "detail": null,
+     "distinct": 13,
+     "generated": 24,
+     "status": "ok",
+     "text": "What is the capital of France? Paris? The answer is... (Paris The capital city of France The capital of France The capital of France"
+    },
+    "Mistral-7B-Instruct-v0.3-Q8_0 vulkan": {
+     "detail": null,
+     "distinct": 15,
+     "generated": 24,
+     "status": "ok",
+     "text": "<s> What is the capital of France?<0x0A><0x0A>Paris<0x0A><0x0A>What is the capital of France?<0x0A><0x0A>Paris<0x0A><0x0A>That's correct!"
+    },
+    "Qwen2.5-1.5B-Instruct-Q6_K vulkan": {
+     "detail": null,
+     "distinct": 8,
+     "generated": 8,
+     "status": "ok",
+     "text": "The capital of France is Paris."
+    },
+    "SmolLM2-135M-Instruct-Q8_0 vulkan": {
+     "detail": null,
+     "distinct": 11,
+     "generated": 12,
+     "status": "ok",
+     "text": "The answer is: The capital city of France."
+    },
+    "tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan": {
+     "detail": null,
+     "distinct": 8,
+     "generated": 8,
+     "status": "ok",
+     "text": "<s> What is the capital of France?<0x0A>The capital city of France?</s>"
+    }
+   },
+   "commit": "6bc62da",
+   "date": "2026-08-04",
+   "gpu": "AMD Radeon RX 9070",
+   "runs": 5,
+   "timestamp": "2026-08-04T16:37:48-0500"
+  },
+  {
+   "cases": {
+    "decode/Llama-3.2-1B-Instruct-f16 cuda tg128@512": {
+     "cut_mib": 4032,
+     "cut_ms": 1657.425655395309,
+     "cut_tps": 77.2282,
+     "ref": "llama.cpp",
+     "ref_mib": 2960,
+     "ref_ms": 440.1196575318915,
+     "ref_tps": 290.83,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Llama-3.2-1B-Instruct-f16 cuda tg32@128": {
+     "cut_mib": 3584,
+     "cut_ms": 400.84829520472704,
+     "cut_tps": 79.8307,
+     "ref": "llama.cpp",
+     "ref_mib": 2744,
+     "ref_ms": 110.03029271496308,
+     "ref_tps": 290.829,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Llama-3.2-1B-Instruct-f16 vulkan tg128@512": {
+     "cut_mib": 3810,
+     "cut_ms": 1350.5457576508945,
+     "cut_tps": 94.7765,
+     "ref": "llama.cpp",
+     "ref_mib": 1399,
+     "ref_ms": 670.1886476326109,
+     "ref_tps": 190.991,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Llama-3.2-1B-Instruct-f16 vulkan tg32@128": {
+     "cut_mib": 3337,
+     "cut_ms": 312.42372467659266,
+     "cut_tps": 102.425,
+     "ref": "llama.cpp",
+     "ref_mib": 1327,
+     "ref_ms": 162.34919282010696,
+     "ref_tps": 197.106,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Llama-3.2-3B-Instruct-Q4_K_M cuda tg128@512": {
+     "cut_mib": 5914,
+     "cut_ms": 1412.5540743356582,
+     "cut_tps": 90.616,
+     "ref": "llama.cpp",
+     "ref_mib": 2610,
+     "ref_ms": 490.312497605896,
+     "ref_tps": 261.058,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Llama-3.2-3B-Instruct-Q4_K_M cuda tg32@128": {
+     "cut_mib": 3802,
+     "cut_ms": 315.08157658943884,
+     "cut_tps": 101.561,
+     "ref": "llama.cpp",
+     "ref_mib": 2352,
+     "ref_ms": 119.55555223456798,
+     "ref_tps": 267.658,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Llama-3.2-3B-Instruct-Q4_K_M vulkan tg128@512": {
+     "cut_mib": 5527,
+     "cut_ms": 2182.214948172395,
+     "cut_tps": 58.656,
+     "ref": "llama.cpp",
+     "ref_mib": 1204,
+     "ref_ms": 781.3835372256,
+     "ref_tps": 163.812,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Llama-3.2-3B-Instruct-Q4_K_M vulkan tg32@128": {
+     "cut_mib": 3317,
+     "cut_ms": 482.0220826366608,
+     "cut_tps": 66.387,
+     "ref": "llama.cpp",
+     "ref_mib": 1091,
+     "ref_ms": 184.49546256471754,
+     "ref_tps": 173.446,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Llama-3.2-3B-Instruct-Q8_0 cuda tg128@512": {
+     "cut_mib": 6678,
+     "cut_ms": 1549.8019159426185,
+     "cut_tps": 82.5912,
+     "ref": "llama.cpp",
+     "ref_mib": 3944,
+     "ref_ms": 674.8527713778069,
+     "ref_tps": 189.671,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Llama-3.2-3B-Instruct-Q8_0 cuda tg32@128": {
+     "cut_mib": 4564,
+     "cut_ms": 350.77065408861563,
+     "cut_tps": 91.2277,
+     "ref": "llama.cpp",
+     "ref_mib": 3686,
+     "ref_ms": 166.8674290422331,
+     "ref_tps": 191.769,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Llama-3.2-3B-Instruct-Q8_0 vulkan tg128@512": {
+     "cut_mib": 6372,
+     "cut_ms": 2497.2637403157864,
+     "cut_tps": 51.2561,
+     "ref": "llama.cpp",
+     "ref_mib": 2018,
+     "ref_ms": 954.3905694281859,
+     "ref_tps": 134.117,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Llama-3.2-3B-Instruct-Q8_0 vulkan tg32@128": {
+     "cut_mib": 4162,
+     "cut_ms": 564.5531209202215,
+     "cut_tps": 56.682,
+     "ref": "llama.cpp",
+     "ref_mib": 1906,
+     "ref_ms": 228.31050228310502,
+     "ref_tps": 140.16,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Mistral-7B-Instruct-v0.3-Q8_0 cuda tg128@512": {
+     "cut_mib": 13052,
+     "cut_ms": 3763.5546773927977,
+     "cut_tps": 34.0104,
+     "ref": "llama.cpp",
+     "ref_mib": 7748,
+     "ref_ms": 1305.5389529985578,
+     "ref_tps": 98.0438,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Mistral-7B-Instruct-v0.3-Q8_0 cuda tg32@128": {
+     "cut_mib": 9348,
+     "cut_ms": 895.3904182032873,
+     "cut_tps": 35.7386,
+     "ref": "llama.cpp",
+     "ref_mib": 7592,
+     "ref_ms": 323.4953674452459,
+     "ref_tps": 98.9195,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Mistral-7B-Instruct-v0.3-Q8_0 vulkan tg128@512": {
+     "cut_mib": 12741,
+     "cut_ms": 6055.330583204027,
+     "cut_tps": 21.1384,
+     "ref": "llama.cpp",
+     "ref_mib": 4657,
+     "ref_ms": 1719.0437818963203,
+     "ref_tps": 74.46,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Mistral-7B-Instruct-v0.3-Q8_0 vulkan tg32@128": {
+     "cut_mib": 8964,
+     "cut_ms": 1433.1459793537408,
+     "cut_tps": 22.3285,
+     "ref": "llama.cpp",
+     "ref_mib": 4507,
+     "ref_ms": 420.1884807954168,
+     "ref_tps": 76.1563,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Qwen2.5-1.5B-Instruct-Q6_K cuda tg128@512": {
+     "cut_mib": 4712,
+     "cut_ms": 969.476634098311,
+     "cut_tps": 132.03,
+     "ref": "llama.cpp",
+     "ref_mib": 1850,
+     "ref_ms": 364.0614467460586,
+     "ref_tps": 351.589,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Qwen2.5-1.5B-Instruct-Q6_K cuda tg32@128": {
+     "cut_mib": 2862,
+     "cut_ms": 205.57493527601648,
+     "cut_tps": 155.661,
+     "ref": "llama.cpp",
+     "ref_mib": 1626,
+     "ref_ms": 88.56023202780791,
+     "ref_tps": 361.336,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/Qwen2.5-1.5B-Instruct-Q6_K vulkan tg128@512": {
+     "cut_mib": 4083,
+     "cut_ms": 1581.5394804148575,
+     "cut_tps": 80.9338,
+     "ref": "llama.cpp",
+     "ref_mib": 778,
+     "ref_ms": 627.1681398584951,
+     "ref_tps": 204.092,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/Qwen2.5-1.5B-Instruct-Q6_K vulkan tg32@128": {
+     "cut_mib": 2341,
+     "cut_ms": 335.2737300459744,
+     "cut_tps": 95.4444,
+     "ref": "llama.cpp",
+     "ref_mib": 706,
+     "ref_ms": 148.92032762472078,
+     "ref_tps": 214.88,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/SmolLM2-135M-Instruct-Q8_0 cuda tg128@512": {
+     "cut_mib": 1348,
+     "cut_ms": 269.09751421171245,
+     "cut_tps": 475.664,
+     "ref": "llama.cpp",
+     "ref_mib": 566,
+     "ref_ms": 164.68953449473764,
+     "ref_tps": 777.22,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/SmolLM2-135M-Instruct-Q8_0 cuda tg32@128": {
+     "cut_mib": 640,
+     "cut_ms": 41.88372032145755,
+     "cut_tps": 764.02,
+     "ref": "llama.cpp",
+     "ref_mib": 488,
+     "ref_ms": 40.25648412447808,
+     "ref_tps": 794.903,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/SmolLM2-135M-Instruct-Q8_0 vulkan tg128@512": {
+     "cut_mib": 898,
+     "cut_ms": 447.57279177025526,
+     "cut_tps": 285.987,
+     "ref": "llama.cpp",
+     "ref_mib": 123,
+     "ref_ms": 336.05061762427965,
+     "ref_tps": 380.895,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/SmolLM2-135M-Instruct-Q8_0 vulkan tg32@128": {
+     "cut_mib": 461,
+     "cut_ms": 65.00061953715496,
+     "cut_tps": 492.303,
+     "ref": "llama.cpp",
+     "ref_mib": 92,
+     "ref_ms": 76.33533156966911,
+     "ref_tps": 419.203,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/tinyllama-1.1b-chat-v1.0.Q4_K_S cuda tg128@512": {
+     "cut_mib": 2790,
+     "cut_ms": 476.6515230505697,
+     "cut_tps": 268.54,
+     "ref": "llama.cpp",
+     "ref_mib": 990,
+     "ref_ms": 216.66895184701818,
+     "ref_tps": 590.763,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/tinyllama-1.1b-chat-v1.0.Q4_K_S cuda tg32@128": {
+     "cut_mib": 1684,
+     "cut_ms": 100.9881054946997,
+     "cut_tps": 316.869,
+     "ref": "llama.cpp",
+     "ref_mib": 918,
+     "ref_ms": 53.97500619869212,
+     "ref_tps": 592.867,
+     "status": "ok",
+     "tokens": 32
+    },
+    "decode/tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan tg128@512": {
+     "cut_mib": 2436,
+     "cut_ms": 680.4420747104134,
+     "cut_tps": 188.113,
+     "ref": "llama.cpp",
+     "ref_mib": 449,
+     "ref_ms": 383.721801693772,
+     "ref_tps": 333.575,
+     "status": "ok",
+     "tokens": 128
+    },
+    "decode/tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan tg32@128": {
+     "cut_mib": 1321,
+     "cut_ms": 135.55186553254939,
+     "cut_tps": 236.072,
+     "ref": "llama.cpp",
+     "ref_mib": 382,
+     "ref_ms": 89.9055710549014,
+     "ref_tps": 355.929,
+     "status": "ok",
+     "tokens": 32
+    },
+    "prefill/Llama-3.2-1B-Instruct-f16 cuda pp128": {
+     "cut_mib": 3584,
+     "cut_ms": 61.18225141125466,
+     "cut_tps": 2092.11,
+     "ref": "llama.cpp",
+     "ref_mib": 2744,
+     "ref_ms": 6.588361248082684,
+     "ref_tps": 19428.2,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Llama-3.2-1B-Instruct-f16 cuda pp512": {
+     "cut_mib": 4032,
+     "cut_ms": 126.90984443629225,
+     "cut_tps": 4034.36,
+     "ref": "llama.cpp",
+     "ref_mib": 2960,
+     "ref_ms": 21.28137131836433,
+     "ref_tps": 24058.6,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Llama-3.2-1B-Instruct-f16 vulkan pp128": {
+     "cut_mib": 3337,
+     "cut_ms": 58.67387866425248,
+     "cut_tps": 2181.55,
+     "ref": "llama.cpp",
+     "ref_mib": 1327,
+     "ref_ms": 14.399431222466713,
+     "ref_tps": 8889.24,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Llama-3.2-1B-Instruct-f16 vulkan pp512": {
+     "cut_mib": 3810,
+     "cut_ms": 155.95966980413658,
+     "cut_tps": 3282.9,
+     "ref": "llama.cpp",
+     "ref_mib": 1399,
+     "ref_ms": 44.06537511511218,
+     "ref_tps": 11619.1,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q4_K_M cuda pp128": {
+     "cut_mib": 3802,
+     "cut_ms": 74.00683406858353,
+     "cut_tps": 1729.57,
+     "ref": "llama.cpp",
+     "ref_mib": 2352,
+     "ref_ms": 17.84123807041435,
+     "ref_tps": 7174.39,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q4_K_M cuda pp512": {
+     "cut_mib": 5914,
+     "cut_ms": 287.26925882286935,
+     "cut_tps": 1782.3,
+     "ref": "llama.cpp",
+     "ref_mib": 2610,
+     "ref_ms": 51.754654633709464,
+     "ref_tps": 9892.83,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q4_K_M vulkan pp128": {
+     "cut_mib": 3317,
+     "cut_ms": 109.11632823555487,
+     "cut_tps": 1173.06,
+     "ref": "llama.cpp",
+     "ref_mib": 1091,
+     "ref_ms": 37.210816719285084,
+     "ref_tps": 3439.86,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q4_K_M vulkan pp512": {
+     "cut_mib": 5527,
+     "cut_ms": 381.8188597636004,
+     "cut_tps": 1340.95,
+     "ref": "llama.cpp",
+     "ref_mib": 1204,
+     "ref_ms": 105.16456611400496,
+     "ref_tps": 4868.56,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q8_0 cuda pp128": {
+     "cut_mib": 4564,
+     "cut_ms": 64.92748918297885,
+     "cut_tps": 1971.43,
+     "ref": "llama.cpp",
+     "ref_mib": 3686,
+     "ref_ms": 16.53877114346221,
+     "ref_tps": 7739.39,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q8_0 cuda pp512": {
+     "cut_mib": 6678,
+     "cut_ms": 272.95457332188914,
+     "cut_tps": 1875.77,
+     "ref": "llama.cpp",
+     "ref_mib": 3944,
+     "ref_ms": 49.41369492834049,
+     "ref_tps": 10361.5,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q8_0 vulkan pp128": {
+     "cut_mib": 4162,
+     "cut_ms": 112.77433678998423,
+     "cut_tps": 1135.01,
+     "ref": "llama.cpp",
+     "ref_mib": 1906,
+     "ref_ms": 36.95267459417014,
+     "ref_tps": 3463.89,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Llama-3.2-3B-Instruct-Q8_0 vulkan pp512": {
+     "cut_mib": 6372,
+     "cut_ms": 375.8267086535568,
+     "cut_tps": 1362.33,
+     "ref": "llama.cpp",
+     "ref_mib": 2018,
+     "ref_ms": 100.3372664757907,
+     "ref_tps": 5102.79,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Mistral-7B-Instruct-v0.3-Q8_0 cuda pp128": {
+     "cut_mib": 9348,
+     "cut_ms": 141.329022798138,
+     "cut_tps": 905.688,
+     "ref": "llama.cpp",
+     "ref_mib": 7592,
+     "ref_ms": 28.202094446170353,
+     "ref_tps": 4538.67,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Mistral-7B-Instruct-v0.3-Q8_0 cuda pp512": {
+     "cut_mib": 13052,
+     "cut_ms": 595.510178920568,
+     "cut_tps": 859.767,
+     "ref": "llama.cpp",
+     "ref_mib": 7748,
+     "ref_ms": 96.59028739383558,
+     "ref_tps": 5300.74,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Mistral-7B-Instruct-v0.3-Q8_0 vulkan pp128": {
+     "cut_mib": 8964,
+     "cut_ms": 210.14128718105312,
+     "cut_tps": 609.114,
+     "ref": "llama.cpp",
+     "ref_mib": 4507,
+     "ref_ms": 71.8632801095915,
+     "ref_tps": 1781.16,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Mistral-7B-Instruct-v0.3-Q8_0 vulkan pp512": {
+     "cut_mib": 12741,
+     "cut_ms": 769.7199392041516,
+     "cut_tps": 665.177,
+     "ref": "llama.cpp",
+     "ref_mib": 4657,
+     "ref_ms": 198.26978631783575,
+     "ref_tps": 2582.34,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Qwen2.5-1.5B-Instruct-Q6_K cuda pp128": {
+     "cut_mib": 2862,
+     "cut_ms": 42.73062016150839,
+     "cut_tps": 2995.51,
+     "ref": "llama.cpp",
+     "ref_mib": 1626,
+     "ref_ms": 13.147447597663453,
+     "ref_tps": 9735.73,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Qwen2.5-1.5B-Instruct-Q6_K cuda pp512": {
+     "cut_mib": 4712,
+     "cut_ms": 136.60582549139409,
+     "cut_tps": 3748.01,
+     "ref": "llama.cpp",
+     "ref_mib": 1850,
+     "ref_ms": 32.11199056710277,
+     "ref_tps": 15944.2,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/Qwen2.5-1.5B-Instruct-Q6_K vulkan pp128": {
+     "cut_mib": 2341,
+     "cut_ms": 71.53435605108001,
+     "cut_tps": 1789.35,
+     "ref": "llama.cpp",
+     "ref_mib": 706,
+     "ref_ms": 33.963605873581095,
+     "ref_tps": 3768.74,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/Qwen2.5-1.5B-Instruct-Q6_K vulkan pp512": {
+     "cut_mib": 4083,
+     "cut_ms": 226.81060871183092,
+     "cut_tps": 2257.39,
+     "ref": "llama.cpp",
+     "ref_mib": 778,
+     "ref_ms": 67.25223396947116,
+     "ref_tps": 7613.13,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/SmolLM2-135M-Instruct-Q8_0 cuda pp128": {
+     "cut_mib": 640,
+     "cut_ms": 8.53407295298926,
+     "cut_tps": 14998.7,
+     "ref": "llama.cpp",
+     "ref_mib": 488,
+     "ref_ms": 6.224893739118595,
+     "ref_tps": 20562.6,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/SmolLM2-135M-Instruct-Q8_0 cuda pp512": {
+     "cut_mib": 1348,
+     "cut_ms": 27.43351925972363,
+     "cut_tps": 18663.3,
+     "ref": "llama.cpp",
+     "ref_mib": 566,
+     "ref_ms": 11.18651325995097,
+     "ref_tps": 45769.4,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/SmolLM2-135M-Instruct-Q8_0 vulkan pp128": {
+     "cut_mib": 461,
+     "cut_ms": 12.607607903394204,
+     "cut_tps": 10152.6,
+     "ref": "llama.cpp",
+     "ref_mib": 92,
+     "ref_ms": 14.893800222941572,
+     "ref_tps": 8594.18,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/SmolLM2-135M-Instruct-Q8_0 vulkan pp512": {
+     "cut_mib": 898,
+     "cut_ms": 39.40674378689572,
+     "cut_tps": 12992.7,
+     "ref": "llama.cpp",
+     "ref_mib": 123,
+     "ref_ms": 23.056312340981243,
+     "ref_tps": 22206.5,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/tinyllama-1.1b-chat-v1.0.Q4_K_S cuda pp128": {
+     "cut_mib": 1684,
+     "cut_ms": 29.56379543701295,
+     "cut_tps": 4329.62,
+     "ref": "llama.cpp",
+     "ref_mib": 918,
+     "ref_ms": 9.461227446429495,
+     "ref_tps": 13528.9,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/tinyllama-1.1b-chat-v1.0.Q4_K_S cuda pp512": {
+     "cut_mib": 2790,
+     "cut_ms": 117.75041511620954,
+     "cut_tps": 4348.18,
+     "ref": "llama.cpp",
+     "ref_mib": 990,
+     "ref_ms": 25.665318234907843,
+     "ref_tps": 19949.1,
+     "status": "ok",
+     "tokens": 512
+    },
+    "prefill/tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan pp128": {
+     "cut_mib": 1321,
+     "cut_ms": 35.95717724921976,
+     "cut_tps": 3559.79,
+     "ref": "llama.cpp",
+     "ref_mib": 382,
+     "ref_ms": 16.06701955532013,
+     "ref_tps": 7966.63,
+     "status": "ok",
+     "tokens": 128
+    },
+    "prefill/tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan pp512": {
+     "cut_mib": 2436,
+     "cut_ms": 171.2466218928103,
+     "cut_tps": 2989.84,
+     "ref": "llama.cpp",
+     "ref_mib": 449,
+     "ref_ms": 50.040560219709334,
+     "ref_tps": 10231.7,
+     "status": "ok",
+     "tokens": 512
+    }
+   },
+   "checks": {
+    "Llama-3.2-1B-Instruct-f16 cuda": {
+     "detail": null,
+     "distinct": 17,
+     "generated": 24,
+     "status": "ok",
+     "text": "What is the capital of France? The land of which is located in the 3rd? The 3rd The first 2nd? The"
+    },
+    "Llama-3.2-1B-Instruct-f16 vulkan": {
+     "detail": null,
+     "distinct": 17,
+     "generated": 24,
+     "status": "ok",
+     "text": "What is the capital of France? The land of which is located in the 3rd? The 3rd The first 2nd? The"
+    },
+    "Llama-3.2-3B-Instruct-Q4_K_M cuda": {
+     "detail": null,
+     "distinct": 13,
+     "generated": 24,
+     "status": "ok",
+     "text": "What is the capital of France? Paris? The answer is... (Paris The capital city of France The capital of France The capital of France"
+    },
+    "Llama-3.2-3B-Instruct-Q4_K_M vulkan": {
+     "detail": null,
+     "distinct": 13,
+     "generated": 24,
+     "status": "ok",
+     "text": "What is the capital of France? Paris? The answer is... (Paris The capital city of France The capital of France The capital of France"
+    },
+    "Llama-3.2-3B-Instruct-Q8_0 cuda": {
+     "detail": null,
+     "distinct": 13,
+     "generated": 24,
+     "status": "ok",
+     "text": "What is the capital of France? Paris? The answer is... (Paris The capital city of France The capital of France The capital of France"
+    },
+    "Llama-3.2-3B-Instruct-Q8_0 vulkan": {
+     "detail": null,
+     "distinct": 13,
+     "generated": 24,
+     "status": "ok",
+     "text": "What is the capital of France? Paris? The answer is... (Paris The capital city of France The capital of France The capital of France"
+    },
+    "Mistral-7B-Instruct-v0.3-Q8_0 cuda": {
+     "detail": null,
+     "distinct": 15,
+     "generated": 24,
+     "status": "ok",
+     "text": "<s> What is the capital of France?<0x0A><0x0A>Paris<0x0A><0x0A>What is the capital of France?<0x0A><0x0A>Paris<0x0A><0x0A>That's correct!"
+    },
+    "Mistral-7B-Instruct-v0.3-Q8_0 vulkan": {
+     "detail": null,
+     "distinct": 15,
+     "generated": 24,
+     "status": "ok",
+     "text": "<s> What is the capital of France?<0x0A><0x0A>Paris<0x0A><0x0A>What is the capital of France?<0x0A><0x0A>Paris<0x0A><0x0A>That's correct!"
+    },
+    "Qwen2.5-1.5B-Instruct-Q6_K cuda": {
+     "detail": null,
+     "distinct": 8,
+     "generated": 8,
+     "status": "ok",
+     "text": "The capital of France is Paris."
+    },
+    "Qwen2.5-1.5B-Instruct-Q6_K vulkan": {
+     "detail": null,
+     "distinct": 8,
+     "generated": 8,
+     "status": "ok",
+     "text": "The capital of France is Paris."
+    },
+    "SmolLM2-135M-Instruct-Q8_0 cuda": {
+     "detail": null,
+     "distinct": 11,
+     "generated": 12,
+     "status": "ok",
+     "text": "The answer is: The capital city of France."
+    },
+    "SmolLM2-135M-Instruct-Q8_0 vulkan": {
+     "detail": null,
+     "distinct": 11,
+     "generated": 12,
+     "status": "ok",
+     "text": "The answer is: The capital city of France."
+    },
+    "tinyllama-1.1b-chat-v1.0.Q4_K_S cuda": {
+     "detail": null,
+     "distinct": 8,
+     "generated": 8,
+     "status": "ok",
+     "text": "<s> What is the capital of France?<0x0A>The capital city of France?</s>"
+    },
+    "tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan": {
+     "detail": null,
+     "distinct": 8,
+     "generated": 8,
+     "status": "ok",
+     "text": "<s> What is the capital of France?<0x0A>The capital city of France?</s>"
+    }
+   },
+   "commit": "6bc62da",
+   "date": "2026-08-04",
+   "gpu": "NVIDIA GeForce RTX 3090",
+   "runs": 5,
+   "timestamp": "2026-08-04T16:37:48-0500"
+  }
+ ]
+}

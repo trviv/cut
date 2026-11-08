@@ -1,13 +1,16 @@
 # Benchmarks
 
-Everything that measures CUT lives here: the vendor comparisons that answer *how
-far off vendor-peak are we*, the variant sweeps that build the dispatch table,
-and the per-operator micro-benchmarks used while optimising a kernel.
+Everything that measures CUT lives here: the two external comparisons — *how far
+off vendor-peak is an operator* and *how far off llama.cpp is a whole model* —
+the variant sweeps that build the dispatch table, and the per-operator
+micro-benchmarks used while optimising a kernel.
 
-The table below is the first question — CUT against the libraries NVIDIA and AMD
-ship, on the same shapes, same GPU, same run. It is regenerated from
-[`results/history.json`](results/history.json), so every column is a recorded
-snapshot rather than a number someone typed in.
+The first table is CUT against the libraries NVIDIA and AMD ship, on the same
+shapes, same GPU, same run; the second is CUT against llama.cpp on the same
+model, prompt length and generation length. Both are regenerated from recorded
+snapshots ([`results/history.json`](results/history.json),
+[`results/model_history.json`](results/model_history.json)), so every column is a
+run that happened rather than a number someone typed in.
 
 ## Results — CUT vs vendor libraries
 
@@ -197,11 +200,189 @@ ordered best first; open a family for its per-shape table.
 Newest snapshot is the **leftmost** column. ▲ on it means CUT got faster since
 the previous column; movement under ±2% is hidden.
 
+## Results — CUT vs llama.cpp
+
+The same question one level up: not how far off vendor-peak an operator is, but
+how far off the reference runtime a whole forward pass is. Same convention —
+cells are llama.cpp's time over CUT's, so bigger is better — and the same bands.
+
+<!-- MODELBENCH:BEGIN -->
+### AMD Radeon RX 9070
+
+*28 comparisons — 0 at or above llama.cpp, 1 at parity, 9 within 2x, 18 within 5x, 0 beyond; no coherence failures.*
+
+<p><img src="assets/model_scorecard-amd-radeon-rx-9070.svg" alt="CUT vs llama.cpp on AMD Radeon RX 9070, by band" width="620"></p>
+
+<details>
+<summary>🟡 <b>Decode (tg)</b> — vs llama.cpp · 0.54x avg (14 cases)</summary>
+
+<table>
+<tr><th align="left">model · backend · shape</th><th>2026-08-04<br><sub>6bc62da</sub></th></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 vulkan tg32@128</td><td align="center">🟡 <b>0.82x</b><br><sub>162 tok/s</sub></td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 vulkan tg32@128</td><td align="center">🟡 <b>0.74x</b><br><sub>280 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K vulkan tg32@128</td><td align="center">🟡 <b>0.67x</b><br><sub>147 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 vulkan tg128@512</td><td align="center">🟡 <b>0.66x</b><br><sub>127 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan tg32@128</td><td align="center">🟡 <b>0.63x</b><br><sub>225 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 vulkan tg32@128</td><td align="center">🟡 <b>0.60x</b><br><sub>84 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 vulkan tg32@128</td><td align="center">🟡 <b>0.51x</b><br><sub>39 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 vulkan tg128@512</td><td align="center">🟠 <b>0.48x</b><br><sub>65 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 vulkan tg128@512</td><td align="center">🟠 <b>0.47x</b><br><sub>35 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K vulkan tg128@512</td><td align="center">🟠 <b>0.47x</b><br><sub>97 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M vulkan tg32@128</td><td align="center">🟠 <b>0.46x</b><br><sub>81 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan tg128@512</td><td align="center">🟠 <b>0.45x</b><br><sub>150 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M vulkan tg128@512</td><td align="center">🟠 <b>0.38x</b><br><sub>64 tok/s</sub></td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 vulkan tg128@512</td><td align="center">🟠 <b>0.38x</b><br><sub>146 tok/s</sub></td></tr>
+</table>
+</details>
+
+<details>
+<summary>🟠 <b>Prefill (pp)</b> — vs llama.cpp · 0.42x avg (14 cases)</summary>
+
+<table>
+<tr><th align="left">model · backend · shape</th><th>2026-08-04<br><sub>6bc62da</sub></th></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 vulkan pp128</td><td align="center">🟢 <b>0.97x</b><br><sub>8,057 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K vulkan pp128</td><td align="center">🟡 <b>0.71x</b><br><sub>2,668 tok/s</sub></td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 vulkan pp512</td><td align="center">🟡 <b>0.58x</b><br><sub>13,907 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 vulkan pp128</td><td align="center">🟠 <b>0.48x</b><br><sub>1,663 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M vulkan pp128</td><td align="center">🟠 <b>0.48x</b><br><sub>1,660 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan pp128</td><td align="center">🟠 <b>0.44x</b><br><sub>3,516 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K vulkan pp512</td><td align="center">🟠 <b>0.44x</b><br><sub>3,304 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 vulkan pp128</td><td align="center">🟠 <b>0.44x</b><br><sub>793 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan pp512</td><td align="center">🟠 <b>0.36x</b><br><sub>3,734 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 vulkan pp128</td><td align="center">🟠 <b>0.32x</b><br><sub>2,833 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 vulkan pp512</td><td align="center">🟠 <b>0.30x</b><br><sub>3,485 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M vulkan pp512</td><td align="center">🟠 <b>0.30x</b><br><sub>1,451 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 vulkan pp512</td><td align="center">🟠 <b>0.28x</b><br><sub>1,459 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 vulkan pp512</td><td align="center">🟠 <b>0.26x</b><br><sub>710 tok/s</sub></td></tr>
+</table>
+</details>
+
+<sub>Measured on <b>AMD Radeon RX 9070</b> · newest column 2026-08-04 (<code>6bc62da</code>) · 5 timed runs per measurement, median · absolute tok/s for every case are in <a href="results/model_history.json">results/model_history.json</a></sub>
+
+### NVIDIA GeForce RTX 3090
+
+*56 comparisons — 2 at or above llama.cpp, 1 at parity, 8 within 2x, 39 within 5x, 6 beyond; no coherence failures.*
+
+<p><img src="assets/model_scorecard-nvidia-geforce-rtx-3090.svg" alt="CUT vs llama.cpp on NVIDIA GeForce RTX 3090, by band" width="620"></p>
+
+<details>
+<summary>🟠 <b>Decode (tg)</b> — vs llama.cpp · 0.45x avg (28 cases)</summary>
+
+<table>
+<tr><th align="left">model · backend · shape</th><th>2026-08-04<br><sub>6bc62da</sub></th></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 vulkan tg32@128</td><td align="center">🔵 <b>1.17x</b><br><sub>492 tok/s</sub></td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 cuda tg32@128</td><td align="center">🟢 <b>0.96x</b><br><sub>764 tok/s</sub></td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 vulkan tg128@512</td><td align="center">🟡 <b>0.75x</b><br><sub>286 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan tg32@128</td><td align="center">🟡 <b>0.66x</b><br><sub>236 tok/s</sub></td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 cuda tg128@512</td><td align="center">🟡 <b>0.61x</b><br><sub>476 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan tg128@512</td><td align="center">🟡 <b>0.56x</b><br><sub>188 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S cuda tg32@128</td><td align="center">🟡 <b>0.53x</b><br><sub>317 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 vulkan tg32@128</td><td align="center">🟡 <b>0.52x</b><br><sub>102 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 vulkan tg128@512</td><td align="center">🟠 <b>0.50x</b><br><sub>95 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 cuda tg32@128</td><td align="center">🟠 <b>0.48x</b><br><sub>91 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S cuda tg128@512</td><td align="center">🟠 <b>0.45x</b><br><sub>269 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K vulkan tg32@128</td><td align="center">🟠 <b>0.44x</b><br><sub>95 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 cuda tg128@512</td><td align="center">🟠 <b>0.44x</b><br><sub>83 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K cuda tg32@128</td><td align="center">🟠 <b>0.43x</b><br><sub>156 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 vulkan tg32@128</td><td align="center">🟠 <b>0.40x</b><br><sub>57 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K vulkan tg128@512</td><td align="center">🟠 <b>0.40x</b><br><sub>81 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M vulkan tg32@128</td><td align="center">🟠 <b>0.38x</b><br><sub>66 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 vulkan tg128@512</td><td align="center">🟠 <b>0.38x</b><br><sub>51 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M cuda tg32@128</td><td align="center">🟠 <b>0.38x</b><br><sub>102 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K cuda tg128@512</td><td align="center">🟠 <b>0.38x</b><br><sub>132 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 cuda tg32@128</td><td align="center">🟠 <b>0.36x</b><br><sub>36 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M vulkan tg128@512</td><td align="center">🟠 <b>0.36x</b><br><sub>59 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M cuda tg128@512</td><td align="center">🟠 <b>0.35x</b><br><sub>91 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 cuda tg128@512</td><td align="center">🟠 <b>0.35x</b><br><sub>34 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 vulkan tg32@128</td><td align="center">🟠 <b>0.29x</b><br><sub>22 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 vulkan tg128@512</td><td align="center">🟠 <b>0.28x</b><br><sub>21 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 cuda tg32@128</td><td align="center">🟠 <b>0.27x</b><br><sub>80 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 cuda tg128@512</td><td align="center">🟠 <b>0.27x</b><br><sub>77 tok/s</sub></td></tr>
+</table>
+</details>
+
+<details>
+<summary>🟠 <b>Prefill (pp)</b> — vs llama.cpp · 0.29x avg (28 cases)</summary>
+
+<table>
+<tr><th align="left">model · backend · shape</th><th>2026-08-04<br><sub>6bc62da</sub></th></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 vulkan pp128</td><td align="center">🔵 <b>1.18x</b><br><sub>10,153 tok/s</sub></td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 cuda pp128</td><td align="center">🟡 <b>0.73x</b><br><sub>14,999 tok/s</sub></td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 vulkan pp512</td><td align="center">🟡 <b>0.59x</b><br><sub>12,993 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K vulkan pp128</td><td align="center">🟠 <b>0.47x</b><br><sub>1,789 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan pp128</td><td align="center">🟠 <b>0.45x</b><br><sub>3,560 tok/s</sub></td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 cuda pp512</td><td align="center">🟠 <b>0.41x</b><br><sub>18,663 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 vulkan pp128</td><td align="center">🟠 <b>0.34x</b><br><sub>609 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M vulkan pp128</td><td align="center">🟠 <b>0.34x</b><br><sub>1,173 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 vulkan pp128</td><td align="center">🟠 <b>0.33x</b><br><sub>1,135 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S cuda pp128</td><td align="center">🟠 <b>0.32x</b><br><sub>4,330 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K cuda pp128</td><td align="center">🟠 <b>0.31x</b><br><sub>2,996 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K vulkan pp512</td><td align="center">🟠 <b>0.30x</b><br><sub>2,257 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan pp512</td><td align="center">🟠 <b>0.29x</b><br><sub>2,990 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 vulkan pp512</td><td align="center">🟠 <b>0.28x</b><br><sub>3,283 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M vulkan pp512</td><td align="center">🟠 <b>0.28x</b><br><sub>1,341 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 vulkan pp512</td><td align="center">🟠 <b>0.27x</b><br><sub>1,362 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 vulkan pp512</td><td align="center">🟠 <b>0.26x</b><br><sub>665 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 cuda pp128</td><td align="center">🟠 <b>0.25x</b><br><sub>1,971 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 vulkan pp128</td><td align="center">🟠 <b>0.25x</b><br><sub>2,182 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M cuda pp128</td><td align="center">🟠 <b>0.24x</b><br><sub>1,730 tok/s</sub></td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K cuda pp512</td><td align="center">🟠 <b>0.24x</b><br><sub>3,748 tok/s</sub></td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S cuda pp512</td><td align="center">🟠 <b>0.22x</b><br><sub>4,348 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 cuda pp128</td><td align="center">🔴 <b>0.20x</b><br><sub>906 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 cuda pp512</td><td align="center">🔴 <b>0.18x</b><br><sub>1,876 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M cuda pp512</td><td align="center">🔴 <b>0.18x</b><br><sub>1,782 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 cuda pp512</td><td align="center">🔴 <b>0.17x</b><br><sub>4,034 tok/s</sub></td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 cuda pp512</td><td align="center">🔴 <b>0.16x</b><br><sub>860 tok/s</sub></td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 cuda pp128</td><td align="center">🔴 <b>0.11x</b><br><sub>2,092 tok/s</sub></td></tr>
+</table>
+</details>
+
+<details>
+<summary>📦 <b>Peak VRAM</b> — CUT holds less on 0 of 14 model/backend pairs</summary>
+
+<table>
+<tr><th align="left">model · backend</th><th>CUT</th><th>llama.cpp</th><th>ratio</th></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 cuda</td><td align="center">4032 MiB</td><td align="center">2960 MiB</td><td align="center">0.73x</td></tr>
+<tr><td align="left">Llama-3.2-1B-Instruct-f16 vulkan</td><td align="center">3810 MiB</td><td align="center">1399 MiB</td><td align="center">0.37x</td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M cuda</td><td align="center">5914 MiB</td><td align="center">2610 MiB</td><td align="center">0.44x</td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q4_K_M vulkan</td><td align="center">5527 MiB</td><td align="center">1204 MiB</td><td align="center">0.22x</td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 cuda</td><td align="center">6678 MiB</td><td align="center">3944 MiB</td><td align="center">0.59x</td></tr>
+<tr><td align="left">Llama-3.2-3B-Instruct-Q8_0 vulkan</td><td align="center">6372 MiB</td><td align="center">2018 MiB</td><td align="center">0.32x</td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 cuda</td><td align="center">13052 MiB</td><td align="center">7748 MiB</td><td align="center">0.59x</td></tr>
+<tr><td align="left">Mistral-7B-Instruct-v0.3-Q8_0 vulkan</td><td align="center">12741 MiB</td><td align="center">4657 MiB</td><td align="center">0.37x</td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K cuda</td><td align="center">4712 MiB</td><td align="center">1850 MiB</td><td align="center">0.39x</td></tr>
+<tr><td align="left">Qwen2.5-1.5B-Instruct-Q6_K vulkan</td><td align="center">4083 MiB</td><td align="center">778 MiB</td><td align="center">0.19x</td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 cuda</td><td align="center">1348 MiB</td><td align="center">566 MiB</td><td align="center">0.42x</td></tr>
+<tr><td align="left">SmolLM2-135M-Instruct-Q8_0 vulkan</td><td align="center">898 MiB</td><td align="center">123 MiB</td><td align="center">0.14x</td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S cuda</td><td align="center">2790 MiB</td><td align="center">990 MiB</td><td align="center">0.35x</td></tr>
+<tr><td align="left">tinyllama-1.1b-chat-v1.0.Q4_K_S vulkan</td><td align="center">2436 MiB</td><td align="center">449 MiB</td><td align="center">0.18x</td></tr>
+</table>
+</details>
+
+<sub>Measured on <b>NVIDIA GeForce RTX 3090</b> · newest column 2026-08-04 (<code>6bc62da</code>) · 5 timed runs per measurement, median · absolute tok/s for every case are in <a href="results/model_history.json">results/model_history.json</a></sub>
+
+<!-- MODELBENCH:END -->
+
+**Prefill** processes N prompt tokens into an empty cache; **decode** generates M
+tokens with N already in it. They are separate families because they are
+separate regimes — prefill is a GEMM that saturates the card, decode is a GEMV
+per token bound by weight bandwidth — and a runtime can be strong at one and
+weak at the other.
+
+Both sides prefill the same token count, generate the same token count at the
+same KV depth, run fully offloaded, warm up, and report a median of five runs.
+What could *not* be held equal, and the one place this comparison is weaker than
+the vendor one — its correctness gate detects a runner that has collapsed, not
+one that has drifted — is in [`model/README.md`](model/README.md).
+
 ## Reproducing
 
 ```bash
 ./scripts/bench/vendor_bench.sh --quick        # build + run every vendor pair
 python3 scripts/bench/render_bench.py --snapshot   # record a column, redraw this page
+
+./scripts/bench/model_bench.sh --quick             # build + run every model pair
+python3 scripts/bench/render_model_bench.py --snapshot
 ```
 
 `--quick` skips the two largest `sort_radix` sizes, which otherwise dominate the
@@ -220,15 +401,18 @@ different kernel than the one you think you are testing.
 | path | what it measures | reference |
 |---|---|---|
 | [`vendor/`](vendor/README.md) | operator vs cuBLAS / cuDNN / CUB / rocBLAS / rocPRIM | external, absolute |
+| [`model/`](model/README.md) | whole-model prefill and decode vs llama.cpp | external, absolute |
 | [`autotune/`](autotune/) | CUT's own shader variants against each other, to derive `tuning_data.json` | internal, relative |
 | [`op_bench.cpp`](op_bench.cpp) | per-operator, per-variant GPU timestamps → JSON | internal |
 | [`benchmark.cpp`](benchmark.cpp) | end-to-end operator timings from the public API | internal |
 
-Model-level comparisons live in [`scripts/bench/`](../scripts/bench/):
-`benchmark_gpus.py` (CUT vs llama.cpp on every GPU in the box),
-`benchmark_compare.py` (single device), `benchmark_memory.py` (RSS + VRAM), and
-`interface/python/benchmarks/run_benchmarks.py` (CUT vs PyTorch, CuPy, JAX,
-TensorFlow, Warp).
+Both external suites are driven from [`scripts/bench/`](../scripts/bench/), which
+also holds the exploratory model tooling the two tables grew out of:
+`benchmark_gpus.py` (CUT vs llama.cpp across every GPU in the box, all models at
+once), `benchmark_compare.py` (single device), `benchmark_memory.py` (RSS +
+VRAM), and `interface/python/benchmarks/run_benchmarks.py` (CUT vs PyTorch,
+CuPy, JAX, TensorFlow, Warp).
 
-Methodology — how each pair is timed, how correctness is gated, and how to add an
-operator — is in [`vendor/README.md`](vendor/README.md).
+Methodology — how each pair is timed, how correctness is gated, and how to add a
+case — is in [`vendor/README.md`](vendor/README.md) for operators and
+[`model/README.md`](model/README.md) for models.
